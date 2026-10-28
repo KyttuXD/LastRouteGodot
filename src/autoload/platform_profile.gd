@@ -179,6 +179,7 @@ static func quit_allowed(ios: bool, web: bool) -> bool:
 ## the final step (the platform validator checks the order without leaving).
 func quit_app(quit := Callable()) -> void:
 	flush_saves()
+	await UpdateManager.apply_on_exit()   # a downloaded update is swapped in as the game exits
 	if is_xr:
 		var openxr := XRServer.find_interface("OpenXR")
 		if openxr != null and openxr.is_initialized():

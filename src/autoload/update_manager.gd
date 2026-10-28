@@ -32,6 +32,7 @@ launch=$3
 game_pid=$4
 revision=$5
 mode=$6
+relaunch=${7:-1}
 log=$(dirname "$stage")/apply-update.log
 while kill -0 "$game_pid" 2>/dev/null; do sleep 1; done
 incoming="$install/.lastroute-incoming-$revision"
@@ -68,18 +69,20 @@ fi
 rm -rf -- "$incoming"
 if [ "$mode" = "macos" ]; then
   chmod +x "$install/$launch/Contents/MacOS/"* 2>/dev/null || true
-  open "$install/$launch"
+  [ "$relaunch" = 1 ] && open "$install/$launch"
 else
   chmod +x "$install/$launch"
-  "$install/$launch" --updated-from "$revision" >/dev/null 2>&1 &
+  [ "$relaunch" = 1 ] && "$install/$launch" --updated-from "$revision" >/dev/null 2>&1 &
 fi
+exit 0
 """
 const WINDOWS_HELPER := """param(
   [Parameter(Mandatory=$true)][string]$Stage,
   [Parameter(Mandatory=$true)][string]$Install,
   [Parameter(Mandatory=$true)][string]$Launch,
   [Parameter(Mandatory=$true)][int]$GamePid,
-  [Parameter(Mandatory=$true)][string]$Revision
+  [Parameter(Mandatory=$true)][string]$Revision,
+  [int]$Relaunch = 1
 )
 $ErrorActionPreference = 'Stop'
 $Log = Join-Path (Split-Path $Stage -Parent) 'apply-update.log'
@@ -101,7 +104,7 @@ try {
     Move-Item -LiteralPath $_.FullName -Destination $Destination -Force
   }
   Remove-Item -LiteralPath $Incoming -Recurse -Force -ErrorAction SilentlyContinue
-  Start-Process -FilePath (Join-Path $Install $Launch) -ArgumentList '--updated-from', $Revision
+  if ($Relaunch -eq 1) { Start-Process -FilePath (Join-Path $Install $Launch) -ArgumentList '--updated-from', $Revision }
 } catch {
   Get-ChildItem -LiteralPath $Backup -Force -ErrorAction SilentlyContinue | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $Install -Recurse -Force
@@ -139,6 +142,9 @@ var smoke_test := false
 func _ready() -> void:
 	offline_mode = "--offline" in OS.get_cmdline_user_args()
 	smoke_test = OS.is_debug_build() and "--update-smoke" in OS.get_cmdline_user_args()
+	# closing the window first applies a staged update (apply_on_exit), then quits
+	get_tree().set_auto_accept_quit(false)
+	(func() -> void: get_tree().root.add_child(UpdateBadge.new())).call_deferred()
 	# A completed update leaves no useful player data behind in this directory.
 	# Clear archives, extracted staging trees, partial downloads and installer
 	# helpers from older revisions before beginning another check. Route saves,
@@ -198,8 +204,11 @@ func _on_recheck_timeout() -> void:
 
 
 func _process(_delta: float) -> void:
+	if staging_deferred and not _gameplay_active() and not preparing:
+		_prepare_verified_download()
 	if not downloading:
-		set_process(false)
+		if not staging_deferred:
+			set_process(false)
 		return
 	var received := _download_request.get_downloaded_bytes()
 	var total := _download_request.get_body_size()
@@ -404,7 +413,18 @@ func _on_download_response(result: int, code: int, _headers: PackedStringArray,
 	_prepare_verified_download()
 
 
+## Unpacking a large archive would stutter a run: during gameplay the verified download waits and is staged in the menus or
+## when the game quits (apply_on_exit).
+var staging_deferred := false
+
+
 func _prepare_verified_download() -> void:
+	if _gameplay_active() and not is_mobile_package() and not smoke_test and not _force_stage_now:
+		staging_deferred = true
+		set_process(true)
+		_set_status("UPDATE DOWNLOADED // APPLIES WHEN YOU RESTART")
+		return
+	staging_deferred = false
 	preparing = true
 	if is_mobile_package():
 		preparing = false
@@ -464,7 +484,7 @@ func _prepare_verified_download() -> void:
 ## only call this after the in-progress screen has staged the new build. The
 ## helper waits for this exact process ID before touching the current
 ## executable/PCK or macOS app bundle.
-func install_update() -> void:
+func install_update(relaunch: bool = true) -> void:
 	if installing or not ready_to_install:
 		return
 	if is_mobile_package():
@@ -503,7 +523,7 @@ func install_update() -> void:
 			"-Install", install_dir,
 			"-Launch", String(layout["launch"]),
 			"-GamePid", str(OS.get_process_id()),
-			"-Revision", revision]))
+			"-Revision", revision, "-Relaunch", "1" if relaunch else "0"]))
 	else:
 		var helper := "%s/apply-update.sh" % UPDATE_ROOT
 		if not _write_text(helper, UNIX_HELPER):
@@ -515,11 +535,12 @@ func install_update() -> void:
 			install_dir,
 			String(layout["launch"]),
 			str(OS.get_process_id()), revision,
-			"macos" if platform_key() == "macos" else "linux"]))
+			"macos" if platform_key() == "macos" else "linux", "1" if relaunch else "0"]))
 	if helper_pid < 0:
 		_install_launch_failed()
 		return
-	_quit_for_update.call_deferred()
+	if relaunch:
+		_quit_for_update.call_deferred()
 
 
 ## The server's answer as an update candidate, or {"error": <status line>}: the JSON must hold an "update" object whose
@@ -586,6 +607,46 @@ func _install_apk(apk_path: String) -> String:
 	return fallback
 
 
+## Called as the game exits (window closed or QUIT): a staged desktop update is swapped in by the helper once this process
+## has gone, without relaunching. A download still waiting to be unpacked is staged first (the game is closing anyway).
+func apply_on_exit() -> void:
+	if is_mobile_package() or installing or is_dev_build() and not smoke_test:
+		return
+	if staging_deferred and not preparing:
+		staging_deferred = false
+		_force_stage_now = true
+		await _prepare_verified_download()
+	if ready_to_install:
+		install_update(false)
+
+
+var _force_stage_now := false
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		await apply_on_exit()
+		get_tree().quit()
+
+
+## The top-centre badge text for the current state ("" = nothing to show).
+func badge_text() -> String:
+	if available.is_empty():
+		return ""
+	var build := int(available.get("build", 0))
+	if is_dev_build():
+		return "UPDATE AVAILABLE (BUILD %d) // DEV BUILD" % build
+	if ready_to_install or staging_deferred:
+		return "UPDATE READY // %s" % ("TAP TO INSTALL" if is_mobile_package() else "RESTART TO APPLY")
+	if downloading:
+		return "UPDATE AVAILABLE // DOWNLOADING %d%%" % maxi(0, _last_progress_percent)
+	if preparing:
+		return "UPDATE AVAILABLE // PREPARING"
+	if is_failure_status(status_message):
+		return "UPDATE AVAILABLE // DOWNLOAD FAILED"
+	return "UPDATE AVAILABLE"
+
+
 func _quit_for_update() -> void:
 	await get_tree().create_timer(0.35).timeout
 	get_tree().quit()
@@ -648,6 +709,7 @@ func _required_or_debug_update() -> bool:
 ## The update gate: with an update available the player stays on the update screen (no menu, no game) until it is
 ## installed. Offline mode (server unreachable / timed out at boot) and iOS never block.
 func should_open_progress_screen() -> bool:
+	return false   # no blocking screen any more: updates download in the background (UpdateBadge) and apply on quit / RESTART NOW
 	if offline_mode or not uses_in_progress_screen() or is_dev_build():
 		return false
 	if _gameplay_active():
@@ -678,6 +740,7 @@ func _package_reveal_path() -> String:
 
 
 func _should_install_automatically() -> bool:
+	return false   # never: RESTART NOW in the update popup, or quitting the game, applies it
 	# Downloading and unpacking are safe in the background; replacing the live
 	# executable/PCK is not. Desktop required/debug updates stay on the
 	# in-progress screen until that screen hands off. Quest still opens its

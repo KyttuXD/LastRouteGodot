@@ -10,12 +10,14 @@ Same identity and rule as phones and the Quest (see [XR_ANDROID.md](XR_ANDROID.m
   native platform). An entry without a build number is never offered.
 - Download: staged to `user://updates`, sha256 checked against the manifest (HTTPS or the backend's own `/api/updates/files/`
   route only; plain localhost only in debug builds), then unpacked to a staging folder.
-- Update gate (desktop, phone, Quest): when the boot check finds an update the boot screen opens the update screen instead of
-  the hub, and the hub sends the player back there if one appears later. That screen offers only **INSTALL & RESTART** (still
-  the player's press, never silent) or **RETRY** after a failed download/install; no CONTINUE. If the server is unreachable or
-  the check times out (8 s) the game starts offline as normal. iOS (App Store) and the web build are never blocked.
+- Background updates (no blocking screen): the update downloads while the player is in the menus or playing; a top-centre
+  badge (`UpdateBadge`, styled like the old BETA bar) reads "UPDATE AVAILABLE // DOWNLOADING 42%" then "UPDATE READY // RESTART
+  TO APPLY" (phones: TAP TO INSTALL); in a run the same text sits in the HUD status bar. Unpacking waits until the run ends.
+  The update is applied when the game quits (window closed or QUIT: the helper swaps it in after the process ends, without
+  relaunching) or with RESTART NOW in the badge's popup (LATER dismisses). A run is never interrupted. If the server is
+  unreachable the game starts offline as normal; iOS and web are unchanged.
 - Dev (unstamped) builds, i.e. `build_revision.json` without a build number (update-app.sh, adb and iOS script installs of main),
-  are never gated or auto-downloaded: the boot screen shows "UPDATE AVAILABLE (BUILD n)" with CONTINUE, which goes on online.
+  never download: the badge just says "UPDATE AVAILABLE (BUILD n) // DEV BUILD".
   A stamped build is only offered a strictly higher build number, so a build newer than the manifest is never "downgraded".
 - Swap: a helper (shell on macOS, PowerShell on Windows) waits for the game to exit, copies the staged build beside the
   installed one, moves the old files (the whole `.app` on macOS; the exe/pck on Windows) into `.lastroute-backup-previous`

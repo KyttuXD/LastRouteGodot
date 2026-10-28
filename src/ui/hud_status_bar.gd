@@ -7,7 +7,7 @@ extends PanelContainer
 ## neither overlap another HUD panel nor cross the window edge. HUD._layout_hud() sets max_width and the top margin.
 
 const GROUP := "hud_status_bar"
-const ORDER := ["env", "admin", "public"]
+const ORDER := ["env", "admin", "public", "update"]
 const MIN_SEGMENT_WIDTH := 48.0
 
 var max_width := 9999.0

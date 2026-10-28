@@ -134,9 +134,9 @@ func run(host: Node) -> int:
 	_expect(not UpdateManager._should_install_automatically(),
 		"required desktop updates still quit before the in-progress screen")
 	UpdateManager.available = {"version": "0.0.1.1", "required": true}
-	_expect(UpdateManager.should_open_progress_screen()
-		== UpdateManager.uses_in_progress_screen(),
-		"a required desktop update did not ask the menu for the in-progress screen")
+	# background updates (UpdateBadge): even a required update never sends the menu to a blocking screen
+	_expect(not UpdateManager.should_open_progress_screen(),
+		"an update still sends the menu to a blocking screen")
 	var old_preparing: bool = UpdateManager.preparing
 	var old_downloading: bool = UpdateManager.downloading
 	UpdateManager.available = {
@@ -147,9 +147,8 @@ func run(host: Node) -> int:
 	}
 	UpdateManager.preparing = true
 	UpdateManager.downloading = false
-	_expect(UpdateManager.should_open_progress_screen()
-		== UpdateManager.uses_in_progress_screen(),
-		"verify/unpack no longer keeps the desktop update-in-progress screen open")
+	_expect(not UpdateManager.should_open_progress_screen(),
+		"verify/unpack sends the menu to a blocking screen")
 	UpdateManager.download_update()
 	_expect(not UpdateManager.downloading,
 		"verify/unpack re-entered download and could wipe the staging tree")
