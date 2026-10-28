@@ -69,6 +69,10 @@ var _hold_fill: ColorRect
 var _resume_button: Button
 var _abandon_button: Button
 var _pause_view: VBoxContainer
+## PAUSE / SAVES / STATISTICS tab buttons: only the open page's tab is lit.
+var _tabs := {}
+var section := "pause"
+var _statistics_scroll: ScrollContainer
 var _saves_view: VBoxContainer
 var _statistics_view: VBoxContainer
 var _save_list: VBoxContainer
@@ -160,9 +164,11 @@ func _build() -> void:
 		tab.focus_mode = Control.FOCUS_ALL
 		tab.custom_minimum_size = Vector2(92, 18)
 		tab.add_theme_font_size_override("font_size", 8)
+		tab.name = "PauseTab_%s" % String(entry[1])
 		Palette.style_button(tab, String(entry[1]) == "pause")
 		tab.pressed.connect(_set_section.bind(String(entry[1])))
 		tabs.add_child(tab)
+		_tabs[String(entry[1])] = tab
 
 	_pause_view = VBoxContainer.new()
 	_pause_view.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -258,27 +264,55 @@ func _build_saves_view(parent: VBoxContainer) -> void:
 	_saves_view.add_child(_save_status)
 
 
+## The whole STATISTICS page scrolls (wheel, touch drag, focus): nothing clips at small windows, phones or the XR panel.
 func _build_statistics_view(parent: VBoxContainer) -> void:
 	_statistics_view = VBoxContainer.new()
 	_statistics_view.name = "PauseStatistics"
-	_statistics_view.add_theme_constant_override("separation", 6)
 	_statistics_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	parent.add_child(_statistics_view)
+	var scroll := ScrollContainer.new()
+	scroll.name = "PauseStatisticsScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	scroll.follow_focus = true
+	_style_scrollbar(scroll.get_v_scroll_bar())
+	_statistics_view.add_child(scroll)
+	_statistics_scroll = scroll
+	var page := VBoxContainer.new()
+	page.name = "PauseStatisticsPage"
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page.add_theme_constant_override("separation", 6)
+	scroll.add_child(page)
 	var heading := Label.new()
 	heading.text = Palette.track("CURRENT RUN")
 	Palette.style_label(heading, Palette.AMBER, 8)
-	_statistics_view.add_child(heading)
-	_statistics_view.add_child(_build_share_block())
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_statistics_view.add_child(scroll)
+	page.add_child(heading)
+	page.add_child(_build_share_block())
+	var grid_parent := page
 	_statistics_grid = GridContainer.new()
 	_statistics_grid.name = "PauseStatisticsGrid"
 	_statistics_grid.columns = 2
 	_statistics_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_statistics_grid.add_theme_constant_override("h_separation", 18)
 	_statistics_grid.add_theme_constant_override("v_separation", 5)
-	scroll.add_child(_statistics_grid)
+	grid_parent.add_child(_statistics_grid)
+
+
+## House-style scrollbar: a slim inset track with an accent grabber.
+static func _style_scrollbar(bar: VScrollBar) -> void:
+	var track := Palette.panel_box(Palette.INSET, Palette.PANEL_EDGE, 0)
+	track.content_margin_left = 3
+	track.content_margin_right = 3
+	bar.add_theme_stylebox_override("scroll", track)
+	for state in ["grabber", "grabber_highlight", "grabber_pressed"]:
+		bar.add_theme_stylebox_override(state, Palette.panel_box(Palette.ACCENT if state == "grabber" else Palette.ACCENT_EDGE, Palette.ACCENT_EDGE, 0))
+
+
+## Scrolls the statistics page so its last row is visible (keyboard/controller "end", tests).
+func scroll_statistics_to_end() -> void:
+	if _statistics_scroll != null:
+		_statistics_scroll.scroll_vertical = int(_statistics_scroll.get_v_scroll_bar().max_value)
 
 
 func _build_share_block() -> Control:
@@ -386,9 +420,12 @@ func _save_action_button(caption: String, action: Callable,
 	return button
 
 
-func _set_section(section: String) -> void:
+func _set_section(next: String) -> void:
 	if _pause_view == null:
 		return
+	section = next
+	for id in _tabs:
+		Palette.style_button(_tabs[id] as Button, id == section)
 	_pause_view.visible = section == "pause"
 	_saves_view.visible = section == "saves"
 	_statistics_view.visible = section == "statistics"
