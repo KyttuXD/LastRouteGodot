@@ -918,7 +918,8 @@ static func interaction_for(type: String) -> String:
 		return ""   # work benches, not seats
 	if type in ["controlConsole", "nursesStation"]:
 		return "use"
-	if "bed" in lowered or "bunk" in lowered:
+	# beds are the types that end in "Bed" (and bunks); "bedroomNightstand", "bedroomWardrobe" and "bedroomBench" are not
+	if lowered.ends_with("bed") or "bunk" in lowered:
 		return "lay"
 	for word in ["chair", "couch", "bench", "stool", "sofa"]:
 		if word in lowered:
