@@ -49,9 +49,7 @@ func _ready() -> void:
 	var seed_text: String = args[4] if args.size() > 4 and args[4] != "-" else ("CITY-LOOK" if _mode == "city" else "STREAM-BENCH")
 	_speed = float(args[5]) if args.size() > 5 else 7.0
 	DirAccess.make_dir_recursive_absolute(_out_dir)
-	var out := []
-	OS.execute("sysctl", ["-n", "vm.loadavg"], out)
-	_loadavg = String(out[0]).strip_edges() if not out.is_empty() else ""
+	_loadavg = _load_average()
 	Backend.enable_offline_mode()
 	Settings.fps_limit = 0
 	Settings.vsync_enabled = false
@@ -85,6 +83,17 @@ func _ready() -> void:
 		_facility.take_frame_stream_cost()
 	_last_usec = Time.get_ticks_usec()
 	_running = true
+
+
+## Machine load before the run: macOS sysctl, Linux /proc/loadavg, Windows has none ("n/a").
+static func _load_average() -> String:
+	if OS.get_name() == "macOS":
+		var out := []
+		OS.execute("sysctl", ["-n", "vm.loadavg"], out)
+		return String(out[0]).strip_edges() if not out.is_empty() else "n/a"
+	if OS.get_name() in ["Linux", "FreeBSD"] and FileAccess.file_exists("/proc/loadavg"):
+		return FileAccess.get_file_as_string("/proc/loadavg").strip_edges()
+	return "n/a"
 
 
 func _settle() -> void:
