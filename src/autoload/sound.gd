@@ -287,6 +287,11 @@ func inferno_crackle(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("inferno_crackle", pan, clampf(intensity, 0.1, 2.0))
 
 
+## A deep rumble from the lava pits of the Inferno.
+func pit_rumble(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("pit_rumble", pan, clampf(intensity, 0.1, 2.0))
+
+
 ## Back to normal hearing after a death, a continue or the return to the hub: a death mid-plunge never reached the
 ## swim's set_muffled(false), and a chase duck can stay down while nothing updates it (KT lost the sound in VR after
 ## dying). The player's own mute and volume settings are untouched.
@@ -751,6 +756,7 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			_noise(.04, .055 * intensity, 2500, .21, pan, 1.3), _noise(.04, .06 * intensity, 3000, .26, pan, 1.3), _thump(150, .05, .03 * intensity, .0, pan)]
 		"inferno_crackle": c = [_noise(.5, .05 * intensity, 1500, 0, pan, 1.4), _noise(.06, .08 * intensity, 2600, .12, pan, 1.5), _noise(.05, .07 * intensity, 2200, .31, pan, 1.5),
 			_thump(70, .22, .06 * intensity, .4, pan), _tone(46, .6, .05 * intensity, .38, "triangle", pan)]
+		"pit_rumble": c = [_tone(38, 1.1, .07 * intensity, 0, "triangle", pan), _noise(.9, .035 * intensity, 380, .1, pan, 1.2), _thump(52, .35, .06 * intensity, .5, pan)]
 		"ladder_rung": c = [_tone(540, .07, .05 * intensity, 0, "square", pan), _tone(820, .1, .03 * intensity, .01, "triangle", pan),
 			_thump(120, .05, .03 * intensity, 0, pan)]
 		"hunter_footstep": c = [_thump(58, .10, .05 * intensity, 0, pan), _thump(41, .13, .035 * intensity, .05, pan)]

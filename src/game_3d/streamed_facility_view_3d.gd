@@ -1201,6 +1201,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					_spawn_sewer_water(root, build["sewer_grid"], _jump_cell(data))
 				_spawn_ramps(root, data, (build["coord"] as Vector3i).y)
 				_spawn_falls(root, data, (build["coord"] as Vector3i).y)
+				InfernoPitView.build(root, data)
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
@@ -1302,6 +1303,11 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	var ramp_cells: Dictionary = data.get("ramp_cells", {})
 	if ramp_cells.has(cell):
 		_build_ramp_cell(build, cell, ramp_cells[cell])
+		return
+	if (build["structural_voids"] as Dictionary).has(cell) and int(data.get("coord", Vector3i.ZERO).y) == StreamedRouteGenerator.INFERNO_LEVEL:
+		# a lava channel: no wall and no floor here (InfernoPitView draws the lava, the rails and the blockers), the vault stays
+		surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
+			RefTextures.params("ceiling", ceiling_kind))
 		return
 	var shaft_cells: Dictionary = data.get("shaft_cells", {})
 	if shaft_cells.has(cell):

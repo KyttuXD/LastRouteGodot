@@ -18,6 +18,15 @@ const SECOND_CHANCE := 0.6
 const CREVICES := 3
 const CREVICE_DEPTH := 4
 const KEEP_CLEAR := 2                # cells between a cavern and a ramp or stairwell footprint
+const PIT_CHANCE := 0.28
+const PIT_MIN_SPAN := 18
+const PIT_BAND := 3                  # width of the lava channel
+const PIT_BRIDGE := 3                # width of the span across it
+const CAGE_CAP := 3.9                # the storey cap the caverns rise to (LEVEL_HEIGHT - SLAB)
+const CAGE_HEIGHT := 1.0
+const CAGE_HIGH := 2.5               # bottom heights above the floor: high, low enough to walk under, and in the way
+const CAGE_UNDER := 2.1
+const CAGE_LOW := 0.75
 const OPEN_CLEARANCE := 3            # a 7x7 fully open block is clearance 3
 
 
@@ -42,6 +51,8 @@ static func carve(world_seed: String, coord: Vector3i, grid: Array, layout: Dict
 		_stamp(grid, cavern)
 		cavern["crevices"] = _crevices(rng, grid, cavern)
 		cavern["halls"] = _halls(rng, grid, layout, circulation, cavern, blocked)
+		if rng.next_float() < PIT_CHANCE:
+			cavern["pit"] = _pit(rng, grid, cavern)
 		for hall in cavern["halls"]:
 			_mark(circulation, hall)
 		for cell in cavern["cells"]:
@@ -283,3 +294,130 @@ static func landing(data: Dictionary) -> Vector2i:
 				best_score = score
 				best = cell
 	return best
+
+
+## The cage-pit district: a lava channel across the cavern (never walkable: its cells are rock to the walk grid) with a
+## chain bridge over it, iron cages hanging from the ceiling at three heights, a row of cages standing against a wall
+## and cracks glowing in the floor. Returns {} when the cavern is too small or the channel would cut it in two.
+## "lava" cells are rock in `grid`; the generator also lists them as floor/structural voids, and the view draws them.
+static func _pit(rng: SeededRandom, grid: Array, cavern: Dictionary) -> Dictionary:
+	var rect: Rect2i = cavern["rect"]
+	if rect.size.x < PIT_MIN_SPAN or rect.size.y < PIT_MIN_SPAN:
+		return {}
+	var open := {}
+	for cell in cavern["cells"]:
+		open[cell] = true
+	var keep := {}             # halls, their margin and the crevices stay clear of lava
+	for hall in cavern["halls"]:
+		for z in range((hall as Rect2i).position.y - 2, (hall as Rect2i).end.y + 2):
+			for x in range((hall as Rect2i).position.x - 2, (hall as Rect2i).end.x + 2):
+				keep[Vector2i(x, z)] = true
+	# the maze's own central cross (three wide) is never lava
+	var middle := CHUNK_SIZE / 2
+	for k in CHUNK_SIZE:
+		for off in range(-2, 3):
+			keep[Vector2i(k, middle + off)] = true
+			keep[Vector2i(middle + off, k)] = true
+	for crevice in cavern["crevices"]:
+		for at in crevice["cells"]:
+			keep[at] = true
+		keep[crevice["mouth"]] = true
+	var north := rng.next_float() < .5
+	var band_z := rect.position.y + 3 if north else rect.end.y - 3 - PIT_BAND
+	var bridge_x := rect.position.x + rect.size.x / 2 - PIT_BRIDGE / 2 + rng.next_index(5) - 2
+	var lava: Array[Vector2i] = []
+	for z in range(band_z, band_z + PIT_BAND):
+		for x in range(rect.position.x, rect.end.x):
+			var cell := Vector2i(x, z)
+			if not open.has(cell) or keep.has(cell) or (x >= bridge_x and x < bridge_x + PIT_BRIDGE):
+				continue
+			lava.append(cell)
+	if lava.size() < 12:
+		return {}
+	for cell in lava:
+		grid[cell.y][cell.x] = 1
+	# every remaining cavern cell must still be one walk
+	var rest: Array[Vector2i] = []
+	for cell in cavern["cells"]:
+		if grid[cell.y][cell.x] == 0:
+			rest.append(cell)
+	if not _connected(grid, rest):
+		for cell in lava:
+			grid[cell.y][cell.x] = 0
+		return {}
+	var lava_set := {}
+	for cell in lava:
+		lava_set[cell] = true
+	var span := Rect2i(bridge_x, band_z, PIT_BRIDGE, PIT_BAND)
+	# hanging cages: spread out, off the lava and the bridge, in open ground
+	var cages: Array = []
+	var tries := 0
+	var lows := 0
+	while cages.size() < 12 and tries < 120:
+		tries += 1
+		var cell: Vector2i = rest[rng.next_index(rest.size())]
+		if clearance(grid, cell, 1) < 1 or span.grow(1).has_point(cell):
+			continue
+		var apart := true
+		for other in cages:
+			if (other["cell"] as Vector2i).distance_to(cell) < 3.0:
+				apart = false
+		if not apart:
+			continue
+		var roll := rng.next_float()
+		var bottom := CAGE_HIGH
+		if roll > .75 and lows < 3 and not keep.has(cell):
+			bottom = CAGE_LOW
+			lows += 1
+		elif roll > .4:
+			bottom = CAGE_UNDER
+		cages.append({"cell": cell, "bottom": bottom, "sway": rng.next_float() < .5, "open": rng.next_float() < .35})
+	# a row of cages against a wall: a straight run of rim cells with rock behind them
+	var row: Array = []
+	for _attempt in 40:
+		var start: Vector2i = rest[rng.next_index(rest.size())]
+		var run: Array = []
+		for k in 5:
+			var at := start + Vector2i(k, 0)
+			if grid[at.y][at.x] != 0 or keep.has(at) or lava_set.has(at) or grid[at.y - 1][at.x] != 1 or grid[at.y + 1][at.x] != 0:
+				break
+			run.append(at)
+		if run.size() >= 4:
+			for at in run:
+				row.append({"cell": at, "face": Vector2i(0, -1), "open": rng.next_float() < .3})
+			break
+	var cracks: Array = []
+	for _i in 40:
+		if cracks.size() >= 16:
+			break
+		var near: Vector2i = lava[rng.next_index(lava.size())] + Vector2i(rng.next_index(7) - 3, rng.next_index(7) - 3)
+		if grid[near.y][near.x] == 0 and open.has(near) and not span.has_point(near):
+			cracks.append({"cell": near, "yaw": rng.next_float() * PI, "length": 1.2 + rng.next_float() * 2.2})
+	return {"lava": lava, "bridge": span, "cages": cages, "row": row, "cracks": cracks, "north": north}
+
+
+static func _connected(grid: Array, cells: Array[Vector2i]) -> bool:
+	if cells.is_empty():
+		return true
+	var set := {}
+	for cell in cells:
+		set[cell] = true
+	var seen := {cells[0]: true}
+	var queue: Array[Vector2i] = [cells[0]]
+	while not queue.is_empty():
+		var at: Vector2i = queue.pop_back()
+		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var next: Vector2i = at + step
+			if set.has(next) and not seen.has(next):
+				seen[next] = true
+				queue.append(next)
+	return seen.size() == set.size()
+
+
+## Every pit in a chunk's data (those caverns that have one).
+static func pits_in(data: Dictionary) -> Array:
+	var pits: Array = []
+	for cavern in data.get("inferno_caverns", []):
+		if not (cavern as Dictionary).get("pit", {}).is_empty():
+			pits.append(cavern["pit"])
+	return pits

@@ -824,6 +824,11 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 			for part in ["ramp", "bottom", "connector"]:
 				keep_out.append((ramp[part] as Rect2i).grow(1))
 		inferno_caverns = InfernoCaverns.carve(world_seed, coord, grid, layout, circulation, keep_out)
+		# lava is rock to the walk grid but no wall and no floor to the view
+		for pit in InfernoCaverns.pits_in({"inferno_caverns": inferno_caverns}):
+			for cell in pit["lava"]:
+				floor_voids.append(cell)
+				structural_voids.append(cell)
 	var wells := []
 	if coord.y == 0:
 		var down := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation)
