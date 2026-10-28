@@ -241,7 +241,8 @@ func run(host: Node) -> int:
 				for other in InputMap.get_actions():
 					var other_name := String(other)
 					# waypoint / waypoint_clear are read only by Last Route's route scene (infinite_route_test.gd), never in a Night Watch shift
-					if other_name.begins_with("nw_") or other_name.begins_with("office_") or other_name.begins_with("ui_") or other_name.begins_with("spatial_editor") or other_name.begins_with("waypoint"):
+					if other_name.begins_with("nw_") or other_name.begins_with("office_") or other_name.begins_with("ui_") or other_name.begins_with("spatial_editor") or other_name.begins_with("waypoint") \
+							or other_name == "taser":   # the taser (G) is read only with a taser in the inventory, which a Night Watch shift never has
 						continue
 					for oev in InputMap.action_get_events(other):
 						_expect(not (oev is InputEventKey and (oev as InputEventKey).physical_keycode == (ev as InputEventKey).physical_keycode),
@@ -327,7 +328,8 @@ func run(host: Node) -> int:
 	shift.close_monitor()
 	# the door panels: aim at DOOR and LIGHT beside the left door
 	player.global_position = Vector3(-2.2, 0.0, 1.55)
-	shift.face_player(PI * 0.5, -0.08)
+	# aim at the button itself (the runner's eye height follows the player scale, so a fixed pitch drifts)
+	shift.face_player(PI * 0.5, _pitch_to(player, host, "doorL_door"))
 	await host.get_tree().physics_frame
 	await host.get_tree().physics_frame
 	aimed = player.call("_nearest_interactable") as NightWatchStation
@@ -336,7 +338,7 @@ func run(host: Node) -> int:
 	_expect(bool(shift.door_shut["doorL"]), "using the left DOOR button did not shut the door")
 	shift.advance_ms(50.0)
 	_expect(is_equal_approx(float(shift.office.slab_progress["doorL"]), 1.0), "the left door slab did not close")
-	shift.face_player(PI * 0.5, -0.52)
+	shift.face_player(PI * 0.5, _pitch_to(player, host, "doorL_light"))
 	await host.get_tree().physics_frame
 	await host.get_tree().physics_frame
 	aimed = player.call("_nearest_interactable") as NightWatchStation
@@ -376,7 +378,7 @@ func run(host: Node) -> int:
 	var label_at := hud_text.find('[node name="InteractionLabel"')
 	var label_block := hud_text.substr(label_at, hud_text.find("[node", label_at + 10) - label_at)
 	var prompt: Label = shift.hud.prompt_label
-	_expect(label_block.contains("font_size = %d" % prompt.get_theme_font_size("font_size")) and label_block.contains("offset_top = -98")
+	_expect(label_block.contains("font_size = %d" % prompt.get_theme_font_size("font_size")) and label_block.contains("offset_top = 16") and is_equal_approx(prompt.offset_top, 16.0)
 		and label_block.contains("Color(%s, %s, %s, 1)" % [snappedf(prompt.get_theme_color("font_color").r, 0.001), snappedf(prompt.get_theme_color("font_color").g, 0.001), snappedf(prompt.get_theme_color("font_color").b, 0.001)]),
 		"the interaction prompt does not match the route HUD's InteractionLabel style")
 	_expect(shift.hud.find_children("*", "Crosshair", true, false).size() == 1, "the shared crosshair is not on the Night Watch HUD")
@@ -385,7 +387,7 @@ func run(host: Node) -> int:
 	shift.toggle_door("doorR")
 	shift.open_monitor("dining")
 	shift.close_monitor()
-	_expect(Sound.play_counts.has("door_close") and Sound.play_counts.has("door_open") and Sound.play_counts.has("office_camera"),
+	_expect(Sound.play_counts.has("nw_door") and Sound.play_counts.has("nw_camera"),
 		"the door and monitor sounds did not go through the shared Sound autoload (%s)" % str(Sound.play_counts.keys()))
 	_expect(shift.find_children("*", "AudioStreamPlayer", true, false).is_empty() and shift.find_children("*", "AudioStreamPlayer3D", true, false).is_empty(),
 		"Night Watch has an audio player of its own")
@@ -854,3 +856,14 @@ func _check_poses(host: Node) -> void:
 	shift.queue_free()
 	await host.get_tree().process_frame
 	NightWatchSession.start(1)
+
+
+## Pitch that puts the crosshair on a Night Watch station (by id) from where the player stands.
+func _pitch_to(player: Node, host: Node, station_id: String) -> float:
+	for node in host.get_tree().root.find_children("*", "NightWatchStation", true, false):
+		if String(node.get("station_id")) == station_id:
+			var eye: Vector3 = (player.call("active_camera") as Camera3D).global_position
+			var target: Vector3 = (node as Node3D).global_position
+			var flat := Vector2(target.x - eye.x, target.z - eye.z).length()
+			return atan2(target.y - eye.y, flat)
+	return 0.0

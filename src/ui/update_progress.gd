@@ -129,11 +129,29 @@ func _on_download_progress(received_bytes: int, total_bytes: int) -> void:
 		_format_bytes(received_bytes), _format_bytes(total_bytes)]
 
 
+## Never silent: a staged update waits for the player to press INSTALL & RESTART.
 func _on_update_ready(_path: String) -> void:
-	_set_state("APPLYING UPDATE", "UPDATE STAGED // PREPARING RESTART", 1.0, true)
-	_pending_install = true
-	if _elapsed >= MIN_HANDOFF_SECONDS:
-		_start_install()
+	_set_state("UPDATE READY", "UPDATE %s STAGED // INSTALL & RESTART WHEN READY" % String(UpdateManager.available.get("revision", "")).left(8).to_upper(), 1.0, false)
+	_show_install_button()
+
+
+var _install_button: Button
+
+
+func _show_install_button() -> void:
+	if _install_button == null:
+		_install_button = Button.new()
+		_install_button.name = "InstallUpdateButton"
+		_install_button.text = "INSTALL & RESTART"
+		Palette.style_button(_install_button, true)
+		_install_button.pressed.connect(func() -> void:
+			_install_button.visible = false
+			_start_install())
+		_retry_button.get_parent().add_child(_install_button)
+		_retry_button.get_parent().move_child(_install_button, 0)
+	_install_button.visible = true
+	_continue_button.visible = true   # or keep playing on this build for now
+	_install_button.grab_focus.call_deferred()
 
 
 func _start_install() -> void:

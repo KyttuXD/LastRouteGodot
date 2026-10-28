@@ -22,6 +22,9 @@ static func player_watching(target: Dictionary, from: Vector2, range_limit: floa
 
 ## The player's own lit torch pointing at `from` (2D lit beam: flashlight on and lamp charged).
 static func beam_on(target: Dictionary, from: Vector2, range_limit: float, half_angle: float, generator) -> bool:
+	# a torch burning inside a hiding spot does not pin a hunter to it forever
+	if bool(target.get("hidden", false)):
+		return false
 	if not bool(target.get("flashlight_on", false)) or float(target.get("lamp_charge", 1.0)) <= 0.0:
 		return false
 	return player_watching(target, from, range_limit, half_angle, generator)

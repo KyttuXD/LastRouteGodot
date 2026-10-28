@@ -176,10 +176,52 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
   escape struggle), as a panel 1.2 m in front of the head.
 - **Input:** the right laser and trigger send mouse events to the root viewport. The Controls still belong to it, since
   `custom_viewport` only moves where they are drawn.
-- **Scrolling:** on both panels the right stick scrolls what the laser points at. Scroll containers only drag-scroll
-  for touch, so this is what reaches ENTER ROUTE on the staging screen.
+- **Scrolling (`XRPanelScroll`, both panels):** a hint under each panel says how.
+  - Either stick, up or down, scrolls the list under the laser (or the focused one), smoothly and faster the longer
+    it's held. Left and right step the menu carousel.
+  - Hold the trigger and drag to scroll like a finger. A press that stays inside the dead zone is a click. Sliders and
+    scroll bars keep their normal drag.
+  - Lists scrolled this way show their scroll bar. Scroll containers only drag-scroll for touch, which is why the
+    panels need this; it's also how you reach ENTER ROUTE on the staging screen.
 - **Validator:** `platform` drives it headless. A fake XR player shows the panel only while a screen is open, in front
   of the head, and a laser click presses the button under it.
+
+## Playing without Touch controllers
+
+The Quest build plays with whatever input is there:
+
+- **Gamepad (Bluetooth, a standard Android joypad) or keyboard:**
+  - The left stick or WASD moves, relative to where you look. The right stick or the look keys turn the player, snap
+    or smooth (`XRComfort.turn_input`); a paired mouse turns too.
+  - Buttons and keys keep their usual actions (use, jump, crouch, tool, light, menu).
+  - Menus navigate with the D-pad or arrows, and A or Enter.
+- **Head aim:** without a tracked right hand, [E] aims with the head (`interaction_aim`); without a tracked left hand,
+  the flashlight shines from the head.
+- **One controller:** whichever hand is tracked points at the panels (right first) and its trigger clicks. With only
+  the right hand, its stick click opens the pause menu.
+- **Nothing at all:** with no tracked hand and no gamepad, the head points at the panels (`XRGaze`). Resting the
+  reticle on a button for 1.2 s clicks it; the reticle grows while it dwells.
+- **Hidden hands:** an untracked controller (asleep, flat battery) hides its hand, laser and wrist HUD instead of
+  lying on the floor (`show_when_tracked`).
+
+## VR bodies in co-op
+
+Everyone else sees a VR runner's real motion (`VRPoseSync`, `src/game_3d/vr_pose_sync.gd`):
+
+- **Sending:** the VR player adds a 43-byte `vr` packet to the ordinary 20 Hz remote-player state, about 860 bytes/s
+  per VR peer. It holds the head and both controllers relative to the body (millimetre positions, int16 quaternions)
+  plus tracked and crouch flags. Flat players never send it.
+- **Crouching:** a head below 78 % of the calibrated standing height (a slowly relaxing running maximum) sends the
+  crouch clip, so crouching in real life lowers the body.
+- **Receiving (`RemotePlayers`):**
+  - The pose is smoothed every frame, and the body turns to follow the head beyond 50°.
+  - After the walk/idle clip, the mannequin's `Head` takes the head rotation and each tracked arm swings from the
+    shoulder to point at its hand, forearm straight; the cubes are rigid, so no bending IK is needed.
+  - The held item rides the right hand, and the flashlight beam starts at the left hand. Hand-over-hand climbing,
+    swings and pokes all show.
+- **Flat peers** are drawn exactly as before.
+- **Validator:** `platform` checks the packet round trip and size, that the arms point at the hands, the head pitch,
+  the body follow, and that a flat peer is untouched.
 
 ## Typing in the headset
 

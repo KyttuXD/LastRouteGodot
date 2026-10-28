@@ -66,6 +66,12 @@ func _ready() -> void:
 			elif booth.game != null and booth.game is StrengthGame:
 				var s := booth.game as StrengthGame
 				s.puck = 0.55
+			elif booth.game is ClawGame:
+				var c := booth.game as ClawGame
+				c.pos = Vector2(0.2, -0.1)
+				if i == 30:
+					c.phase = "down"
+					c.phase_t = 0.5
 			booth._idle_board(1.0 / 30.0)
 			await get_tree().process_frame
 		await _shot("%s/%s_playing.png" % [out, type])

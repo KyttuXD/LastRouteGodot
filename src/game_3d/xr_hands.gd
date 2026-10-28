@@ -46,6 +46,53 @@ func setup(run_player: Node3D, xr_origin: XROrigin3D, xr_left: XRController3D, x
 	origin = xr_origin
 	left = xr_left
 	right = xr_right
+	for hand in [left, right]:
+		hand.add_child(_hand_mesh(hand == left))
+	Settings.visual_changed.connect(_wear_skin)
+
+
+## The runner's own hand on each controller: the mannequin's forearm and hand cubes (the same parts as the first-person hand on
+## flat screens), wearing the player's skin. Falls back to the plain glove boxes if the mannequin cannot be read.
+static func _hand_mesh(is_left: bool) -> Node3D:
+	var hand := Node3D.new()
+	hand.name = "HandModel"
+	var parts := PlayerController3D._mannequin_hand_parts()
+	if not parts.is_empty():
+		var rig := Node3D.new()
+		rig.name = "SkinnedHand"
+		# the parts are relative to the mannequin's right-hand prop point; mirror for the left, runner scale
+		rig.basis = Basis.from_scale(Vector3(-1.0 if is_left else 1.0, 1.0, 1.0) * PlayerModels.SCALE)
+		for part_value in parts:
+			var part: Array = part_value
+			var mesh_node := MeshInstance3D.new()
+			mesh_node.mesh = part[0]
+			if part[1] != null:
+				mesh_node.material_override = part[1]
+			mesh_node.transform = part[2]
+			mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			rig.add_child(mesh_node)
+		hand.add_child(rig)
+		PlayerSkin.apply(rig, PlayerSkin.active_texture())
+		return hand
+	var glove := StandardMaterial3D.new()
+	glove.albedo_color = Color(0.16, 0.13, 0.17)
+	for part in [[Vector3(0.07, 0.03, 0.1), Vector3(0, 0, 0.02)], [Vector3(0.025, 0.025, 0.06), Vector3(0.045 if is_left else -0.045, 0.005, -0.01)]]:
+		var box := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = part[0]
+		box.mesh = mesh
+		box.material_override = glove
+		box.position = part[1]
+		box.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		hand.add_child(box)
+	return hand
+
+
+func _wear_skin() -> void:
+	for hand in [left, right]:
+		var rig := hand.find_child("SkinnedHand", true, false) as Node3D if hand != null else null
+		if rig != null:
+			PlayerSkin.apply(rig, PlayerSkin.active_texture())
 
 
 func _hand_local(hand: XRController3D) -> Vector3:
@@ -62,7 +109,9 @@ func step(delta: float) -> void:
 		_step_swing(now, delta)
 		_step_poke()
 	_last = now
-	(player.get("flashlight") as Node3D).global_transform = left.global_transform.translated_local(Vector3(0.0, 0.0, -0.06))
+	var lamp_source: Node3D = left if left.get_has_tracking_data() else player.get("xr_camera") as Node3D
+	var offset := Vector3(0.0, 0.0, -0.06) if lamp_source == left else Vector3(0.0, -0.08, -0.18)
+	(player.get("flashlight") as Node3D).global_transform = lamp_source.global_transform.translated_local(offset)
 
 
 func _step_climb(now: Dictionary) -> void:

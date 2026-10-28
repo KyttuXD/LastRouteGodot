@@ -563,6 +563,10 @@ const MODEL_PATHS := {
 	"ringTossStall": ["res://art/props-3d/props/carnival/ring_toss_stall.glb"],
 	"strengthTester": ["res://art/props-3d/props/carnival/strength_tester.glb"],
 	"circusPedestal": ["res://art/props-3d/props/carnival/circus_pedestal.glb"],
+	# the other playable booths (CarnivalBooths) reuse a stall / pedestal body; their game board is the booth node's (docs/CARNIVAL_BOOTHS.md)
+	"shootingGallery": ["res://art/props-3d/props/carnival/ring_toss_stall.glb"],
+	"whackAMole": ["res://art/props-3d/props/carnival/ring_toss_stall.glb"],
+	"duckPond": ["res://art/props-3d/props/carnival/circus_pedestal.glb"],
 	"carouselCenterpiece": [
 		"res://art/props-3d/props/carnival/carousel_centerpiece.glb",
 	],
@@ -929,7 +933,7 @@ static func interaction_for(type: String) -> String:
 	var lowered := type.to_lower()
 	if type == "carouselCenterpiece":
 		return "ride"
-	if type in ["ringTossStall", "strengthTester"]:
+	if CarnivalBooths.is_booth(type):
 		return "play"
 	if type.begins_with("retroComputer"):
 		return "use"

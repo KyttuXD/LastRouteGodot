@@ -194,6 +194,7 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 
 	var target_position: Vector2 = target["position"]
 	var target_hidden: bool = target.get("hidden", false)
+	var ignoring_hider := _camp_guard(delta, target_position, target_hidden)
 	var target_in_safe_zone: bool = target.get("in_safe_zone", false)
 	var target_noise: float = target.get("noise", 0.0)
 	var target_flashlight_on: bool = target.get("flashlight_on", true)
@@ -203,7 +204,8 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 		gimmick.before_perception(self, delta, target, generator)
 
 	_update_beam_attention(delta, generator, target)
-	_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)
+	if not ignoring_hider:
+		_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)
 	if gimmick:
 		gimmick.after_perception(self, delta, target, generator)
 	_update_stamina(delta)
@@ -287,6 +289,44 @@ func head_to(point: Vector2, delta: float, generator, depth: int, relays_collect
 	_update_stamina(delta)
 	_update_movement(delta, generator, depth, relays_collected)
 	return position.distance_to(point) <= ARRIVAL_DISTANCE
+
+
+## Anti-camp guard: no hunter stays within CAMP_RADIUS of the same hidden runner for more than the mode's camp_limit seconds
+## without leaving. Time spent stunned (the hide-check tell) does not count. After leaving she ignores that hidden runner for
+## CAMP_COOLDOWN seconds (the hide check's own cooldown covers the spot), wanders off and searches elsewhere.
+## Returns true while she is ignoring the hidden runner (the caller skips perception that frame).
+const CAMP_RADIUS := 2.0
+const CAMP_COOLDOWN := 30.0
+const CAMP_LEAVE_DISTANCE := 12.0
+var camp_time := 0.0
+var camp_cooldown := 0.0
+var camp_leaves := 0
+
+
+func _camp_guard(delta: float, target_position: Vector2, target_hidden: bool) -> bool:
+	camp_cooldown = maxf(0.0, camp_cooldown - delta)
+	if not target_hidden or position.distance_to(target_position) > CAMP_RADIUS:
+		camp_time = maxf(0.0, camp_time - delta * 2.0)
+		return false
+	if camp_cooldown > 0.0:
+		return true
+	camp_time += delta
+	if camp_time <= float(difficulty_profile.get("camp_limit", 12.0)):
+		return false
+	camp_time = 0.0
+	camp_cooldown = CAMP_COOLDOWN
+	camp_leaves += 1
+	state = State.WANDER
+	has_last_known = false
+	has_search_target = false
+	direct_chase_visible = false
+	lost_sight_timer = 0.0
+	_path.clear()
+	_has_path_target = false
+	var away := (position - target_position).normalized() if position.distance_to(target_position) > .05 else Vector2.RIGHT
+	wander_target = position + away * CAMP_LEAVE_DISTANCE
+	has_wander_target = true
+	return true
 
 
 ## The director's nudge: investigate `point` (a wandering hunter given somewhere to go). Never used on a chasing hunter.

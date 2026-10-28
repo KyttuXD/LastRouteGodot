@@ -190,6 +190,10 @@ const REGION_PROP_SETS := {
 		{"type": "popcornCart", "size": Vector3(1.45, 1.9, .9)},
 		{"type": "ringTossStall", "size": Vector3(2.6, 2.65, 1.55)},
 		{"type": "strengthTester", "size": Vector3(1.0, 2.95, .8)},
+		{"type": "shootingGallery", "size": Vector3(2.6, 2.65, 1.55)},
+		{"type": "whackAMole", "size": Vector3(2.6, 2.65, 1.55)},
+		{"type": "duckPond", "size": Vector3(1.7, .8, 1.7)},
+		{"type": "prizeClawMachine", "size": Vector3(.9, 2.0, .8)},
 		{"type": "circusPedestal", "size": Vector3(1.7, .8, 1.7)},
 		{"type": "arcadeCabinet", "size": Vector3(.75, 1.85, .7)},
 		{"type": "arcadeCabinetCyanMagenta", "size": Vector3(.75, 1.85, .7)},
@@ -331,6 +335,10 @@ const TEMPLATE_PROP_SIZES := {
 	"carnivalTicketBooth": Vector3(1.75, 2.45, 1.25),
 	"popcornCart": Vector3(1.45, 1.9, .9),
 	"ringTossStall": Vector3(2.6, 2.65, 1.55),
+	"shootingGallery": Vector3(2.6, 2.65, 1.55),
+	"whackAMole": Vector3(2.6, 2.65, 1.55),
+	"duckPond": Vector3(1.7, .8, 1.7),
+	"prizeClawMachine": Vector3(.9, 2.0, .8),
 	"strengthTester": Vector3(1.0, 2.95, .8),
 	"circusPedestal": Vector3(1.7, .8, 1.7),
 	"frozenTidelinePool": Vector3(6.2, .2, 5.2),
@@ -2451,7 +2459,7 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		for occupied_value in entry.get("occupied_cells", []):
 			reserved[occupied_value as Vector2i] = true
 	result = even_ceiling_fixtures(one_ceiling_family(result), rect)
-	face_screens_to_seats(result)
+	orient_props(result, grid)
 	# back to recipe order, so everything downstream sees the same sequence as before the claim order
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["spec_index"]) < int(b["spec_index"]))
 	for entry in result:
@@ -2506,40 +2514,160 @@ static func even_ceiling_fixtures(props: Array, rect: Rect2i) -> Array:
 const SCREEN_SEAT_REACH := 2.6
 
 
-static func is_screen_type(type: String) -> bool:
-	if "Tv" in type:
-		return false
-	for word in ["Computer", "Monitor", "Console", "Terminal"]:
-		if word in type:
-			return true
-	return false
-
-
 static func prop_point(prop: Dictionary) -> Vector2:
 	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
 	return Vector2(cell) + Vector2(.5, .5) + (prop.get("placement_offset", Vector2.ZERO) as Vector2)
 
 
-static func face_screens_to_seats(props: Array) -> void:
+## KT: "check other connected props and make sure they're rotated correctly". The pairing table, applied to every
+## furnished room after placement (so new recipes follow it too). Wall-backed types first: a prop whose back is not on a
+## wall but whose cell touches one turns its back to that wall (depth permitting) and slides flush. Then the facing pairs,
+## child -> nearest anchor within reach (children that are wall-backed keep their wall). Word matches on the type name.
+const ORIENT_PAIRS := [
+	# seats face the table, desk or counter they are pulled up to
+	{"child": ["Chair", "Stool"], "anchor": ["Table", "Desk", "Counter", "Island", "Workstation", "Bar", "Station", "Console"],
+		"reach": 1.4},
+	# sofas face the TV or the coffee table
+	{"child": ["Couch", "Sofa", "Chaise"], "anchor": ["TvConsole", "CoffeeTable"], "reach": 4.5},
+	# a bench faces its piano or vanity
+	{"child": ["Bench"], "anchor": ["Piano", "Vanity"], "reach": 1.5},
+	# screens face whoever uses them: a seat, else a bed (vitals monitors)
+	{"child": ["Computer", "Monitor", "Console", "Terminal"], "anchor": ["Chair", "Stool", "Couch", "Bench"], "reach": 2.6},
+	{"child": ["Monitor"], "anchor": ["Bed"], "reach": 2.0},
+]
+const ORIENT_EXCLUDE := ["TvConsole"]   # the TV sits against its wall; the sofa turns to it
+
+
+static func _type_has(type: String, words: Array) -> bool:
+	for word in words:
+		if String(word) in type:
+			return true
+	return false
+
+
+static func is_screen_type(type: String) -> bool:
+	return _type_has(type, ["Computer", "Monitor", "Console", "Terminal"]) and not _type_has(type, ORIENT_EXCLUDE)
+
+
+static func orient_props(props: Array, grid: Array) -> void:
+	seat_in_front_of_screens(props, grid)
 	for prop_value in props:
-		var screen: Dictionary = prop_value
+		var prop: Dictionary = prop_value
+		if RoomCatalog.is_wall_backed(String(prop.get("type", ""))):
+			back_to_wall(prop, grid)
+	for rule_value in ORIENT_PAIRS:
+		var rule: Dictionary = rule_value
+		for child_value in props:
+			var child: Dictionary = child_value
+			var type := String(child.get("type", ""))
+			if not _type_has(type, rule["child"]) or _type_has(type, ORIENT_EXCLUDE) or RoomCatalog.is_wall_backed(type) \
+					or bool(child.get("oriented", false)):
+				continue
+			var anchor := nearest_anchor(child, props, rule["anchor"], float(rule["reach"]))
+			if anchor.is_empty():
+				continue
+			var toward := prop_point(anchor) - prop_point(child)
+			var yaw := snappedf(atan2(-toward.x, -toward.y), PI * .25)   # room props stay on 45-degree angles
+			var size: Vector3 = child.get("collider_size", child.get("blocker_size", Vector3.ONE))
+			var turn := absf(wrapf(yaw - float(child.get("yaw", 0.0)), -PI, PI))
+			if (size.x > .95 or size.z > .95) and turn > .01 and absf(turn - PI) > .01:
+				continue    # a prop wider than a cell only flips (same footprint); turning it would hit its neighbours
+			child["yaw"] = yaw
+			child["oriented"] = true
+
+
+## A screen too wide to turn (a lab console) whose seat is off to its side: the seat moves to the open floor in front of
+## the screen (the screenshot KT sent: the chair beside the desk, the screen facing away), then turns to it.
+static func seat_in_front_of_screens(props: Array, grid: Array) -> void:
+	for screen_value in props:
+		var screen: Dictionary = screen_value
 		if not is_screen_type(String(screen.get("type", ""))):
 			continue
-		var at := prop_point(screen)
-		var best := {}
-		var best_distance := SCREEN_SEAT_REACH
-		for other_value in props:
-			var seat: Dictionary = other_value
-			if PropModelCatalog.interaction_for(String(seat.get("type", ""))) != "sit":
-				continue
-			var distance := at.distance_to(prop_point(seat))
-			if distance > .05 and distance < best_distance:
-				best = seat
-				best_distance = distance
-		if best.is_empty():
+		var size: Vector3 = screen.get("collider_size", screen.get("blocker_size", Vector3.ONE))
+		if size.x <= .95 and size.z <= .95:
 			continue
-		var toward := prop_point(best) - at
-		screen["yaw"] = atan2(-toward.x, -toward.y)
+		var seat := nearest_anchor(screen, props, ["Chair", "Stool"], 2.6)
+		if seat.is_empty():
+			continue
+		var yaw := float(screen.get("yaw", 0.0))
+		var front := Vector2(-sin(yaw), -cos(yaw))
+		var at := prop_point(screen)
+		if front.dot((prop_point(seat) - at).normalized()) > .7:
+			continue
+		var spot := at + front * (size.z * .5 + .55)
+		var cell := Vector2i(floori(spot.x), floori(spot.y))
+		if cell.y < 0 or cell.y >= grid.size() or cell.x < 0 or cell.x >= (grid[cell.y] as Array).size() \
+				or int(grid[cell.y][cell.x]) != 0:
+			continue
+		var taken := false
+		for other_value in props:
+			var other: Dictionary = other_value
+			if other != seat and other != screen and bool(other.get("solid", true)) \
+					and prop_point(other).distance_to(spot) < .6:
+				taken = true
+				break
+		if taken:
+			continue
+		seat["cell"] = cell
+		seat["placement_offset"] = spot - (Vector2(cell) + Vector2(.5, .5))
+		seat["yaw"] = snappedf(atan2(front.x, front.y), PI * .25)    # facing back at the screen
+		seat["oriented"] = true
+
+
+static func nearest_anchor(child: Dictionary, props: Array, words: Array, reach: float) -> Dictionary:
+	var at := prop_point(child)
+	var best := {}
+	var best_distance := reach
+	for other_value in props:
+		var other: Dictionary = other_value
+		if other == child or not _type_has(String(other.get("type", "")), words):
+			continue
+		var distance := at.distance_to(prop_point(other))
+		if distance > .05 and distance < best_distance:
+			best = other
+			best_distance = distance
+	return best
+
+
+## Back (gameplay +Z) to a wall: keep a back already on a wall; otherwise turn to the wall the cell touches (first of the
+## four sides that is a wall), when the prop's depth fits in a cell, and slide it flush.
+static func back_to_wall(prop: Dictionary, grid: Array) -> void:
+	if bool(prop.get("wall_mounted", false)) or not bool(prop.get("solid", true)):
+		return
+	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+	if wall_behind(prop, grid):
+		return
+	var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+	if size.z > .95 or size.x > .95:
+		return    # turning a prop wider than a cell could push it into a neighbour
+	for dir in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+		var wall: Vector2i = cell + dir
+		if wall.y < 0 or wall.y >= grid.size() or wall.x < 0 or wall.x >= (grid[wall.y] as Array).size() \
+				or int(grid[wall.y][wall.x]) == 0:
+			continue
+		# back = gameplay +Z toward the wall, so the front (-Z) points away from it
+		prop["yaw"] = atan2(float(dir.x), float(dir.y))
+		prop["placement_offset"] = Vector2(dir) * (.48 - back_extent(String(prop.get("type", "")), size))
+		return
+
+
+## How far the prop's collision reaches behind its point (local +Z), offset collider boxes included.
+static func back_extent(type: String, size: Vector3) -> float:
+	var extent := 0.0
+	for box in PropColliderBoxes.boxes(type, size):
+		extent = maxf(extent, (box["c"] as Vector2).y + (box["h"] as Vector2).y)
+	return extent if extent > 0.0 else size.z * .5
+
+
+## The prop's back face (+Z) is within 15 cm of a wall cell.
+static func wall_behind(prop: Dictionary, grid: Array) -> bool:
+	var yaw := float(prop.get("yaw", 0.0))
+	var back := Vector2(sin(yaw), cos(yaw))
+	var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+	var probe := prop_point(prop) + back * (back_extent(String(prop.get("type", "")), size) + .15)
+	var cell := Vector2i(floori(probe.x), floori(probe.y))
+	return cell.y >= 0 and cell.y < grid.size() and cell.x >= 0 and cell.x < (grid[cell.y] as Array).size() \
+		and int(grid[cell.y][cell.x]) != 0
 
 
 static func one_ceiling_family(props: Array) -> Array:
@@ -2928,10 +3056,11 @@ static func _room_template_specs(template: String, region: String,
 		"carnival_midway":
 			if side_span >= 17:
 				# a 21-wide midway: a row of stalls along the back wall and carts and pedestals down the middle
-				for stall_side in [-7, 0, 7]:
-					specs.append({"type": "ringTossStall", "side": stall_side, "depth": 0, "wall_backed": true, "facing": "open"})
-				for booth_side in [-4, 4]:
-					specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
+				var stall_types := ["ringTossStall", "shootingGallery", "whackAMole"]
+				for stall_index in 3:
+					specs.append({"type": stall_types[stall_index], "side": [-7, 0, 7][stall_index], "depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "carnivalTicketBooth", "side": -4, "depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "prizeClawMachine", "side": 4, "depth": 0, "wall_backed": true, "facing": "open"})
 				# Backed against the SIDE walls and facing the middle: with the back wall as its backing a 1.4 m wide tester
 				# stood 0.2 m into the side wall (GeometryAudit prop_in_wall) and pushing it clear hit the end stall.
 				specs.append({"type": "strengthTester", "side": -9, "depth": 1, "facing": "center"})
@@ -2951,7 +3080,7 @@ static func _room_template_specs(template: String, region: String,
 		"carnival_big_top":
 			specs.append({"type": "arcadeCarpetCircle", "side": 0, "depth": mid_depth, "facing": "open", "solid": false})
 			for pedestal_side in [-6, 0, 6]:
-				specs.append({"type": "circusPedestal", "side": pedestal_side, "depth": mid_depth, "facing": "center"})
+				specs.append({"type": "duckPond" if pedestal_side == 0 else "circusPedestal", "side": pedestal_side, "depth": mid_depth, "facing": "center"})
 			for booth_side in [-8, 8]:
 				specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
 			for cart_side in [-4, 4]:
@@ -3875,8 +4004,9 @@ func _template_prop_entry(coord: Vector3i, room: Dictionary,
 	var placement_offset := Vector2.ZERO
 	var wall_mounted := bool(spec.get("wall_mount", false))
 	if bool(spec.get("wall_backed", false)) and not wall_mounted:
-		var depth_shift := maxf(0.0, blocker_size.z * .5 - .45)
-		placement_offset = Vector2(open_direction) * depth_shift
+		# flush: the back (the fitted collider's depth, what you see) 2 cm off the wall behind the cell; a shallow prop
+		# moves toward the wall, a deep one out into the room (KT: backs to the wall, prop_orientation checks 15 cm)
+		placement_offset = Vector2(open_direction) * (back_extent(prop_type, _collider_size(prop_type, blocker_size)) - .48)
 	var backing_wall := -open_direction if (bool(spec.get("wall_backed", false)) \
 		or wall_mounted) else Vector2i.ZERO
 	if wall_mounted:
@@ -3887,8 +4017,10 @@ func _template_prop_entry(coord: Vector3i, room: Dictionary,
 				or not _grid_cell_open(grid, front_cell):
 			return {}
 	var solid := bool(spec.get("solid", not wall_mounted))
-	var occupied := [] if not solid else _prop_occupied_cells(cell,
-		facing_direction, blocker_size, placement_offset)
+	var occupied := [] if not solid else _prop_occupied_cells(cell, facing_direction,
+		Vector3(blocker_size.x, blocker_size.y, minf(blocker_size.z, _collider_size(prop_type, blocker_size).z)) \
+			if bool(spec.get("wall_backed", false)) else blocker_size,
+		placement_offset if placement_offset.dot(Vector2(open_direction)) >= 0.0 else Vector2.ZERO)   # flush toward the wall stays in its cell
 	for occupied_value in occupied:
 		var at: Vector2i = occupied_value
 		# Authored room recipes are placed inside a sealed room. Circulation

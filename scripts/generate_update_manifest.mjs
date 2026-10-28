@@ -31,7 +31,7 @@ const debug = {};
 for (const [platform, file] of Object.entries(artifacts)) {
   const path = join(buildDirectory, file);
   if (!existsSync(path)) continue;
-  if (MOBILE.has(platform) && !build) {
+  if (!build) {
     console.warn(`Skipping ${file}: build_revision.json has no build number (re-run generate_build_revision.mjs)`);
     continue;
   }
@@ -45,7 +45,8 @@ for (const [platform, file] of Object.entries(artifacts)) {
     notes: "Debug multiplayer and platform test build.",
     required: !MOBILE.has(platform),
   };
-  if (MOBILE.has(platform)) debug[platform].build = build;
+  // every native platform orders updates by build number (desktop since the 2026-10 rework)
+  debug[platform].build = build;
 }
 
 const output = join(buildDirectory, "updates.debug.json");

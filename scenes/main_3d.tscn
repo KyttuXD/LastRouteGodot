@@ -68,12 +68,12 @@ spot_angle_attenuation = 1.4
 current = false
 
 [node name="LeftController" type="XRController3D" parent="World/Player/XROrigin"]
-tracker = &"/user/hand/left"
-pose = &"default_pose"
+tracker = &"left_hand"
+pose = &"default"
 
 [node name="RightController" type="XRController3D" parent="World/Player/XROrigin"]
-tracker = &"/user/hand/right"
-pose = &"default_pose"
+tracker = &"right_hand"
+pose = &"default"
 
 [node name="HUD" parent="." instance=ExtResource("4_hud")]
 unique_name_in_owner = true

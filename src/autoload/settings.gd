@@ -114,6 +114,8 @@ var pause_on_focus_loss := false
 var hub_last_game := ""
 ## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
 var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
+## The custom player skin (PlayerSkin): sha256 of its canonical PNG in user://skins, "" = the default mannequin skin.
+var skin_hash := ""
 ## Waypoint HUD (docs/WAYPOINTS.md): guidance "off" (pin only), "arrow" (pin + screen-edge arrow), "path" (+ floor chevrons).
 const WAYPOINT_GUIDANCE_MODES := ["off", "arrow", "path"]
 var waypoint_guidance := "arrow"
@@ -292,6 +294,12 @@ func set_waypoint_arrival_chime(on: bool) -> void:
 
 func set_pixel_effect_percent(value: float) -> void:
 	pixel_effect_percent = clampf(value, 0.0, 100.0)
+	_save()
+	visual_changed.emit()
+
+
+func set_skin_hash(hash: String) -> void:
+	skin_hash = hash if PlayerSkin.valid_hash(hash) else ""
 	_save()
 	visual_changed.emit()
 
@@ -495,6 +503,9 @@ func _load() -> void:
 		"pixel_effect_percent", DEFAULT_PIXEL_EFFECT_PERCENT), 0.0, 100.0)
 	player_hue_degrees = clampf(config.get_value("player",
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
+	skin_hash = String(config.get_value("player", "skin_hash", ""))
+	if not PlayerSkin.valid_hash(skin_hash):
+		skin_hash = ""
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
 	xr_player_height = clampf(float(config.get_value("xr", "player_height", 1.70)), 1.0, 2.3)
 	touch_move = "stick" if String(config.get_value("touch", "move", "dpad")) == "stick" else "dpad"
@@ -591,6 +602,7 @@ func _save() -> void:
 	config.set_value("display", "field_of_view", field_of_view)
 	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
 	config.set_value("player", "hue_degrees", player_hue_degrees)
+	config.set_value("player", "skin_hash", skin_hash)
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
 	config.set_value("xr", "player_height", xr_player_height)
 	config.set_value("touch", "move", touch_move)
