@@ -82,7 +82,7 @@ func run(host: Node) -> int:
 		print("  store     one run: atomic write + backup, vectors survive, CONTINUE consumed once, cloud newer-wins")
 		print("  migrate   an old 9-slot .lrsave becomes the run; a newer format is refused with a message")
 		print("  safety    corrupt file -> backup or a clear message; an interrupted write keeps the run")
-		print("  route     level/checkpoint/relay/quit autosave; death clears on every difficulty; co-op guests never save")
+		print("  route     level/checkpoint/relay/quit autosave; solo death clears (every difficulty); co-op keeps it through one death and a host quit, wipe clears; guests never save")
 		print("saves OK")
 	return _failures
 
@@ -230,30 +230,56 @@ func _check_route(host: Node) -> void:
 		"the route save is missing seed, stamina, flashlight, discoveries or time")
 	_expect(String(route.call("_save_status_line")).begins_with("RUN SAVED AT LEVEL "), "the pause line does not show the save")
 	RunSaves.clear_pending()
-	# death clears the run on every difficulty, and a finished run cannot save again
+	# solo: death clears the run on every difficulty, and a finished run cannot save again
 	for difficulty in [RoomState.Difficulty.RELAXED, RoomState.Difficulty.STANDARD, RoomState.Difficulty.HARD]:
 		RoomState.difficulty = difficulty
+		route.set("_run_save_ended", false)
 		route.call("autosave", "validate")
-		route.call("_end_run_save")
-		_expect(not RunSaves.has_run(), "death left the save on difficulty %d" % difficulty)
+		route.call("_save_after_local_death")
+		_expect(not RunSaves.has_run(), "a solo death left the save on difficulty %d" % difficulty)
 	var capture := source.substr(source.find("func _resolve_capture_outcome("), 600)
-	_expect(capture.contains("_end_run_save()"), "a solo capture does not end the run's save")
-	GameState.game_over = true
+	_expect(capture.contains("_save_after_local_death()"), "a capture does not reach the death save rule")
 	_expect(not bool(route.call("autosave", "validate").get("ok", true)) and not RunSaves.has_run(),
-		"a dead run saved again")
+		"a dead solo run saved again")
+	route.set("_run_save_ended", false)
+	GameState.game_over = true
+	_expect(not bool(route.call("autosave", "validate").get("ok", true)), "a dead solo runner could still save")
 	GameState.game_over = false
-	# co-op: only the host saves
 	var old := [RoomState.online, RoomState.is_host, RoomState.peers.duplicate(true)]
 	RoomState.online = true
-	RoomState.is_host = false
 	RoomState.peers = {1: "HOST", 2: "GUEST"}
+	# co-op: one runner down (the host here) keeps the run; the save goes on updating
+	RoomState.is_host = true
+	route.set("_test_party_alive", 1)
+	RunSaves.write(_payload(-2), "LEVEL -2")
+	GameState.game_over = true
+	route.call("_save_after_local_death")
+	_expect(RunSaves.has_run(), "one co-op death deleted the host's run save")
+	_expect(bool(route.call("autosave", "relay").get("ok", false)), "the save stopped updating while the host waits for a revive")
+	# co-op: the host quits mid-run while teammates are alive: the save stays for CONTINUE
+	route.call("autosave", "quit")
+	_expect(RunSaves.has_run(), "the host quitting with live teammates lost the save")
+	# co-op: a full team wipe ends the run and its save
+	route.set("_test_party_alive", 0)
+	var wipe := source.substr(source.find("# Party wipe: the host was already spectating"), 400)
+	_expect(wipe.contains("_end_run_save()"), "a party wipe does not end the run's save")
+	route.call("_end_run_save")
+	_expect(not RunSaves.has_run() and not bool(route.call("autosave", "relay").get("ok", true)),
+		"a team wipe left the save or let the ended run save again")
+	route.set("_run_save_ended", false)
+	GameState.game_over = false
+	# co-op: only the host saves
+	RoomState.is_host = false
 	_expect(not bool(route.call("autosave", "relay").get("ok", true)) and not RunSaves.has_run(), "a co-op guest saved the run")
 	RunSaves.write(_payload(-2), "LEVEL -2")
+	route.call("_save_after_local_death")
 	route.call("_end_run_save")
 	_expect(RunSaves.has_run(), "a guest's death touched the save on its machine")
 	RunSaves.clear()
 	RoomState.is_host = true
+	route.set("_test_party_alive", 1)
 	_expect(bool(route.call("autosave", "relay").get("ok", false)) and RunSaves.has_run(), "the co-op host could not save")
+	route.set("_test_party_alive", -1)
 	RoomState.online = old[0]
 	RoomState.is_host = old[1]
 	RoomState.peers = old[2]

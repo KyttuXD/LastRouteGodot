@@ -27,6 +27,10 @@ const DROPPED_TOOL_MARK_RADIUS := 14.0
 const LOCAL_SAVE_SCHEMA := 1
 ## Why the last autosave ran (level / checkpoint / relay / quit); read by validate_saves.
 var _last_autosave_reason := ""
+## Set when death ends the run (solo death, party wipe); a restart clears it.
+var _run_save_ended := false
+## validate_saves: 1 = a teammate is still running, 0 = the party is down, -1 = ask the live remotes.
+var _test_party_alive := -1
 const TEMPERATURE_HUNTER_EFFECT_RADIUS := 14.0
 const STORY_DIRECTOR_SCRIPT := preload("res://src/story/infinite_story_director.gd")
 const HUNTER_JUMPSCARE_SCENE := preload("res://scenes/hunter_jumpscare.tscn")
@@ -943,15 +947,32 @@ func _save_write_denial() -> String:
 		return "ONLY THE ROOM HOST SAVES THE SHARED ROUTE"
 	if GameState.debug_run:
 		return "DEBUG RUN // NOT SAVED"
-	if _death_screen_open or GameState.game_over:
+	if _run_save_ended:
+		return "THE RUN HAS ENDED"
+	# co-op: the host may be down (spectating, waiting for a revive) while the party runs on; the run still saves
+	if (_death_screen_open or GameState.game_over) and not _party_run_continues():
 		return "THE RUN HAS ENDED"
 	return ""
+
+
+func _party_run_continues() -> bool:
+	if _test_party_alive >= 0:
+		return RoomState.online and RoomState.peers.size() > 1 and _test_party_alive == 1
+	return RoomState.online and RoomState.peers.size() > 1 and not _living_runners().is_empty()
+
+
+## The local runner died. Solo that ends the run (every difficulty); in co-op the run and its save carry on until
+## the whole party is down (the party-wipe branch calls _end_run_save).
+func _save_after_local_death() -> void:
+	if not RoomState.online or RoomState.peers.size() <= 1:
+		_end_run_save()
 
 
 ## Death ends the run on every difficulty: the save goes with it (co-op: when the whole party is down).
 func _end_run_save() -> void:
 	if RoomState.public_route or (RoomState.online and not RoomState.is_host):
 		return
+	_run_save_ended = true
 	RunSaves.clear()
 
 
@@ -4920,8 +4941,7 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 		return
 	_capture_resolving = true
 	GameState.resolve_escape_failure()
-	if not RoomState.online or RoomState.peers.size() <= 1:
-		_end_run_save()
+	_save_after_local_death()
 	hud.set_escape_active(false)
 	_escaping_entity_id = ""
 	_escaping_hunter_id = ""
@@ -5227,6 +5247,7 @@ func _respawn_after_death() -> void:
 	if not _death_screen_open:
 		return
 	_force_disable_admin_cheats()
+	_run_save_ended = false   # the restarted run saves again
 	_clear_local_waypoint()   # a waypoint never survives death
 	run_report.close()
 	GameState.game_over = false
