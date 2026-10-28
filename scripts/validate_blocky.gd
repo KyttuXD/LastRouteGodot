@@ -123,7 +123,7 @@ func run(host: Node) -> int:
 				if node.find_child(pig, true, false) == null:
 					_fail("%s is missing %s" % [id, pig])
 		if id.begins_with("wynelle"):
-			for pig in ["L-Pig-1", "L-Pig-4", "R-Pig-1", "R-Pig-4", "Pony-1"]:
+			for pig in ["L-Pig-1", "L-Pig-3", "R-Pig-1", "R-Pig-3", "Pony-1"]:
 				if node.find_child(pig, true, false) == null:
 					_fail("%s is missing pigtail bone %s" % [id, pig])
 		if id.begins_with("kathy"):

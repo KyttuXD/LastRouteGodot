@@ -634,6 +634,9 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 			continue
 		var n := Vector3(d.x, 0, d.y)
 		var base := Vector3(x + .5 + d.x * .5, 0, z + .5 + d.y * .5)
+		# a ramp tunnel's side wall is one face two storeys tall: wall-top pipes, pilasters and arches sized for one
+		# storey ran across the shaft at the storey line (KT: a dark band down the collector ramp)
+		var beside_ramp := (_data.get("ramp_cells", {}) as Dictionary).has(Vector2i(x + d.x, z + d.y))
 		# position along the wall run, so spacing is regular instead of random
 		var along: int = x if d.y != 0 else z
 		var line: int = z if d.y != 0 else x
@@ -691,7 +694,7 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 					Transform3D(tier_basis, up))
 				_halo.append(up + n * .1)
 		# pilasters down both sides of halls, between the lamps, in the hall's own wall with the district's trim
-		if rid == "" and is_pilaster_column(along) and _open_run(grid, x, z, d):
+		if rid == "" and not beside_ramp and is_pilaster_column(along) and _open_run(grid, x, z, d):
 			var hall_top := _hh(Vector2i(x + d.x, z + d.y)) - .1
 			var across_x := d.y != 0
 			var wall_key := "arch_wall:%s@%.1f" % [arch_wall_kind(Vector2i(x + d.x, z + d.y)), _hh(Vector2i(x + d.x, z + d.y))]
@@ -709,7 +712,7 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 			var rail_axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
 			_add("handrail", Transform3D(rail_axis, base + Vector3(0, .9, 0) + n * .07))
 		# pipes run along the top of the wall in multi-cell stretches
-		if int(style["pipe"]) < 90 and _h(along / 7, line, 61 + d.x + d.y * 2, int(style["pipe"]) * 2) == 0:
+		if int(style["pipe"]) < 90 and not beside_ramp and _h(along / 7, line, 61 + d.x + d.y * 2, int(style["pipe"]) * 2) == 0:
 			var axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
 			var pipe_top := minf(_hh(Vector2i(x + d.x, z + d.y)), 3.6)
 			var pipe_pos := base + Vector3(0, pipe_top - 0.30, 0) + n * .09

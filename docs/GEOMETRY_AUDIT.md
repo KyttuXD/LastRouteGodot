@@ -125,3 +125,17 @@ it per hunter. Deliberate poses (head_roll, lean, stride, emotes) are untouched.
 
 Known: the mermaid tails (Opalie, Loxelle) still pass ~16 cm through the sprinting legs, and the extreme emote/climb/stun poses roll the
 head or lift the arms into hair/wing pivots rotation cannot clear; both need the part's root moved, not just rotated.
+
+## Hair physics and hair length
+
+`tools/blocky_hunters/hairsim.py` (build time, before clearance.py): every hair/tail chain (Pony-1..3, L/R-Pig-n, Tail-n) is simulated per
+clip as Verlet particles riding the head or pelvis: gravity, damping, a soft spring back to the rigid pose (so the strand lags the head and
+settles), a swing limit per segment (70 deg for the first from the rigid pose, 40 deg for each next), and push-out from head, shoulders,
+arms, torso and legs. Looping clips are closed by easing the last quarter onto the first key. The result is plain rotation keys on the chain
+bones: free at runtime, identical on every peer, not synced. The shared sway scale loosens or tightens the spring and damping.
+
+Length: ponytails are capped at 16 px (to about the shoulder blades; `MAX_LENGTH` in hunters/pony.py), Javelle's and Porcelle's pigtails/braids
+at two segments ending at y = 16, Wynelle's pigtails at three segments ending at y = 14. Trimmed: Aki, Briselle, Ceryth, Ferryn, Haelith,
+Loxelle, Mavrine, Opalie, Ravelle, Ysolde, Javelle, Porcelle, Wynelle. Left alone (already at or above the cap, or lore): Kathy, Glyra,
+Thessine, Umbriel, Zellia, and Nyxie, whose braid is a lore trait (testers' "braid girl", KT-Lore LORE-NOTES). Void hunters have no hair.
+Contact sheet: docs/hunter_hair_length_contact_sheet.png; Javelle/Aki/Porcelle idle, walk, sprint: docs/hunter_hair_before_after.png.

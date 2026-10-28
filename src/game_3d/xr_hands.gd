@@ -16,7 +16,8 @@ extends Node
 ##
 ## The controllers track Godot's "default" pose, which OpenXR binds to the AIM pose (the laser direction, pitched well
 ## down from how the hand holds the controller). The hand models were built for the GRIP pose, so each frame they are
-## turned by aim->grip from the controller's own tracker (exact for every controller; KT saw them about 90 degrees off).
+## turned by the aim/grip difference from the controller's own tracker (KT saw them about 90 degrees off, then 180 the
+## other way with aim^-1 * grip, so the inverse is applied).
 
 const GRIP_HOLD := 0.6
 const SWING_SPEED := 2.2
@@ -121,7 +122,8 @@ static func grip_offset(tracker: XRPositionalTracker) -> Transform3D:
 	var grip := tracker.get_pose(&"grip")
 	if aim == null or grip == null or not aim.has_tracking_data or not grip.has_tracking_data:
 		return Transform3D.IDENTITY
-	return aim.transform.affine_inverse() * grip.transform
+	# KT tested aim^-1 * grip on the Quest: about 180 degrees off the controllers, i.e. the correction ran the wrong way.
+	return (aim.transform.affine_inverse() * grip.transform).affine_inverse()
 
 
 func _fit_hands_to_grip() -> void:
