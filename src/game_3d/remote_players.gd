@@ -1429,15 +1429,18 @@ func _submit_hunter_event(event: Dictionary) -> void:
 
 
 ## Host only. Turns troll mode on or off for a guest and tells that guest's client.
-func set_troll(peer_id: int, on: bool) -> void:
-	if not RoomState.is_host or peer_id <= 1 or troll_peers.has(peer_id) == on:
+## `ads`: whether its troll-mode "ads" show (TrollAds); owners can turn them off per player.
+func set_troll(peer_id: int, on: bool, ads := true) -> void:
+	if not RoomState.is_host or peer_id <= 1:
+		return
+	if troll_peers.has(peer_id) == on and (not on or bool(troll_peers[peer_id]) == ads):
 		return
 	if on:
-		troll_peers[peer_id] = true
+		troll_peers[peer_id] = ads
 	else:
 		troll_peers.erase(peer_id)
 	if peer_is_live(peer_id):
-		_player_event.rpc_id(peer_id, {"what": "troll", "on": on})
+		_player_event.rpc_id(peer_id, {"what": "troll", "on": on, "ads": on and ads})
 
 
 func _lookup_peers() -> void:
@@ -1461,7 +1464,8 @@ func _on_peers_looked_up(players: Dictionary, devices: Dictionary) -> void:
 		var device = devices.get(String(state.get("device", "")), {})
 		var server_troll := (player is Dictionary and (bool(player.get("troll", false)) \
 				or bool(player.get("flagged", false)))) or (device is Dictionary and bool(device.get("troll", false)))
-		set_troll(int(id), server_troll or guard.strikes(int(id)) > 0)
+		var ads: bool = not (player is Dictionary and player.has("ads")) or bool(player.get("ads", true))
+		set_troll(int(id), server_troll or guard.strikes(int(id)) > 0, ads)
 		if player is Dictionary and bool(player.get("flagged", false)) and not _flag_noticed.has(id):
 			_flag_noticed[id] = true
 			send_system("NOTICE // %s IS FLAGGED BY ANTI-CHEAT" % RoomState.peer_display_name(int(id)))

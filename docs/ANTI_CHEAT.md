@@ -68,3 +68,20 @@ Its own client (told by a `troll` player event): 1.6× sprint drain, flashlight 
 - `anti_cheat` simulates 300 / 800 / 2000 ms RTT, jitter, 10 % loss, 3 s and 10 s freezes, reordering and duplicates:
   zero strikes for legit runs, while speed and teleport cheats are still snapped back under every link (struck below
   the heavy-lag line).
+
+## Troll-mode "ads"
+
+Not real ads: in-universe joke/horror text only (no brands, links, purchases or tracking), as data in
+`assets/data/troll_ads.json` (`kyttu-troll-ads/v1`: id, source mall/company/safety/hunter/lore, title, body, footer,
+optional `hunter` / `shop` placeholders) so the data registry can absorb it. Mall ads use the shop signs from
+`StreamedRouteGenerator.SHOP_NAMES`; company ads use Voss' Robotic Labs' public face only.
+
+- Shown only on the trolled player's own client, when the host's `troll` event has `ads` on. Teammates and normal
+  players never get the event, so never see one. Owners toggle ads per player (`ads_on` / `ads_off` in
+  `/api/admin/flags/set`; `/api/moderation/peers` returns `ads`, default on).
+- Pop-up (`TrollAdOverlay`): a 5 s unskippable countdown, then a SKIP AD that hops across the row twice before it
+  works. Cap (`TrollAds`): first one 12 s after troll mode starts, at least 40 s apart, at most 6 per 10 min.
+- Never over a capture, escape struggle, death screen, spectating or a menu: it closes at once and none opens.
+- Shop signs within 14 m swap to ad titles every 8 s and go back when ads stop.
+- Validator: `anti_cheat` (data has no links or prices, schedule cap and blocking, live route: normal player none,
+  ads-off none, trolled player gets one with the countdown, death screen closes and blocks it, troll off stops it).
