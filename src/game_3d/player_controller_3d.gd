@@ -188,6 +188,10 @@ var exhausted := false
 var stamina_recovery_delay := 0.0
 ## Set when sprinting stops above GameConfig.STAMINA_QUICK_THRESHOLD: stamina ramps back to full in a blink.
 var stamina_quick_refill := false
+## Troll mode (docs/ANTI_CHEAT.md): the host caught this client cheating, or the server flagged the account. Faster
+## stamina drain, a flickering flashlight and fake hunter footsteps; the host side (hunters, pickups) does the rest.
+var troll_active := false
+var _troll_step_in := 0.0
 var _was_sprinting_stamina := false
 var movement_mode := "walk"
 ## Noise emitted this frame by movement, consumed by hunter hearing
@@ -1574,6 +1578,7 @@ func _physics_process(delta: float) -> void:
 		Sound.footstep(movement_mode, footstep_surface)
 
 
+	_update_troll(delta)
 	_update_flashlight_flicker(delta)
 	if Input.is_action_just_pressed("flashlight") and owns_inventory_item("flashlight") \
 			and not flashlight_seized():
@@ -1897,7 +1902,8 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 		exhausted = false
 		return
 	if is_sprinting:
-		stamina = maxf(0.0, stamina - GameConfig.STAMINA_SPRINT_DRAIN * delta)
+		stamina = maxf(0.0, stamina - GameConfig.STAMINA_SPRINT_DRAIN \
+			* (GameConfig.TROLL_STAMINA_DRAIN_SCALE if troll_active else 1.0) * delta)
 		stamina_recovery_delay = GameConfig.STAMINA_RECOVERY_DELAY
 		if stamina <= 0.0:
 			exhausted = true
@@ -1936,6 +1942,18 @@ func _update_lamp(delta: float, is_sprinting: bool) -> void:
 		_set_flashlight(false)
 		Sound.light_switch()
 		interaction_message.emit("FLASHLIGHT DEAD // FIND A BATTERY")
+
+
+func _update_troll(delta: float) -> void:
+	if not troll_active:
+		return
+	_troll_step_in -= delta
+	if _troll_step_in > 0.0:
+		return
+	_troll_step_in = randf_range(GameConfig.TROLL_FAKE_STEP_SECONDS.x, GameConfig.TROLL_FAKE_STEP_SECONDS.y)
+	Sound.hunter_footstep(randf_range(-1.0, 1.0), randf_range(.05, .12))
+	if flashlight_enabled:
+		force_flashlight_flicker(randf_range(.4, 1.2))
 
 
 func _update_flashlight_flicker(delta: float) -> void:

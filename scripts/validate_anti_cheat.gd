@@ -119,6 +119,59 @@ func run(host: Node) -> int:
 		"walking past the wall's end was flagged")
 	root.queue_free()
 
+	_lag_checks()
+
+	# Host-caused moves (vent transit, pulled out of hiding, axe rescue, revive) never strike.
+	guard.check(60, _state(Vector3.ZERO), 0.0)
+	guard.allow_jump(60, .02)
+	_expect(guard.check(60, _state(Vector3(30, 0, 0)), .05).is_empty(), "a host-approved vent jump was flagged")
+	_expect(not guard.check(60, _state(Vector3(110, 0, 0)), 4.0).is_empty(), "the jump allowance never ran out")
+
+	# Troll mode: hunters take only the trolled guest, hiding or not, and leave the teammate alone.
+	var troll_remotes := RemotePlayers.new()
+	var now := Time.get_ticks_usec()
+	troll_remotes._states = {
+		70: {"peer_id": 70, "position": Vector2(40, 0), "depth": 0, "hidden": true, "received_usec": now},
+		71: {"peer_id": 71, "position": Vector2(2, 0), "depth": 0, "received_usec": now}}
+	var plain := troll_remotes.best_target(Vector2.ZERO, {"peer_id": 1, "position": Vector2(90, 0), "depth": 0}, 0)
+	_expect(int(plain.get("peer_id", 0)) == 71, "without troll mode the nearest visible runner is not chosen (%s)" % plain)
+	troll_remotes.troll_peers[70] = true
+	var picked := troll_remotes.best_target(Vector2.ZERO, {"peer_id": 1, "position": Vector2(1, 0), "depth": 0}, 0)
+	_expect(int(picked.get("peer_id", 0)) == 70 and not bool(picked.get("hidden", true)) \
+		and bool(picked.get("troll", false)), "a hidden trolled guest was not the hunters' target (%s)" % picked)
+	troll_remotes.free()
+	var brain := HunterBrain.new(Vector2.ZERO, "TROLL", HunterRoster.DEFAULT_ID, "standard")
+	var normal_speed := brain._current_speed(0, 0)
+	brain.troll_target = true
+	_expect(brain._current_speed(0, 0) > normal_speed * 1.1, "hunters are not faster toward a trolled guest")
+	var controller := PlayerController3D.new()
+	controller.admin_god_mode = false
+	controller._update_stamina(1.0, true)
+	var normal_drain := GameConfig.MAX_STAMINA - controller.stamina
+	controller.stamina = GameConfig.MAX_STAMINA
+	controller.troll_active = true
+	controller._update_stamina(1.0, true)
+	_expect(GameConfig.MAX_STAMINA - controller.stamina > normal_drain * 1.4, "stamina does not drain faster when trolled")
+	controller._update_troll(10.0)
+	_expect(controller._troll_step_in > 0.0, "no fake hunter footstep was scheduled")
+	controller.free()
+	var scare := HunterJumpscare.new()
+	scare.duration_scale = GameConfig.TROLL_SCARE_SCALE
+	_expect(scare.duration_scale >= 2.0, "the trolled scare is not longer")
+	scare.free()
+
+	# Client messages: a server status or a FLAGGED refusal reaches the player as an account message.
+	var heard := [""]
+	var listener := func(_signed: bool, _name: String, _admin: bool, message: String) -> void: heard[0] = message
+	Backend.account_changed.connect(listener)
+	Backend.moderation._on_status_reply({"status": {"flagged": true,
+		"message": "PUBLIC ROUTE AND SKIN UPLOADS LOCKED UNTIL 12:00"}})
+	_expect(String(heard[0]).begins_with("PUBLIC ROUTE"), "the restriction message did not reach the player")
+	_expect(Backend.moderation.restriction_message() == String(heard[0]), "restriction_message() is stale")
+	Backend.account_changed.disconnect(listener)
+	Backend.moderation._on_status_reply({"status": {}})
+	_expect(Backend.moderation.device_id().length() == 32, "the device id is not a 32-hex id")
+
 	# Interaction rate limit.
 	var remotes := RemotePlayers.new()
 	var allowed := 0
@@ -131,3 +184,94 @@ func run(host: Node) -> int:
 	if _failures == 0:
 		print("  anti_cheat  ok")
 	return _failures
+
+
+## A legit runner: sprints 2.5 s, walks 1 s, turning, at 20 Hz for `seconds`. Each sample is [send_time, state].
+func _legit_run(seconds: float, cheat := "") -> Array:
+	var out := []
+	var at := Vector3.ZERO
+	var heading := 0.0
+	var walk := GameConfig.PLAYER_WALK_SPEED / GameConfig.TILE_SIZE
+	var seq := 0
+	var t := 0.0
+	while t < seconds:
+		var sprinting := fmod(t, 3.5) < 2.5
+		var speed := GuestGuard.max_speed if sprinting else walk
+		if cheat == "speed":
+			speed *= 2.5
+		heading += .04
+		at += Vector3(cos(heading), 0, sin(heading)) * speed / HZ
+		var state := _state(at, {"sprinting": sprinting, "seq": seq})
+		if cheat == "teleport" and seq == int(seconds * HZ * .5):
+			at += Vector3(60, 0, 0)
+			state = _state(at, {"seq": seq})
+		out.append([t, state])
+		seq += 1
+		t += 1.0 / HZ
+	return out
+
+
+## Delivers `samples` over a simulated link and returns {strikes, snaps, lag_snaps}.
+func _deliver(samples: Array, rtt_ms: float, jitter_ms: float, loss: float, freezes: Array, duplicate := .0,
+		rng_seed := 1) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = rng_seed
+	var arrivals := []
+	for sample in samples:
+		if rng.randf() < loss:
+			continue
+		var arrive := float(sample[0]) + rtt_ms / 2000.0 + rng.randf_range(0.0, jitter_ms / 1000.0)
+		for freeze in freezes:   # [start, length]: nothing arrives until the freeze ends
+			if arrive >= float(freeze[0]) and arrive < float(freeze[0]) + float(freeze[1]):
+				arrive = float(freeze[0]) + float(freeze[1]) + rng.randf_range(0.0, .05)
+		arrivals.append([arrive, sample[1]])
+		if rng.randf() < duplicate:
+			arrivals.append([arrive + rng.randf_range(0.0, .2), sample[1]])
+	arrivals.sort_custom(func(x, y) -> bool: return float(x[0]) < float(y[0]))
+	var guard := GuestGuard.new()
+	guard.rtt_ms = func(_peer: int) -> float: return rtt_ms
+	var result := {"strikes": 0, "snaps": 0, "lag_snaps": 0}
+	for arrival in arrivals:
+		var verdict := guard.check(1, arrival[1], float(arrival[0]))
+		if verdict.is_empty() or bool(verdict.get("drop", false)):
+			continue
+		result["snaps"] += 1
+		if bool(verdict.get("lag", false)):
+			result["lag_snaps"] += 1
+	result["strikes"] = guard.strikes(1)
+	return result
+
+
+func _lag_checks() -> void:
+	var run := _legit_run(40.0)
+	var links := {
+		"300 ms": [300.0, 40.0, .0, []],
+		"800 ms": [800.0, 150.0, .02, []],
+		"2000 ms": [2000.0, 400.0, .05, []],
+		"jitter 250 ms": [120.0, 250.0, .0, []],
+		"10 % loss": [150.0, 60.0, .1, []],
+		"3 s freeze": [150.0, 40.0, .0, [[8.0, 3.0]]],
+		"10 s freeze": [150.0, 40.0, .0, [[12.0, 10.0]]],
+		"freezes + loss + reorder": [300.0, 300.0, .08, [[5.0, 4.0], [20.0, 6.0]]],
+	}
+	for name in links:
+		var link: Array = links[name]
+		var legit := _deliver(run, link[0], link[1], link[2], link[3], .05)
+		_expect(int(legit["strikes"]) == 0, "legit movement over %s got %d strikes (%s)" % [name, legit["strikes"], legit])
+	for name in ["300 ms", "800 ms", "2000 ms", "3 s freeze"]:
+		var link: Array = links[name]
+		for cheat in ["speed", "teleport"]:
+			var caught := _deliver(_legit_run(20.0, cheat), link[0], link[1], link[2], link[3])
+			_expect(int(caught["snaps"]) > 0, "a %s cheat over %s was never snapped back" % [cheat, name])
+	var mild := _deliver(_legit_run(20.0, "speed"), 300.0, 40.0, .0, [])
+	_expect(int(mild["strikes"]) > 0, "a speed cheat over 300 ms got no strikes (%s)" % mild)
+	var heavy := _deliver(_legit_run(20.0, "speed"), 2000.0, 400.0, .0, [])
+	_expect(int(heavy["strikes"]) == 0 and int(heavy["lag_snaps"]) > 0,
+		"heavy lag snaps were not tagged lag (%s)" % heavy)
+	# Duplicates and out-of-order samples are dropped, never judged.
+	var guard := GuestGuard.new()
+	guard.check(1, _state(Vector3.ZERO, {"seq": 5}), 0.0)
+	guard.check(1, _state(Vector3(.3, 0, 0), {"seq": 6}), .05)
+	_expect(bool(guard.check(1, _state(Vector3(50, 0, 0), {"seq": 6}), .06).get("drop", false)), "a duplicate was judged")
+	_expect(bool(guard.check(1, _state(Vector3(50, 0, 0), {"seq": 3}), .07).get("drop", false)), "a stale sample was judged")
+	_expect(guard.strikes(1) == 0, "dropped samples struck")

@@ -13,10 +13,27 @@ extends RefCounted
 ## - the reported grid "position" must match "at".
 ## A violation snaps the guest back to its last good spot and adds a strike; strikes decay while clean, and STRIKE_KICK
 ## of them kicks the guest. Cheap: a handful of arithmetic checks per 20 Hz sample, one shape cast only when moving.
+##
+## Lag (KT: "make sure heavy internet lag isnt triggered as a false alarm"):
+## - the movement budget earns credit for the real time between arrivals, capped by the longest gap seen lately, so a
+##   freeze followed by a burst of catch-up samples adds up to the legit distance;
+## - budgets widen with the guest's round trip and jitter (`rtt_ms`, measured arrival jitter);
+## - samples carry a sequence number: duplicates and out-of-order samples are dropped, never judged; a skipped run
+##   (packet loss) or a long gap skips the wall sweep, whose straight line would cut corners the guest walked round;
+## - under heavy lag (round trip > HEAVY_RTT_MS, a gap > HEAVY_GAP_SECONDS lately, or jitter > HEAVY_JITTER_SECONDS) a
+##   movement or stamina violation still snaps back but is tagged "lag": no strike, no kick, no troll mode.
 
 const TOLERANCE := 1.35
 const LAG_SLACK_M := 1.0
 const MAX_SAMPLE_GAP := 1.0
+const GAP_MEMORY_SECONDS := 10.0
+const SAMPLE_INTERVAL := 1.0 / 20.0
+const HEAVY_RTT_MS := 400.0
+const HEAVY_GAP_SECONDS := 1.5
+const HEAVY_JITTER_SECONDS := .25
+const HEAVY_LAG_HOLD_SECONDS := 5.0
+const SWEEP_MAX_DT := .3
+const SPRINT_MAX_DT := .25
 const UP_SPEED := 4.5
 const TELEPORT_DISTANCE := 12.0
 const STRIKE_KICK := 5
@@ -36,6 +53,8 @@ static var max_sprint_seconds := GameConfig.MAX_STAMINA / GameConfig.STAMINA_SPR
 ## Optional host hooks: legit_spot(at: Vector3, depth: int) -> bool, exempt(peer_id) -> bool (admin rights).
 var legit_spot: Callable
 var exempt: Callable
+## Optional: rtt_ms(peer_id) -> float, the transport's round trip for that guest (0 when unknown).
+var rtt_ms: Callable
 
 var _peers := {}
 
@@ -44,15 +63,29 @@ func forget(peer_id: int) -> void:
 	_peers.erase(peer_id)
 
 
+## The host caused (or approved) a long move for this guest — a vent transit, a hunter pulling it out of hiding, an axe
+## rescue, a revive — so jumps within `seconds` from `now` pass and the speed budget refills.
+func allow_jump(peer_id: int, now: float, seconds := 3.0) -> void:
+	if _peers.has(peer_id):
+		_peers[peer_id]["jump_ok_until"] = now + seconds
+
+
 func strikes(peer_id: int) -> int:
 	return int((_peers.get(peer_id, {}) as Dictionary).get("strikes", 0))
+
+
+## Whether the guest is in heavy lag right now (its snaps are tagged "lag").
+func lagging(peer_id: int) -> bool:
+	return float((_peers.get(peer_id, {}) as Dictionary).get("lag_until", -1.0)) \
+		>= float((_peers.get(peer_id, {}) as Dictionary).get("now", 0.0))
 
 
 func last_good(peer_id: int) -> Variant:
 	return (_peers.get(peer_id, {}) as Dictionary).get("good")
 
 
-## Checks one sample. Returns {} when it is fine, else {"reason", "snap_to": Vector3, "strikes", "kick": bool}.
+## Checks one sample. Returns {} when it is fine, {"drop": true} for a duplicate / out-of-order sample (ignore it), else
+## {"reason", "snap_to": Vector3, "strikes", "kick": bool, "lag": bool}.
 ## `space` may be null (no sweep). `now` is seconds.
 func check(peer_id: int, state: Dictionary, now: float, space: PhysicsDirectSpaceState3D = null) -> Dictionary:
 	var at = state.get("at")
@@ -62,18 +95,28 @@ func check(peer_id: int, state: Dictionary, now: float, space: PhysicsDirectSpac
 	if peer.is_empty():
 		_peers[peer_id] = {"good": at, "time": now, "depth": int(state.get("depth", 0)), "strikes": 0,
 			"clean_since": now, "sprint": 0.0, "lamp": float(state.get("lamp_charge", GameConfig.MAX_LAMP_CHARGE)),
-			"batteries": _batteries(state)}
+			"batteries": _batteries(state), "seq": int(state.get("seq", -1)), "jitter": 0.0, "gaps": [],
+			"lag_until": -1.0, "now": now, "id": peer_id}
 		return {}
-	var dt := clampf(now - float(peer["time"]), 0.0, MAX_SAMPLE_GAP)
+	var seq := int(state.get("seq", -1))
+	var seq_jump := 1
+	if seq >= 0 and int(peer["seq"]) >= 0:
+		if seq <= int(peer["seq"]):
+			return {"drop": true}
+		seq_jump = seq - int(peer["seq"])
+	peer["seq"] = seq
+	var dt := maxf(now - float(peer["time"]), 0.0)
+	_note_gap(peer, dt, now)
 	var good: Vector3 = peer["good"]
 	var depth := int(state.get("depth", 0))
 	var free_pass: bool = (exempt.is_valid() and bool(exempt.call(peer_id))) \
 		or bool(state.get("spectating", false)) or bool(state.get("game_over", false))
 	var reason := ""
+	peer["now"] = now
 	if not free_pass:
-		reason = _movement_reason(peer, state, at, good, depth, dt, space)
+		reason = _movement_reason(peer, state, at, good, depth, dt, space, seq_jump)
 		if reason.is_empty():
-			reason = _meter_reason(peer, state, dt)
+			reason = _meter_reason(peer, state, minf(dt, SPRINT_MAX_DT))
 	peer["time"] = now
 	peer["lamp"] = clampf(float(state.get("lamp_charge", peer["lamp"])), 0.0, GameConfig.MAX_LAMP_CHARGE)
 	peer["batteries"] = _batteries(state)
@@ -84,42 +127,77 @@ func check(peer_id: int, state: Dictionary, now: float, space: PhysicsDirectSpac
 			peer["strikes"] = int(peer["strikes"]) - 1
 			peer["clean_since"] = now
 		return {}
+	peer["sprint"] = 0.0
+	if reason in LAG_EXCUSABLE and float(peer["lag_until"]) >= now:
+		return {"reason": "lag", "snap_to": good, "strikes": int(peer["strikes"]), "kick": false, "lag": true}
 	peer["strikes"] = int(peer["strikes"]) + 1
 	peer["clean_since"] = now
-	peer["sprint"] = 0.0
 	return {"reason": reason, "snap_to": good, "strikes": int(peer["strikes"]),
-		"kick": int(peer["strikes"]) >= STRIKE_KICK}
+		"kick": int(peer["strikes"]) >= STRIKE_KICK, "lag": false}
+
+
+const LAG_EXCUSABLE := ["speed", "fly", "teleport", "noclip", "stamina"]
+
+
+## Arrival gaps feed the credit cap (longest lately), jitter, and the heavy-lag hold.
+func _note_gap(peer: Dictionary, dt: float, now: float) -> void:
+	var gaps: Array = peer["gaps"]
+	gaps.append(Vector2(now, dt))
+	while not gaps.is_empty() and now - (gaps[0] as Vector2).x > GAP_MEMORY_SECONDS:
+		gaps.pop_front()
+	peer["jitter"] = lerpf(float(peer["jitter"]), absf(dt - SAMPLE_INTERVAL), .1)
+	var rtt := float(rtt_ms.call(int(peer.get("id", 0)))) if rtt_ms.is_valid() else 0.0
+	peer["rtt"] = rtt
+	if dt > HEAVY_GAP_SECONDS or rtt > HEAVY_RTT_MS or float(peer["jitter"]) > HEAVY_JITTER_SECONDS:
+		peer["lag_until"] = now + HEAVY_LAG_HOLD_SECONDS
+
+
+## Longest arrival gap in the last GAP_MEMORY_SECONDS (at least MAX_SAMPLE_GAP).
+static func _longest_gap(peer: Dictionary) -> float:
+	var longest := MAX_SAMPLE_GAP
+	for gap in peer["gaps"]:
+		longest = maxf(longest, (gap as Vector2).y)
+	return longest
+
+
+## Budget widening for the guest's round trip and jitter. Kept modest: the elapsed-time credit already absorbs gaps,
+## so this only covers bunching noise; a 2.5x speed cheat stays over budget even at a 2 s round trip.
+static func _lag_scale(peer: Dictionary) -> float:
+	return 1.0 + minf(float(peer.get("rtt", 0.0)) / 4000.0, .15) + minf(2.0 * float(peer.get("jitter", 0.0)), .5)
 
 
 func _movement_reason(peer: Dictionary, state: Dictionary, at: Vector3, good: Vector3, depth: int, dt: float,
-		space: PhysicsDirectSpaceState3D) -> String:
+		space: PhysicsDirectSpaceState3D, seq_jump: int) -> String:
 	var grid = state.get("position")
 	if grid is Vector2 and (grid as Vector2).distance_to(Vector2(at.x, at.z)) > 1.5:
 		return "position"
-	if depth != int(peer["depth"]):
+	if depth != int(peer["depth"]) or float(peer.get("jump_ok_until", -1.0)) >= float(peer.get("now", 0.0)):
 		peer["flat_credit"] = LAG_SLACK_M
 		return ""   # level links / stairs between floors: the floor change itself is the proof
 	var flat := Vector2(at.x - good.x, at.z - good.z).length()
 	var rise := at.y - good.y
-	if flat > TELEPORT_DISTANCE or rise > TELEPORT_DISTANCE:
+	# Leaky budgets: each sample earns distance at the legit top speed for the real time since the last one and spends
+	# what it moved. The cap is the longest gap seen lately, so the catch-up burst after a freeze passes while a steady
+	# over-speed runs dry within a second or two. A move past the budget and beyond TELEPORT_DISTANCE is a teleport.
+	var tolerance := TOLERANCE * _lag_scale(peer)
+	var window := _longest_gap(peer)
+	var flat_credit := minf(float(peer.get("flat_credit", LAG_SLACK_M)) + max_speed * tolerance * dt,
+		max_speed * tolerance * window + LAG_SLACK_M) - flat
+	var up_credit := minf(float(peer.get("up_credit", LAG_SLACK_M)) + UP_SPEED * tolerance * dt,
+		UP_SPEED * tolerance * window + LAG_SLACK_M) - maxf(rise, 0.0)
+	if flat_credit < 0.0 or up_credit < 0.0:
 		if legit_spot.is_valid() and bool(legit_spot.call(at, depth)):
+			peer["flat_credit"] = LAG_SLACK_M
 			return ""
-		return "teleport"
-	# Leaky budgets: each sample earns distance at the legit top speed and spends what it moved. The cap is one full
-	# lag gap of credit, so bunched packets after a stall pass while a steady over-speed runs dry within a second or two.
-	var flat_credit := minf(float(peer.get("flat_credit", LAG_SLACK_M)) + max_speed * TOLERANCE * dt,
-		max_speed * TOLERANCE * MAX_SAMPLE_GAP + LAG_SLACK_M) - flat
-	var up_credit := minf(float(peer.get("up_credit", LAG_SLACK_M)) + UP_SPEED * TOLERANCE * dt,
-		UP_SPEED * TOLERANCE * MAX_SAMPLE_GAP + LAG_SLACK_M) - maxf(rise, 0.0)
-	if flat_credit < 0.0:
 		peer["flat_credit"] = LAG_SLACK_M
-		return "speed"
-	if up_credit < 0.0:
 		peer["up_credit"] = LAG_SLACK_M
-		return "fly"
+		if flat > TELEPORT_DISTANCE or rise > TELEPORT_DISTANCE:
+			return "teleport"
+		return "speed" if flat_credit < 0.0 else "fly"
 	peer["flat_credit"] = flat_credit
 	peer["up_credit"] = up_credit
-	if space != null and flat >= SWEEP_MIN_M and not bool(state.get("in_vent", false)) \
+	if space != null and flat >= SWEEP_MIN_M and dt <= SWEEP_MAX_DT and seq_jump <= 2 \
+			and not bool(state.get("in_vent", false)) \
 			and not bool(state.get("hidden", false)) and _blocked(space, good, at):
 		return "noclip"
 	return ""
