@@ -29,6 +29,8 @@ static var _keys: Array = []
 static var _stage: Dictionary = {}
 static var _actors: Dictionary = {}
 static var _scene: Node
+static var _smooth := {}   # bone -> {last: Quaternion, max: float} over the shot's smoothness window
+static var _smooth_window := Vector2(-1, -1)
 
 
 class Actor:
@@ -54,6 +56,11 @@ class Actor:
 	var head_pitch := 0.0
 	var clock := 0.0
 	var lean_deg := 0.0
+	var blend_snap: Dictionary = {}   # bone -> [Quaternion, Vector3] at the moment a pose changed, eased into the new pose by hand
+	var blend_t0 := -1.0
+	var last_pose: Dictionary = {}   # the bones as the pose (and blend) left them last frame, before any flinch layer
+	var blend_dur := .3
+	var react: Dictionary = {}   # {t0, dur, hold, release, away_yaw, arm, hunch}: a fast eased flinch layered on the pose
 
 
 static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
@@ -181,6 +188,9 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var world_dim := float(shot.get("world_dim", 1.0))
 	var steps: Array = []
 	_scene = scene
+	_smooth.clear()
+	var sm: Dictionary = shot.get("smooth", {})
+	_smooth_window = Vector2(float(sm.get("from", -1.0)), float(sm.get("to", -1.0))) if not sm.is_empty() else Vector2(-1, -1)
 	var inside_frames := 0
 	var overlap_frames := 0
 	var depth_min := 99.0
@@ -480,7 +490,11 @@ static func _play(actor: Actor, spec: Dictionary) -> void:
 		return
 	actor.posed = spec.has("pose")
 	if spec.has("pose"):
-		NightWatchPoses.play(actor.model, str(spec["pose"]), {"speed": float(spec.get("pose_speed", 1.0))})
+		# the crossfade is done here (eased, from the exact bones as they stood), the player itself cuts
+		actor.blend_snap = actor.last_pose.duplicate()
+		actor.blend_t0 = actor.clock
+		actor.blend_dur = float(spec.get("blend", .3))
+		NightWatchPoses.play(actor.model, str(spec["pose"]), {"speed": float(spec.get("pose_speed", 1.0)), "blend": 0.0})
 	elif spec.has("clip"):
 		var clip := str(spec["clip"])
 		if actor.anim.has_animation(clip):
@@ -513,6 +527,10 @@ static func _apply_event(actor: Actor, ev: Dictionary, stage: Dictionary, actors
 	if ev.has("face"):
 		actor.face_mode = ev["face"]
 		_resolve_face(actor, float(ev.get("t", 0.0)))
+	if ev.has("react"):
+		var r: Dictionary = (ev["react"] as Dictionary).duplicate()
+		r["t0"] = actor.clock
+		actor.react = r
 	if ev.has("tag"):
 		_set_tag(actor, str(ev["tag"]))
 	if bool(ev.get("tag_off", false)):
@@ -572,6 +590,13 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 	if actor.anim != null:
 		actor.anim.advance(dt)
 	actor.clock += dt
+	_apply_pose_blend(actor)
+	for bone in NightWatchPoses.BONES:
+		var pn := actor.model.find_child(bone, true, false) as Node3D
+		if pn != null:
+			actor.last_pose[bone] = [pn.quaternion, pn.position]
+	_apply_react(actor)
+	_track_smooth(actor)
 	if not actor.head_cfg.is_empty():
 		var head := actor.model.find_child("Head", true, false) as Node3D
 		if head != null:
@@ -579,6 +604,82 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 	if actor.tag != null:
 		actor.tag_alpha = move_toward(actor.tag_alpha, actor.tag_goal, dt / .4)
 		actor.tag.modulate.a = actor.tag_alpha
+
+
+static func _apply_pose_blend(actor: Actor) -> void:
+	if actor.blend_snap.is_empty() or actor.blend_t0 < 0.0:
+		return
+	var u := clampf((actor.clock - actor.blend_t0) / maxf(actor.blend_dur, .05), 0.0, 1.0)
+	var w := u * u * (3.0 - 2.0 * u)
+	for bone in actor.blend_snap:
+		var node := actor.model.find_child(str(bone), true, false) as Node3D
+		if node == null:
+			continue
+		var snap: Array = actor.blend_snap[bone]
+		node.quaternion = (snap[0] as Quaternion).slerp(node.quaternion, w)
+		node.position = (snap[1] as Vector3).lerp(node.position, w)
+	if u >= 1.0:
+		actor.blend_snap.clear()
+
+
+## Eased weight 0..1 of the flinch: snaps in with an ease-out over `dur`, holds, then releases over `release`.
+static func _react_weight(actor: Actor) -> float:
+	if actor.react.is_empty():
+		return 0.0
+	var age := actor.clock - float(actor.react["t0"])
+	var dur := maxf(float(actor.react.get("dur", .2)), .05)
+	var hold := float(actor.react.get("hold", .3))
+	var release := maxf(float(actor.react.get("release", .3)), .05)
+	if age < 0.0:
+		return 0.0
+	if age < dur:
+		var u := age / dur
+		# half sine ease-out, half smoothstep: fast, but with no big first-frame step
+		return .5 * sin(u * PI * .5) + .5 * (u * u * (3.0 - 2.0 * u))
+	if age < dur + hold:
+		return 1.0
+	var v := clampf((age - dur - hold) / release, 0.0, 1.0)
+	return 1.0 - (v * v * (3.0 - 2.0 * v))
+
+
+## Arm(s) up over the face and a hunch, on top of the animated pose (local rotations, relative to what the pose just wrote).
+static func _apply_react(actor: Actor) -> void:
+	var w := _react_weight(actor)
+	if w <= 0.0:
+		return
+	var side := str(actor.react.get("arm", "R"))
+	var arm_sign := 1.0 if side == "R" else -1.0
+	var arms := [side] if side != "both" else ["L", "R"]
+	for a in arms:
+		var sg := 1.0 if a == "R" else -1.0
+		var arm := actor.model.find_child("%s-Arm" % a, true, false) as Node3D
+		var fore := actor.model.find_child("%s-Forearm" % a, true, false) as Node3D
+		if arm != null:
+			arm.quaternion = NightWatchPoses.key_quaternion(Vector3(float(actor.react.get("arm_x", 110.0)), 0.0, float(actor.react.get("arm_z", 28.0)) * sg) * w) * arm.quaternion
+		if fore != null:
+			fore.quaternion = NightWatchPoses.key_quaternion(Vector3(float(actor.react.get("fore_x", 100.0)), 0.0, 0.0) * w) * fore.quaternion
+	var chest := actor.model.find_child("Chest", true, false) as Node3D
+	if chest != null:
+		chest.quaternion = NightWatchPoses.key_quaternion(Vector3(float(actor.react.get("hunch", 14.0)), 0.0, 0.0) * w) * chest.quaternion
+
+
+## Per-frame bone rotation deltas inside the shot's smoothness window (the self-check reports the worst single-frame step).
+static func _track_smooth(actor: Actor) -> void:
+	if _smooth_window.x < 0.0:
+		return
+	for bone in ["Head", "R-Arm", "R-Forearm", "L-Arm", "L-Forearm", "Chest"]:
+		var node := actor.model.find_child(bone, true, false) as Node3D
+		if node == null:
+			continue
+		var q := node.quaternion
+		var entry: Dictionary = _smooth.get(bone, {"last": q, "max": 0.0})
+		var step := rad_to_deg((entry["last"] as Quaternion).angle_to(q))
+		if _smooth.has(bone) and actor.clock >= _smooth_window.x and actor.clock <= _smooth_window.y:
+			if step > float(entry["max"]):
+				entry["max"] = step
+				entry["at"] = snappedf(actor.clock, .01)
+		entry["last"] = q
+		_smooth[bone] = entry
 
 
 ## Head only: calm (a breath, no wandering) and turned toward the SHOT camera within natural neck limits, eased. The body keeps its authored pose.
@@ -595,6 +696,12 @@ static func _apply_head(actor: Actor, head: Node3D, dt: float, cam_pos: Vector3)
 	var k := clampf(dt * float(cfg.get("ease", 4.0)), 0.0, 1.0)
 	actor.head_yaw = lerpf(actor.head_yaw, want_yaw, k)
 	actor.head_pitch = lerpf(actor.head_pitch, want_pitch, k)
+	var rw := _react_weight(actor)
+	if rw > 0.0:
+		# snap the face away from the light: the look-at gives way to the flinch, never a pop (the weight is eased)
+		var away := deg_to_rad(float(actor.react.get("away_yaw", 55.0)))
+		actor.head_yaw = lerpf(actor.head_yaw, away, rw)
+		actor.head_pitch = lerpf(actor.head_pitch, deg_to_rad(float(actor.react.get("away_pitch", -12.0))), rw)
 	var breath := sin(actor.clock * 1.7) * deg_to_rad(float(cfg.get("sway", 0.8)))
 	var basis := Basis(Vector3.UP, actor.yaw + actor.head_yaw) * Basis(Vector3.RIGHT, actor.head_pitch + breath) * Basis(Vector3(0, 0, -1), deg_to_rad(float(cfg.get("tilt", 0.0))))
 	head.global_basis = basis.scaled_local(head.global_basis.get_scale())
@@ -747,6 +854,14 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 		var frac := (low - top) / camera.get_viewport().get_visible_rect().size.y
 		var limits: Array = expect["screen_fraction"]
 		rows.append({"name": "screen size", "pass": frac >= float(limits[0]) and frac <= float(limits[1]), "detail": "%.0f%% of frame height (wanted %d-%d%%)" % [frac * 100.0, int(float(limits[0]) * 100), int(float(limits[1]) * 100)]})
+	if expect.has("smooth_max_deg"):
+		var worst := 0.0
+		var worst_bone := ""
+		for bone in _smooth:
+			if float((_smooth[bone] as Dictionary)["max"]) > worst:
+				worst = float((_smooth[bone] as Dictionary)["max"])
+				worst_bone = "%s @%ss" % [bone, (_smooth[bone] as Dictionary).get("at", "?")]
+		rows.append({"name": "animation smooth", "pass": worst <= float(expect["smooth_max_deg"]), "detail": "worst single-frame bone step %.1f deg (%s), max %s" % [worst, worst_bone, expect["smooth_max_deg"]]})
 	if bool(expect.get("no_labels", false)):
 		var shown: Array = []
 		for node in _scene.find_children("*", "Label3D", true, false):

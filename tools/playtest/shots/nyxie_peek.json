@@ -125,13 +125,19 @@
    "game_torch": true
   },
   {
-   "t": 6.3,
+   "t": 6.35,
    "actor": "nyxie",
-   "pose": "flinch",
-   "pose_speed": 1.4
+   "react": {
+    "dur": 0.25,
+    "hold": 0.35,
+    "release": 0.3,
+    "away_yaw": -55,
+    "arm": "R",
+    "hunch": 14
+   }
   },
   {
-   "t": 6.8,
+   "t": 6.9,
    "actor": "nyxie",
    "move": [
     "c",
@@ -189,8 +195,8 @@
    "actor": "nyxie",
    "no_labels": true,
    "no_wall_intersection": true,
-   "t": 6.35,
-   "label": "lit",
+   "t": 6.3,
+   "label": "beam",
    "visible_parts": {
     "head": true
    },
@@ -207,7 +213,23 @@
     "chest": false,
     "hips": false,
     "legs": false
-   }
+   },
+   "smooth_max_deg": 24
+  },
+  {
+   "actor": "nyxie",
+   "t": 6.8,
+   "label": "cover",
+   "no_labels": true,
+   "no_wall_intersection": true,
+   "visible_parts": {
+    "head": true
+   },
+   "face_luma_min": 0.1
   }
- ]
+ ],
+ "smooth": {
+  "from": 6.0,
+  "to": 9.0
+ }
 }
