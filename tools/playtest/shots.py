@@ -7,6 +7,7 @@ Same pipeline as flythrough.py (git archive -> mini --scene windowed Movie Maker
 flythrough clips so tools/playtest/trailer.py can cut them. A shot whose camera was inside geometry is reported and not kept.
 """
 import argparse
+import os
 import json
 import shutil
 import subprocess
@@ -18,6 +19,47 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flythrough as fl  # noqa: E402
 
 
+GODOT = "/Applications/Godot.app/Contents/MacOS/Godot"
+LOCAL_LANE = Path.home() / "Developer/lanes/shot-local"
+
+
+def local_sync(src):
+    LOCAL_LANE.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["rsync", "-a", "--delete", "--exclude", ".git", "--exclude", ".claude", "--exclude", "captures", "--exclude", "._*", "--exclude", ".DS_Store",
+                    "--exclude", ".godot", "--exclude", ".playtest", str(src) + "/", str(LOCAL_LANE) + "/"], check=True)
+    (LOCAL_LANE / ".playtest/fly").mkdir(parents=True, exist_ok=True)
+    if not (LOCAL_LANE / ".godot").exists():
+        subprocess.run([GODOT, "--headless", "--path", str(LOCAL_LANE), "--import"], capture_output=True)
+
+
+def local_scene(godot_args, timeout):
+    guard = str(fl.SETUP / "guard.pl")
+    return subprocess.run(["perl", guard, str(timeout), GODOT, "--path", str(LOCAL_LANE), *godot_args.split()], capture_output=True, text=True, timeout=timeout + 60)
+
+
+def preview_checks(name, args, src, lane, out_dir, tmp):
+    """Quick low-res run to the shot's `expect` moment: returns (passed, checks, still path). Refuses nothing itself: the caller decides."""
+    base = ("--resolution 960x540 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route --scenario=sequence --shot=%s --preview --seed=%s --fps=%d --clean=true --deadline=250 --name=pre_%s"
+            % (name, args.seed, args.fps, name))
+    if args.local:
+        local_scene(base, 300)
+        report_file = LOCAL_LANE / (".playtest/pre_%s/report.json" % name)
+        still = LOCAL_LANE / (".playtest/preview/%s.png" % name)
+    else:
+        fl.mini(src, lane, "--scene", base, timeout=400)
+        local = tmp / ("pre_" + name)
+        fl.mini(src, lane, "--pull", ".playtest/pre_%s/report.json" % name, str(local))
+        fl.mini(src, lane, "--pull", ".playtest/preview/%s.png" % name, str(local))
+        report_file, still = local / "report.json", local / (name + ".png")
+    report = json.loads(report_file.read_text()) if report_file.exists() else {}
+    checks = report.get("flythrough", {}).get("checks", {})
+    saved = None
+    if still.exists():
+        saved = out_dir / (name + "_preview.png")
+        shutil.copy(still, saved)
+    return bool(checks.get("pass", not checks)) and bool(checks), checks, saved
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--shots", default="all")
@@ -27,8 +69,12 @@ def main():
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--crf", type=int, default=24)
     ap.add_argument("--timeout", type=int, default=900)
+    ap.add_argument("--local", action="store_true", help="render on THIS Mac (KT-Mini4-1) through guard.pl instead of the mini")
+    ap.add_argument("--force", action="store_true", help="render even when the preview self-check fails")
+    ap.add_argument("--check-only", action="store_true", help="run the self-check preview only (writes <shot>_preview.png), no render")
     ap.add_argument("--out", default="")
     args = ap.parse_args()
+    fl.HW = "h264_videotoolbox" in fl.sh(["ffmpeg", "-hide_banner", "-encoders"]).stdout
     shot_dir = fl.REPO / "tools/playtest/shots"
     names = sorted(p.stem for p in shot_dir.glob("*.json")) if args.shots == "all" else [s for s in args.shots.split(",") if s]
     rev = fl.git("rev-parse", "--short=8", "HEAD") + "-wt" if args.working_tree else fl.git("rev-parse", "--short=8", args.commit)
@@ -47,17 +93,37 @@ def main():
             archive = subprocess.Popen(["git", "archive", rev], cwd=fl.REPO, stdout=subprocess.PIPE)
             subprocess.run(["tar", "-x", "-C", str(src)], stdin=archive.stdout, check=True)
             archive.wait()
-        prep = fl.mini(src, lane, "--cmd", "mkdir -p .playtest/fly; find .playtest/fly -name '*.avi' -delete", nosync=False, timeout=900)
-        if prep.returncode != 0:
+        if args.local:
+            local_sync(src)
+        prep = None if args.local else fl.mini(src, lane, "--cmd", "mkdir -p .playtest/fly; find .playtest/fly -name '*.avi' -delete", nosync=False, timeout=900)
+        if prep is not None and prep.returncode != 0:
             sys.exit("sync to the mini failed:\n" + (prep.stdout + prep.stderr)[-800:])
         for name in names:
+            spec = json.loads((shot_dir / (name + ".json")).read_text())
+            if spec.get("expect"):
+                passed, checks, still = preview_checks(name, args, src, lane, out_dir, tmp)
+                print("  %-16s self-check %s   preview: %s" % (name, "PASS" if passed else "FAIL", still))
+                for row in checks.get("rows", []):
+                    print("      %s %s - %s" % ("ok  " if row["pass"] else "FAIL", row["name"], row["detail"]))
+                if not passed and not args.force:
+                    print("  %-16s NOT RENDERED (self-check failed; --force overrides)" % name)
+                    ok_all = False
+                    continue
+            if args.check_only:
+                continue
             avi_rel = ".playtest/fly/%s.avi" % name
             cmd = ("--write-movie %s --fixed-fps %d --resolution 1280x720 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route "
                    "--scenario=sequence --shot=%s --seed=%s --fps=%d --clean=true --deadline=%d --name=fly_%s"
                    % (avi_rel, args.fps, name, args.seed, args.fps, args.timeout - 60, name))
-            run = fl.mini(src, lane, "--scene", cmd, timeout=args.timeout)
             local = tmp / name
-            fl.mini(src, lane, "--pull", ".playtest/fly_%s/report.json" % name, str(local))
+            if args.local:
+                run = local_scene(cmd, args.timeout)
+                local.mkdir(parents=True, exist_ok=True)
+                for rel in (".playtest/fly_%s/report.json" % name, avi_rel):
+                    shutil.copy(LOCAL_LANE / rel, local / Path(rel).name)
+            else:
+                run = fl.mini(src, lane, "--scene", cmd, timeout=args.timeout)
+                fl.mini(src, lane, "--pull", ".playtest/fly_%s/report.json" % name, str(local))
             report_file = local / "report.json"
             report = json.loads(report_file.read_text()) if report_file.exists() else {}
             info = report.get("flythrough", {})
@@ -65,11 +131,15 @@ def main():
                 print("  %-16s FAILED: %s | %s" % (name, report.get("scenario_failure") or info.get("reason") or "no report", " / ".join((run.stdout + run.stderr).strip().splitlines()[-3:])))
                 ok_all = False
                 continue
-            fl.mini(src, lane, "--pull", avi_rel, str(local))
+            if not args.local:
+                fl.mini(src, lane, "--pull", avi_rel, str(local))
             avi = local / ("%s.avi" % name)
             mp4 = out_dir / ("%s.mp4" % name)
             good, err = fl.encode(avi, mp4, int(info["clip_start_frame"]), int(info["clip_frames"]), int(info["fps"]), args.crf, 1280)
-            fl.mini(src, lane, "--cmd", "rm -f %s" % avi_rel)
+            if args.local:
+                (LOCAL_LANE / avi_rel).unlink(missing_ok=True)
+            else:
+                fl.mini(src, lane, "--cmd", "rm -f %s" % avi_rel)
             if not good:
                 print("  %-16s ENCODE FAILED %s" % (name, err[-200:]))
                 ok_all = False

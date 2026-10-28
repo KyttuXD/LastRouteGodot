@@ -152,6 +152,10 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	events.sort_custom(func(a, b): return float(a["t"]) < float(b["t"]))
 	var seconds := float(shot.get("seconds", 10.0))
 	var total := int(round(seconds * fps))
+	var preview := bool(opts.get("preview", false))
+	var expect: Dictionary = shot.get("expect", {})
+	if preview:
+		total = int(ceil(float(expect.get("t", seconds)) * fps)) + 1
 	var inside_frames := 0
 	var overlap_frames := 0
 	var depth_min := 99.0
@@ -220,6 +224,20 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		scene.set("_party_afk_seconds", 0.0)
 		await tree.process_frame
 		frames += 1
+	if preview:
+		await RenderingServer.frame_post_draw
+		var result := _check(expect, actors, camera, player, space, stage)
+		var dir_path := ProjectSettings.globalize_path("res://.playtest/preview")
+		DirAccess.make_dir_recursive_absolute(dir_path)
+		var image := scene.get_viewport().get_texture().get_image()
+		image.save_png("%s/%s.png" % [dir_path, shot_name])
+		info["checks"] = result
+		info["available"] = true
+		info["preview"] = true
+		info["shot"] = shot_name
+		info["seconds"] = 0.0
+		report["flythrough"] = info
+		return {"outcome": "recorded", "game_seconds": 0.0, "frames": frames, "scenario_failure": ""}
 	var clips := {}
 	for key in actors:
 		var a := actors[key] as Actor
@@ -503,3 +521,115 @@ static func _camera_at(keys: Array, t: float, stage: Dictionary, actors: Diction
 	if a.has("fov") or b.has("fov"):
 		out["fov"] = lerpf(float(a.get("fov", b.get("fov", 75.0))), float(b.get("fov", a.get("fov", 75.0))), u)
 	return out
+
+
+# ------------------------------------------------------------------------------------------------ self-check (preview before the full render)
+static func _bone_pos(actor: Actor, bone: String) -> Vector3:
+	var node := actor.model.find_child(bone, true, false) as Node3D
+	if node != null:
+		return node.global_position
+	for skel in actor.model.find_children("*", "Skeleton3D", true, false):
+		var skeleton := skel as Skeleton3D
+		var index := skeleton.find_bone(bone)
+		if index >= 0:
+			return skeleton.global_transform * skeleton.get_bone_global_pose(index).origin
+	return actor.pos + Vector3.UP * actor.height * .5
+
+
+static func _seen(space: PhysicsDirectSpaceState3D, camera: Camera3D, player: Node, point: Vector3) -> bool:
+	var ray := PhysicsRayQueryParameters3D.create(camera.global_position, point)
+	ray.exclude = [(player as CollisionObject3D).get_rid()]
+	var hit := space.intersect_ray(ray)
+	return hit.is_empty() or camera.global_position.distance_to(hit["position"] as Vector3) > camera.global_position.distance_to(point) - .08
+
+
+static func _on_screen(camera: Camera3D, point: Vector3) -> bool:
+	if camera.is_position_behind(point):
+		return false
+	var p := camera.unproject_position(point)
+	var size := camera.get_viewport().get_visible_rect().size
+	return p.x >= 0.0 and p.x <= size.x and p.y >= 0.0 and p.y <= size.y
+
+
+static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, player: Node, space: PhysicsDirectSpaceState3D, stage: Dictionary) -> Dictionary:
+	var actor := actors.get(str(expect.get("actor", ""))) as Actor
+	var rows: Array = []
+	if actor == null:
+		return {"pass": false, "rows": [{"name": "actor", "pass": false, "detail": "no such actor"}]}
+	var cam_pos := camera.global_position
+	# 1. faces the camera
+	var forward := -actor.root.global_basis.z
+	forward.y = 0.0
+	var to_cam := cam_pos - actor.pos
+	to_cam.y = 0.0
+	var face_deg := rad_to_deg(forward.normalized().angle_to(to_cam.normalized()))
+	if expect.has("face_camera_deg"):
+		rows.append({"name": "faces camera", "pass": face_deg <= float(expect["face_camera_deg"]), "detail": "%.0f deg off (max %s)" % [face_deg, expect["face_camera_deg"]]})
+	# 2. lean toward the open side of the corner
+	var corner: Dictionary = stage["corner"]
+	var open_dir: Vector3 = -(stage["r"] as Vector3) * float(corner["s"])   # the hall side, away from the wall the corner turns into
+	var head := _bone_pos(actor, "Head")
+	var pelvis := _bone_pos(actor, "Pelvis")
+	var lean := (head - pelvis).dot(open_dir)
+	if bool(expect.get("lean_open_side", false)):
+		rows.append({"name": "leans to the open side", "pass": lean > .06, "detail": "head %.2f m toward the open side of the pelvis (needs > 0.06)" % lean})
+	# 3. visible parts and torso fraction
+	var parts := {"head": ["Head"], "chest": ["Chest"], "hand": ["L-Hand", "R-Hand"], "legs": ["L-Calf", "R-Calf", "L-Foot", "R-Foot"]}
+	var want: Dictionary = expect.get("visible_parts", {})
+	var vis := {}
+	for part in parts:
+		var any := false
+		for bone in parts[part]:
+			var point := _bone_pos(actor, str(bone))
+			if _seen(space, camera, player, point) and _on_screen(camera, point):
+				any = true
+		vis[part] = any
+	for part in want:
+		rows.append({"name": "%s %s" % [part, "visible" if bool(want[part]) else "hidden"], "pass": bool(vis.get(part, false)) == bool(want[part]), "detail": "seen=%s" % vis.get(part)})
+	if expect.has("torso_visible"):
+		var chest := _bone_pos(actor, "Chest")
+		var side := camera.global_basis.x
+		var seen_count := 0
+		var total := 0
+		for a in 5:
+			for b in 5:
+				var point := pelvis.lerp(chest, float(a) / 4.0) + side * (float(b) / 4.0 - .5) * .5
+				total += 1
+				if _seen(space, camera, player, point) and _on_screen(camera, point):
+					seen_count += 1
+		var fraction := float(seen_count) / float(total)
+		var range_: Array = expect["torso_visible"]
+		rows.append({"name": "torso visible", "pass": fraction >= float(range_[0]) and fraction <= float(range_[1]), "detail": "%.0f%% (wanted %d-%d%%)" % [fraction * 100.0, int(float(range_[0]) * 100), int(float(range_[1]) * 100)]})
+	# 4. no hunter mesh inside walls (body points, small spheres)
+	if bool(expect.get("no_wall_intersection", false)):
+		var sphere := SphereShape3D.new()
+		sphere.radius = .1
+		var hand_sphere := SphereShape3D.new()
+		hand_sphere.radius = .03   # a hand resting ON the wall edge is the point of the shot
+		var bad: Array = []
+		for bone in ["Head", "Chest", "Belly", "Pelvis", "L-Hand", "R-Hand", "L-Forearm", "R-Forearm", "L-Foot", "R-Foot", "L-Calf", "R-Calf"]:
+			var query := PhysicsShapeQueryParameters3D.new()
+			query.shape = hand_sphere if bone.ends_with("Hand") else sphere
+			query.transform = Transform3D(Basis.IDENTITY, _bone_pos(actor, bone))
+			query.exclude = [(player as CollisionObject3D).get_rid()]
+			if not space.intersect_shape(query, 1).is_empty():
+				bad.append(bone)
+		rows.append({"name": "no wall intersection", "pass": bad.is_empty(), "detail": "inside walls: %s" % [bad]})
+	# 5. screen size of the visible subject (head to the lowest visible, on-screen sample), as a fraction of the frame height
+	if expect.has("screen_fraction"):
+		var top := camera.unproject_position(_bone_pos(actor, "Head") + Vector3.UP * .25).y
+		var low := top
+		for bone in ["Chest", "Belly", "Pelvis", "L-Calf", "R-Calf", "L-Foot", "R-Foot"]:
+			var point := _bone_pos(actor, bone)
+			if _seen(space, camera, player, point) and _on_screen(camera, point):
+				low = maxf(low, camera.unproject_position(point).y)
+		var frac := (low - top) / camera.get_viewport().get_visible_rect().size.y
+		var limits: Array = expect["screen_fraction"]
+		rows.append({"name": "screen size", "pass": frac >= float(limits[0]) and frac <= float(limits[1]), "detail": "%.0f%% of frame height (wanted %d-%d%%)" % [frac * 100.0, int(float(limits[0]) * 100), int(float(limits[1]) * 100)]})
+	var ok := true
+	for row in rows:
+		ok = ok and bool(row["pass"])
+	var names: Array = []
+	for bone in ["Head", "Pelvis", "Chest", "L-Hand", "L-Foot"]:
+		names.append("%s=%s" % [bone, actor.model.find_child(bone, true, false) != null])
+	return {"pass": ok, "rows": rows, "bones": names}

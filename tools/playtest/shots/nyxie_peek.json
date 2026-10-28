@@ -21,32 +21,32 @@
   {
    "t": 0,
    "at": [
-    4.3,
+    4.6,
     0,
-    1.7
+    1.75
    ],
    "look": [
     "c",
     0.1,
     0.0,
-    1.72
+    1.78
    ],
-   "fov": 40
+   "fov": 38
   },
   {
    "t": 11,
    "at": [
-    5.0,
+    5.4,
     0,
-    1.7
+    1.75
    ],
    "look": [
     "c",
     0.1,
     0.0,
-    1.72
+    1.78
    ],
-   "fov": 36
+   "fov": 34
   }
  ],
  "flashlight": [
@@ -65,11 +65,11 @@
    "actor": "nyxie",
    "move": [
     "c",
-    0.45,
-    0.08
+    0.9,
+    0.9
    ],
    "speed": 0.5,
-   "pose": "peek_left",
+   "pose": "peek_right",
    "face": "camera"
   },
   {
@@ -89,5 +89,25 @@
    "hide": true
   }
  ],
- "corner": true
+ "corner": true,
+ "expect": {
+  "t": 6.0,
+  "actor": "nyxie",
+  "face_camera_deg": 30,
+  "lean_open_side": true,
+  "visible_parts": {
+   "head": true,
+   "chest": true,
+   "legs": false
+  },
+  "torso_visible": [
+   0.5,
+   0.95
+  ],
+  "no_wall_intersection": true,
+  "screen_fraction": [
+   0.35,
+   1.2
+  ]
+ }
 }
