@@ -15,7 +15,11 @@ func _expect(condition: bool, message: String) -> void:
 		_failures += 1
 
 
+var _host: Node
+
+
 func run(host: Node) -> int:
+	_host = host
 	_check_single_waypoint()
 	_check_players_are_independent()
 	_check_replication_and_late_join()
@@ -121,33 +125,26 @@ func _check_edge_clamp() -> void:
 		_expect(rect.grow(.5).has_point(degenerate["position"]), "a pin straight behind the camera is not clamped at %s" % size)
 
 
+## Waypoints are placed and cleared on the full map only (the in-world B / V keys were removed so typing in chat can never set
+## one): the actions are gone from the input map, the rebind list and the ACTIONS tab, and the map's request still reaches the
+## route's placement.
 func _check_controls() -> void:
 	for action in ["waypoint", "waypoint_clear"]:
-		_expect(InputMap.has_action(action), "%s is not in the input map" % action)
-		_expect(Settings.REBINDABLE_ACTIONS.has(action), "%s is not rebindable" % action)
-	var actions_tab: Array = []
+		_expect(not InputMap.has_action(action), "%s is still in the input map (waypoints are map-only)" % action)
+		_expect(not Settings.REBINDABLE_ACTIONS.has(action), "%s is still rebindable" % action)
 	for tab in ControlsRegistry.tabs_for("last_route"):
-		if String(tab["title"]) == "ACTIONS":
-			actions_tab = tab["actions"]
-	_expect(actions_tab.has("waypoint") and actions_tab.has("waypoint_clear"), "the waypoint keys are not on the Last Route ACTIONS tab")
-	# no key conflicts with any other Last Route (non-office) action
-	var signatures := {}
-	for action in Settings.REBINDABLE_ACTIONS:
-		if String(action).begins_with("office_") or not InputMap.has_action(action):
-			continue
-		for event in InputMap.action_get_events(action):
-			var signature := ""
-			if event is InputEventKey:
-				signature = "K%d" % int((event as InputEventKey).physical_keycode)
-			elif event is InputEventMouseButton:
-				signature = "M%d" % int((event as InputEventMouseButton).button_index)
-			elif event is InputEventJoypadButton:
-				signature = "J%d" % int((event as InputEventJoypadButton).button_index)
-			if signature.is_empty():
-				continue
-			if signatures.has(signature) and (action in ["waypoint", "waypoint_clear"] or signatures[signature] in ["waypoint", "waypoint_clear"]):
-				_expect(false, "waypoint key %s conflicts: %s vs %s" % [signature, action, signatures[signature]])
-			signatures[signature] = action
+		var actions: Array = tab["actions"]
+		_expect(not actions.has("waypoint") and not actions.has("waypoint_clear"), "a waypoint key is still on the %s tab" % tab["title"])
+	var route_script := load("res://src/infinite_route_test.gd") as Script
+	_expect(route_script != null and route_script.get_script_method_list().any(func(m: Dictionary) -> bool: return m["name"] == "_on_map_waypoint_requested"),
+		"the route no longer places waypoints from the map")
+	var hud := (load("res://scenes/hud.tscn") as PackedScene).instantiate() as HUD
+	var received := []
+	hud.map_waypoint_requested.connect(func(at: Vector2, level: int) -> void: received.append([at, level]))
+	_host.add_child(hud)
+	hud.plan.waypoint_requested.emit(Vector2(12, 7), -1)
+	_expect(received.size() == 1 and received[0][0] == Vector2(12, 7) and received[0][1] == -1, "the full map's waypoint request does not reach the HUD signal")
+	hud.queue_free()
 
 
 func _check_settings() -> void:

@@ -34,6 +34,10 @@ var disabled_hiding := {}
 var navigation_revision := 0
 ## Carnival booths (docs/CARNIVAL_BOOTHS.md): booth id -> unix time the booth is ready again. A booth with no entry (or a past one) is ready; the entry outlives the chunk and a reconnect.
 var booth_ready_at := {}
+## Merry-go-rounds (docs/CARNIVAL_BOOTHS.md, CarouselRide3D): ride id -> {on, angle (rad, true at t0), t0 (THIS machine's unix time)}. Every machine advances the angle by the same speed from its own clock, so guests
+## see the same angle to within the network delay; a snapshot carries the angle at that instant and the receiver re-bases t0 to its own clock.
+const CAROUSEL_SPEED := 0.45
+var carousels := {}
 
 
 func activate_checkpoint(chunk_data: Dictionary) -> bool:
@@ -324,6 +328,29 @@ func rest_booth(booth_id: String, until: float) -> bool:
 	return true
 
 
+func carousel_on(ride_id: String) -> bool:
+	return bool((carousels.get(ride_id, {}) as Dictionary).get("on", false))
+
+
+func carousel_angle(ride_id: String, now: float) -> float:
+	var c: Dictionary = carousels.get(ride_id, {})
+	if c.is_empty():
+		return 0.0
+	var angle := float(c["angle"])
+	if bool(c["on"]):
+		angle += CAROUSEL_SPEED * (now - float(c["t0"]))
+	return fposmod(angle, TAU)
+
+
+## Start or stop a ride at `angle` (true now). Returns true when anything changed.
+func set_carousel(ride_id: String, on: bool, angle: float, now: float) -> bool:
+	if ride_id.is_empty():
+		return false
+	var before: Dictionary = carousels.get(ride_id, {})
+	carousels[ride_id] = {"on": on, "angle": fposmod(angle, TAU), "t0": now}
+	return before.is_empty() or bool(before.get("on", false)) != on
+
+
 ## Booths whose rest is over are forgotten, so the snapshot stays small.
 func prune_booths(now: float) -> void:
 	for id in booth_ready_at.keys():
@@ -347,7 +374,16 @@ func snapshot() -> Dictionary:
 		"room_doors": room_doors.duplicate(true),
 		"room_lights": room_lights.duplicate(true),
 		"booth_ready_at": booth_ready_at.duplicate(true),
+		"carousels": _carousel_snapshot(Time.get_unix_time_from_system()),
 	}
+
+
+## The rides with their angle at `now`.
+func _carousel_snapshot(now: float) -> Dictionary:
+	var out := {}
+	for id in carousels:
+		out[id] = {"on": bool(carousels[id]["on"]), "angle": carousel_angle(String(id), now)}
+	return out
 
 
 func adopt(snapshot_data: Dictionary) -> bool:
@@ -387,6 +423,13 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	room_lights = (lights as Dictionary).duplicate(true) if lights is Dictionary else {}
 	var booths = snapshot_data.get("booth_ready_at", {})
 	booth_ready_at = (booths as Dictionary).duplicate(true) if booths is Dictionary else {}
+	carousels = {}
+	var rides = snapshot_data.get("carousels", {})
+	if rides is Dictionary:
+		var now := Time.get_unix_time_from_system()
+		for id in rides:
+			if rides[id] is Dictionary:
+				carousels[String(id)] = {"on": bool(rides[id].get("on", false)), "angle": float(rides[id].get("angle", 0.0)), "t0": now}
 	navigation_revision += 1
 	return true
 

@@ -84,6 +84,8 @@ var _admin_verify_request_id := 0
 var _requests_suppressed_for_tests := false
 ## Custom skin sharing (SkinSync): uploads your skin, downloads peers' into memory.
 var skin_sync: SkinSync
+## Build reports, restriction status and host kick reports (docs/ANTI_CHEAT.md).
+var moderation: ModerationClient
 
 
 func _ready() -> void:
@@ -91,6 +93,13 @@ func _ready() -> void:
 	_apply_loopback_override()
 	skin_sync = SkinSync.new()
 	add_child(skin_sync)
+	moderation = ModerationClient.new()
+	moderation.name = "Moderation"
+	add_child(moderation)
+	moderation.status_changed.connect(func(status: Dictionary) -> void:
+		var message := String(status.get("message", ""))
+		if not message.is_empty():
+			account_changed.emit(signed_in(), account_username, account_admin, message))
 	account_config_path = RunProfile.path(ACCOUNT_CONFIG_PATH)
 	_host_request = HTTPRequest.new()
 	_host_request.name = "HostDirectoryRequest"
@@ -640,6 +649,7 @@ func _on_account_response(result: int, response_code: int,
 			return
 		account_session_verified = true
 		_save_account_session()
+		moderation.report_integrity("signin")
 		_adopt_account_progress(payload,
 			"ROUTE CHECKPOINT LOADED" if payload.get("progress") is Dictionary \
 			else "NO ROUTE CHECKPOINT")
@@ -877,6 +887,9 @@ func register_room(code: String, port: int, player_count: int,
 		"sessionActive": _session_active,
 		"daytime": RoomState.is_day(),
 		"game": RoomState.game_id(),
+		# moderation (docs/ANTI_CHEAT.md): who hosts, so kick reports count per host and flagged accounts can't host public
+		"sessionToken": account_session_token,
+		"deviceId": moderation.device_id(),
 	})
 	_heartbeat.start()
 

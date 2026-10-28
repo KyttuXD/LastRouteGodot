@@ -335,6 +335,7 @@ const TEMPLATE_PROP_SIZES := {
 	"carnivalTicketBooth": Vector3(1.75, 2.45, 1.25),
 	"popcornCart": Vector3(1.45, 1.9, .9),
 	"ringTossStall": Vector3(2.6, 2.65, 1.55),
+	"carouselCenterpiece": Vector3(1.3, 3.3, 1.3),
 	"shootingGallery": Vector3(2.6, 2.65, 1.55),
 	"whackAMole": Vector3(2.6, 2.65, 1.55),
 	"duckPond": Vector3(1.7, .8, 1.7),
@@ -2210,7 +2211,7 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 		var dual_center: Vector2i = dual_room.get("center", Vector2i.ZERO)
 		var activity_specs := [
 			{"type": "carouselCenterpiece", "cell": dual_center,
-				"size": Vector3(.7, 6.45, .7), "offset": Vector2i.ZERO},
+				"size": Vector3(1.3, 6.45, 1.3), "offset": Vector2i.ZERO},
 			{"type": "ringTossStall", "cell": dual_center + Vector2i(-5, 4),
 				"size": Vector3(2.6, 2.65, 1.55), "offset": Vector2i(-5, 4)},
 			{"type": "strengthTester", "cell": dual_center + Vector2i(5, 4),
@@ -2460,11 +2461,47 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 			reserved[occupied_value as Vector2i] = true
 	result = even_ceiling_fixtures(one_ceiling_family(result), rect)
 	orient_props(result, grid)
+	if guarantee_beds and template in BED_TEMPLATES and not result.any(func(e: Dictionary) -> bool:
+			return PropModelCatalog.interaction_for(String(e.get("type", ""))) == "lay"):
+		var bed := _fallback_bed(coord, room, basis, template, specs, grid, reserved, result)
+		if not bed.is_empty():
+			bed["spec_index"] = specs.size()
+			result.append(bed)
+			for occupied_value in bed.get("occupied_cells", []):
+				reserved[occupied_value as Vector2i] = true
 	# back to recipe order, so everything downstream sees the same sequence as before the claim order
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["spec_index"]) < int(b["spec_index"]))
 	for entry in result:
 		entry.erase("spec_index")
 	return result
+
+
+## KT: "a gothic bedroom is nearly empty, no bed". A bedroom never goes without a bed: when the recipe's bed could not be
+## placed (the room narrower than the bed, a door or the 3-wide opening on its wall cell, a wardrobe claiming it), the
+## bed is tried along the whole back wall, then the side walls' spans, and then smaller types, before giving up.
+const BED_TEMPLATES := ["bedroom", "gothic_bedroom"]
+const FALLBACK_BEDS := ["singleBed", "bunkBed"]
+static var guarantee_beds := true
+
+
+func _fallback_bed(coord: Vector3i, room: Dictionary, basis: Dictionary, template: String, specs: Array, grid: Array,
+		reserved: Dictionary, placed: Array) -> Dictionary:
+	var types := []
+	for spec in specs:
+		if PropModelCatalog.interaction_for(String(spec.get("type", ""))) == "lay" and not types.has(spec["type"]):
+			types.append(spec["type"])
+	for t in FALLBACK_BEDS:
+		if not types.has(t):
+			types.append(t)
+	var span := int(basis.get("side_span", 9)) / 2
+	for type in types:
+		for step in range(0, span + 1):
+			for side in ([0] if step == 0 else [-step, step]):
+				var spec := {"type": type, "side": side, "depth": 0, "wall_backed": true, "facing": "open"}
+				var entry := _template_prop_entry(coord, room, basis, template, specs.size(), spec, grid, reserved)
+				if not entry.is_empty() and _collider_clear(entry, placed):
+					return entry
+	return {}
 
 
 ## Ceiling fixtures by family (KT: "chandeliers AND ceiling fans together"). A room keeps one family: a chandelier
@@ -3079,8 +3116,10 @@ static func _room_template_specs(template: String, region: String,
 					"depth": mid_depth + 2, "facing": "center"})
 		"carnival_big_top":
 			specs.append({"type": "arcadeCarpetCircle", "side": 0, "depth": mid_depth, "facing": "open", "solid": false})
-			for pedestal_side in [-6, 0, 6]:
-				specs.append({"type": "duckPond" if pedestal_side == 0 else "circusPedestal", "side": pedestal_side, "depth": mid_depth, "facing": "center"})
+			# the room's centre is the working merry-go-round (CarouselRide3D); a duck pond and a pedestal either side
+			specs.append({"type": "carouselCenterpiece", "side": 0, "depth": mid_depth, "facing": "center"})
+			specs.append({"type": "duckPond", "side": 6, "depth": mid_depth, "facing": "center"})
+			specs.append({"type": "circusPedestal", "side": -6, "depth": mid_depth, "facing": "center"})
 			for booth_side in [-8, 8]:
 				specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
 			for cart_side in [-4, 4]:

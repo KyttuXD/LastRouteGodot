@@ -318,6 +318,7 @@ func _check_node(host: Node) -> void:
 func _check_route(host: Node) -> void:
 	# the host flow in the real route needs a streamed carnival chunk with a booth: found by walking the generator, then loaded by standing there
 	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.seed_text = "CARNIVAL-VALIDATE"   # a fixed world, so the carnival is where the search looks
 	var route: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
 	host.get_tree().root.add_child(route)
 	for _i in 8:

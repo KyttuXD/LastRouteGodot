@@ -116,6 +116,9 @@ var pickup_requester: Callable
 var booth_requester: Callable
 var booth_reporter: Callable
 var _booth_nodes := {}
+## the merry-go-round lever: requester(player, ride_id) -> String asks the host to start or stop the ride
+var carousel_requester: Callable
+var _carousel_nodes := {}
 var door_requester: Callable
 
 var _library: MeshLibrary
@@ -2447,7 +2450,7 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 			prop_y, cell.y + .5 + mount_offset.y),
 		float(prop.get("yaw", 0.0)), prop.get("collider_size", prop.get("blocker_size", Vector3.ONE)),
 		"streamed_region_prop", bool(prop.get("solid", true)), type,
-		"%d:%d:%d:%s:%d:%d" % [coord.x, coord.y, coord.z, type, cell.x, cell.y] if CarnivalBooths.is_booth(type) else "",
+		"%d:%d:%d:%s:%d:%d" % [coord.x, coord.y, coord.z, type, cell.x, cell.y] if CarnivalBooths.is_booth(type) or type == "carouselCenterpiece" else "",
 		float(prop.get("collider_y0", 0.0)))
 	if bool(prop.get("crawl_under", false)) and int(prop.get("crawl_side", 1)) == -1:
 		_add_pipe_drips(parent, Vector3(cell.x + .5, float(prop.get("collider_y0", 1.0)), cell.y + .5), prop)
@@ -2654,9 +2657,77 @@ func _attach_booth(parent: Node3D, furniture: RouteInteractable3D, booth_id: Str
 			_booth_nodes.erase(booth_id))
 
 
+## The working merry-go-round: the ride node at the prop, its state from the world state, and a lever interactable on its panel.
+func _attach_carousel(parent: Node3D, ride_id: String, at: Vector3) -> CarouselRide3D:
+	var ride := CarouselRide3D.new()
+	ride.state_resolver = func() -> Dictionary:
+		if world_state == null:
+			return {"on": false, "angle": 0.0}
+		var now := Time.get_unix_time_from_system()
+		return {"on": world_state.carousel_on(ride_id), "angle": world_state.carousel_angle(ride_id, now)}
+	ride.setup(ride_id)
+	ride.position = at
+	parent.add_child(ride)
+	if tracked_player != null and not tracked_player.is_in_group("carousel_riders"):
+		tracked_player.add_to_group("carousel_riders")
+	var lever := RouteInteractable3D.new()
+	lever.name = "CarouselLever"
+	lever.kind = RouteInteractable3D.Kind.FURNITURE
+	lever.configure_furniture("play")
+	lever.position = at + ride.lever_point.position + Vector3(0, 0.5, 0)
+	lever.prompt_resolver = ride.prompt_text
+	if carousel_requester.is_valid():
+		lever.activation_override = carousel_requester.bind(ride_id)
+	parent.add_child(lever)
+	_carousel_nodes[ride_id] = ride
+	ride.tree_exited.connect(func() -> void:
+		if _carousel_nodes.get(ride_id) == ride:
+			_carousel_nodes.erase(ride_id))
+	return ride
+
+
+func carousel_node(ride_id: String) -> CarouselRide3D:
+	var node := _carousel_nodes.get(ride_id) as CarouselRide3D
+	return node if node != null and is_instance_valid(node) else null
+
+
 func booth_node(booth_id: String) -> CarnivalBooth3D:
 	var node := _booth_nodes.get(booth_id) as CarnivalBooth3D
 	return node if node != null and is_instance_valid(node) else null
+
+
+## Height of a bed's sleeping surface above the floor: the highest upward face over the middle of the model (the head and
+## foot boards and rails stand at the ends and sides, outside that patch). Cached per model path.
+static var _mattress_tops := {}
+
+
+static func mattress_top(visual: Node3D, path: String) -> float:
+	if _mattress_tops.has(path):
+		return float(_mattress_tops[path])
+	var inverse := visual.global_transform.affine_inverse()
+	var bounds := ModelSlot.combined_local_bounds(visual)
+	var centre := bounds.get_center()
+	var reach := Vector2(bounds.size.x * .2, bounds.size.z * .15)
+	var top := bounds.position.y
+	for mesh_value in visual.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := mesh_value as MeshInstance3D
+		if mesh_node.mesh == null:
+			continue
+		var xf := inverse * mesh_node.global_transform
+		var faces := mesh_node.mesh.get_faces()
+		for i in range(0, faces.size(), 3):
+			var a := xf * faces[i]
+			var b := xf * faces[i + 1]
+			var c := xf * faces[i + 2]
+			var normal := (b - a).cross(c - a)
+			if absf(normal.y) < normal.length() * .9:
+				continue
+			var mid := (a + b + c) / 3.0
+			if absf(mid.x - centre.x) <= reach.x and absf(mid.z - centre.z) <= reach.y:
+				top = maxf(top, mid.y)
+	var height := (top - bounds.position.y) * visual.scale.y
+	_mattress_tops[path] = height
+	return height
 
 
 func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
@@ -2685,11 +2756,18 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	parent.add_child(visual)
 	if PropModelCatalog.is_empty_frame(prop_type):
 		_add_blank_frame_canvas(visual, prop_type)
+	var carousel_ride: CarouselRide3D = null
 	if prop_type == "carouselCenterpiece":
-		_animated_activity_props.append(visual)
+		if booth_id.is_empty():
+			_animated_activity_props.append(visual)
+		else:
+			visual.visible = false   # the single turning model is replaced by the working ride (CarouselRide3D)
+			carousel_ride = _attach_carousel(parent, booth_id, at)
 	if PropModelCatalog.is_floor_dressing(prop_type):
 		ModelSlot.keep_floor_dressing_visible(visual)
 	var furniture_action := PropModelCatalog.interaction_for(prop_type)
+	if carousel_ride != null:
+		furniture_action = ""   # the lever starts it; nobody sits on a turning ride's centre
 	if furniture_action == "mirror":
 		_spawn_mirror_surface(parent, at, yaw)
 	if not furniture_action.is_empty():
@@ -2698,6 +2776,8 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		furniture.kind = RouteInteractable3D.Kind.FURNITURE
 		furniture.configure_furniture(furniture_action)
 		furniture.set_meta("rest_size", blocker_size)    # PlayerController3D.rest_spot: where the body and eye go
+		if furniture_action == "lay":
+			furniture.set_meta("rest_top", mattress_top(visual, path))
 		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
 		furniture.rotation.y = yaw
 		parent.add_child(furniture)

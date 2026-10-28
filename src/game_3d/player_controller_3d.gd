@@ -188,6 +188,10 @@ var exhausted := false
 var stamina_recovery_delay := 0.0
 ## Set when sprinting stops above GameConfig.STAMINA_QUICK_THRESHOLD: stamina ramps back to full in a blink.
 var stamina_quick_refill := false
+## Troll mode (docs/ANTI_CHEAT.md): the host caught this client cheating, or the server flagged the account. Faster
+## stamina drain, a flickering flashlight and fake hunter footsteps; the host side (hunters, pickups) does the rest.
+var troll_active := false
+var _troll_step_in := 0.0
 var _was_sprinting_stamina := false
 var movement_mode := "walk"
 ## Noise emitted this frame by movement, consumed by hunter hearing
@@ -304,6 +308,7 @@ var resting_pose := ""
 ## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
 ## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
 const SIT_EYE := 1.15
+const LAY_EYE_ABOVE_MATTRESS := .22
 const REST_EASE_SECONDS := 0.35
 const SIT_YAW_LIMIT := deg_to_rad(75.0)
 const LAY_YAW_LIMIT := deg_to_rad(55.0)
@@ -417,6 +422,8 @@ func use_furniture(furniture: RouteInteractable3D, pose: String) -> String:
 	_rest_ease = {"from": start_camera, "t": 0.0, "leaving": false}
 	_apply_rest_ease()
 	_rest_idle = 0.0
+	if first_person_items != null:
+		first_person_items.visible = false    # nothing held in view while seated, lying or asleep
 	velocity = Vector3.ZERO
 	_clip = "sit" if pose == "ride" else pose
 	ModelSlot.play_if_available(_animation_player, _clip)
@@ -441,7 +448,9 @@ static func rest_spot(furniture: Node3D, pose: String) -> Dictionary:
 	var xf := furniture.global_transform
 	if pose == "lay":
 		var head := xf * Vector3(0.0, 0.0, maxf(0.0, size.z * .5 - .5))
-		var eye := clampf(size.y * .62 + .14, .72, 1.05) if size.y < 1.6 else .95
+		# the eye just above the pillow: the bed model's measured mattress top (the view's "rest_top"), else an estimate
+		var eye := float(furniture.get_meta("rest_top")) + LAY_EYE_ABOVE_MATTRESS if furniture.has_meta("rest_top") \
+			else (clampf(size.y * .62 + .14, .72, 1.05) if size.y < 1.6 else .95)
 		return {"body": Vector3(head.x, floor_y, head.z), "eye": eye, "yaw": furniture.global_rotation.y, "pitch": .12}
 	var seat := xf * Vector3(0.0, 0.0, -.06)
 	return {"body": Vector3(seat.x, floor_y, seat.z), "eye": SIT_EYE, "yaw": furniture.global_rotation.y, "pitch": -.08}
@@ -474,6 +483,8 @@ func _advance_rest_ease(delta: float) -> void:
 	_rest_ease["t"] = minf(1.0, float(_rest_ease["t"]) + delta / REST_EASE_SECONDS)
 	_apply_rest_ease()
 	if float(_rest_ease["t"]) >= 1.0:
+		if bool(_rest_ease.get("leaving", false)) and first_person_items != null:
+			first_person_items.visible = true
 		_rest_ease = {}
 		first_person_pivot.position.x = 0.0
 		first_person_pivot.position.z = 0.0
@@ -1567,6 +1578,7 @@ func _physics_process(delta: float) -> void:
 		Sound.footstep(movement_mode, footstep_surface)
 
 
+	_update_troll(delta)
 	_update_flashlight_flicker(delta)
 	if Input.is_action_just_pressed("flashlight") and owns_inventory_item("flashlight") \
 			and not flashlight_seized():
@@ -1659,6 +1671,12 @@ func _move_and_resolve_landing() -> void:
 			stun_timer = maxf(stun_timer, duration)
 			interaction_message.emit("HARD LANDING // STUNNED %.1fs" % duration)
 		_fall_speed = 0.0
+
+
+## A turning platform (CarouselRide3D) carries the player: the view turns with it.
+func rotate_with_platform(angle: float) -> void:
+	_yaw += angle
+	_apply_look_rotation()
 
 
 func request_jump() -> void:
@@ -1884,7 +1902,8 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 		exhausted = false
 		return
 	if is_sprinting:
-		stamina = maxf(0.0, stamina - GameConfig.STAMINA_SPRINT_DRAIN * delta)
+		stamina = maxf(0.0, stamina - GameConfig.STAMINA_SPRINT_DRAIN \
+			* (GameConfig.TROLL_STAMINA_DRAIN_SCALE if troll_active else 1.0) * delta)
 		stamina_recovery_delay = GameConfig.STAMINA_RECOVERY_DELAY
 		if stamina <= 0.0:
 			exhausted = true
@@ -1923,6 +1942,18 @@ func _update_lamp(delta: float, is_sprinting: bool) -> void:
 		_set_flashlight(false)
 		Sound.light_switch()
 		interaction_message.emit("FLASHLIGHT DEAD // FIND A BATTERY")
+
+
+func _update_troll(delta: float) -> void:
+	if not troll_active:
+		return
+	_troll_step_in -= delta
+	if _troll_step_in > 0.0:
+		return
+	_troll_step_in = randf_range(GameConfig.TROLL_FAKE_STEP_SECONDS.x, GameConfig.TROLL_FAKE_STEP_SECONDS.y)
+	Sound.hunter_footstep(randf_range(-1.0, 1.0), randf_range(.05, .12))
+	if flashlight_enabled:
+		force_flashlight_flicker(randf_range(.4, 1.2))
 
 
 func _update_flashlight_flicker(delta: float) -> void:
@@ -2882,6 +2913,13 @@ func is_in_safe_zone() -> bool:
 
 
 func get_interaction_prompt() -> String:
+	if resting_furniture != null:
+		# resting: what you can do from here, never the "LIE DOWN" of the furniture you are on
+		if asleep:
+			return "ASLEEP // %s WAKE" % InputGlyphs.key("jump")
+		if resting_pose == "lay":
+			return "LYING DOWN // %s SLEEP // %s GET UP" % [InputGlyphs.key("jump"), InputGlyphs.key("interact")]
+		return "SEATED // %s" % InputGlyphs.prompt("interact", "STAND")
 	if hidden:
 		if hiding_lock_timer > 0.0:
 			return "LOCKED IN // %ds" % ceili(hiding_lock_timer)

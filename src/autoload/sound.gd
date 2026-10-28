@@ -680,6 +680,15 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 		"carnival_miss_swing": c = [_noise(.1, .05, 800, 0, pan, .8)]
 		"carnival_miss": c = [_tone(220, .2, .05, 0, "triangle", pan), _tone(165, .3, .05, .15, "triangle", pan)]
 		"carnival_hook": c = [_noise(.08, .04, 1600, 0, pan, 1.0), _tone(900, .05, .04, 0, "triangle", pan)]
+		"carnival_carousel_tune":
+			# a waltz on a music box that has been left out in the damp: every note a little off, one flat, the bass a beat late
+			var melody := [523.3, 659.3, 784.0, 659.3, 880.0, 784.0, 659.3, 587.3, 523.3, 659.3, 784.0, 1046.5, 880.0, 784.0, 698.5, 659.3]
+			for i in melody.size():
+				var off := 1.0 + 0.018 * sin(float(i) * 2.3) - (0.04 if i == 11 else 0.0)
+				c.append(_tone(float(melody[i]) * off, .42, .05, float(i) * .5, "triangle", pan))
+				if i % 4 == 0:
+					c.append(_tone(130.8 if i % 8 == 0 else 196.0, .9, .035, float(i) * .5 + 0.03, "square", pan))
+		"carnival_lever": c = [_thump(80, .2, .2, 0, pan), _tone(220, .15, .08, 0, "square", pan), _noise(.12, .08, 700, .05, pan, .8)]
 		"carnival_tick": c = [_tone(1400, .02, .03, 0, "square", pan)]
 		"carnival_pop": c = [_thump(160, .08, .1, 0, pan), _tone(700, .05, .05, 0, "square", pan)]
 		"carnival_clang": c = [_tone(1200, .3, .1, 0, "square", pan), _tone(1900, .25, .06, 0, "triangle", pan), _noise(.06, .08, 3000, 0, pan, 1.2)]
