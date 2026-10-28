@@ -186,6 +186,7 @@ static func _nearest_uncollected(from: Vector2, entries: Array) -> int:
 	return best
 
 
-## 2D batteryThief never targets or attacks the player.
+## KT's ruling: she avoids and runs, but a runner who catches up to her or blocks her way gets grabbed like by any other
+## hunter. She never closes in herself (the flee and hold rules above), so a capture only happens when the runner does.
 func immune_to_capture() -> bool:
-	return true
+	return false
