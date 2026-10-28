@@ -7,6 +7,8 @@ extends Node3D
 
 signal chunk_changed(coord: Vector3i, data: Dictionary)
 signal pickup_claimed(entity_id: String)
+## A tool swing hit a breakable (Breach): the route asks the host what it did.
+signal breakable_hit(id: String, tool: String)
 
 const CELL_SIZE := 1.0
 const LEVEL_HEIGHT := 4.0
@@ -1229,6 +1231,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				_spawn_falls(root, data, (build["coord"] as Vector3i).y)
 				InfernoPitView.build(root, data)
 				InfernoLandingPile.build(root, data)
+				_spawn_breakables(root, data)
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
@@ -1995,6 +1998,37 @@ void fragment() {
 	material.set_shader_parameter("strength", strength)
 	_foam_cache[strength] = material
 	return material
+
+
+var _breakable_nodes := {}
+
+
+## One interactable per breakable spec of the chunk (seals across tunnels, boards, pipes), at its spec's state.
+func _spawn_breakables(root: Node3D, data: Dictionary) -> void:
+	for spec_value in data.get("breakables", []):
+		var spec: Dictionary = spec_value
+		var extras: Dictionary = spec.get("extras", {})
+		var centre: Vector2 = extras.get("centre", Vector2(spec["cell"]) + Vector2(.5, .5))
+		var node := RouteInteractable3D.new()
+		node.name = "Breakable_%s" % String(spec["id"]).replace(":", "_")
+		node.kind = RouteInteractable3D.Kind.BREAKABLE
+		node.position = Vector3(centre.x, 0.0, centre.y)
+		node.rotation.y = BreakableView.yaw_of(spec)
+		node.configure_breakable(spec, world_state.breach_hp(spec), world_state.breach_open(String(spec["id"])))
+		node.changed.connect(func(event: Dictionary) -> void:
+			if String(event.get("what", "")) == "breakable_hit":
+				breakable_hit.emit(String(event["id"]), String(event["tool"])))
+		root.add_child(node)
+		_breakable_nodes[String(spec["id"])] = node
+
+
+## The state of a breakable changed (the host's "stream_breach"): its piece, if its chunk is loaded.
+func apply_breach(id: String, hp: int, opened: bool) -> void:
+	var node := _breakable_nodes.get(id) as RouteInteractable3D
+	if node == null or not is_instance_valid(node):
+		_breakable_nodes.erase(id)
+		return
+	node.apply_breakable_state(hp, opened)
 
 
 func _add_falls_sound(root: Node3D, at: Vector3) -> void:

@@ -20,10 +20,11 @@ func _expect(condition: bool, message: String) -> void:
 		_failures += 1
 
 
-func run(_host: Node) -> int:
+func run(host: Node) -> int:
 	for seed_text in SEEDS:
 		_check_seed(seed_text)
 	_check_breach_api()
+	await _live(host)
 	return _failures
 
 
@@ -188,3 +189,83 @@ func _check_breach_api() -> void:
 	var copy := StreamedWorldState.new()
 	copy.adopt(state.snapshot())
 	_expect(copy.breach_hp(spec) == 1, "breach state does not survive a snapshot")
+
+
+## A real route: a gate is drawn, a tool swing breaks it (host path and guest path), the hooks fire once, hunters' map and
+## colliders open, the state survives a snapshot.
+func _live(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.seed_text = "SEAL-LIVE"
+	RoomState.map_scale = RoomState.Scale.INFINITE
+	var route: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
+	host.get_tree().root.add_child(route)
+	await host.get_tree().process_frame
+	for _i in 8:
+		await host.get_tree().physics_frame
+	var generator: StreamedRouteGenerator = route.facility.generator
+	var level := StreamedRouteGenerator.INFERNO_LEVEL
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var found := Vector3i.ZERO
+	var spec := {}
+	for cz in range(-3, 4):
+		for cx in range(-3, 4):
+			var specs: Array = generator.chunk(Vector3i(cx, level, cz)).get("breakables", [])
+			if spec.is_empty() and not specs.is_empty():
+				spec = specs[0]
+				found = Vector3i(cx, level, cz)
+	if spec.is_empty():
+		_expect(false, "no seal near the origin to test live")
+		route.queue_free()
+		return
+	var extras: Dictionary = spec["extras"]
+	var centre: Vector2 = extras["centre"]
+	var dir: Vector2 = extras["dir"]
+	var stand := centre - dir * 4.0
+	route.call("_admin_teleport_to", Vector3(found.x * size + stand.x, float(level) * StreamedFacilityView3D.LEVEL_HEIGHT, found.z * size + stand.y))
+	for _i in 60:
+		await host.get_tree().physics_frame
+	var id := String(spec["id"])
+	var facility: StreamedFacilityView3D = route.facility
+	var node := facility._breakable_nodes.get(id) as RouteInteractable3D
+	_expect(node != null and is_instance_valid(node), "the seal is not drawn")
+	if node == null:
+		route.queue_free()
+		return
+	var tools: Array = spec["tools"]
+	var wrong := "lockpick" if not Breach.accepts(spec, "lockpick") else ("rescue_axe" if not Breach.accepts(spec, "rescue_axe") else "crowbar")
+	var hooks := {"breached": 0, "hit": 0}
+	Breach.connect_hook("breached", Breach.KIND_SEAL, func(_e: Dictionary) -> void: hooks["breached"] += 1)
+	Breach.connect_hook("hit", "", func(_e: Dictionary) -> void: hooks["hit"] += 1)
+	var state: StreamedWorldState = route.world_state
+	var hp0 := state.breach_hp(spec)
+	route.call("_host_breach", id, wrong, 1)
+	_expect(state.breach_hp(spec) == hp0 and hooks["hit"] == 0, "the wrong tool (%s) hurt the seal" % wrong)
+	var tool := String(tools[0])
+	var pieces_before := node._breakable_pieces.filter(func(p): return p.visible).size()
+	var swings := 0
+	while not state.breach_open(id) and swings < 8:
+		swings += 1
+		route.call("_accept_breach_request", 2, {"id": id, "tool": tool})      # as a guest's request reaching the host
+	_expect(state.breach_open(id) and swings >= 1, "%d swings with %s did not open the seal" % [swings, tool])
+	_expect(hooks["breached"] == 1, "the breached hook fired %d times" % hooks["breached"])
+	_expect(hooks["hit"] == swings, "the hit hook fired %d times for %d swings" % [hooks["hit"], swings])
+	_expect(node.opened and not node._visual.visible, "the opened seal is still drawn")
+	var pieces_after := node._breakable_pieces.filter(func(p): return p.visible).size()
+	_expect(pieces_after <= pieces_before, "the seal grew pieces while breaking")
+	var body := node._visual.get_node_or_null("BreakableBody") as StaticBody3D
+	_expect(body == null or body.process_mode == Node.PROCESS_MODE_DISABLED, "the opened seal still blocks")
+	# a second swing does nothing, and the state is in the snapshot
+	var hits_after_open: int = hooks["hit"]
+	route.call("_host_breach", id, tool, 1)
+	_expect(hooks["hit"] == hits_after_open, "an opened seal took another hit")
+	var copy := StreamedWorldState.new()
+	_expect(copy.adopt(state.snapshot()) and copy.breach_open(id), "the opened seal is closed again after save/load")
+	# hunters walk through now
+	var navigation = route.get("_navigations").get(level)
+	if navigation != null:
+		navigation.refresh(level, [found])
+		var cell: Vector2i = (extras["cells"] as Array)[0]
+		_expect(navigation.is_floor(found.x * size + cell.x + .5, found.z * size + cell.y + .5), "hunters still see the broken gate as a wall")
+	Breach.clear_hooks()
+	route.queue_free()
+	await host.get_tree().process_frame

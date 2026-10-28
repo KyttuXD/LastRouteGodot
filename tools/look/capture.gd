@@ -290,6 +290,17 @@ func _run(scene: Node) -> void:
 					picks.append({"name": "ramp_bottom_side", "pos": Vector3(bot_cx, low3 + .05, rz), "yaw": 0.0,
 						"look": Vector3(bot_cx, low3 + 1.4, cz * fsize + float((ramp["connector"] as Rect2i).position.y) + (ramp["connector"] as Rect2i).size.y * .5)})
 					continue
+				if OS.get_environment("CAP_FALLS") == "seal":
+					var seal_y := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+					for spec in facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz)).get("breakables", []):
+						var seal_centre: Vector2 = spec["extras"]["centre"]
+						var seal_dir: Vector2 = spec["extras"]["dir"]
+						var from_cell: Vector2 = seal_centre - seal_dir * 5.0
+						picks.append({"name": "seal_%s" % String(spec["variant"]), "yaw": 0.0,
+							"pos": Vector3(cx * fsize + from_cell.x, seal_y + .05, cz * fsize + from_cell.y),
+							"look": Vector3(cx * fsize + seal_centre.x, seal_y + 1.4, cz * fsize + seal_centre.y)})
+						break
+					continue
 				if OS.get_environment("CAP_FALLS") == "cave":
 					var cave_data: Dictionary = facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz))
 					var cave_chambers: Array = cave_data.get("inferno_caverns", [])
