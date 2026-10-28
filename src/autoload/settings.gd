@@ -130,6 +130,8 @@ var voice_player_volumes := {}
 var tts_mode := "everyone"
 ## Settings -> MODS: fetch missing room mod packs without asking. Off by default; downloads are other players' content.
 var auto_download_mods := false
+## Settings -> DISPLAY: on-screen teammate waypoints (name, distance, edge arrows); also shows teammates on the minimap and full map.
+var teammate_waypoints := true
 var tts_rate := 1.0
 var tts_voice_id := ""
 ## Content packs (user://mods/<id>) this player's private rooms play with; RoomPacks.host_load(). Public routes ignore it.
@@ -286,6 +288,12 @@ func set_mod_enabled(pack_id: String, on: bool) -> void:
 		mods_enabled.erase(pack_id)
 	else:
 		return
+	_save()
+
+
+func set_teammate_waypoints(on: bool) -> void:
+	teammate_waypoints = on
+	display_changed.emit()
 	_save()
 
 
@@ -685,6 +693,7 @@ func _load() -> void:
 	tts_rate = clampf(float(config.get_value("voice", "tts_rate", 1.0)), 0.5, 2.0)
 	tts_voice_id = String(config.get_value("voice", "tts_voice", ""))
 	auto_download_mods = bool(config.get_value("mods", "auto_download", false))
+	teammate_waypoints = bool(config.get_value("gameplay", "teammate_waypoints", true))
 	mods_enabled = Array(config.get_value("mods", "enabled", []))
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
@@ -796,6 +805,7 @@ func _save() -> void:
 	config.set_value("voice", "tts_rate", tts_rate)
 	config.set_value("voice", "tts_voice", tts_voice_id)
 	config.set_value("mods", "auto_download", auto_download_mods)
+	config.set_value("gameplay", "teammate_waypoints", teammate_waypoints)
 	config.set_value("mods", "enabled", mods_enabled)
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)

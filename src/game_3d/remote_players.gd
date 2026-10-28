@@ -1157,6 +1157,8 @@ func remote_player_marks(depth: int, include_other_floors: bool = false) -> Arra
 			"spectating": bool(state.get("spectating", false)) or bool(state.get("game_over", false)),
 			"other_floor": other_floor,
 			"stale": age > REMOTE_STATE_TIMEOUT_USEC,
+			"age_ms": int(age / 1000),
+			"caught": bool(state.get("escape_active", false)) and not bool(state.get("spectating", false)),
 		})
 	for id_value in _floor_exit_marks.keys().duplicate():
 		var id := int(id_value)

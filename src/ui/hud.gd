@@ -73,6 +73,7 @@ void fragment() {
 ## remains usable while the HUD is hidden.
 const GAMEPLAY_HUD_NODE_PATHS := [
 	NodePath("ObjectivePanel"),
+	NodePath("TeammateWaypoints"),
 	NodePath("MetersPanel"),
 	NodePath("HotbarPanel"),
 	NodePath("CompactStaminaBar"),
@@ -113,6 +114,8 @@ func _ready() -> void:
 	_build_zone_panel()
 	TestServerBadge.attach(self)
 	_build_thermal_warning()
+	teammate_waypoints = TeammateWaypoints.new()
+	add_child(teammate_waypoints)
 	_cache_gameplay_hud_surfaces()
 	_prepare_inventory_slots()
 	_build_inventory_overlay()
@@ -182,6 +185,8 @@ var _thermal_material: ShaderMaterial
 var _thermal_time := 0.0
 var _hud_hidden := false
 var _gameplay_hud_surfaces: Array[CanvasItem] = []
+## On-screen teammate markers (TeammateWaypoints); fed once per frame by the route.
+var teammate_waypoints: TeammateWaypoints
 var _gameplay_hud_modulates: Array[Color] = []
 
 
@@ -931,6 +936,11 @@ func update_minimap(generator: FacilityGenerator, at: Vector2, facing: Vector2,
 		marks: Array, player_marks: Array = [], drop_marks: Array = [],
 		safe_room_marks: Array = []) -> void:
 	minimap.show_state(generator, at, facing, marks, player_marks, drop_marks, safe_room_marks)
+
+
+func update_teammate_waypoints(camera: Camera3D, viewer: Vector3, marks: Array) -> void:
+	if teammate_waypoints != null:
+		teammate_waypoints.update_marks(camera, viewer, marks)
 
 
 func update_streamed_map(chunks: Dictionary, level: int, chunk_size: int,

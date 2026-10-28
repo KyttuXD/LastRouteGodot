@@ -359,6 +359,7 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 func _process(delta: float) -> void:
 	_update_player_list(delta)
+	_update_teammate_waypoints()
 	if not _admin_pulses.is_empty():
 		_apply_pulses_to_maps()
 	_update_troll_ads(delta)
@@ -1800,8 +1801,9 @@ func _update_streamed_maps() -> void:
 	# Region boundaries expose generation information, so they follow the same
 	# authenticated visual-admin permission as hunter/map reveal controls.
 	var show_admin_regions := Build.admin_permission("visual") and _admin_region_map
+	# the teammate setting governs the maps too, so the HUD markers and the minimap never disagree
 	var remote_map_players := _remotes.remote_player_marks(-level, true) \
-		if _remotes != null else []
+		if _remotes != null and Settings.teammate_waypoints else []
 	var dropped_tool_marks := _dropped_tool_marks(level)
 	var discovered_map_chunks := _map_chunks_with_available_pickups(_discovered_chunks)
 	var safe_room_marks := _safe_room_map_marks(level, discovered_map_chunks)
@@ -5711,6 +5713,18 @@ const PULSE_SECONDS := 6.0
 var _player_list_overlay: PlayerListPanel
 var _player_list_elapsed := 0.0
 var _admin_pulses := {}   # target peer id -> {until_msec, name, at: Vector2, level: int}
+
+
+## Teammate markers on the HUD, from the replicated states (so they reach beyond chunk range), refreshed every frame.
+func _update_teammate_waypoints() -> void:
+	if hud == null:
+		return
+	if _remotes == null or not RoomState.online:
+		hud.update_teammate_waypoints(null, Vector3.ZERO, [])
+		return
+	var camera := get_viewport().get_camera_3d()
+	hud.update_teammate_waypoints(camera, player.global_position,
+		_remotes.remote_player_marks(-facility.current_level(), true))
 
 
 func _build_player_list() -> void:
