@@ -2060,6 +2060,18 @@ func _present_afk_void_warning() -> void:
 		_afk_void_warning_shown = false
 
 
+## entity id -> where the idle runner stood when the anti-idle pressure woke Gray there (applied when her brain exists).
+var _gray_hunts := {}
+
+
+## The anti-idle trigger is a hunt, not a rumour: Gray is told the runner's exact position and keeps it while they stay put.
+func _lock_gray_on(entity_id: String, brain: HunterBrain) -> void:
+	if not _gray_hunts.has(entity_id) or not brain.gimmick is VoidGrayGimmick:
+		return
+	(brain.gimmick as VoidGrayGimmick).force_hunt(brain, Vector2(_gray_hunts[entity_id]))
+	_gray_hunts.erase(entity_id)
+
+
 func _spawn_anti_idle_hunter() -> bool:
 	var local_target := _hunter_target(
 		_player_in_intact_safe_room(facility.current_chunk_data()))
@@ -2091,6 +2103,8 @@ func _spawn_anti_idle_hunter() -> bool:
 		var existing_view := _hunter_views.get(existing_id) as HunterView3D
 		if existing_view != null and existing_view.brain != null:
 			existing_view.brain.activate_at(target_position)
+			_gray_hunts[existing_id] = target_position
+			_lock_gray_on(existing_id, existing_view.brain)
 			existing_view.target_peer_id = int(target.get("peer_id", 1))
 			existing_view.sync_from_brain()
 			_store_hunter(existing_id, existing_view)
@@ -2149,9 +2163,11 @@ func _spawn_anti_idle_hunter() -> bool:
 	_anti_idle_spawn_sequence += 1
 	_hunter_stream_signature = ""
 	_refresh_hunter_stream()
+	_gray_hunts[entity_id] = target_position
 	var view := _hunter_views.get(entity_id) as HunterView3D
 	if view != null and view.brain != null:
 		view.brain.activate_at(target_position)
+		_lock_gray_on(entity_id, view.brain)
 		view.target_peer_id = int(target.get("peer_id", 1))
 		view.sync_from_brain()
 		_store_hunter(entity_id, view)
@@ -2439,6 +2455,7 @@ func _load_hunter(entity_id: String, state: Dictionary) -> void:
 	_configure_day_vision(view.brain)
 	view.brain.near_link = _hunter_near_link.bind(level)
 	world_state.restore_hunter(view.brain, state)
+	_lock_gray_on(entity_id, view.brain)
 	view.surface_height_provider = facility.streamed_surface_height.bind(level)
 	view.set_meta("streamed_entity_id", entity_id)
 	view.add_to_group("streamed_hunter")
