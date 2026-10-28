@@ -5,7 +5,7 @@ extends RefCounted
 ## route. Chunk meshes may unload; checkpoint damage and claimed pickup ids do
 ## not. The plain Dictionary snapshot is RPC/save friendly for late joining.
 
-const SCHEMA := 5
+const SCHEMA := 6
 
 var active_checkpoint := ""
 var claimed_pickups := {}
@@ -32,6 +32,8 @@ var disabled_hiding := {}
 ## authority window keep its cached navigation instead of rebuilding every
 ## 0.2 seconds while a hunter is active.
 var navigation_revision := 0
+## Carnival booths (docs/CARNIVAL_BOOTHS.md): booth id -> unix time the booth is ready again. A booth with no entry (or a past one) is ready; the entry outlives the chunk and a reconnect.
+var booth_ready_at := {}
 
 
 func activate_checkpoint(chunk_data: Dictionary) -> bool:
@@ -309,6 +311,26 @@ func set_room_light(room_id: String, on: bool) -> bool:
 	return changed
 
 
+## Seconds until the booth is ready again (0 when it is ready). `now` is unix time, passed in so the validators can run a clock.
+func booth_cooldown_left(booth_id: String, now: float) -> float:
+	return maxf(0.0, float(booth_ready_at.get(booth_id, 0.0)) - now)
+
+
+## Rest a booth until `until` (idempotent: a replayed event cannot shorten it). Returns true when this changed the state.
+func rest_booth(booth_id: String, until: float) -> bool:
+	if booth_id.is_empty() or until <= float(booth_ready_at.get(booth_id, 0.0)):
+		return false
+	booth_ready_at[booth_id] = until
+	return true
+
+
+## Booths whose rest is over are forgotten, so the snapshot stays small.
+func prune_booths(now: float) -> void:
+	for id in booth_ready_at.keys():
+		if float(booth_ready_at[id]) <= now:
+			booth_ready_at.erase(id)
+
+
 func snapshot() -> Dictionary:
 	return {
 		"schema": SCHEMA,
@@ -324,12 +346,13 @@ func snapshot() -> Dictionary:
 		"disabled_hiding": disabled_hiding.duplicate(true),
 		"room_doors": room_doors.duplicate(true),
 		"room_lights": room_lights.duplicate(true),
+		"booth_ready_at": booth_ready_at.duplicate(true),
 	}
 
 
 func adopt(snapshot_data: Dictionary) -> bool:
 	var schema := int(snapshot_data.get("schema", -1))
-	if schema not in [1, 2, 3, 4, SCHEMA]:
+	if schema not in [1, 2, 3, 4, 5, SCHEMA]:
 		return false
 	var pickups = snapshot_data.get("claimed_pickups", {})
 	var rooms = snapshot_data.get("safe_rooms", {})
@@ -362,6 +385,8 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	room_doors = (doors as Dictionary).duplicate(true)
 	var lights = snapshot_data.get("room_lights", {})
 	room_lights = (lights as Dictionary).duplicate(true) if lights is Dictionary else {}
+	var booths = snapshot_data.get("booth_ready_at", {})
+	booth_ready_at = (booths as Dictionary).duplicate(true) if booths is Dictionary else {}
 	navigation_revision += 1
 	return true
 

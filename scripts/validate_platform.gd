@@ -54,6 +54,7 @@ func run(host: Node) -> int:
 	_expect(found.has("phone") and found.has("quest") and found.has("iphone"), "missing mobile presets: %s" % [found.keys()])
 	_check_touch_controls(host)
 	_check_quit()
+	_check_self_update()
 	_check_xr_comfort(host)
 	await _check_xr_route_panel(host)
 	if _failures == 0:
@@ -184,6 +185,48 @@ func _xr_player_script() -> GDScript:
 	script.source_code = "extends Node3D\nvar xr_active := false\nvar xr_origin: Node\nvar xr_camera: Node\nvar xr_left: Node\nvar xr_right: Node\n"
 	script.reload()
 	return script
+
+
+## Phone / Quest self-update (UpdateManager): the platform picks the right channel, the manifest parser accepts only
+## HTTPS or the backend's own files with a real sha256 (and normalises them), a newer commit installs only with a
+## higher build number, and the sha256 the download is checked with matches a known digest.
+func _check_self_update() -> void:
+	var keys := {["android"]: "phone", ["android", "quest", "xr"]: "quest", ["ios"]: "ios", ["web"]: "web",
+		["windows", "xr"]: "steamvr", ["windows"]: "windows", ["macos"]: "macos", []: "linux"}
+	for features in keys:
+		var tags: Array = features
+		var key := UpdateManager.platform_key_for(func(name: String) -> bool: return tags.has(name))
+		_expect(key == keys[features], "features %s pick the update channel %s, not %s" % [features, key, keys[features]])
+	var sha := "a".repeat(64)
+	var good := UpdateManager.parse_manifest(JSON.stringify({"update": {"version": "0.0.1.0", "revision": "ABCDEF1234",
+		"build": 812, "url": "/api/updates/files/KyttusLab-Android-Debug.apk", "sha256": sha.to_upper()}}),
+		"https://lab.test", false)
+	_expect(not good.has("error") and good["url"] == "https://lab.test/api/updates/files/KyttusLab-Android-Debug.apk"
+		and good["revision"] == "abcdef1234" and good["sha256"] == sha and int(good["build"]) == 812,
+		"a valid phone manifest parsed as %s" % [good])
+	var cases := {
+		"not json": "INVALID UPDATE RESPONSE",
+		JSON.stringify({"update": {"url": "http://evil.test/x.apk", "sha256": sha}}): "UNTRUSTED UPDATE RESPONSE",
+		JSON.stringify({"update": {"url": "https://lab.test/x.apk", "sha256": "a".repeat(63)}}): "UNTRUSTED UPDATE RESPONSE",
+		JSON.stringify({"update": {"url": "http://127.0.0.1/x.apk", "sha256": sha}}): "UNTRUSTED UPDATE RESPONSE",
+	}
+	for text in cases:
+		var parsed := UpdateManager.parse_manifest(String(text), "https://lab.test", false)
+		_expect(String(parsed.get("error", "")) == cases[text], "manifest %s parsed as %s" % [text, parsed])
+	var newer := "b".repeat(40)
+	var installed := "c".repeat(40)
+	_expect(UpdateManager.mobile_update_needed(newer, installed, 813, 812), "a newer commit with a higher build does not update")
+	_expect(not UpdateManager.mobile_update_needed(newer, installed, 812, 812), "an equal build number would install (Android refuses it)")
+	_expect(not UpdateManager.mobile_update_needed(newer, installed, 700, 812), "an older build would install")
+	_expect(not UpdateManager.mobile_update_needed(installed, installed, 900, 812), "the same commit would install again")
+	_expect(not UpdateManager.mobile_update_needed("not-a-sha", installed, 900, 812), "an invalid revision would install")
+	var path := "user://self_update_check.bin"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	file.store_string("abc")
+	file.close()
+	_expect(FileAccess.get_sha256(path) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+		"the download checksum does not match a known sha256")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 ## QUIT: hidden on iOS and the web, offered elsewhere (this desktop run included), and the quit path saves before it

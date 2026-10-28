@@ -16,6 +16,8 @@ extends CharacterBody3D
 signal flashlight_changed(enabled: bool)
 ## A sewer ladder climb finished; the runner now stands on `to_level`.
 signal ladder_climb_finished(to_level: int)
+## The waterfall plunge is over: where the runner climbed out of the cistern (world position).
+signal plunge_finished(exit_position: Vector3)
 signal taser_requested
 signal tool_used(item_id: String)
 signal item_drop_requested(item_id: String, durability: int, slot: int)
@@ -195,6 +197,8 @@ var input_frozen := false
 ## from input_frozen because hiding and the escape struggle still allow the
 ## player to look around.
 var look_frozen := false
+## A booth game (CarnivalBooth3D) holds the player at the counter: no walking, sprinting or jumping, but looking and aiming stay free, with mouse, stick, touch and XR.
+var movement_locked := false
 
 ## Debug-only protections driven by main_3d's tools-gated admin overlay. They
 ## live on the controller so the same state can be published to the ENet host;
@@ -269,9 +273,26 @@ var resting_furniture: RouteInteractable3D
 ## Movement, items and collision are off; the body plays "climb" (guests see it
 ## through current_clip) and the view shows both hands working the rungs.
 var ladder_climb := {}
+## The waterfall plunge in progress (begin_plunge), and the soaked status after it (seconds left).
+var plunge := {}
+var soaked_left := 0.0
+var _drip_left := 0.0
 var _climb_hands: Node3D
 ## Ladder handling: climb speed (m/s), the height under which jump lets go, and
 ## the smooth mount / dismount times.
+## The waterfall jump (begin_plunge): an arc off the ledge into the cistern, a muffled moment under the surface, a slow swim to the
+## walkway ring, then SOAKED_SECONDS of dripping and louder steps (hunters hear a wet runner from further away).
+const PLUNGE_HOP_SPEED := 1.6
+const PLUNGE_GRAVITY := 9.8
+const PLUNGE_SPLASH_SECONDS := .55
+const PLUNGE_SWIM_SPEED := 1.5
+const PLUNGE_CLIMB_OUT_SECONDS := .6
+const PLUNGE_SPLASH_NOISE := 3.0
+const PLUNGE_SPLASH_NOISE_SECONDS := 1.2
+const PLUNGE_SWIM_NOISE := .8
+const SOAKED_SECONDS := 30.0
+const SOAKED_NOISE_SCALE := 1.45
+const SOAKED_DRIP_EVERY := Vector2(1.1, 2.4)
 const LADDER_CLIMB_SPEED := 1.7
 const LADDER_LET_GO_HEIGHT := 1.3 * PlayerModels.SCALE
 const LADDER_MOUNT_SECONDS := .3
@@ -944,6 +965,103 @@ func is_climbing() -> bool:
 	return not ladder_climb.is_empty()
 
 
+func is_plunging() -> bool:
+	return not plunge.is_empty()
+
+
+## The deliberate waterfall jump (docs/SEWERS.md): from the ledge `from`, an arc into the cistern pool at `land` (its water surface at
+## `surface_y`), the splash and a muffled moment, a slow swim to `exit` on the walkway ring (floor height `exit.y`), then SOAKED_SECONDS
+## of soaked. Collision is off for the duration; no damage, input is ignored. The level changes by itself as the feet cross the storey.
+func begin_plunge(from: Vector3, land: Vector3, exit: Vector3, surface_y: float) -> void:
+	if is_plunging() or is_climbing() or hidden or spectator_mode:
+		return
+	if resting_furniture != null:
+		leave_furniture()
+	var drop := maxf(from.y - surface_y, .5)
+	var fall_seconds := (PLUNGE_HOP_SPEED + sqrt(PLUNGE_HOP_SPEED * PLUNGE_HOP_SPEED + 2.0 * PLUNGE_GRAVITY * drop)) / PLUNGE_GRAVITY
+	var bed_y := surface_y - SewerRouteGenerator.CHANNEL_DEPTH - SewerRouteGenerator.WATER_SURFACE
+	var swim_distance := Vector2(land.x, land.z).distance_to(Vector2(exit.x, exit.z))
+	plunge = {"phase": "fall", "t": 0.0, "from": from, "land": land, "exit": exit, "surface": surface_y,
+		"fall_seconds": fall_seconds, "swim_seconds": maxf(2.0, swim_distance / PLUNGE_SWIM_SPEED), "bed": bed_y, "splashed": false}
+	velocity = Vector3.ZERO
+	collision_layer = 0
+	collision_mask = 0
+	if first_person_items != null:
+		first_person_items.visible = false
+
+
+func _update_plunge(delta: float) -> void:
+	var phase := String(plunge["phase"])
+	var surface := float(plunge["surface"])
+	var wade_y := float(plunge["bed"])    # feet on the bed: the eye just clears the surface
+	var from: Vector3 = plunge["from"]
+	var land: Vector3 = plunge["land"]
+	var exit: Vector3 = plunge["exit"]
+	plunge["t"] = float(plunge["t"]) + delta
+	var t := float(plunge["t"])
+	match phase:
+		"fall":
+			var d := float(plunge["fall_seconds"])
+			var k := clampf(t / d, 0.0, 1.0)
+			var y := from.y + PLUNGE_HOP_SPEED * t - .5 * PLUNGE_GRAVITY * t * t
+			global_position = Vector3(lerpf(from.x, land.x, k), maxf(y, surface), lerpf(from.z, land.z, k))
+			noise = 0.0
+			if t >= d:
+				plunge["phase"] = "splash"
+				plunge["t"] = 0.0
+				Sound.splash_big(0.0, 1.2)
+				Sound.set_muffled(true)
+				emit_noise_burst(PLUNGE_SPLASH_NOISE, PLUNGE_SPLASH_NOISE_SECONDS)
+				force_flashlight_flicker(1.4)
+				plunge["splashed"] = true
+		"splash":
+			var k := clampf(t / PLUNGE_SPLASH_SECONDS, 0.0, 1.0)
+			global_position = Vector3(land.x, lerpf(surface, wade_y, _smooth(k)), land.z)
+			noise = maxf(noise, _noise_burst)
+			if t >= PLUNGE_SPLASH_SECONDS:
+				plunge["phase"] = "swim"
+				plunge["t"] = 0.0
+		"swim":
+			var d := float(plunge["swim_seconds"])
+			var k := clampf(t / d, 0.0, 1.0)
+			var bob := sin(t * 3.0) * .04
+			global_position = Vector3(lerpf(land.x, exit.x, _smooth(k)), wade_y + bob, lerpf(land.z, exit.z, _smooth(k)))
+			noise = PLUNGE_SWIM_NOISE
+			if t >= d:
+				plunge["phase"] = "climb_out"
+				plunge["t"] = 0.0
+				plunge["swim_end"] = global_position
+				Sound.set_muffled(false)
+		"climb_out":
+			var k := clampf(t / PLUNGE_CLIMB_OUT_SECONDS, 0.0, 1.0)
+			var start: Vector3 = plunge["swim_end"]
+			global_position = start.lerp(exit, _smooth(k)) + Vector3(0, sin(k * PI) * .12, 0)
+			noise = 0.3
+			if t >= PLUNGE_CLIMB_OUT_SECONDS:
+				plunge = {}
+				collision_layer = 1
+				collision_mask = 1
+				if first_person_items != null:
+					first_person_items.visible = true
+				soaked_left = SOAKED_SECONDS
+				_drip_left = 1.0
+				_clip = "idle"
+				plunge_finished.emit(exit)
+				return
+	velocity = Vector3.ZERO
+	_clip = "idle"
+
+
+func _update_soaked(delta: float) -> void:
+	if soaked_left <= 0.0:
+		return
+	soaked_left = maxf(0.0, soaked_left - delta)
+	_drip_left -= delta
+	if _drip_left <= 0.0:
+		_drip_left = randf_range(SOAKED_DRIP_EVERY.x, SOAKED_DRIP_EVERY.y)
+		Sound.water_drip(randf_range(-.3, .3), .35 + .65 * soaked_left / SOAKED_SECONDS)
+
+
 ## Gets onto a sewer ladder (docs/SEWERS.md). The ladder's line runs up from
 ## `foot` (its base on the lower floor, against the rungs) for `rise` metres;
 ## the runner mounts at `height` above the foot and from then on climbs under
@@ -1220,6 +1338,7 @@ func _physics_process(delta: float) -> void:
 		if outage_left <= 0.0:
 			outage_system = ""
 	_update_controller_look(delta)
+	_update_soaked(delta)
 	_noise_burst_timer = maxf(0.0, _noise_burst_timer - delta)
 	_update_viewmodel_push(delta)
 	taser_cooldown = maxf(0.0, taser_cooldown - delta)
@@ -1250,6 +1369,9 @@ func _physics_process(delta: float) -> void:
 		return
 	if not ladder_climb.is_empty():
 		_update_ladder_climb(delta)
+		return
+	if not plunge.is_empty():
+		_update_plunge(delta)
 		return
 	if resting_furniture != null and not is_instance_valid(resting_furniture):
 		# An admin teleport can evict the furniture's streamed chunk while the
@@ -1313,6 +1435,8 @@ func _physics_process(delta: float) -> void:
 		if stick.length_squared() > input_vector.length_squared():
 			# OpenXR stick-up is positive; Input.get_vector's forward/W is -Y.
 			input_vector = Vector2(stick.x, -stick.y)
+	if movement_locked:
+		input_vector = Vector2.ZERO
 	var movement_speed := GameConfig.PLAYER_WALK_SPEED
 	var difficulty := RoomState.difficulty_profile()
 	var is_moving := input_vector.length_squared() > 0.0
@@ -1337,6 +1461,8 @@ func _physics_process(delta: float) -> void:
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
 	if _noise_burst_timer > 0.0:
 		noise = maxf(noise, _noise_burst)
+	if soaked_left > 0.0:
+		noise *= SOAKED_NOISE_SCALE
 
 	meters.update(delta, {
 		"flashlight_on": flashlight_enabled,
@@ -1436,7 +1562,7 @@ func _physics_process(delta: float) -> void:
 	if inventory_enabled:
 		if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
 			_fire_taser()
-		if Input.is_action_just_pressed("tool_use") and click_ready:
+		if Input.is_action_just_pressed("tool_use") and click_ready and not movement_locked:
 			_use_selected_item()
 		if Input.is_action_just_pressed("drop_item"):
 			request_drop_selected_item()
@@ -1483,7 +1609,7 @@ func active_camera() -> Camera3D:
 ## capture, stun, or pause cannot leave a player suspended in midair. Crouch
 ## blocks takeoff, but releasing crouch before landing does not alter the arc.
 func _update_vertical_motion(delta: float, allow_jump: bool) -> void:
-	var wants_to_jump := jump_enabled and (_jump_requested or Input.is_action_just_pressed("jump"))
+	var wants_to_jump := jump_enabled and not movement_locked and (_jump_requested or Input.is_action_just_pressed("jump"))
 	# Consume every request immediately, even in midair/frozen/crouching, so a
 	# rejected press cannot be banked into an automatic hop on landing.
 	_jump_requested = false

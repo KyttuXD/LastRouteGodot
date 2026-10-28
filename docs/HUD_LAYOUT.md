@@ -67,3 +67,11 @@ InputMap (a rebind changes the prompt), gamepad from its joypad bindings, phone 
 ("LOCKED IN // 3s" while locked); climbing: "HOLD [W]/[S] CLIMB // [SPACE] LET GO" (LET GO only near the bottom, where jump works);
 furniture and sleep prompts use the same glyphs. The prompt sits just under the crosshair and fades in/out; the chat panel stays below
 it. Test: `prompt_glyphs`.
+
+## Full map follows the runner
+
+The full-screen map opens centred on the runner and glides after them while open (`FacilityMap.follow_player`, `FOLLOW_RATE`),
+zooming about them. Dragging, the stick, arrow keys, a trackpad or a one-finger touch drag pans away and stops following; the RECENTER
+button (shown with the jump key for the active device) or the jump key brings it back. Pinch / trackpad magnify zooms on touch. The
+zoom is remembered between opens (`FacilityMap.remembered_zoom`). Teammates, hunters and waypoints draw as before; the title shows the
+current floor. Test: `map_follow`.

@@ -54,6 +54,15 @@ const RAIL_HEIGHT := 1.0
 const RAIL_INSET := 0.06
 ## The channel collider rises this far above the walkways (over the railings).
 const CHANNEL_BLOCK_TOP := 1.2
+## Ramp tunnels: the slope's collider thickness and its painted floor.
+const RAMP_THICKNESS := 0.3
+const RAMP_FLOOR_KIND := "concrete1"
+## A runner this close (cells) to a ramp landing pre-streams the ramp's other end.
+const RAMP_PRESTREAM_CELLS := 6.0
+## The falls: rough stone on the drop's cliffs, and how far the roar carries.
+const CLIFF_WALL_KIND := "stone1"
+const FALLS_SOUND_RANGE := 28.0
+const SEWER_FALLS_SHADER := preload("res://src/look/sewer_falls.gdshader")
 
 const SEWER_WATER_SHADER := preload("res://src/look/sewer_water.gdshader")
 const FLOOR_TEXTURE := "res://art/props-3d/environment/floor_texture.png"
@@ -103,6 +112,10 @@ var generator: StreamedRouteGenerator
 var world_state: StreamedWorldState
 var tracked_player: PlayerController3D
 var pickup_requester: Callable
+## Carnival booths (CarnivalBooth3D): requester(player, booth_id, prop_type) -> String starts a game through the host; reporter(event) sends a finished / cancelled game to it.
+var booth_requester: Callable
+var booth_reporter: Callable
+var _booth_nodes := {}
 var door_requester: Callable
 
 var _library: MeshLibrary
@@ -124,6 +137,10 @@ var _dormant_data := {}
 ## the current window and parked at once (a level change is then a visibility/physics swap, not a build); levels two
 ## away keep generated data only. Parked chunks are bounded to those sets (at most 2 x 9 here).
 const PREBUILD_LEVEL_RANGE := 1
+## A parked chunk in the runner's column is kept up to this many levels away. With ramps on -1 and -2 the level
+## beyond a link is pre-built too (on -1 the ready set is 0 and -2): freeing it on the way back up would rebuild
+## those nine chunks on every round trip, so parking reaches one level past the pre-build range (at most 3 x 9).
+const PARK_LEVEL_RANGE := PREBUILD_LEVEL_RANGE + 1
 const PREDATA_LEVEL_RANGE := 2
 var _ready_set := {}
 var _wanted_now := {}
@@ -158,6 +175,8 @@ static var _scene_keep := {}
 ## Chunk generation (~30 ms a chunk) runs on a WorkerThreadPool task with a same-seed generator copy; the main thread
 ## only adopts finished dictionaries. Builds wait for their chunk and its seam neighbours to be ready.
 var _gen_worker: StreamedRouteGenerator
+## Chunks other systems asked the worker for (request_generation), beyond the view's own queue.
+var _extra_generation := {}
 var _gen_task := -1
 var _gen_task_coords: Array[Vector3i] = []
 var _gen_task_results := {}
@@ -267,14 +286,16 @@ func current_level() -> int:
 ## the sewer once its feet are more than half a storey below the maze floor;
 ## the hysteresis margin keeps a ladder climb from flickering between the two.
 static func snapped_level_for_world_y(world_y: float) -> int:
-	return StreamedRouteGenerator.SEWER_LEVEL if world_y < -LEVEL_HEIGHT * .5 else 0
+	return clampi(roundi(world_y / LEVEL_HEIGHT), StreamedRouteGenerator.INFERNO_LEVEL, 0)
 
 
+## The level stays put until the runner is more than half a storey plus the
+## margin away from its floor, so a ladder or ramp never flickers between two.
 static func hysteresis_level_for_world_y(world_y: float, current_level_hint: int) -> int:
-	var boundary := -LEVEL_HEIGHT * .5
-	if current_level_hint == StreamedRouteGenerator.SEWER_LEVEL:
-		return 0 if world_y > boundary + LEVEL_TRANSITION_MARGIN else StreamedRouteGenerator.SEWER_LEVEL
-	return StreamedRouteGenerator.SEWER_LEVEL if world_y < boundary - LEVEL_TRANSITION_MARGIN else 0
+	var floor_y := float(current_level_hint) * LEVEL_HEIGHT
+	if absf(world_y - floor_y) <= LEVEL_HEIGHT * .5 + LEVEL_TRANSITION_MARGIN:
+		return current_level_hint
+	return snapped_level_for_world_y(world_y)
 
 
 func current_chunk_coord() -> Vector3i:
@@ -385,15 +406,33 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 			var coord := Vector3i(x, center.y, z)
 			if generator.is_chunk_allowed(coord):
 				wanted[coord] = true
-	# A ladder's other end stays loaded while the runner is in a chunk with one,
-	# so the shaft never opens onto an unloaded floor halfway up the climb.
-	# Chunks with no ladder keep the plain nine-chunk window.
-	if not generator.sewer().links_for(center).is_empty():
-		for vertical in [Vector3i(center.x, center.y - 1, center.z),
-				Vector3i(center.x, center.y + 1, center.z)]:
-			if generator.is_chunk_allowed(vertical):
-				wanted[vertical] = true
+	# The far end of a ladder or ramp stays loaded while the runner is in a chunk
+	# with one, so a shaft or a ramp tunnel never opens onto an unloaded level.
+	# Chunks with no link keep the plain nine-chunk window.
+	for link_value in generator.vertical_links(center):
+		var link: Dictionary = link_value
+		var far := int(LevelLink.other_end(link, center.y)["level"])
+		var vertical := Vector3i(center.x, far, center.z)
+		if generator.is_chunk_allowed(vertical):
+			wanted[vertical] = true
+	# You can see across the falls' drop between the two sewers: in a chunk with
+	# falls the other level's chamber stays loaded.
+	if (center.y == StreamedRouteGenerator.SEWER_LEVEL or center.y == StreamedRouteGenerator.LOWER_SEWER_LEVEL) \
+			and not generator.sewer().falls_between(center.x, center.z).is_empty():
+		var across := Vector3i(center.x, StreamedRouteGenerator.LOWER_SEWER_LEVEL \
+			if center.y == StreamedRouteGenerator.SEWER_LEVEL else StreamedRouteGenerator.SEWER_LEVEL, center.z)
+		wanted[across] = true
 	return wanted
+
+
+## Horizontal distance from a point (view-local x/z) to a chunk's footprint; INF for Vector2.INF.
+static func _distance_from_point_to_chunk(point: Vector2, coord: Vector3i) -> float:
+	if point == Vector2.INF:
+		return INF
+	var size := float(StreamedRouteGenerator.CHUNK_SIZE)
+	var dx := maxf(maxf(coord.x * size - point.x, point.x - (coord.x + 1) * size), 0.0)
+	var dz := maxf(maxf(coord.z * size - point.y, point.y - (coord.z + 1) * size), 0.0)
+	return Vector2(dx, dz).length()
 
 
 ## Horizontal distance from the runner to a chunk's footprint (0 inside it).
@@ -450,8 +489,11 @@ func _refresh_stream(force: bool) -> void:
 		# IMMEDIATE_MARGIN); the rest of the window streams in over the next frames instead of freezing the game.
 		var urgent: Array[Vector3i] = []
 		for coord in _pending_loads:
-			# the floor above/below the runner (a ladder's other end) counts as under them
-			if coord.x == center.x and coord.z == center.z or previous.x == 999999 and coord.y == center.y \
+			# the floor above/below the runner (a ladder's other end) counts as under them; another link's
+			# far end in the same column (a ramp down to the Inferno from the collector) streams in normally
+			var column := coord.x == center.x and coord.z == center.z \
+				and (coord.y == center.y or coord.y == previous.y or previous.x == 999999)
+			if column or previous.x == 999999 and coord.y == center.y \
 					or coord.y == center.y and _distance_to_chunk(coord) < IMMEDIATE_MARGIN:
 				urgent.append(coord)
 		if not urgent.is_empty():
@@ -477,18 +519,39 @@ func _refresh_stream(force: bool) -> void:
 ## stream queue, so they are built during the climb and the level change has nothing left to build synchronously.
 var _prestreamed_for := Vector3i(999999, 999999, 999999)
 func _prestream_ladder_destination() -> void:
-	var y := tracked_player.global_position.y - global_position.y
-	var on_ladder := y < -.6 and y > -LEVEL_HEIGHT + .6
 	var center := _last_player_chunk
-	if not on_ladder or center == _prestreamed_for or center.x == 999999:
+	if center.x == 999999:
 		return
-	_prestreamed_for = center
-	var target_y := StreamedRouteGenerator.SEWER_LEVEL if center.y == 0 else 0
+	# Between storeys on a ladder: the storey being climbed toward. Walking a ramp
+	# has no pause at the boundary, so a runner near a ramp landing pre-streams
+	# the other end before setting foot on the slope.
+	var dy := tracked_player.global_position.y - global_position.y - float(center.y) * LEVEL_HEIGHT
+	var target_y := center.y
+	var far_landing := Vector2.INF
+	if dy < -.6:
+		target_y = center.y - 1
+	elif dy > .6:
+		target_y = center.y + 1
+	else:
+		var here := Vector2(tracked_player.global_position.x - global_position.x,
+			tracked_player.global_position.z - global_position.z)
+		for link_value in generator.vertical_links(center):
+			var link: Dictionary = link_value
+			if String(link["kind"]) in ["ramp", "stairs", "spiral"] \
+					and LadderTraffic.ladder_point(link, center.y).distance_to(here) <= RAMP_PRESTREAM_CELLS:
+				target_y = int(LevelLink.other_end(link, center.y)["level"])
+				# the runner arrives at the far landing: stream what is near it too
+				far_landing = LadderTraffic.ladder_point(link, target_y)
+	var key := Vector3i(center.x, target_y, center.z)
+	if target_y == center.y or key == _prestreamed_for or not generator.is_chunk_allowed(key):
+		return
+	_prestreamed_for = key
 	for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
 			var coord := Vector3i(x, target_y, z)
 			if _loaded.has(coord) or _pending_loads.has(coord) or not generator.is_chunk_allowed(coord) \
-					or _distance_to_chunk(coord) >= IMMEDIATE_MARGIN:
+					or _distance_to_chunk(coord) >= IMMEDIATE_MARGIN \
+					and _distance_from_point_to_chunk(far_landing, coord) >= IMMEDIATE_MARGIN:
 				continue
 			if _dormant.has(coord):
 				_revive(coord)
@@ -509,7 +572,7 @@ func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 		var coord: Vector3i = coord_value
 		if wanted.has(coord):
 			_revive(coord)
-		elif not _ready_set.has(coord) and not (_near_column(coord, center) and absi(coord.y - center.y) <= PREBUILD_LEVEL_RANGE):
+		elif not _ready_set.has(coord) and not (_near_column(coord, center) and absi(coord.y - center.y) <= PARK_LEVEL_RANGE):
 			_free_dormant(coord)
 	_pending_prebuild.clear()
 	for coord_value in _ready_set:
@@ -536,8 +599,17 @@ func _linked_levels(center: Vector3i) -> Array[int]:
 		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
 			var coord := Vector3i(x, center.y, z)
 			var links: Array = []
+			var own_column := x == center.x and z == center.z
 			if generator.has_method("vertical_links"):
-				links = generator.call("vertical_links", coord)
+				# ladders live in the sewer chunk under the column: read them only once it is generated (or under the
+				# runner), queue the rest for the worker
+				links = generator.call("vertical_links", coord, not own_column)
+				var ladder_coord := Vector3i(x, StreamedRouteGenerator.SEWER_LEVEL, z)
+				if not own_column and center.y in [0, StreamedRouteGenerator.SEWER_LEVEL] \
+						and not generator.has_chunk_cached(ladder_coord) and generator.is_chunk_allowed(ladder_coord) \
+						and not _pending_data.has(ladder_coord):
+					_pending_data.append(ladder_coord)
+					_ready_dirty = true
 			elif center.y in [0, StreamedRouteGenerator.SEWER_LEVEL]:
 				# The sewer chunk under this column holds its ladders. Only read it once generated: generating it here
 				# (~30 ms) on every chunk change was a main-thread stall; queue it for the worker instead.
@@ -645,12 +717,25 @@ func _prefetch_chunk(coord: Vector3i) -> void:
 			_prefetching[path] = true
 
 
-## The chunk itself plus the neighbours its edge cells read for seams (they look at level 0; see _build_structure_cell).
+## The chunk itself plus the neighbours its edge cells read for seams (on its own level; see _build_structure_cell).
 static func _generation_needs(coord: Vector3i) -> Array[Vector3i]:
 	var out: Array[Vector3i] = [coord]
 	for step in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
-		out.append(Vector3i(coord.x + step.x, 0, coord.z + step.y))
+		out.append(Vector3i(coord.x + step.x, coord.y, coord.z + step.y))
 	return out
+
+
+## True when `coord` (and the seam neighbours it reads) is generated, so asking
+## the generator for it costs nothing on this thread. Hunters' navigation on
+## the levels next to the runner's waits for this instead of generating there.
+func chunk_ready(coord: Vector3i) -> bool:
+	return _chunk_generated(coord)
+
+
+## Asks the background worker to generate `coord` ahead of need.
+func request_generation(coord: Vector3i) -> void:
+	if _gen_worker != null and not _chunk_generated(coord):
+		_extra_generation[coord] = true
 
 
 func _chunk_generated(coord: Vector3i) -> bool:
@@ -666,17 +751,22 @@ func _chunk_generated(coord: Vector3i) -> bool:
 func _generate_parallel(coords: Array[Vector3i]) -> void:
 	if _gen_worker == null:
 		return
+	# Only block on the background task when these chunks actually need generating:
+	# it may be busy with chunks nobody is waiting for (another level's hunters).
+	var needs: Array[Vector3i] = []
+	for coord in coords:
+		for need in _generation_needs(coord):
+			if not generator.has_chunk_cached(need) and not needs.has(need):
+				needs.append(need)
+	if needs.is_empty():
+		return
 	if _gen_task != -1:
 		WorkerThreadPool.wait_for_task_completion(_gen_task)
 		_gen_task = -1
 		for coord in _gen_task_results:
 			generator.adopt_chunk(coord, _gen_task_results[coord])
 		_gen_task_results = {}
-	var needs: Array[Vector3i] = []
-	for coord in coords:
-		for need in _generation_needs(coord):
-			if not generator.has_chunk_cached(need) and not needs.has(need):
-				needs.append(need)
+		needs = needs.filter(func(need: Vector3i) -> bool: return not generator.has_chunk_cached(need))
 	if needs.size() < 2:
 		return
 	var results := []
@@ -709,7 +799,7 @@ func _queue_generation() -> void:
 			_ready_set = _vertical_ready_set(_last_player_chunk)
 			_settle_dormant(_last_player_chunk, _wanted_now)
 	var coords: Array[Vector3i] = []
-	for coord in _pending_loads + _pending_prebuild:
+	for coord in _pending_loads + _pending_prebuild + _extra_generation.keys():
 		for need in _generation_needs(coord):
 			if not generator.has_chunk_cached(need) and not coords.has(need):
 				coords.append(need)
@@ -717,6 +807,9 @@ func _queue_generation() -> void:
 		if not generator.has_chunk_cached(coord) and not coords.has(coord):
 			coords.append(coord)
 	_pending_data.clear()
+	for coord in _extra_generation.keys():
+		if _chunk_generated(coord):
+			_extra_generation.erase(coord)
 	if coords.is_empty():
 		return
 	_gen_task_coords = coords
@@ -764,7 +857,8 @@ func _cell_batch_done(index: int, started: int, immediate: bool) -> bool:
 func _drain_stream_queue() -> void:
 	if not _prefetching.is_empty():
 		_poll_prefetch()
-	if not _pending_loads.is_empty() or not _pending_prebuild.is_empty() or not _pending_data.is_empty() or _gen_task != -1:
+	if not _pending_loads.is_empty() or not _pending_prebuild.is_empty() or not _pending_data.is_empty() or _gen_task != -1 \
+			or not _extra_generation.is_empty():
 		_queue_generation()
 	if _pending_loads.is_empty() and _pending_unloads.is_empty() \
 			and _active_build.is_empty() and _pending_prebuild.is_empty():
@@ -864,6 +958,32 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	var room_map := _room_type_map(data)
 	var heights := RefLook.chunk_heights(data)
 	var corridor_h := RefLook.corridor_height(region, coord)
+	# Below the maze every storey is LEVEL_HEIGHT: tall Inferno halls stop under
+	# the collector's floor instead of rising into the sewer above them.
+	if coord.y < 0:
+		var cap := LEVEL_HEIGHT - SLAB
+		corridor_h = minf(corridor_h, cap)
+		for cell_value in heights:
+			heights[cell_value] = minf(float(heights[cell_value]), cap)
+	var open_above := {}
+	var falls: Dictionary = data.get("falls", {})
+	if not falls.is_empty() and coord.y == StreamedRouteGenerator.LOWER_SEWER_LEVEL:
+		var drop: Rect2i = falls["void"]
+		for z in range(drop.position.y, drop.end.y):
+			for x in range(drop.position.x, drop.end.x):
+				open_above[Vector2i(x, z)] = true
+				heights[Vector2i(x, z)] = LEVEL_HEIGHT
+	var shaft_cells: Dictionary = data.get("shaft_cells", {})
+	for cell_value in shaft_cells:
+		# a stairwell's lower level opens straight up the well: full-storey walls
+		if not bool((shaft_cells[cell_value] as Dictionary)["upper"]):
+			heights[cell_value] = LEVEL_HEIGHT
+	var ramp_cells: Dictionary = data.get("ramp_cells", {})
+	for cell_value in ramp_cells:
+		# the lower end of a ramp tunnel has no ceiling of its own: it opens up to
+		# the level above, so its walls run the full storey
+		if not bool((ramp_cells[cell_value] as Dictionary)["upper"]):
+			heights[cell_value] = LEVEL_HEIGHT
 	root.set_meta("ref_region", region)
 	root.set_meta("ref_heights", heights)
 	root.set_meta("ref_corridor_h", corridor_h)
@@ -877,8 +997,9 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	for cell_value in data.get("structural_voids", []):
 		structural_voids[cell_value as Vector2i] = true
 	var link_cells := {}
-	for link_value in generator.sewer().links_for(coord):
-		link_cells[LevelLink.cell_on(link_value, coord.y)] = link_value
+	if coord.y == 0 or coord.y == StreamedRouteGenerator.SEWER_LEVEL:
+		for link_value in generator.sewer().links_for(coord):
+			link_cells[LevelLink.cell_on(link_value, coord.y)] = link_value
 	# The maze end of every ladder: its top section with grab hoops in the shaft,
 	# and the manhole lid dragged aside or the floor grate swung up.
 	var region_props: Array = data.get("region_props", [])
@@ -896,6 +1017,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"coord": coord,
 		"region_props": region_props,
 		"link_cells": link_cells,
+		"open_above": open_above,
 		"sewer_grid": data.get("sewer_grid", []),
 		"data": data,
 		"root": root,
@@ -962,9 +1084,12 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					return false
 			3:
 				_spawn_streamed_ceiling_lights(root, data)
+				_spawn_stairwells(root, data, (build["coord"] as Vector3i).y)
 				_spawn_shop_signs(root, data)
 				if not (build["sewer_grid"] as Array).is_empty():
-					_spawn_sewer_water(root, build["sewer_grid"])
+					_spawn_sewer_water(root, build["sewer_grid"], _jump_cell(data))
+				_spawn_ramps(root, data, (build["coord"] as Vector3i).y)
+				_spawn_falls(root, data, (build["coord"] as Vector3i).y)
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
 				build["phase"] = 31
 				if not immediate:
@@ -1063,9 +1188,27 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	var grid := build["grid"] as GridMap
 	var surface := build["surface"] as RefSurfaceMesh
 	var ceiling_kind := String((build["style"] as Dictionary)["ceiling"])
+	var ramp_cells: Dictionary = data.get("ramp_cells", {})
+	if ramp_cells.has(cell):
+		_build_ramp_cell(build, cell, ramp_cells[cell])
+		return
+	var shaft_cells: Dictionary = data.get("shaft_cells", {})
+	if shaft_cells.has(cell):
+		# a stairwell's well: the stairs (built per stairwell) fill it; the upper
+		# level keeps its vault overhead, the lower one opens up to it over a
+		# solid floor (the spiral's helix leaves a quarter of the well's floor bare)
+		if bool((shaft_cells[cell] as Dictionary)["upper"]):
+			surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
+				RefTextures.params("ceiling", ceiling_kind))
+		else:
+			grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
+			surface.add_floor(x, z, RefTextures.layer("floor", "concrete1"), RefTextures.params("floor", "concrete1"))
+		return
 	if int(grid_data[z][x]) == 0:
 		var height := _height_in(build, cell)
 		var kind := _ref_floor_kind(build, x, z)
+		if (data.get("crawl_cells", []) as Array).has(cell):
+			kind = "hazard"   # the hazard plate under a sewer crawl-under pipe
 		if bool(build["safe"]):
 			var center := StreamedRouteGenerator.CHUNK_SIZE / 2
 			var edge: int = maxi(abs(x - center), abs(z - center))
@@ -1098,7 +1241,8 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 				RefTextures.params("floor", kind))
 		else:
 			_add_shaft_lining(build, cell)
-		if not (link_here and coord_y == StreamedRouteGenerator.SEWER_LEVEL):
+		if not (link_here and coord_y == StreamedRouteGenerator.SEWER_LEVEL) \
+				and not (build["open_above"] as Dictionary).has(cell):
 			surface.add_ceiling(x, z, height, RefTextures.layer("floor", ceiling_kind),
 				RefTextures.params("ceiling", ceiling_kind))
 		# Where a taller room meets a lower cell (a doorway or corridor mouth) the
@@ -1130,11 +1274,29 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		# the walkways and decks; the vault continues overhead.
 		grid.set_cell_item(Vector3i(x, 0, z), _col_channel_item)
 		_add_channel_trench(build, cell)
+		if not (build["open_above"] as Dictionary).has(cell):
+			surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
+				RefTextures.params("ceiling", ceiling_kind))
+	elif _sewer_code(build, x, z) == SewerRouteGenerator.FALL:
+		# The drop to the collector: blocked to walk like the channels, the vault
+		# overhead, and rough stone cliffs from the floor's edge down a full storey.
+		# The one jump cell behind the railing gap is open: stepping into it is the plunge.
+		if cell != _jump_cell(data):
+			grid.set_cell_item(Vector3i(x, 0, z), _col_channel_item)
 		surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
 			RefTextures.params("ceiling", ceiling_kind))
+		for step_value in RefDecor.DIRS:
+			var step: Vector2i = step_value
+			var n := cell + step
+			if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
+					or _sewer_code(build, n.x, n.y) == SewerRouteGenerator.FALL:
+				continue
+			surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", CLIFF_WALL_KIND),
+				RefTextures.params("wall", CLIFF_WALL_KIND), 0.0, -LEVEL_HEIGHT)
 	else:
+		# every level below the maze keeps its wall colliders inside its own storey
 		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
-			if (build["coord"] as Vector3i).y == StreamedRouteGenerator.SEWER_LEVEL else _col_wall_item)
+			if (build["coord"] as Vector3i).y < 0 else _col_wall_item)
 		# a room door's cell: wall over the frame up to both rooms' ceilings, and a soffit on the frame (no see-through)
 		var header: Dictionary = (build["door_headers"] as Dictionary).get(cell, {})
 		if not header.is_empty():
@@ -1151,7 +1313,12 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			# than a missing one
 			var face_height := float(build["corridor_h"])
 			if nx >= 0 and nz >= 0 and nx < size and nz < size:
-				if int(grid_data[nz][nx]) != 0:
+				# ramp tunnels, channels and the falls' drop are open space too, though the
+				# grid keeps them off the walk graph
+				var open_space := (data.get("ramp_cells", {}) as Dictionary).has(Vector2i(nx, nz)) \
+					or (data.get("shaft_cells", {}) as Dictionary).has(Vector2i(nx, nz)) \
+					or _sewer_code(build, nx, nz) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL]
+				if int(grid_data[nz][nx]) != 0 and not open_space:
 					continue
 				face_height = _height_in(build, Vector2i(nx, nz))
 			var wall_kind := _ref_wall_kind(build, x, z, nx, nz)
@@ -1162,6 +1329,427 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 static func _sewer_code(build: Dictionary, x: int, z: int) -> int:
 	var sewer_grid: Array = build["sewer_grid"]
 	return SewerRouteGenerator.DRY if sewer_grid.is_empty() else int(sewer_grid[z][x])
+
+
+## One cell of a ramp tunnel. On its upper level: the vault overhead and the
+## slope underfoot (no flat floor, no floor collider); on its lower level:
+## nothing at all, the tunnel opening straight up to the level above. The
+## slope's collider is built once per ramp (_spawn_ramps).
+func _build_ramp_cell(build: Dictionary, cell: Vector2i, info: Dictionary) -> void:
+	if not bool(info["upper"]):
+		return
+	var surface := build["surface"] as RefSurfaceMesh
+	var ceiling_kind := String((build["style"] as Dictionary)["ceiling"])
+	surface.add_ceiling(cell.x, cell.y, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
+		RefTextures.params("ceiling", ceiling_kind))
+	var ramp: Dictionary = info["ramp"]
+	var y0 := _ramp_surface_y(ramp, float(cell.x))
+	var y1 := _ramp_surface_y(ramp, float(cell.x + 1))
+	surface.add_quad_floor(Vector3(cell.x, y0, cell.y), Vector3(cell.x + 1, y1, cell.y),
+		Vector3(cell.x + 1, y1, cell.y + 1), Vector3(cell.x, y0, cell.y + 1),
+		RefTextures.layer("floor", RAMP_FLOOR_KIND), RefTextures.params("floor", RAMP_FLOOR_KIND))
+
+
+## Height of a ramp's walking surface at chunk-local x, relative to its upper level's floor.
+static func _ramp_surface_y(ramp: Dictionary, x: float) -> float:
+	var top_x := float(ramp["top_x"])
+	var bottom_x := float(ramp["bottom_x"])
+	var t := clampf((x - top_x) / (bottom_x - top_x), 0.0, 1.0)
+	return -LEVEL_HEIGHT * t
+
+
+## Every stairwell whose upper end is this chunk's level (the upper chunk owns the
+## stairs, as with ramps, so its colliders stay inside its own storey band):
+## the switchback's flights, mid landing and divider, or the spiral's helix and
+## post; handrails, guard rails round the top landing's opening, level signs and
+## a landing light. Walkable surfaces are smooth slopes whose colliders are the
+## visible surfaces themselves (no snagging steps).
+func _spawn_stairwells(root: Node3D, data: Dictionary, level: int) -> void:
+	for well_value in data.get("stairwells", []):
+		var well: Dictionary = well_value
+		if int(well["upper"]) != level:
+			continue
+		var holder := Node3D.new()
+		holder.name = "Stairwell_%s" % well["kind"]
+		root.add_child(holder)
+		var body := StaticBody3D.new()
+		body.name = "StairCollision"
+		body.collision_layer = 1
+		body.collision_mask = 0
+		holder.add_child(body)
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var floor_y := -LEVEL_HEIGHT
+		if String(well["kind"]) == "stairs":
+			for flight_value in well["flights"]:
+				var f: Dictionary = flight_value
+				_add_stair_wedge(surface, body, float(f["x0"]), float(f["x1"]), float(f["z_low"]), float(f["z_high"]),
+					floor_y, floor_y + float(f["y_low"]), floor_y + float(f["y_high"]))
+			var interior: Rect2i = well["interior"]
+			var north := bool(well["north"])
+			var mid_z0 := float(interior.position.y) if north else float(interior.end.y - 2)
+			_add_stair_box(surface, body, Vector3(interior.position.x, floor_y, mid_z0),
+				Vector3(interior.end.x, floor_y + RISE_HALF, mid_z0 + 2.0))
+			# the divider between the flights, floor to the upper floor
+			var div_x := float(interior.position.x + 2)
+			var div_z0 := float(interior.position.y + 2) if north else float(interior.position.y + 2)
+			_add_stair_box(surface, body, Vector3(div_x, floor_y, div_z0), Vector3(div_x + 1.0, 0.0, float(interior.end.y - 2)))
+			_add_handrails_switchback(holder, well)
+		else:
+			_add_spiral(surface, body, holder, well, floor_y)
+		_add_landing_guards(body, holder, well)
+		surface.generate_normals()
+		var mesh := MeshInstance3D.new()
+		mesh.name = "Stairs"
+		mesh.mesh = surface.commit()
+		var material := StandardMaterial3D.new()
+		material.albedo_texture = RefTextures.texture("floor", "concrete1")
+		material.uv1_triplanar = true
+		material.uv1_world_triplanar = true
+		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+		MaterialLook.tame(material)
+		mesh.material_override = material
+		holder.add_child(mesh)
+		_add_stairwell_signs_and_light(holder, well)
+
+
+const RISE_HALF := 2.0
+const STAIR_RAIL_HEIGHT := 0.95
+
+
+## A solid wedge under a straight flight: its top is the walking slope from
+## (z_low, y_low) to (z_high, y_high) across x0..x1, its bottom the floor.
+func _add_stair_wedge(surface: SurfaceTool, body: StaticBody3D, x0: float, x1: float, z_low: float, z_high: float,
+		floor_y: float, y_low: float, y_high: float) -> void:
+	var points := PackedVector3Array([Vector3(x0, floor_y, z_low), Vector3(x1, floor_y, z_low),
+		Vector3(x0, floor_y, z_high), Vector3(x1, floor_y, z_high),
+		Vector3(x0, y_low, z_low), Vector3(x1, y_low, z_low), Vector3(x0, y_high, z_high), Vector3(x1, y_high, z_high)])
+	var shape := ConvexPolygonShape3D.new()
+	shape.points = points
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	body.add_child(collider)
+	_quad_up(surface, points[4], points[5], points[7], points[6])
+	_quad_up(surface, points[0], points[1], points[5], points[4])
+	_quad_up(surface, points[2], points[6], points[7], points[3])
+
+
+func _add_stair_box(surface: SurfaceTool, body: StaticBody3D, lo: Vector3, hi: Vector3) -> void:
+	var shape := BoxShape3D.new()
+	shape.size = hi - lo
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	collider.position = (lo + hi) * .5
+	body.add_child(collider)
+	_quad_up(surface, Vector3(lo.x, hi.y, lo.z), Vector3(hi.x, hi.y, lo.z), Vector3(hi.x, hi.y, hi.z), Vector3(lo.x, hi.y, hi.z))
+	_quad_up(surface, Vector3(lo.x, lo.y, hi.z), Vector3(hi.x, lo.y, hi.z), Vector3(hi.x, hi.y, hi.z), Vector3(lo.x, hi.y, hi.z))
+	_quad_up(surface, Vector3(hi.x, lo.y, lo.z), Vector3(lo.x, lo.y, lo.z), Vector3(lo.x, hi.y, lo.z), Vector3(hi.x, hi.y, lo.z))
+	_quad_up(surface, Vector3(lo.x, lo.y, lo.z), Vector3(lo.x, lo.y, hi.z), Vector3(lo.x, hi.y, hi.z), Vector3(lo.x, hi.y, lo.z))
+	_quad_up(surface, Vector3(hi.x, lo.y, hi.z), Vector3(hi.x, lo.y, lo.z), Vector3(hi.x, hi.y, lo.z), Vector3(hi.x, hi.y, hi.z))
+
+
+## Two triangles of a quad, wound both ways so it shows from either side.
+static func _quad_up(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
+	for tri in [[a, b, c], [a, c, d], [a, c, b], [a, d, c]]:
+		for p in tri:
+			surface.add_vertex(p)
+
+
+## The spiral: a smooth helicoid from the post out to the shaft's square walls,
+## 270 degrees from the landing round to the landing one storey up, its
+## collider the same triangles; the post, and a handrail spiralling round it.
+func _add_spiral(surface: SurfaceTool, body: StaticBody3D, holder: Node3D, well: Dictionary, floor_y: float) -> void:
+	var center: Vector2 = well["spiral_center"]
+	var start := float(well["spiral_start"])
+	var steps := 54
+	var faces := PackedVector3Array()
+	var inner := 0.55
+	for i in steps:
+		var a0 := deg_to_rad(start + 270.0 * float(i) / steps)
+		var a1 := deg_to_rad(start + 270.0 * float(i + 1) / steps)
+		var y0 := floor_y + LEVEL_HEIGHT * float(i) / steps
+		var y1 := floor_y + LEVEL_HEIGHT * float(i + 1) / steps
+		var d0 := Vector2(sin(a0), cos(a0))
+		var d1 := Vector2(sin(a1), cos(a1))
+		# Each triangle's slope is set by the arc at its inner edge (atan(rise per radian / r)), so the
+		# helix is cut into rings: only the one hugging the post is steeper than a walkable floor, and
+		# the walking line (r ~1.6) stays near the true 28 degree pitch instead of snagging on a
+		# 57 degree sliver spanning post to wall.
+		var radii := [inner, .95, 1.4, 1.9]
+		radii.append(2.48 / maxf(absf(d0.x), absf(d0.y)))
+		var radii1 := radii.duplicate()
+		radii1[radii1.size() - 1] = 2.48 / maxf(absf(d1.x), absf(d1.y))
+		for ring in radii.size() - 1:
+			var a := float(radii[ring])
+			var b0 := float(radii[ring + 1])
+			var b1 := float(radii1[ring + 1])
+			var p0 := Vector3(center.x + d0.x * a, y0, center.y + d0.y * a)
+			var p1 := Vector3(center.x + d0.x * b0, y0, center.y + d0.y * b0)
+			var p2 := Vector3(center.x + d1.x * b1, y1, center.y + d1.y * b1)
+			var p3 := Vector3(center.x + d1.x * a, y1, center.y + d1.y * a)
+			faces.append_array(PackedVector3Array([p0, p1, p2, p0, p2, p3]))
+			_quad_up(surface, p0, p1, p2, p3)
+	# The top end: the wedge between the helix's last radial and the landing row
+	# is open well at the upper floor, so a slab fills it (the helix's end and the
+	# landing then meet along an edge, not at one corner); a rail runs along the
+	# start radial, where the helix begins a storey below.
+	var outward := float(well["outward"])
+	var interior: Rect2i = well["interior"]
+	var landing_z := float(interior.end.y - 1) if outward > 0 else float(interior.position.y + 1)
+	var corners: Array[Vector3] = [Vector3(center.x, 0.0, center.y)]
+	for angle in [start + 270.0, start]:
+		var dir := Vector2(sin(deg_to_rad(angle)), cos(deg_to_rad(angle)))
+		var t := (landing_z - center.y) / dir.y
+		corners.append(Vector3(center.x + dir.x * t, 0.0, landing_z))
+	var slab := ConvexPolygonShape3D.new()
+	var slab_points := PackedVector3Array()
+	for corner in corners:
+		slab_points.append(corner)
+		slab_points.append(corner + Vector3(0, -.2, 0))
+	slab.points = slab_points
+	var slab_collider := CollisionShape3D.new()
+	slab_collider.shape = slab
+	body.add_child(slab_collider)
+	for tri in [[corners[0], corners[1], corners[2]], [corners[0], corners[2], corners[1]]]:
+		for p in tri:
+			surface.add_vertex(p)
+	var rail_dir := (corners[2] - corners[0]).normalized()
+	var rail_from: Vector3 = corners[0] + rail_dir * .4
+	var rail_len := rail_from.distance_to(corners[2])
+	var rail_shape := BoxShape3D.new()
+	rail_shape.size = Vector3(.06, 1.1, rail_len)
+	var rail := CollisionShape3D.new()
+	rail.shape = rail_shape
+	body.add_child(rail)
+	rail.position = (rail_from + corners[2]) * .5 + Vector3(0, .55, 0)
+	rail.rotation.y = atan2(rail_dir.x, rail_dir.z)
+	_add_rail_polyline(holder, [rail_from + Vector3(0, STAIR_RAIL_HEIGHT, 0), corners[2] + Vector3(0, STAIR_RAIL_HEIGHT, 0)])
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(faces)
+	shape.backface_collision = true
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	body.add_child(collider)
+	var post_shape := CylinderShape3D.new()
+	post_shape.radius = .4
+	post_shape.height = LEVEL_HEIGHT
+	var post := CollisionShape3D.new()
+	post.shape = post_shape
+	post.position = Vector3(center.x, floor_y + LEVEL_HEIGHT * .5, center.y)
+	body.add_child(post)
+	var post_mesh := MeshInstance3D.new()
+	var cylinder := CylinderMesh.new()
+	cylinder.top_radius = .4
+	cylinder.bottom_radius = .4
+	cylinder.height = LEVEL_HEIGHT
+	post_mesh.mesh = cylinder
+	post_mesh.position = post.position
+	post_mesh.material_override = _stair_iron()
+	holder.add_child(post_mesh)
+	var rail_points: Array[Vector3] = []
+	for i in 28:
+		var a := deg_to_rad(start + 270.0 * float(i) / 27.0)
+		rail_points.append(Vector3(center.x + sin(a) * (inner + .12), floor_y + LEVEL_HEIGHT * float(i) / 27.0 + STAIR_RAIL_HEIGHT,
+			center.y + cos(a) * (inner + .12)))
+	_add_rail_polyline(holder, rail_points)
+
+
+## Handrails along both walls of each flight of a switchback.
+func _add_handrails_switchback(holder: Node3D, well: Dictionary) -> void:
+	for flight_value in well["flights"]:
+		var f: Dictionary = flight_value
+		for x in [float(f["x0"]) + .06, float(f["x1"]) - .06]:
+			_add_rail_polyline(holder, [Vector3(x, -LEVEL_HEIGHT + float(f["y_low"]) + STAIR_RAIL_HEIGHT, float(f["z_low"])),
+				Vector3(x, -LEVEL_HEIGHT + float(f["y_high"]) + STAIR_RAIL_HEIGHT, float(f["z_high"]))])
+
+
+func _add_rail_polyline(holder: Node3D, points: Array) -> void:
+	var iron := _stair_iron()
+	for i in points.size() - 1:
+		var a: Vector3 = points[i]
+		var b: Vector3 = points[i + 1]
+		var segment := MeshInstance3D.new()
+		var bar := BoxMesh.new()
+		bar.size = Vector3(.05, .05, a.distance_to(b) + .02)
+		segment.mesh = bar
+		segment.material_override = iron
+		segment.position = (a + b) * .5
+		holder.add_child(segment)
+		segment.look_at_from_position(segment.position, b, Vector3.UP if absf((b - a).normalized().y) < .99 else Vector3.RIGHT)
+
+
+## Guard rails round the top landing where it meets the open well, with a gap
+## where the stairs arrive: a solid 1.1 m rail (collider) and its iron bars.
+func _add_landing_guards(body: StaticBody3D, holder: Node3D, well: Dictionary) -> void:
+	var interior: Rect2i = well["interior"]
+	var north := bool(well["north"])
+	var landing_cells: Dictionary = well["upper_landing"]
+	var shaft: Dictionary = well["shaft"]
+	# the well cell the stairs arrive from: just back along the path from its top
+	var path: Array = well["link"]["path"]
+	var top_point: Vector3 = path[path.size() - 2]
+	var before: Vector3 = path[path.size() - 3]
+	var back := top_point + (before - top_point).normalized() * .3
+	var arrival := Vector2i(floori(back.x), floori(back.z))
+	for cell_value in landing_cells:
+		var cell: Vector2i = cell_value
+		for step_value in RefDecor.DIRS:
+			var step: Vector2i = step_value
+			var n: Vector2i = cell + step
+			if not shaft.has(n) or n == arrival:
+				continue
+			# a spiral's landing row opens onto its top slab; the slab's own rail guards the drop
+			if String(well["kind"]) == "spiral" and step == Vector2i(0, -int(well["outward"])):
+				continue
+			# the arriving flight of a switchback is two cells wide
+			if String(well["kind"]) == "stairs" and absi(n.x - arrival.x) <= 1 and n.y == arrival.y:
+				continue
+			var mid := Vector3(cell.x + .5 + step.x * .48, .55, cell.y + .5 + step.y * .48)
+			var shape := BoxShape3D.new()
+			shape.size = Vector3(1.0 if step.y != 0 else .06, 1.1, .06 if step.y != 0 else 1.0)
+			var collider := CollisionShape3D.new()
+			collider.shape = shape
+			collider.position = mid
+			body.add_child(collider)
+			var bar := MeshInstance3D.new()
+			var box := BoxMesh.new()
+			box.size = Vector3(shape.size.x, .05, shape.size.z)
+			bar.mesh = box
+			bar.material_override = _stair_iron()
+			bar.position = Vector3(mid.x, STAIR_RAIL_HEIGHT, mid.z)
+			holder.add_child(bar)
+
+
+## A level sign on each landing ("LEVEL n") and a budgeted light over the well.
+func _add_stairwell_signs_and_light(holder: Node3D, well: Dictionary) -> void:
+	var interior: Rect2i = well["interior"]
+	var north := bool(well["north"])
+	var mid_x := float(interior.position.x) + 2.5
+	# on the side wall beside the landing (the doorway end is open), facing into the well
+	var landing: Vector2i = well["landing"]
+	for level_value in [int(well["upper"]), int(well["upper"]) - 1]:
+		var level := int(level_value)
+		var sign := Label3D.new()
+		sign.text = "LEVEL %+d" % level if level != 0 else "LEVEL 0"
+		sign.font_size = 48
+		sign.pixel_size = .006
+		sign.modulate = Color("e8c25a")
+		sign.position = Vector3(float(interior.position.x) + .04, float(level - int(well["upper"])) * LEVEL_HEIGHT + 2.1,
+			float(landing.y) + .5)
+		sign.rotation.y = PI / 2.0
+		holder.add_child(sign)
+	var light := OmniLight3D.new()
+	light.light_color = Color("ffd29a")
+	light.light_energy = .7
+	light.omni_range = 7.0
+	light.position = Vector3(mid_x, -LEVEL_HEIGHT * .5 + 1.4, float(interior.position.y) + float(interior.size.y) * .5)
+	holder.add_child(light)
+	LampField.make_budgeted(light)
+
+
+func _stair_iron() -> StandardMaterial3D:
+	var iron := StandardMaterial3D.new()
+	iron.albedo_color = Color("3b3f42")
+	MaterialLook.tame(iron, true)
+	return iron
+
+
+## The waterfall in a chunk with falls: on the first sewer the sheet of water
+## pouring over the lip into the drop; on the collector the spray and mist where
+## it lands in the cistern's pool. Both carry the loud looping roar.
+func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
+	var falls: Dictionary = data.get("falls", {})
+	if falls.is_empty():
+		return
+	var lip := Vector3(float(falls["edge_x0"]) + 1.5, 0.0, float(falls["edge_z"]))
+	if level == StreamedRouteGenerator.SEWER_LEVEL:
+		var sheet := MeshInstance3D.new()
+		sheet.name = "Waterfall"
+		var quad := QuadMesh.new()
+		quad.size = Vector2(3.0, LEVEL_HEIGHT)
+		sheet.mesh = quad
+		var material := ShaderMaterial.new()
+		material.shader = SEWER_FALLS_SHADER
+		sheet.material_override = material
+		sheet.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# just past the lip, from the channel's surface down to the pool's
+		sheet.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE - LEVEL_HEIGHT * .5,
+			lip.z + (-.12 if bool(falls["north"]) else .12))
+		root.add_child(sheet)
+		_add_falls_sound(root, Vector3(lip.x, 0.0, lip.z))
+	elif level == StreamedRouteGenerator.LOWER_SEWER_LEVEL:
+		var mist := GPUParticles3D.new()
+		mist.name = "FallsMist"
+		mist.amount = 48
+		mist.lifetime = 2.6
+		var process := ParticleProcessMaterial.new()
+		process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		process.emission_box_extents = Vector3(1.4, .15, .5)
+		process.direction = Vector3(0, 1, 0)
+		process.spread = 55.0
+		process.initial_velocity_min = .3
+		process.initial_velocity_max = 1.1
+		process.gravity = Vector3(0, -.15, 0)
+		process.scale_min = .6
+		process.scale_max = 1.6
+		mist.process_material = process
+		var puff := QuadMesh.new()
+		puff.size = Vector2(.7, .7)
+		var puff_material := StandardMaterial3D.new()
+		puff_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		puff_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		puff_material.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		puff_material.albedo_color = Color(.78, .84, .8, .16)
+		puff.material = puff_material
+		mist.draw_pass_1 = puff
+		mist.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE + .1, lip.z + (-.7 if bool(falls["north"]) else .7))
+		root.add_child(mist)
+		_add_falls_sound(root, mist.position)
+
+
+func _add_falls_sound(root: Node3D, at: Vector3) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var stream := (Sound.render_cue("waterfall") as AudioStreamWAV).duplicate() as AudioStreamWAV
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = stream.data.size() / 4      # 16-bit stereo frames
+	var roar := AudioStreamPlayer3D.new()
+	roar.name = "FallsRoar"
+	roar.stream = stream
+	roar.bus = &"SFX"
+	roar.unit_size = 7.0
+	roar.max_distance = FALLS_SOUND_RANGE
+	roar.volume_db = 3.0
+	roar.autoplay = true
+	roar.position = at
+	root.add_child(roar)
+
+
+## The sloped collider of every ramp whose upper end is this chunk's level: one
+## thin box lying along the slope, its top face through both landings' floors.
+func _spawn_ramps(root: Node3D, data: Dictionary, level: int) -> void:
+	for ramp_value in data.get("ramps", []):
+		var ramp: Dictionary = ramp_value
+		if int(ramp["upper"]) != level:
+			continue
+		var top_x := float(ramp["top_x"])
+		var bottom_x := float(ramp["bottom_x"])
+		var run := absf(top_x - bottom_x)
+		var angle := atan2(LEVEL_HEIGHT, run) * (1.0 if top_x > bottom_x else -1.0)
+		var body := StaticBody3D.new()
+		body.name = "Ramp"
+		body.collision_layer = 1
+		body.collision_mask = 0
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(sqrt(run * run + LEVEL_HEIGHT * LEVEL_HEIGHT), RAMP_THICKNESS, 3.0)
+		shape.shape = box
+		var basis := Basis(Vector3.BACK, angle)
+		var mid := Vector3((top_x + bottom_x) * .5, -LEVEL_HEIGHT * .5, float(ramp["row"]) + .5)
+		shape.transform = Transform3D(basis, mid - basis.y * RAMP_THICKNESS * .5)
+		body.add_child(shape)
+		root.add_child(body)
 
 
 static func _is_channel(code: int) -> bool:
@@ -1207,7 +1795,7 @@ func _add_shaft_lining(build: Dictionary, cell: Vector2i) -> void:
 ## One mesh of flowing water over every channel cell of a sewer chunk. The
 ## vertex colour's red/blue channels carry the flow direction for the shader:
 ## the east-west channel flows along x, the north-south one along z.
-func _spawn_sewer_water(root: Node3D, sewer_grid: Array) -> void:
+func _spawn_sewer_water(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1)) -> void:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var y := SewerRouteGenerator.WATER_SURFACE
@@ -1235,13 +1823,20 @@ func _spawn_sewer_water(root: Node3D, sewer_grid: Array) -> void:
 	material.shader = SEWER_WATER_SHADER
 	water.material_override = material
 	root.add_child(water)
-	_spawn_channel_railings(root, sewer_grid)
+	_spawn_channel_railings(root, sewer_grid, gap)
+
+
+## The falls' jump cell of a chunk, or (-1, -1): the railing gap and the open collider sit on it.
+static func _jump_cell(data: Dictionary) -> Vector2i:
+	var falls: Dictionary = data.get("falls", {})
+	return (falls["jump"] as Dictionary)["cell"] if falls.has("jump") and int(data.get("level", 0)) == StreamedRouteGenerator.SEWER_LEVEL \
+		else Vector2i(-1, -1)
 
 
 ## Iron railings along every edge where a walkway, room floor or deck meets open
 ## water: a post at each metre and a top and mid rail, as two MultiMeshes per
 ## chunk. They are the visible reason the channel collider stops you.
-func _spawn_channel_railings(root: Node3D, sewer_grid: Array) -> void:
+func _spawn_channel_railings(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1)) -> void:
 	var segments: Array[Transform3D] = []
 	var size := sewer_grid.size()
 	for z in size:
@@ -1252,8 +1847,10 @@ func _spawn_channel_railings(root: Node3D, sewer_grid: Array) -> void:
 				var step: Vector2i = step_value
 				var n := Vector2i(x, z) + step
 				if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
-						or int(sewer_grid[n.y][n.x]) != SewerRouteGenerator.WATER:
+						or not int(sewer_grid[n.y][n.x]) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL]:
 					continue
+				if n == gap:
+					continue            # the deliberate jump: no rail where the ledge meets the open drop cell
 				# on the walkway side of the edge, running along it
 				var mid := Vector3(x + .5 + step.x * (.5 - RAIL_INSET), 0.0, z + .5 + step.y * (.5 - RAIL_INSET))
 				var basis := Basis(Vector3.UP, PI / 2.0) if step.x != 0 else Basis.IDENTITY
@@ -1786,7 +2383,11 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		Vector3(cell.x + .5 + mount_offset.x,
 			prop_y, cell.y + .5 + mount_offset.y),
 		float(prop.get("yaw", 0.0)), prop.get("collider_size", prop.get("blocker_size", Vector3.ONE)),
-		"streamed_region_prop", bool(prop.get("solid", true)), type)
+		"streamed_region_prop", bool(prop.get("solid", true)), type,
+		"%d:%d:%d:%s:%d:%d" % [coord.x, coord.y, coord.z, type, cell.x, cell.y] if CarnivalBooths.is_booth(type) else "",
+		float(prop.get("collider_y0", 0.0)))
+	if bool(prop.get("crawl_under", false)) and int(prop.get("crawl_side", 1)) == -1:
+		_add_pipe_drips(parent, Vector3(cell.x + .5, float(prop.get("collider_y0", 1.0)), cell.y + .5), prop)
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:
@@ -1797,6 +2398,34 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		light.omni_range = 4.5
 		parent.add_child(light)
 		LampField.make_budgeted(light)
+
+
+## Water dripping off a sewer crawl-under pipe: a few small blue streaks falling from its underside to the floor.
+func _add_pipe_drips(parent: Node3D, at: Vector3, prop: Dictionary) -> void:
+	var drips := GPUParticles3D.new()
+	drips.name = "PipeDrips"
+	drips.position = at
+	drips.amount = 8
+	drips.lifetime = 0.5
+	drips.visibility_aabb = AABB(Vector3(-2, -1.5, -2), Vector3(4, 2, 4))
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	var step: Vector2i = prop.get("crawl_step", Vector2i(1, 0))
+	process.emission_box_extents = Vector3(0.05, 0.0, 1.4) if step.x != 0 else Vector3(1.4, 0.0, 0.05)
+	process.direction = Vector3.DOWN
+	process.spread = 0.0
+	process.initial_velocity_min = 0.0
+	process.initial_velocity_max = 0.2
+	process.gravity = Vector3(0, -9.8, 0)
+	drips.process_material = process
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.02, 0.07, 0.02)
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.45, 0.65, 0.8)
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mesh.material = material
+	drips.draw_pass_1 = mesh
+	parent.add_child(drips)
 
 
 func _spawn_fixture_light(parent: Node3D, prop_type: String, at: Vector3) -> void:
@@ -1943,10 +2572,34 @@ func room_doors_on_level(level: int) -> Array[RouteInteractable3D]:
 	return result
 
 
+## A playable carnival booth: the animated booth node beside the prop, and the interact prompt and request wired to it.
+func _attach_booth(parent: Node3D, furniture: RouteInteractable3D, booth_id: String, prop_type: String, at: Vector3, yaw: float, blocker_size: Vector3) -> void:
+	var booth := CarnivalBooth3D.new()
+	booth.setup(booth_id, prop_type, blocker_size)
+	booth.position = at
+	booth.rotation.y = yaw
+	booth.reporter = booth_reporter
+	booth.rest_resolver = func() -> float:
+		return world_state.booth_cooldown_left(booth_id, Time.get_unix_time_from_system()) if world_state != null else 0.0
+	parent.add_child(booth)
+	furniture.prompt_resolver = booth.prompt_text
+	if booth_requester.is_valid():
+		furniture.activation_override = booth_requester.bind(booth_id, prop_type)
+	_booth_nodes[booth_id] = booth
+	booth.tree_exited.connect(func() -> void:
+		if _booth_nodes.get(booth_id) == booth:
+			_booth_nodes.erase(booth_id))
+
+
+func booth_node(booth_id: String) -> CarnivalBooth3D:
+	var node := _booth_nodes.get(booth_id) as CarnivalBooth3D
+	return node if node != null and is_instance_valid(node) else null
+
+
 func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		yaw: float, blocker_size: Vector3,
 		group_name: String = "streamed_prison_prop", solid: bool = true,
-		prop_type: String = "") -> void:
+		prop_type: String = "", booth_id: String = "", collider_y0: float = 0.0) -> void:
 	var visual := ModelSlot.instantiate_prop(path, prop_type)
 	if visual == null:
 		return
@@ -1954,6 +2607,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	var visual_bounds := ModelSlot.combined_local_bounds(visual)
 	if not PropModelCatalog.is_wall_mounted(prop_type) \
 			and not PropModelCatalog.is_ceiling_mounted(prop_type) \
+			and not PropModelCatalog.keeps_authored_pivot(prop_type) \
 			and visual_bounds.size.length_squared() > 0.0:
 		# Preview-friendly centre pivots buried half of couches, chairs and beds
 		# below the GridMap. Seat every ordinary prop on its lowest mesh point.
@@ -1984,6 +2638,8 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
 		furniture.rotation.y = yaw
 		parent.add_child(furniture)
+		if furniture_action == "play" and not booth_id.is_empty():
+			_attach_booth(parent, furniture, booth_id, prop_type, at, yaw, blocker_size)
 	if not solid:
 		return
 	var body := StaticBody3D.new()
@@ -1993,6 +2649,9 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		var collision := CollisionShape3D.new()
 		collision.shape = _shared_box_shape(Vector3(half.x * 2.0, blocker_size.y, half.y * 2.0))
 		collision.position = at + Vector3(local.x, 0.0, local.y).rotated(Vector3.UP, yaw) + Vector3.UP * (blocker_size.y * .5)
+		if collider_y0 > 0.0:
+			# a raised collider (a crawl-under pipe): its underside is collider_y0 above the floor, whatever the visual's origin
+			collision.position.y = collider_y0 + blocker_size.y * .5
 		collision.rotation.y = yaw
 		body.add_child(collision)
 	parent.add_child(body)

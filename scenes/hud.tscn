@@ -481,7 +481,7 @@ grow_horizontal = 2
 grow_vertical = 0
 theme_override_colors/font_color = Color(0.49, 0.455, 0.431, 1)
 theme_override_font_sizes/font_size = 9
-text = "WHEEL ZOOM  •  LEFT-DRAG PAN  •  DOUBLE-CLICK / RIGHT-CLICK WAYPOINT  •  TEAL-BLUE relay  •  YELLOW battery  •  GRAY prop  •  WHITE stairs  •  RED hunter"
+text = "FOLLOWS YOU  •  WHEEL / PINCH ZOOM  •  DRAG PAN  •  JUMP RECENTER  •  DOUBLE-CLICK / RIGHT-CLICK WAYPOINT  •  TEAL-BLUE relay  •  YELLOW battery  •  GRAY prop  •  WHITE stairs  •  RED hunter"
 horizontal_alignment = 1
 
 [node name="EscapeOverlay" type="PanelContainer" parent="."]
