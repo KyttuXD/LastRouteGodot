@@ -57,6 +57,22 @@ keyboard makes:
 
 Shots: `touch_controls_2400x1080.png`, `touch_controls_1688x780.png` (`tools/look/touch_capture.gd`).
 
+## XR comfort (Quest)
+
+`XRComfort` (`src/game_3d/xr_comfort.gd`) is built by `PlayerController3D` only after OpenXR has started:
+
+- **World scale:** `XROrigin3D.world_scale = 1.60 / Settings.xr_player_height` (default 1.70 m, clamped 1.0 to 2.3 m), so
+  every player sees the world as the 1.60 m runner. **Seated mode** (`xr_seated`) lifts the origin 0.45 m.
+- **Turning:** a latched 30 degree snap turn by default, or smooth turn at 120 degrees per second (`xr_smooth_turn`).
+- **Vignette:** a soft tunnel on the XR camera while moving or smooth-turning (`xr_vignette`, on by default).
+- **Recentre:** `XRServer.center_on_hmd` at start, and on demand through `XRComfort.recenter()`.
+- **Wrist HUD:** a Label3D on the left controller showing relays, light charge and stamina, refreshed every 0.25 s.
+- **Settings:** saved in the `[xr]` section of the settings file. Desktop and phones never read them.
+
+**The Quest APK needs the Gradle build.** The prebuilt Android template exports a signed Quest APK, but it carries no
+OpenXR loader and no VR manifest entries, so a headset runs it as a flat app. Running in VR needs the Gradle build plus
+the Godot OpenXR Vendors plugin (Meta loader), which waits for KT's approval.
+
 ## Validators
 
 - `platform`:
@@ -65,6 +81,8 @@ Shots: `touch_controls_2400x1080.png`, `touch_controls_1688x780.png` (`tools/loo
   - the phone and Quest presets exist with the right XR mode and packages;
   - the touch controls build headless, every button drives an existing action, the stick maps to `move_up` and `sprint`,
     and every target meets the minimum size.
+- `platform` also checks the XR comfort maths: world scale, the latched snap turn, proportional smooth turn, and that a
+  desktop run builds no comfort node.
 - `player` already checks the OpenXR rig and that XR stays off without the feature.
 
 ## Milestones

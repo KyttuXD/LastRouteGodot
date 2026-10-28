@@ -87,6 +87,12 @@ var field_of_view := DEFAULT_FIELD_OF_VIEW
 var pixel_effect_percent := DEFAULT_PIXEL_EFFECT_PERCENT
 ## Accessibility: no fades or typing animation; the death moment shows its whole line at once.
 var reduced_motion := false
+## OpenXR comfort (XRComfort): the player's real standing height (world scale makes them a 1.60 m runner), smooth or snap
+## turning, the movement vignette and seated mode. Ignored outside XR.
+var xr_player_height := 1.70
+var xr_smooth_turn := false
+var xr_vignette := true
+var xr_seated := false
 ## Death moment plays its whole line and closes after 2.5 s instead of typing it and waiting 7 s.
 var short_death_scenes := false
 ## Open the pause menu when the window loses focus. Default ON only in release builds; always OFF in debug, BETA and
@@ -179,6 +185,14 @@ func focus_loss_pauses() -> bool:
 	if not pause_on_focus_loss:
 		return false
 	return not (RoomState.online or RoomState.public_route or RoomState.peers.size() > 1)
+
+
+func set_xr_comfort(height: float, smooth_turn: bool, vignette: bool, seated: bool) -> void:
+	xr_player_height = clampf(height, 1.0, 2.3)
+	xr_smooth_turn = smooth_turn
+	xr_vignette = vignette
+	xr_seated = seated
+	_save()
 
 
 func set_reduced_motion(enabled: bool) -> void:
@@ -432,6 +446,10 @@ func _load() -> void:
 	player_hue_degrees = clampf(config.get_value("player",
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
+	xr_player_height = clampf(float(config.get_value("xr", "player_height", 1.70)), 1.0, 2.3)
+	xr_smooth_turn = bool(config.get_value("xr", "smooth_turn", false))
+	xr_vignette = bool(config.get_value("xr", "vignette", true))
+	xr_seated = bool(config.get_value("xr", "seated", false))
 	var guidance := String(config.get_value("waypoint", "guidance", "arrow"))
 	waypoint_guidance = guidance if WAYPOINT_GUIDANCE_MODES.has(guidance) else "arrow"
 	waypoint_show_distance = bool(config.get_value("waypoint", "show_distance", true))
@@ -487,6 +505,10 @@ func _save() -> void:
 	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
+	config.set_value("xr", "player_height", xr_player_height)
+	config.set_value("xr", "smooth_turn", xr_smooth_turn)
+	config.set_value("xr", "vignette", xr_vignette)
+	config.set_value("xr", "seated", xr_seated)
 	config.set_value("waypoint", "guidance", waypoint_guidance)
 	config.set_value("waypoint", "show_distance", waypoint_show_distance)
 	config.set_value("waypoint", "scale", waypoint_scale)

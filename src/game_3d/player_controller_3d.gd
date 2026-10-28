@@ -235,9 +235,10 @@ var _jump_requested := false
 ## automatic for the Quest preset. If initialization fails, the same binary
 ## falls back to the ordinary first-person camera.
 var xr_active := false
+## OpenXR comfort and the wrist HUD (built only once OpenXR has started).
+var xr_comfort: XRComfort
 ## Touch drags are in screen pixels on a high-DPI phone: a little gentler than mouse counts.
 const TOUCH_LOOK_SCALE := 0.6
-var _xr_turn_latched := false
 
 ## Out of sight, in a locker. Movement stops, the body is not drawn, and
 ## perception treats you as gone -- the shared brain's `hidden` gate has always
@@ -1370,7 +1371,7 @@ func _physics_process(delta: float) -> void:
 		facing = Vector2(look.x, look.z).normalized()
 		flashlight.global_transform = xr_camera.global_transform.translated_local(
 			Vector3(0.0, -.08, -.18))
-		_update_xr_snap_turn()
+		xr_comfort.step(delta, move_direction.length_squared() > 0.0)
 	else:
 		facing = Vector2(-sin(rotation.y), -cos(rotation.y))
 
@@ -1529,6 +1530,10 @@ func _try_enter_xr() -> bool:
 		first_person_items.visible = false
 	MouseLock.set_gameplay_capture(false)
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	xr_comfort = XRComfort.new()
+	xr_comfort.name = "XRComfort"
+	add_child(xr_comfort)
+	xr_comfort.setup(self, xr_origin, xr_camera, xr_left, xr_right)
 	return true
 
 
@@ -1590,20 +1595,6 @@ func _emit_xr_action_event(action: StringName, pressed: bool) -> void:
 	event.action = action
 	event.pressed = pressed
 	Input.parse_input_event(event)
-
-
-## Thirty-degree comfort turn with a latch, so holding the stick cannot spin
-## several steps per physics frame. Physical room-scale offset remains owned
-## by OpenXR beneath this body.
-func _update_xr_snap_turn() -> void:
-	var turn := xr_right.get_vector2("primary").x
-	if absf(turn) < 0.45:
-		_xr_turn_latched = false
-		return
-	if _xr_turn_latched:
-		return
-	_xr_turn_latched = true
-	rotate_y(deg_to_rad(-30.0 if turn > 0.0 else 30.0))
 
 
 func _update_stamina(delta: float, is_sprinting: bool) -> void:
