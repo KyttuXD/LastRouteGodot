@@ -47,6 +47,7 @@ func run(host: Node) -> int:
 			_expect(int(presets.get_value(options, "xr_features/xr_mode", -1)) == 1, "the Quest preset lost OpenXR")
 	_expect(found.has("phone") and found.has("quest"), "missing Android presets: %s" % [found.keys()])
 	_check_touch_controls(host)
+	_check_xr_comfort(host)
 	if _failures == 0:
 		print("  platform  desktop keeps the reference budgets; phone %s; quest %s" % [phone.summary(), quest.summary()])
 	return _failures
@@ -70,6 +71,26 @@ func _notification(what: int) -> void:
 		for profile in _made:
 			if is_instance_valid(profile):
 				profile.free()
+
+
+## XR comfort maths (XRComfort; only built once OpenXR starts, so checked here directly): the world scale makes any
+## real height see from 1.60 m, snap turn steps once per push, smooth turn is proportional, and a desktop run built no
+## comfort node.
+func _check_xr_comfort(host: Node) -> void:
+	_expect(is_equal_approx(XRComfort.world_scale_for(1.60), 1.0), "a 1.60 m player is rescaled")
+	_expect(is_equal_approx(XRComfort.world_scale_for(1.80), 1.60 / 1.80), "a 1.80 m player is not scaled to 1.60 m")
+	_expect(XRComfort.world_scale_for(0.2) <= 1.6 and XRComfort.world_scale_for(5.0) >= 0.6, "silly heights are not clamped")
+	var comfort := XRComfort.new()
+	var first := comfort.snap_turn(0.9)
+	var held := comfort.snap_turn(0.95)
+	comfort.snap_turn(0.0)
+	var again := comfort.snap_turn(-0.9)
+	_expect(is_equal_approx(first, deg_to_rad(-30.0)) and held == 0.0 and is_equal_approx(again, deg_to_rad(30.0)),
+		"snap turn is not one latched 30 degree step per push (%s %s %s)" % [first, held, again])
+	comfort.free()
+	_expect(XRComfort.smooth_turn(0.1, 0.1) == 0.0 and XRComfort.smooth_turn(1.0, 0.5) < XRComfort.smooth_turn(0.5, 0.5),
+		"smooth turn ignores the dead zone or is not proportional")
+	_expect(host.get_tree().root.find_children("XRComfort", "", true, false).is_empty(), "a desktop run built the XR comfort node")
 
 
 ## Touch controls build headless, every button drives a real Input action, the stick maps to move/sprint, and every
