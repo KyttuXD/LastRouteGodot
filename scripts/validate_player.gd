@@ -123,6 +123,26 @@ func _expect_xr_hands(controller: PlayerController3D) -> void:
 	controller.first_person_items.visible = items_visible
 
 
+## XR head follow (XRComfort.follow_head): a headset 0.6 m beside the body pulls the body after it in open space and
+## always brings the view back over the body.
+func _expect_xr_head_follow(controller: PlayerController3D) -> void:
+	var comfort := XRComfort.new()
+	comfort.player = controller
+	comfort.origin = controller.xr_origin
+	comfort.camera = controller.xr_camera
+	var start := controller.global_position
+	var origin_start := controller.xr_origin.position
+	controller.xr_camera.position = Vector3(0.6, 1.4, 0)
+	comfort.follow_head(false)
+	var offset := controller.xr_camera.global_position - controller.global_position
+	if Vector2(offset.x, offset.z).length() > 0.02 or not controller.global_position.is_equal_approx(start):
+		_fail("the XR view is not pulled back over a body that must not move (offset %s)" % offset)
+	controller.xr_origin.position = origin_start
+	controller.global_position = start
+	controller.xr_camera.position = Vector3.ZERO
+	comfort.free()
+
+
 func _expect_xr(route: Node) -> void:
 	var controller: PlayerController3D = route.player
 	if controller.xr_origin == null or controller.xr_camera == null \
@@ -157,6 +177,7 @@ func _expect_xr(route: Node) -> void:
 	_expect_controller_bindings()
 	_expect_keyboard_look(controller)
 	_expect_xr_hands(controller)
+	_expect_xr_head_follow(controller)
 	if controller._flashlight_probe == null:
 		_fail("the flashlight has no forward collision probe")
 	else:

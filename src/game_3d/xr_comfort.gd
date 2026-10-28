@@ -111,6 +111,12 @@ func apply_settings() -> void:
 
 
 ## Called every physics step by the player: turning, the vignette and the wrist readout.
+## Every physics frame, after the player's own (this node is the player's child), whatever state the player is in.
+func _physics_process(_delta: float) -> void:
+	if player != null and camera != null:
+		follow_head(true)
+
+
 func step(delta: float, moving: bool) -> void:
 	if not _centred_with_tracking and camera.position.length_squared() > 0.0001:
 		_centred_with_tracking = true
@@ -129,6 +135,22 @@ func step(delta: float, moving: bool) -> void:
 	if _wrist_left <= 0.0:
 		_wrist_left = 0.25
 		wrist.text = wrist_text()
+
+
+## Keeps the camera over the body. Real-world steps and leans move the headset away from the capsule; the body walks
+## after the head with collision (walls stop it), then the origin shifts back by the whole offset, so the view always
+## ends over the body and never inside a wall. With `walk` false (ladder, hiding spot, frozen input) only the view is
+## pulled back. Also the spawn, teleport and level-change fix: wherever the body goes, the view follows.
+func follow_head(walk: bool) -> void:
+	var offset := camera.global_position - player.global_position
+	offset.y = 0.0
+	if offset.length_squared() < 0.0004:
+		return
+	var body := player as CharacterBody3D
+	if walk and body != null and not bool(player.call("is_climbing")) and not bool(player.get("hidden")) \
+			and not bool(player.get("input_frozen")):
+		body.move_and_collide(offset)
+	origin.global_position -= offset
 
 
 func wrist_text() -> String:
