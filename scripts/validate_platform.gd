@@ -126,7 +126,8 @@ func _check_xr_route_panel(host: Node) -> void:
 	panel._process(0.0)
 	_expect(quad != null and quad.visible and quad.global_position.z < -0.8 and absf(quad.global_position.x) < 0.01,
 		"the XR route panel did not open in front of the head (%s)" % [quad.global_position if quad != null else "none"])
-	right.global_transform = Transform3D(Basis.IDENTITY, Vector3(0, quad.global_position.y, -0.2))
+	# No tracked controller here, so the head points (XRGaze.pointer_hand): look straight at the panel's middle.
+	camera.global_transform = Transform3D(Basis.IDENTITY, Vector3(0, quad.global_position.y, 0))
 	panel._process(0.0)
 	panel.call("_click", true)
 	await host.get_tree().process_frame
@@ -141,6 +142,7 @@ func _check_xr_route_panel(host: Node) -> void:
 	await _check_xr_keyboard(host)
 	await _check_xr_panel_scroll(host)
 	await _check_vr_pose_sync(host)
+	await _check_no_touch_controllers(host)
 
 
 ## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
@@ -273,6 +275,46 @@ func _check_vr_pose_sync(host: Node) -> void:
 	_expect(absf(pitch - 30.0) < 3.0, "the remote head turned %.1f degrees for a 30 degree head pitch" % pitch)
 	body.queue_free()
 	flat.queue_free()
+	await host.get_tree().process_frame
+
+
+## Playing without Touch controllers: with no tracked hand the head points (pointer_hand null), dwell clicks a button
+## once after XRGaze.DWELL_SECONDS and moving away resets it, and a gamepad's right stick / look keys turn the player.
+func _check_no_touch_controllers(host: Node) -> void:
+	var left := XRController3D.new()
+	var right := XRController3D.new()
+	_expect(XRGaze.pointer_hand(left, right) == null, "an untracked controller still points at the panels")
+	left.free()
+	right.free()
+	var layer := CanvasLayer.new()
+	host.add_child(layer)
+	var button := Button.new()
+	button.position = Vector2(100, 60)
+	button.size = Vector2(80, 30)
+	layer.add_child(button)
+	var clicks := [0]
+	button.pressed.connect(func() -> void: clicks[0] += 1)
+	await host.get_tree().process_frame
+	var root := host.get_tree().root
+	var centre := Vector2(140, 75)
+	var motion := InputEventMouseMotion.new()
+	motion.position = root.get_final_transform() * centre
+	motion.global_position = motion.position
+	Input.parse_input_event(motion)
+	await host.get_tree().process_frame
+	var gaze := XRGaze.new()
+	var fired := 0
+	for i in 15:   # 1.5 s of steady gaze in 0.1 s steps
+		if gaze.update(root, centre, 0.1):
+			fired += 1
+	_expect(fired == 1, "a steady gaze on a button clicked %d times (once expected)" % fired)
+	_expect(not gaze.update(root, centre + Vector2(30, 0), 0.1) and gaze.progress < 0.1, "moving the gaze does not restart the dwell")
+	layer.queue_free()
+	Input.action_press("look_right")
+	var turn := XRComfort.turn_input(0.2)
+	Input.action_release("look_right")
+	_expect(is_equal_approx(turn, 1.0) and is_equal_approx(XRComfort.turn_input(-0.7), -0.7),
+		"a gamepad / keyboard look does not turn a headset player (%s)" % turn)
 	await host.get_tree().process_frame
 
 

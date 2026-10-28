@@ -934,6 +934,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Uncaptured relative motion fights the OS cursor on remote/low-FPS
 	# desktops. Keyboard look covers that case; mouse look stays capture-only.
 	# Phones look with the touch drag (apply_look_turn); the mouse motion Godot emulates from touches is ignored.
+	if event is InputEventMouseMotion and xr_active and not look_frozen and not input_frozen:
+		rotate_y(-event.relative.x * Settings.mouse_sensitivity)   # a paired mouse turns a headset player; the head looks
+		return
 	if event is InputEventMouseMotion and not xr_active and not look_frozen \
 			and MouseLock.is_captured() and not PlatformProfile.is_phone:
 		_yaw -= event.relative.x * Settings.mouse_sensitivity
@@ -1734,6 +1737,8 @@ func _xr_smoke_log() -> void:
 
 
 func _connect_xr_buttons() -> void:
+	for hand in [xr_left, xr_right]:
+		hand.show_when_tracked = true   # a sleeping or absent controller hides its hand, laser and wrist instead of lying on the floor
 	xr_right.button_pressed.connect(_on_xr_right_pressed)
 	xr_right.button_released.connect(_on_xr_right_released)
 	xr_left.button_pressed.connect(_on_xr_left_pressed)
@@ -1748,6 +1753,10 @@ func _on_xr_right_pressed(action: StringName) -> void:
 			Input.action_press("flashlight")
 		"by_button":
 			request_jump()
+		"primary_click":
+			if not xr_left.get_has_tracking_data():
+				_emit_xr_action_event("pause", true)   # right hand only: the stick click opens the menu
+				_emit_xr_action_event("pause", false)
 		"grip_click":
 			Input.action_press("sprint")
 
@@ -2080,8 +2089,9 @@ func _flashlight_beam_should_be_visible() -> bool:
 ## they looked up/down, and mounting the replicated SpotLight on their torso
 ## then let the mannequin shadow its own beam.
 func equipment_aim_direction() -> Vector3:
-	var source_basis := xr_left.global_basis if xr_active \
-		else first_person_camera.global_basis
+	var source_basis := first_person_camera.global_basis
+	if xr_active:
+		source_basis = xr_left.global_basis if xr_left.get_has_tracking_data() else xr_camera.global_basis
 	var direction := -source_basis.z
 	return direction.normalized() if direction.length_squared() > .0001 \
 		else -global_basis.z.normalized()
@@ -2786,7 +2796,9 @@ var interaction_veto: Callable
 
 ## Where [E] aims from: the head on desktop and phones, the right hand in XR (point and pull the trigger).
 func interaction_aim() -> Transform3D:
-	return xr_right.global_transform if xr_active else active_camera().global_transform
+	if xr_active and xr_right.get_has_tracking_data():
+		return xr_right.global_transform
+	return active_camera().global_transform   # flat, or a headset without a tracked right hand: aim with the head
 
 
 ## XRHands: a gripping hand moved the runner `amount` metres along the ladder this frame (+ is up).

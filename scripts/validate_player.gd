@@ -178,6 +178,13 @@ func _expect_xr(route: Node) -> void:
 	_expect_keyboard_look(controller)
 	_expect_xr_hands(controller)
 	_expect_xr_head_follow(controller)
+	# A headset without a tracked right / left hand aims [E] and the flashlight with the head.
+	controller.xr_active = true
+	var head_aim := controller.interaction_aim().is_equal_approx(controller.xr_camera.global_transform)
+	var lamp_aim := controller.equipment_aim_direction().is_equal_approx(-controller.xr_camera.global_basis.z.normalized())
+	controller.xr_active = false
+	if not head_aim or not lamp_aim:
+		_fail("without tracked hands the headset does not aim [E] (%s) and the flashlight (%s) from the head" % [head_aim, lamp_aim])
 	if controller._flashlight_probe == null:
 		_fail("the flashlight has no forward collision probe")
 	else:

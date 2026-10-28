@@ -109,7 +109,9 @@ func step(delta: float) -> void:
 		_step_swing(now, delta)
 		_step_poke()
 	_last = now
-	(player.get("flashlight") as Node3D).global_transform = left.global_transform.translated_local(Vector3(0.0, 0.0, -0.06))
+	var lamp_source: Node3D = left if left.get_has_tracking_data() else player.get("xr_camera") as Node3D
+	var offset := Vector3(0.0, 0.0, -0.06) if lamp_source == left else Vector3(0.0, -0.08, -0.18)
+	(player.get("flashlight") as Node3D).global_transform = lamp_source.global_transform.translated_local(offset)
 
 
 func _step_climb(now: Dictionary) -> void:

@@ -32,6 +32,7 @@ var _held := false
 var _trigger_down := false
 var _scroll := XRPanelScroll.new()
 var _left: XRController3D
+var _gaze := XRGaze.new()
 
 
 static func attach(host: Node, run_player: Node3D, open_check: Callable) -> XRRoutePanel:
@@ -133,6 +134,8 @@ func _activate() -> void:
 		node.visible = false
 	_right.button_pressed.connect(_on_right_pressed)
 	_right.button_released.connect(_on_right_released)
+	_left.button_pressed.connect(_on_left_pressed)
+	_left.button_released.connect(_on_right_released)
 
 
 func _exit_tree() -> void:
@@ -176,12 +179,27 @@ func _place() -> void:
 	_panel.global_transform = Transform3D(Basis.looking_at(forward, Vector3.UP), centre)
 
 
+func _on_left_pressed(action: StringName) -> void:
+	if action == &"trigger_click" and _shown and XRGaze.pointer_hand(_left, _right) == _left:
+		_trigger(true)
+
+
+## The pointer: the tracked hand's laser, else the head (gaze dwell when nothing else can click; see XRGaze).
 func _point() -> void:
 	var size := (_panel.mesh as QuadMesh).size
-	var uv := XRMenuPanel.panel_uv(_right.global_position, -_right.global_basis.z, _panel.global_transform, size)
+	var hand := XRGaze.pointer_hand(_left, _right)
+	var source: Node3D = hand if hand != null else player.get("xr_camera") as Node3D
+	_ray.visible = hand != null
+	if hand != null and _ray.get_parent() != hand:
+		_ray.reparent(hand, false)
+	var uv := XRMenuPanel.panel_uv(source.global_position, -source.global_basis.z, _panel.global_transform, size)
 	_dot.visible = uv.x >= 0.0
 	if uv.x < 0.0:
+		_gaze.reset()
 		return
+	if XRGaze.dwell_wanted(hand) and _gaze.update(get_tree().root, _canvas(_pointer), get_process_delta_time()):
+		_click(true)
+		_click(false)
 	_dot.global_transform = _panel.global_transform.translated_local(
 		Vector3((uv.x - 0.5) * size.x, (0.5 - uv.y) * size.y, 0.004))
 	var root := get_tree().root

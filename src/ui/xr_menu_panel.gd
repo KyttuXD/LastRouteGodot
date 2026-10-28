@@ -28,6 +28,8 @@ var _held := false
 var _trigger_down := false
 ## Stick and trigger-drag scrolling (XRPanelScroll).
 var _scroll := XRPanelScroll.new()
+## Head-gaze dwell clicking when no controller is tracked and no gamepad is connected (XRGaze).
+var _gaze := XRGaze.new()
 const HINT := "STICK: SCROLL  //  TRIGGER: CLICK OR DRAG  //  LEFT MENU: RECENTRE"
 
 
@@ -101,6 +103,7 @@ func _ready() -> void:
 	_right.button_pressed.connect(_on_right_pressed)
 	_right.button_released.connect(_on_right_released)
 	_left.button_pressed.connect(_on_left_pressed)
+	_left.button_released.connect(_on_left_released)
 	_panel.add_child(hint_label(HINT))
 	var keyboard := XRKeyboard.new()   # no system keyboard in an immersive app: type room codes and chat on the panel
 	keyboard.name = "XRKeyboard"
@@ -158,10 +161,17 @@ func _canvas(window_position: Vector2) -> Vector2:
 	return get_tree().root.get_final_transform().affine_inverse() * window_position
 
 
-## The left menu button re-centres the panel in front of the head.
+## The left menu button re-centres the panel in front of the head; the left trigger clicks when it points.
 func _on_left_pressed(action: StringName) -> void:
 	if action == &"menu_button":
 		_placed = false
+	elif action == &"trigger_click" and XRGaze.pointer_hand(_left, _right) == _left:
+		_trigger(true)
+
+
+func _on_left_released(action: StringName) -> void:
+	if action == &"trigger_click":
+		_trigger(false)
 
 
 func _beam(size: Vector3, color: Color) -> MeshInstance3D:
@@ -205,9 +215,16 @@ func _process(delta: float) -> void:
 		_place_wait += delta
 		if _camera.position.length_squared() > 0.0001 or _place_wait > 1.0:
 			_place()
-	var uv := panel_uv(_right.global_position, -_right.global_basis.z, _panel.global_transform, size)
+	# The pointer: the tracked hand's laser, else the head (gaze), so the menus work without Touch controllers.
+	var hand := XRGaze.pointer_hand(_left, _right)
+	var source: Node3D = hand if hand != null else _camera
+	_ray.visible = hand != null
+	if hand != null and _ray.get_parent() != hand:
+		_ray.reparent(hand, false)
+	var uv := panel_uv(source.global_position, -source.global_basis.z, _panel.global_transform, size)
 	_dot.visible = uv.x >= 0.0
 	if uv.x < 0.0:
+		_gaze.reset()
 		return
 	_dot.global_transform = _panel.global_transform.translated_local(
 		Vector3((uv.x - 0.5) * size.x, (0.5 - uv.y) * size.y, 0.003))
@@ -222,6 +239,14 @@ func _process(delta: float) -> void:
 		if _trigger_down:
 			_scroll.move(root, _canvas(at))
 	_scroll.stick(root, [_left.get_vector2("primary"), _right.get_vector2("primary")], delta)
+	if XRGaze.dwell_wanted(hand):
+		if _gaze.update(root, _canvas(at), delta):
+			_click(true)
+			_click(false)
+		_dot.scale = Vector3.ONE * (1.0 + _gaze.progress * 1.5)   # the reticle grows while it dwells
+	else:
+		_gaze.reset()
+		_dot.scale = Vector3.ONE
 
 
 ## Puts the panel in front of the head at a comfortable height, facing it (yaw only).
