@@ -825,6 +825,13 @@ func _apply_visual_settings() -> void:
 	if _body_model != null:
 		PlayerSkin.set_arms(_body_model, Settings.effective_slim())
 		PlayerSkin.apply(_body_model, PlayerSkin.active_texture())
+	if _climb_hands != null:
+		# skin, hue or arm style changed: rebuild the ladder hands from the same source (live update)
+		var climbing_now := _climb_hands.visible
+		_climb_hands.free()
+		_climb_hands = null
+		if climbing_now:
+			_show_climb_hands(true)
 	if first_person_items != null:
 		for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
 			if bool(hand.get_meta("slim", false)) != Settings.effective_slim():
@@ -1216,30 +1223,13 @@ func _show_climb_hands(on: bool) -> void:
 	if _climb_hands == null and on:
 		_climb_hands = Node3D.new()
 		_climb_hands.name = "ClimbHands"
-		var skin := StandardMaterial3D.new()
-		skin.albedo_color = Color("d9a98a")
-		MaterialLook.tame(skin)
-		var sleeve := StandardMaterial3D.new()
-		sleeve.albedo_color = Color("3a4250")
-		MaterialLook.tame(sleeve)
 		for side in [-1.0, 1.0]:
 			var arm := Node3D.new()
 			arm.name = "L" if side < 0.0 else "R"
-			var forearm := MeshInstance3D.new()
-			var forearm_mesh := BoxMesh.new()
-			forearm_mesh.size = Vector3(.07, .07, .26)
-			forearm.mesh = forearm_mesh
-			forearm.material_override = sleeve
-			forearm.position = Vector3(0, -.02, .13)
-			arm.add_child(forearm)
-			var fist := MeshInstance3D.new()
-			var fist_mesh := BoxMesh.new()
-			fist_mesh.size = Vector3(.085, .085, .09)
-			fist.mesh = fist_mesh
-			fist.material_override = skin
-			arm.add_child(fist)
-			for child in arm.get_children():
-				(child as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var hand := _build_skinned_hand(CLIMB_HAND_SCALE, CLIMB_ARM_TILT)   # the player's own skinned forearm and hand, mirrored for the left
+			if side < 0.0:
+				hand.scale.x = -hand.scale.x
+			arm.add_child(hand)
 			arm.position = Vector3(.16 * side, -.1, -.34)
 			_climb_hands.add_child(arm)
 		first_person_camera.add_child(_climb_hands)
@@ -2080,6 +2070,8 @@ func _build_first_person_items() -> void:
 ## running back and down toward the camera. `first_person_hands` turns them off (held items only).
 static var first_person_hands := true
 const FP_HAND_SCALE := .37          # mannequin units -> camera space, matched to the held items' scale
+const CLIMB_HAND_SCALE := .17       # ladder hands: smaller and reaching up the rungs
+const CLIMB_ARM_TILT := 150.0
 const FP_ARM_TILT := 118.0          # degrees: the forearm comes up from below-behind into the grip
 static var _fp_hand_parts: Array = []   # classic arms: [[mesh, material_override or null, transform relative to R-HandProp], ...]
 static var _fp_hand_parts_slim: Array = []   # the same from the slim (Alex) mannequin
@@ -2114,14 +2106,16 @@ static func _local_to(root: Node, node: Node3D) -> Transform3D:
 	return xf
 
 
-func _add_first_person_hand(view: Node3D) -> void:
+## The player's skinned forearm and hand (Steve or Alex arm width, current skin and hue) from the mannequin's own meshes: the one
+## source for every first-person hand (held-item views, ladder climbing). Null if the mannequin could not be loaded.
+func _build_skinned_hand(hand_scale: float = FP_HAND_SCALE, tilt: float = FP_ARM_TILT) -> Node3D:
 	var parts := _mannequin_hand_parts(Settings.effective_slim())
 	if parts.is_empty():
-		return
+		return null
 	var hand := Node3D.new()
 	hand.name = "FirstPersonHand"
 	hand.set_meta("slim", Settings.effective_slim())
-	hand.basis = Basis(Vector3.RIGHT, deg_to_rad(FP_ARM_TILT)).scaled(Vector3.ONE * FP_HAND_SCALE)
+	hand.basis = Basis(Vector3.RIGHT, deg_to_rad(tilt)).scaled(Vector3.ONE * hand_scale)
 	for part_value in parts:
 		var part: Array = part_value
 		var mesh_node := MeshInstance3D.new()
@@ -2133,6 +2127,13 @@ func _add_first_person_hand(view: Node3D) -> void:
 		hand.add_child(mesh_node)
 	ModelSlot.apply_character_hue(hand, Settings.player_hue_degrees)
 	PlayerSkin.apply(hand, PlayerSkin.active_texture())
+	return hand
+
+
+func _add_first_person_hand(view: Node3D) -> void:
+	var hand := _build_skinned_hand()
+	if hand == null:
+		return
 	hand.visible = first_person_hands
 	view.add_child(hand)
 
