@@ -534,8 +534,10 @@ func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 			_pending_prebuild.append(coord)
 	_pending_prebuild.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 		return _chunk_distance(a, center) < _chunk_distance(b, center))
+	# Data only (no nodes) for the levels around this one: hunter navigation reads them (one level each way), and
+	# without pre-built storeys (phones, the Quest) it used to generate them on the main thread at every chunk crossing.
 	for level in range(center.y - PREDATA_LEVEL_RANGE, center.y + PREDATA_LEVEL_RANGE + 1):
-		if absi(level - center.y) != PREDATA_LEVEL_RANGE:
+		if level == center.y:
 			continue
 		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):

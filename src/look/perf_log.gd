@@ -40,6 +40,19 @@ static func autorun_args() -> PackedStringArray:
 	return args
 
 
+## Section timing for profiling builds: PerfLog.section("name", start_usec) adds the elapsed time to a named bucket;
+## the summary lists every bucket's average and worst per frame. Costs nothing unless something calls it.
+static var _sections := {}
+static func section(name: String, start_usec: int) -> void:
+	var ms := (Time.get_ticks_usec() - start_usec) / 1000.0
+	var entry: Array = _sections.get(name, [0.0, 0.0, 0, 0.0])   # total ms, worst ms, calls, this frame
+	entry[0] += ms
+	entry[1] = maxf(entry[1], ms)
+	entry[2] += 1
+	entry[3] += ms
+	_sections[name] = entry
+
+
 const SPIKE_MS := 33.3
 const BUCKETS := [16.7, 20.0, 25.0, 33.3, 50.0, 100.0]
 const WRITE_EVERY := 10.0
@@ -94,6 +107,9 @@ func _process(delta: float) -> void:
 		_second_frames = 0
 		_second_ms = 0.0
 	var cost := _stream_cost()
+	for key in _sections:
+		var entry: Array = _sections[key]
+		entry[3] = 0.0
 	if ms > SPIKE_MS and _spikes.size() < MAX_SPIKES:
 		_spikes.append(_spike(ms, cost))
 	_write_clock += delta
@@ -141,7 +157,17 @@ func summary() -> Dictionary:
 		"avg_fps": snappedf(1000.0 * _frames / maxf(_total_ms, .001), .1), "worst_ms": snappedf(_worst_ms, .1),
 		"lowest_second_fps": sorted[0] if not sorted.is_empty() else 0.0,
 		"histogram_ms_upper": BUCKETS + ["inf"], "histogram": _histogram, "spike_tags": tags,
+		"sections": _section_summary(),
 	}
+
+
+func _section_summary() -> Dictionary:
+	var out := {}
+	for key in _sections:
+		var entry: Array = _sections[key]
+		out[key] = {"avg_ms_per_frame": snappedf(float(entry[0]) / maxf(_frames, 1), .01), "worst_ms": snappedf(float(entry[1]), .1),
+			"calls": entry[2]}
+	return out
 
 
 func write() -> void:
@@ -158,6 +184,12 @@ func write() -> void:
 		s["device"], s["os"], s["profile"], s["seconds"], s["frames"], s["avg_fps"], s["worst_ms"], s["lowest_second_fps"]])
 	text.store_line("histogram (frames up to ms): %s -> %s" % [str(s["histogram_ms_upper"]), str(s["histogram"])])
 	text.store_line("spikes by cause: %s" % str(s["spike_tags"]))
+	var sections: Dictionary = s["sections"]
+	var names := sections.keys()
+	names.sort_custom(func(a, b) -> bool: return float(sections[a]["avg_ms_per_frame"]) > float(sections[b]["avg_ms_per_frame"]))
+	for key in names:
+		text.store_line("  section %-32s avg %.2f ms/frame, worst %.1f ms, %d calls" % [key, sections[key]["avg_ms_per_frame"],
+			sections[key]["worst_ms"], sections[key]["calls"]])
 	for spike in _spikes:
 		text.store_line("  t=%.2f %.1f ms %s (stream %.1f, process %.1f) %s" % [spike["t"], spike["ms"], spike["tag"],
 			spike["stream_ms"], spike["process_ms"], spike.get("chunk", "")])

@@ -40,6 +40,8 @@ var notch := 0
 var shadows := true
 var prop_range_scale := 1.0
 var prerender_ambience := true
+## Minimap redraws per second (0 = every frame, the ULTRA reference).
+var map_update_hz := 0.0
 var frame_target_hz := 60.0
 var worker_threads := 1
 var governor: QualityGovernor
@@ -99,6 +101,7 @@ func apply_budgets() -> void:
 	camera_far = budgets["camera_far"]
 	prop_range_scale = budgets["prop_range_scale"]
 	prerender_ambience = budgets["prerender_ambience"]
+	map_update_hz = budgets["map_update_hz"]
 	frame_target_hz = budgets["frame_target_hz"]
 	worker_threads = budgets["worker_threads"]
 	if is_phone:

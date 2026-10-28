@@ -459,6 +459,9 @@ func _on_pickup_claimed(entity_id: String) -> void:
 	pass
 
 
+var _map_update_clock := 0.0
+
+
 func _update_hud() -> void:
 	var data := facility.current_chunk_data()
 	var safe := _player_in_intact_safe_room(data)
@@ -473,7 +476,12 @@ func _update_hud() -> void:
 		player.inventory_durability_snapshot(), player.inventory_owned_snapshot(),
 		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot(),
 		player.selected_inventory_slot, player.inventory_slot_durability_snapshot())
-	_update_streamed_maps()
+	# The minimap redraw is the largest steady script cost on a phone or the Quest (~5.7 ms a frame on the Quest 3S):
+	# lower quality tiers redraw it at PlatformProfile.map_update_hz instead of every frame.
+	_map_update_clock -= get_process_delta_time()
+	if PlatformProfile.map_update_hz <= 0.0 or _map_update_clock <= 0.0:
+		_map_update_clock = 1.0 / PlatformProfile.map_update_hz if PlatformProfile.map_update_hz > 0.0 else 0.0
+		_update_streamed_maps()
 	_present_afk_void_warning()
 
 

@@ -85,13 +85,13 @@ static func score(specs: Dictionary) -> int:
 static func budgets(tier: int, specs: Dictionary) -> Dictionary:
 	var low_memory := float(specs.get("ram_bytes", 8 * GB)) <= 4.8 * GB
 	var table := {
-		Tier.ULTRA: {"stream_budget_ms": 4.0, "stream_budget_max_ms": 9.0, "prebuild_linked_levels": true,
+		Tier.ULTRA: {"map_update_hz": 0.0, "stream_budget_ms": 4.0, "stream_budget_max_ms": 9.0, "prebuild_linked_levels": true,
 			"lamp_pool": 8, "shadows": true, "camera_far": 0.0, "prop_range_scale": 1.0, "prerender_ambience": true},
-		Tier.HIGH: {"stream_budget_ms": 4.0, "stream_budget_max_ms": 8.0, "prebuild_linked_levels": true,
+		Tier.HIGH: {"map_update_hz": 30.0, "stream_budget_ms": 4.0, "stream_budget_max_ms": 8.0, "prebuild_linked_levels": true,
 			"lamp_pool": 8, "shadows": true, "camera_far": 0.0, "prop_range_scale": 1.0, "prerender_ambience": true},
-		Tier.MEDIUM: {"stream_budget_ms": 3.0, "stream_budget_max_ms": 6.0, "prebuild_linked_levels": not low_memory,
+		Tier.MEDIUM: {"map_update_hz": 20.0, "stream_budget_ms": 3.0, "stream_budget_max_ms": 6.0, "prebuild_linked_levels": not low_memory,
 			"lamp_pool": 6, "shadows": false, "camera_far": 140.0, "prop_range_scale": .8, "prerender_ambience": true},
-		Tier.LOW: {"stream_budget_ms": 2.0, "stream_budget_max_ms": 4.0, "prebuild_linked_levels": false,
+		Tier.LOW: {"map_update_hz": 15.0, "stream_budget_ms": 2.0, "stream_budget_max_ms": 4.0, "prebuild_linked_levels": false,
 			"lamp_pool": 4, "shadows": false, "camera_far": 90.0, "prop_range_scale": .6, "prerender_ambience": true},
 	}
 	var out: Dictionary = (table[clampi(tier, Tier.LOW, Tier.ULTRA)] as Dictionary).duplicate()
