@@ -1,0 +1,60 @@
+{
+ "name": "elise_sprint",
+ "area": "hospital",
+ "seconds": 6,
+ "dark": 0.5,
+ "actors": {
+  "elise": {
+   "id": "elise",
+   "at": [
+    14,
+    0.0
+   ],
+   "face": "heading",
+   "clip": "sprint",
+   "tag": "ELISE"
+  }
+ },
+ "camera": [
+  {
+   "t": 0,
+   "at": [
+    0,
+    0.5,
+    1.5
+   ],
+   "look": "elise:1.1"
+  },
+  {
+   "t": 6,
+   "at": [
+    0.3,
+    0.6,
+    1.45
+   ],
+   "look": "elise:1.1"
+  }
+ ],
+ "flashlight": [
+  {
+   "t": 0,
+   "on": false
+  }
+ ],
+ "events": [
+  {
+   "t": 0.3,
+   "actor": "elise",
+   "move": [
+    -3,
+    0.0
+   ],
+   "speed": 5.2
+  },
+  {
+   "t": 3.6,
+   "actor": "elise",
+   "tag_off": true
+  }
+ ]
+}

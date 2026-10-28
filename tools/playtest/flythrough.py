@@ -18,6 +18,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import queue
+import shlex
+import threading
 import time
 from pathlib import Path
 
@@ -36,6 +39,54 @@ BLURB = {
     "sewer_valve_room": "Sewer -1: valve room", "sewer_pump_room": "Sewer -1: pump room", "sewer_overflow": "Sewer -1: overflow chamber",
     "sewer_ladder": "Sewer -1: the ladder climb up to the maze", "descent_ladder": "Maze manhole: climb down the ladder into the sewer",
 }
+
+
+BENCH_RUN = os.environ.get("BENCH_RUN", str(SETUP / "bench-run.sh"))
+CONF = SETUP / "dist_machines.conf"
+
+
+class WorkerBusy(Exception):
+    """bench-run.sh refused the machine (battery, throttled, unreachable, already running Godot): hand the area to another worker."""
+
+
+class Worker:
+    """One render machine. key 'mini' = KT-Mini4-2 through mini-run.sh; any other dist_machines.conf key goes through the TOOLS lane's bench-run.sh
+    (windows visible or off-screen as configured, auto-closing). KT-FW13 is refused here."""
+
+    def __init__(self, key, src, lane):
+        self.key, self.src, self.lane = key, src, lane
+        self.host = ""
+        if key != "mini":
+            for line in CONF.read_text().splitlines():
+                parts = line.split()
+                if len(parts) > 2 and parts[0] == key:
+                    self.host = parts[2]
+            if not self.host or "FW13" in self.host:
+                sys.exit("machine '%s' is not usable for renders (see dist_machines.conf; KT-FW13 never)" % key)
+
+    def prepare(self, working_tree=False):
+        if self.key == "mini":
+            prep = mini(self.src, self.lane, "--cmd", "mkdir -p .playtest/fly; find .playtest/fly -name '*.avi' -delete", nosync=False, timeout=900)
+            if prep.returncode != 0:
+                sys.exit("sync to the mini failed:\n" + (prep.stdout + prep.stderr)[-800:])
+
+    def scene(self, cmd, timeout):
+        if self.key == "mini":
+            return mini(self.src, self.lane, "--scene", cmd, timeout=timeout)
+        env = dict(os.environ, BENCH_TIMEOUT=str(timeout))
+        return sh([BENCH_RUN, self.key, str(self.src), self.lane, "--cooldown", "0", "--", *shlex.split(cmd)], env=env, timeout=timeout + 600)
+
+    def pull(self, rel, local):
+        if self.key == "mini":
+            mini(self.src, self.lane, "--pull", rel, str(local))
+        else:
+            Path(local).mkdir(parents=True, exist_ok=True)
+            sh(["scp", "-q", "%s:Developer/lanes/%s/%s" % (self.host, self.lane, rel), str(local) + "/"])
+
+    def sh(self, command):
+        if self.key == "mini":
+            return mini(self.src, self.lane, "--cmd", command)
+        return sh(["ssh", "-o", "BatchMode=yes", self.host, "cd ~/Developer/lanes/%s && %s" % (self.lane, command)])
 
 
 def sh(cmd, **kw):
@@ -58,6 +109,9 @@ def mini(src, lane, *args, timeout=1500, nosync=True):
     return sh([MINI_RUN, str(src), lane, *args], env=env, timeout=timeout + 120)
 
 
+HW = False
+
+
 def encode(avi: Path, mp4: Path, start_frame: int, frames: int, fps: int, crf: int, scale_w: int) -> tuple:
     start = start_frame / fps
     length = frames / fps
@@ -67,7 +121,10 @@ def encode(avi: Path, mp4: Path, start_frame: int, frames: int, fps: int, crf: i
     # -ss BEFORE -i: the clip's timestamps start at 0, so the fades land on the clip (MJPEG frames are all key frames, the seek is exact)
     base = ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{start:.3f}", "-i", str(avi), "-t", f"{length:.3f}", "-vf", vf]
     audio = ["-af", af, "-c:a", "aac", "-b:a", "64k", "-ac", "1"]
-    video = ["-c:v", "libx264", "-preset", "slow", "-crf", str(crf), "-movflags", "+faststart", "-r", str(fps)]
+    if HW:
+        video = ["-c:v", "h264_videotoolbox", "-b:v", "%dM" % (14 if scale_w >= 1900 else 6), "-movflags", "+faststart", "-r", str(fps)]
+    else:
+        video = ["-c:v", "libx264", "-preset", "slow", "-crf", str(crf), "-movflags", "+faststart", "-r", str(fps)]
     out = sh([*base, *audio, *video, str(mp4)])
     if out.returncode != 0:  # no audio stream in the capture: render picture only
         out = sh([*base, "-an", *video, str(mp4)])
@@ -119,8 +176,17 @@ def main() -> int:
     ap.add_argument("--clean", action="store_true", help="capture-only clean scene: hide pickups, tools and the waypoint trail (visibility only)")
     ap.add_argument("--keep", default="", help="with --clean: kinds to keep visible (relay,battery,coin,tool_pickup,music_box)")
     ap.add_argument("--no-bob", action="store_true", help="no head bob (dolly style)")
+    ap.add_argument("--machines", default="mini", help="comma list of dist_machines.conf keys rendering in parallel, one area per machine at a time (mini,local,neo,mbp,t480; never fw)")
+    ap.add_argument("--final", action="store_true", help="final quality: 1920x1080 at 60 fps (default is the 720p/30 draft)")
+    ap.add_argument("--no-cache", action="store_true", help="re-render areas even when the runtime tree and settings match an earlier render")
+    ap.add_argument("--software-encode", action="store_true", help="libx264 instead of h264_videotoolbox")
     ap.add_argument("--list", action="store_true")
     args = ap.parse_args()
+    if args.final:
+        args.fps, args.width, args.crf = 60, 1920, 22
+    args.resolution = "1920x1080" if args.final else "1280x720"
+    global HW
+    HW = not args.software_encode and "h264_videotoolbox" in sh(["ffmpeg", "-hide_banner", "-encoders"]).stdout
 
     if args.list:
         for name in ALL_AREAS:
@@ -143,6 +209,11 @@ def main() -> int:
     lane = "fly-" + rev
     tmp = Path(tempfile.mkdtemp(prefix="flythrough-"))
     results = []
+    cache_dir = common.parent / "captures" / "videos" / ".cache"
+    cache_key = None
+    if not args.working_tree and not args.no_cache:
+        trees = [git("rev-parse", "%s:%s" % (rev, d)) if sh(["git", "cat-file", "-e", "%s:%s" % (rev, d)], cwd=REPO).returncode == 0 else "-" for d in ("src", "assets", "data", "scenes", "project.godot")]
+        cache_key = "-".join(t[:10] for t in trees) + "_%s_%d_%s_%s_%s_%s_%s" % (args.resolution, args.fps, args.seed, args.hunters, args.clean, args.keep or "n", args.no_bob)
     try:
         if args.working_tree:
             src = REPO
@@ -152,26 +223,27 @@ def main() -> int:
             archive = subprocess.Popen(["git", "archive", rev], cwd=REPO, stdout=subprocess.PIPE)
             subprocess.run(["tar", "-x", "-C", str(src)], stdin=archive.stdout, check=True)
             archive.wait()
+            (src / ".playtest/fly").mkdir(parents=True, exist_ok=True)
+            (src / ".playtest/fly/.keep").write_text("")
             if not (src / "src/playtest/playtest_flythrough.gd").exists():
                 sys.exit("commit %s has no flythrough scenario (src/playtest/playtest_flythrough.gd)" % rev)
-        print("rendering %d area(s) of %s on KT-Mini4-2 -> %s" % (len(areas), rev, out_dir), flush=True)
-        prep = mini(src, lane, "--cmd", "mkdir -p .playtest/fly; find .playtest/fly -name '*.avi' -delete", nosync=False, timeout=900)
-        if prep.returncode != 0:
-            sys.exit("sync to the mini failed:\n" + (prep.stdout + prep.stderr)[-800:])
-        for area in areas:
+        def render_area(area, w):
+            began_area = time.time()
             result = {"area": area, "blurb": BLURB.get(area, ""), "ok": False, "attempts": []}
             best = None
             for variant in range(max(args.variants, 1)):
                 began = time.time()
                 avi_rel = ".playtest/fly/%s.avi" % area
-                cmd = ("--write-movie %s --fixed-fps %d --resolution 1280x720 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route "
+                cmd = ("--write-movie %s --fixed-fps %d --disable-vsync --resolution %s res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route "
                        "--scenario=flythrough --area=%s --seed=%s --fps=%d --seconds=%s --hunters=%s --variant=%d --bob=%s --clean=%s --keep=%s --deadline=%d --name=fly_%s"
-                       % (avi_rel, args.fps, area, args.seed, args.fps, args.seconds, args.hunters, variant, "false" if args.no_bob else "true",
+                       % (avi_rel, args.fps, args.resolution, area, args.seed, args.fps, args.seconds, args.hunters, variant, "false" if args.no_bob else "true",
                           "true" if args.clean else "false", args.keep or "none", args.timeout - 120, area))
-                run = mini(src, lane, "--scene", cmd, timeout=args.timeout)
+                run = w.scene(cmd, args.timeout)
+                if run.returncode == 75:
+                    raise WorkerBusy((run.stdout + run.stderr).strip().splitlines()[-1] if (run.stdout + run.stderr).strip() else "refused")
                 log = run.stdout + run.stderr
                 local = tmp / ("%s_%d" % (area, variant))
-                mini(src, lane, "--pull", ".playtest/fly_%s/report.json" % area, str(local))
+                w.pull(".playtest/fly_%s/report.json" % area, local)
                 report_file = local / "report.json"
                 report = json.loads(report_file.read_text()) if report_file.exists() else {}
                 info = report.get("flythrough", {})
@@ -179,7 +251,7 @@ def main() -> int:
                     result["skipped"] = info.get("reason") or report.get("scenario_failure") or "no report (see log tail)"
                     result["log_tail"] = log.strip().splitlines()[-4:]
                     break
-                mini(src, lane, "--pull", avi_rel, str(local))
+                w.pull(avi_rel, local)
                 avi = local / ("%s.avi" % area)
                 if not avi.exists():
                     result["skipped"] = "the capture file was not written"
@@ -187,7 +259,7 @@ def main() -> int:
                     break
                 mp4 = tmp / ("%s_v%d.mp4" % (area, variant))
                 ok, err = encode(avi, mp4, int(info["clip_start_frame"]), int(info["clip_frames"]), int(info["fps"]), args.crf, args.width)
-                mini(src, lane, "--cmd", "rm -f %s" % avi_rel)
+                w.sh("rm -f %s" % avi_rel)
                 if not ok:
                     result["skipped"] = "encode failed: " + err[-200:]
                     break
@@ -217,9 +289,10 @@ def main() -> int:
             if best is None:
                 result["skipped"] = result.get("skipped") or "DROPPED: every variant had the camera inside geometry"
                 print("  %-18s SKIPPED: %s" % (area, result.get("skipped")), flush=True)
-                results.append(result)
-                continue
+                return result
             info = best["info"]
+            result["worker"] = w.key
+            result["wall_s"] = round(time.time() - began_area)
             mp4 = out_dir / ("%s.mp4" % area)
             shutil.copy(best["mp4"], mp4)
             contact_sheet(mp4, out_dir / ("%s_sheet.jpg" % area))
@@ -229,7 +302,74 @@ def main() -> int:
                            "size_mb": round(mp4.stat().st_size / 1e6, 2), "seconds": info.get("seconds"), "level": info.get("level"), "chunk": info.get("chunk"),
                            "rooms": info.get("rooms"), "variant": best["attempt"]["variant"], "biome_at_end": info.get("current_biome")})
             print("  %-18s %s  %5.1f s  %s MB  variant %d  %s" % (area, "OK ", info.get("seconds", 0), result["size_mb"], best["attempt"]["variant"], result["quality"]), flush=True)
-            results.append(result)
+            return result
+
+        def cached(area):
+            if cache_key is None:
+                return None
+            d = cache_dir / cache_key
+            meta = d / (area + ".json")
+            if meta.exists() and (d / (area + ".mp4")).exists():
+                r = json.loads(meta.read_text())
+                shutil.copy(d / (area + ".mp4"), out_dir / (area + ".mp4"))
+                if (d / (area + "_sheet.jpg")).exists():
+                    shutil.copy(d / (area + "_sheet.jpg"), out_dir / (area + "_sheet.jpg"))
+                r.update({"file": str(out_dir / (area + ".mp4")), "sheet": str(out_dir / (area + "_sheet.jpg")), "cached": True, "wall_s": 0})
+                return r
+            return None
+
+        def store(area, r):
+            if cache_key is None or not r.get("ok"):
+                return
+            d = cache_dir / cache_key
+            d.mkdir(parents=True, exist_ok=True)
+            shutil.copy(out_dir / (area + ".mp4"), d / (area + ".mp4"))
+            if (out_dir / (area + "_sheet.jpg")).exists():
+                shutil.copy(out_dir / (area + "_sheet.jpg"), d / (area + "_sheet.jpg"))
+            (d / (area + ".json")).write_text(json.dumps(r))
+
+        todo = queue.Queue()
+        for area in areas:
+            hit = cached(area)
+            if hit is not None:
+                print("  %-18s cached (same runtime tree and settings)" % area, flush=True)
+                results.append(hit)
+            else:
+                todo.put(area)
+        lock = threading.Lock()
+        t_all = time.time()
+
+        def work(w):
+            while True:
+                try:
+                    area = todo.get_nowait()
+                except queue.Empty:
+                    return
+                try:
+                    r = render_area(area, w)
+                except WorkerBusy as why:
+                    print("  [%s] unavailable (%s): handing %s back" % (w.key, why, area), flush=True)
+                    todo.put(area)
+                    return
+                store(area, r)
+                with lock:
+                    results.append(r)
+
+        keys = [k for k in args.machines.split(",") if k]
+        workers = [Worker(k, src, lane) for k in keys]
+        for w in workers:
+            w.prepare(working_tree=args.working_tree)
+        print("rendering %d area(s) of %s on %s" % (todo.qsize(), rev, ",".join(keys)), flush=True)
+        threads = [threading.Thread(target=work, args=(w,)) for w in workers]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        while not todo.empty():   # every other machine dropped out: finish on the mini
+            work(workers[0] if workers[0].key == "mini" else Worker("mini", src, lane))
+        print("render wall time %.0f s for %d clip(s) (draft=%s)" % (time.time() - t_all, len(results), not args.final), flush=True)
+        order = {a: n for n, a in enumerate(areas)}
+        results.sort(key=lambda r: order.get(r["area"], 99))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         # keep only this commit's lane on the mini (each holds a copy of the project and its import cache)

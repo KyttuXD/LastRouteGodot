@@ -1,0 +1,61 @@
+{
+ "name": "zellia",
+ "area": "hospital",
+ "seconds": 5.5,
+ "dark": 0.5,
+ "actors": {
+  "zellia": {
+   "id": "zellia",
+   "at": [
+    11,
+    0.2
+   ],
+   "face": "heading",
+   "clip": "walk",
+   "tag": "ZELLIA"
+  }
+ },
+ "camera": [
+  {
+   "t": 0,
+   "at": [
+    0,
+    0,
+    1.5
+   ],
+   "look": "zellia:1.2"
+  },
+  {
+   "t": 5.5,
+   "at": [
+    0.4,
+    0,
+    1.45
+   ],
+   "look": "zellia:1.2"
+  }
+ ],
+ "flashlight": [
+  {
+   "t": 0,
+   "on": false
+  }
+ ],
+ "events": [
+  {
+   "t": 0.2,
+   "actor": "zellia",
+   "move": [
+    3.5,
+    0.1
+   ],
+   "speed": 1.5
+  },
+  {
+   "t": 4.0,
+   "actor": "zellia",
+   "pose": "stare_camera",
+   "face": "camera"
+  }
+ ]
+}

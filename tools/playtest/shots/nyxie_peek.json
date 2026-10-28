@@ -1,0 +1,78 @@
+{
+ "name": "nyxie_peek",
+ "area": "hospital",
+ "seconds": 11,
+ "dark": 0.3,
+ "torch_energy": 9,
+ "actors": {
+  "nyxie": {
+   "id": "nyxie",
+   "at": [
+    10,
+    0.5
+   ],
+   "face": "camera",
+   "pose": "peek_left"
+  }
+ },
+ "camera": [
+  {
+   "t": 0,
+   "at": [
+    0,
+    0,
+    1.55
+   ],
+   "look": "nyxie:1.25"
+  },
+  {
+   "t": 11,
+   "at": [
+    2.2,
+    0,
+    1.5
+   ],
+   "look": "nyxie:1.25"
+  }
+ ],
+ "flashlight": [
+  {
+   "t": 0,
+   "on": false
+  },
+  {
+   "t": 6,
+   "on": true
+  }
+ ],
+ "events": [
+  {
+   "t": 2.2,
+   "flicker": 0.6
+  },
+  {
+   "t": 5.8,
+   "flash": 0.5
+  },
+  {
+   "t": 6.2,
+   "actor": "nyxie",
+   "pose": "flinch"
+  },
+  {
+   "t": 7.0,
+   "actor": "nyxie",
+   "move": [
+    17,
+    0.5
+   ],
+   "speed": 3.4,
+   "pose": "retreat"
+  },
+  {
+   "t": 9.6,
+   "actor": "nyxie",
+   "hide": true
+  }
+ ]
+}
