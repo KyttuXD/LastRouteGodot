@@ -33,9 +33,11 @@ func run(host: Node) -> int:
 	for id in ids:
 		_check_prop(String(id))
 	_check_playable(host)
+	_check_wing()
+	_check_recipes()
 	if _failures == 0:
-		print("  music     %d music props wired from data (models, footprints, scale, colliders, mounts); %d playable with cues and hunter noise behind music_noise"
-			% [ids.size(), MusicProps.PLAYABLE.size()])
+		print("  music     %d music props wired from data (models, footprints, scale, colliders, mounts); %d playable with cues and hunter noise behind music_noise; the rehearsal wing carves 4 reachable rooms both ways; %d recipes clear"
+			% [ids.size(), MusicProps.PLAYABLE.size(), MusicWing.TEMPLATES.size()])
 	return _failures
 
 
@@ -82,3 +84,93 @@ func _check_playable(host: Node) -> void:
 	MusicProps.noise_enabled = saved
 	_expect(MusicProps.play("cableRun", player) == 0.0, "a dressing prop played a sound")
 	player.free()
+
+
+## The wing in a 21x21 great-hall slot, door on either side: four rooms of their declared sizes, each with a doorway onto
+## the wing hall, and every open cell reachable from the slot's door.
+func _check_wing() -> void:
+	for flip in [false, true]:
+		var size := 45
+		var grid := []
+		for z in size:
+			var row := []
+			row.resize(size)
+			row.fill(1)
+			grid.append(row)
+		var slot := Rect2i(24 if flip else 0, 12, MusicWing.SLOT, MusicWing.SLOT)
+		var door := Vector2i(slot.position.x if flip else slot.end.x - 1, 22)
+		StreamedRouteGenerator._carve_rect(grid, slot)
+		StreamedRouteGenerator._seal_room_perimeter_except(grid, slot, door)
+		var wing := MusicWing.carve(grid, slot, door)
+		var rooms: Array = wing["rooms"]
+		_expect(rooms.size() == 4, "the wing has %d rooms" % rooms.size())
+		for room in rooms:
+			var r: Rect2i = room["rect"]
+			_expect(slot.encloses(r), "%s leaves the slot" % room["room_type"])
+			var p: Dictionary = MusicWing.SIZE_PROFILES[room["room_type"]]
+			var lo: Vector2i = p["min"]
+			var hi: Vector2i = p["max"]
+			_expect(r.size.x >= lo.x and r.size.y >= lo.y and r.size.x <= hi.x and r.size.y <= hi.y,
+				"%s is %s, outside its profile" % [room["room_type"], r.size])
+			var doorway: Vector2i = room["doorway"]
+			_expect(int(grid[doorway.y][doorway.x]) == 0, "%s doorway is walled" % room["room_type"])
+		var reach := _flood(grid, door)
+		var open := 0
+		for z in range(slot.position.y, slot.end.y):
+			for x in range(slot.position.x, slot.end.x):
+				if int(grid[z][x]) == 0:
+					open += 1
+					if not reach.has(Vector2i(x, z)):
+						_expect(false, "cell %s of the wing is cut off (flip %s)" % [Vector2i(x, z), flip])
+						return
+		_expect(open > 200, "the wing has only %d open cells" % open)
+
+
+static func _flood(grid: Array, start: Vector2i) -> Dictionary:
+	var seen := {start: true}
+	var todo := [start]
+	while not todo.is_empty():
+		var c: Vector2i = todo.pop_back()
+		for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var n: Vector2i = c + d
+			if n.y < 0 or n.y >= grid.size() or n.x < 0 or n.x >= (grid[0] as Array).size():
+				continue
+			if int(grid[n.y][n.x]) == 0 and not seen.has(n):
+				seen[n] = true
+				todo.append(n)
+	return seen
+
+
+## Every recipe at its usual sizes: only catalogued props, inside the room, no two solid props on one cell, the entrance
+## column kept clear, and the defining props present.
+func _check_recipes() -> void:
+	var sizes := {"music_stage": [Vector2i(13, 9), Vector2i(21, 21)], "carnival_stage": [Vector2i(21, 9)],
+		"practice_room": [Vector2i(11, 9), Vector2i(9, 9)], "instrument_storage": [Vector2i(9, 9), Vector2i(11, 9)],
+		"recording_booth": [Vector2i(11, 9)], "music_store": [Vector2i(20, 9)]}
+	var key := {"music_stage": ["drumKit", "micStand", "stageLightRig"], "carnival_stage": ["drumKit", "ampStack"],
+		"practice_room": ["drumKit", "acousticPanel"], "instrument_storage": ["guitarWallHanger", "instrumentCases"],
+		"recording_booth": ["mixingDesk", "labGlassPartition", "micStand"], "music_store": ["guitarWallHanger", "checkoutCounter"]}
+	for template in MusicWing.TEMPLATES:
+		for room_size in sizes[template]:
+			var half := (int(room_size.x) - 3) / 2
+			var front := int(room_size.y) - 3
+			for mirror in [1, -1]:
+				var specs := MusicWing.room_specs(template, half, int(room_size.y), mirror)
+				var where := "%s %s mirror %d" % [template, room_size, mirror]
+				var types := {}
+				var cells := {}
+				for spec in specs:
+					var type := String(spec["type"])
+					types[type] = true
+					_expect(PropModelCatalog.MODEL_PATHS.has(type), "%s uses uncatalogued %s" % [where, type])
+					var side := int(spec["side"])
+					var depth := int(spec["depth"])
+					_expect(absi(side) <= half and depth >= 0 and depth <= front, "%s puts %s outside the room at %d,%d" % [where, type, side, depth])
+					var solid := bool(spec.get("solid", RoomCatalog.is_solid(type))) and not bool(spec.get("wall_mount", false))
+					if solid:
+						var cell := Vector2i(side, depth)
+						_expect(not cells.has(cell), "%s stacks %s on %s at %s" % [where, type, cells.get(cell, ""), cell])
+						cells[cell] = type
+						_expect(not (side == 0 and depth >= front - 1), "%s blocks the entrance with %s" % [where, type])
+				for wanted in key[template]:
+					_expect(types.has(wanted), "%s has no %s" % [where, wanted])
