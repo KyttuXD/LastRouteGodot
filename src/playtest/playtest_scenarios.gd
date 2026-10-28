@@ -933,6 +933,11 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	# hunters leave every runner alone until its scripted catch (A from t 235, the host from t 470): a windowed debug build only
 	# honours no-target with admin rights, so the harness takes the screenshot rig's debug-only stand-in for them
 	Build.capture_rig = true
+	var roles := []                # A, B, C fixed once every expected guest is in (a player joining later never takes a role)
+	var gate_ok := false           # every expected peer's live state seen in the route
+	var overlay := _coop_overlay(tree)
+	var next_shot := 30.0
+	var host_catch := String(opts.get("host_catch", "true")) != "false"
 	while true:
 		await tree.physics_frame
 		frames += 1
@@ -943,10 +948,26 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		if not _soak_route(scene):
 			continue
 		var guests := _coop_guests(scene)
-		var a := int(guests[0]) if guests.size() > 0 else -1
-		var b := int(guests[1]) if guests.size() > 1 else a
-		var c := int(guests[2]) if guests.size() > 2 else a
+		if roles.is_empty() and guests.size() >= int(opts["guests"]):
+			roles = guests.slice(0, 3)
+			report["coop_roles"] = roles
+		var a := int(roles[0]) if roles.size() > 0 else -1
+		var b := int(roles[1]) if roles.size() > 1 else a
+		var c := int(roles[2]) if roles.size() > 2 else a
 		var player: PlayerController3D = scene.get("player")
+		# the hard check: inside the route, within 60 s, the host hears every expected guest live and a guest hears the host
+		var live := _coop_live(scene)
+		if not gate_ok:
+			gate_ok = (live.size() >= int(opts["guests"])) if role == "host" else live.has(1)
+			if gate_ok:
+				report["coop_gate"] = {"t": snappedf(t, .1), "live": live}
+			elif t > 60.0:
+				bridge.screenshot(out.path_join("shots/%s_gate_failed.png" % _coop_name(role, opts)))
+				samples.close()
+				Build.capture_rig = false
+				return {"outcome": "error", "game_seconds": snappedf(t, .1), "frames": frames, "deaths": [],
+					"scenario_failure": "co-op gate: after 60 s in the route %s hears %s (want %s)" % [role, live,
+						"%d guests" % int(opts["guests"]) if role == "host" else "the host"]}
 		player.admin_no_target = not ((me == a and t >= 235.0) or (role == "host" and t >= 470.0))
 		# the timeline, each step once
 		var step := ""
@@ -973,10 +994,10 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		elif role == "host" and t >= 240.0 and not done.has("catch_a"):
 			step = "catch_a"
 			scene.call("_admin_summon_hunter_authoritative", a, "kathy")
-		elif role == "host" and t >= 470.0 and not done.has("still_host"):
+		elif host_catch and role == "host" and t >= 470.0 and not done.has("still_host"):
 			step = "still_host"
 			passive_until = 560.0
-		elif role == "host" and t >= 480.0 and not done.has("catch_host"):
+		elif host_catch and role == "host" and t >= 480.0 and not done.has("catch_host"):
 			step = "catch_host"
 			scene.call("_admin_summon_hunter_authoritative", me, "kathy")
 		if not step.is_empty():
@@ -985,13 +1006,17 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		# sample every wall second
 		if t >= next_sample:
 			next_sample += 1.0
+			overlay.text = _coop_overlay_text(scene, role, me, roles)
 			var row := _coop_sample(scene, role, me, t)
 			row["run_over"] = adapter.run_over(obs) if not obs.is_empty() else null
 			samples.store_line(JSON.stringify(row))
 			samples.flush()
 		if shot_i < COOP_SHOTS.size() and t >= float(COOP_SHOTS[shot_i]):
-			bridge.screenshot(out.path_join("shots/%s_%03d.png" % [role if role == "host" else "guest%d" % int(opts["bot_seed"]), int(COOP_SHOTS[shot_i])]))
+			bridge.screenshot(out.path_join("shots/%s_%04d.png" % [_coop_name(role, opts), int(COOP_SHOTS[shot_i])]))
 			shot_i += 1
+		if t >= next_shot:
+			next_shot += 30.0
+			bridge.screenshot(out.path_join("shots/%s_%04d_roster.png" % [_coop_name(role, opts), int(t)]))
 		if frames % 3 == 0 or obs.is_empty():
 			obs = bridge.observe()
 		if frames % SAMPLE_EVERY == 0 and float(obs.get("fps", 0.0)) > 0.0:
@@ -1001,13 +1026,70 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		if adapter.run_over(obs) or t < passive_until:
 			bridge.input.apply({})
 			continue
+		# guests keep with the host (within 8 m) so the room is visible on every screen and the minimap; the host just plays
+		if role == "guest" and adapter.has_method("follow"):
+			var host_state: Dictionary = (scene.get("_remotes").get("_states") as Dictionary).get(1, {})
+			adapter.call("follow", host_state.get("position") if host_state.get("position") is Vector2 else null, 8.0)
 		bridge.input.apply(adapter.decide(obs, 1.0 / hz))
 	bridge.input.release_all()
 	samples.close()
 	Build.capture_rig = false
+	overlay.queue_free()
 	report["coop_check"] = {"done": done, "steps": steps, "me": me, "guests": _coop_guests(tree.current_scene) if _soak_route(tree.current_scene) else []}
 	return {"outcome": "time_limit", "game_seconds": snappedf(float(frames) / hz, .1), "frames": frames,
 		"perf": PlaytestReporter.perf_summary(fps, frame_ms), "deaths": [], "scenario_failure": ""}
+
+
+static func _coop_name(role: String, opts: Dictionary) -> String:
+	return role if role == "host" else "guest%d" % int(opts["bot_seed"])
+
+
+## Peers whose state reached this one in the last 2 s (the host is peer 1).
+static func _coop_live(scene: Node) -> Array:
+	var ids: Array = []
+	var remotes: Object = scene.get("_remotes")
+	if remotes == null:
+		return ids
+	var now := Time.get_ticks_usec()
+	var states: Dictionary = remotes.get("_states")
+	for id in states:
+		if now - int((states[id] as Dictionary).get("received_usec", 0)) < 2000000:
+			ids.append(int(id))
+	ids.sort()
+	return ids
+
+
+## A corner readout drawn into every screenshot: the room code, this peer, and every runner it hears (distance, storey).
+static func _coop_overlay(tree: SceneTree) -> Label:
+	var layer := CanvasLayer.new()
+	layer.layer = 120
+	layer.name = "CoopCheckOverlay"
+	tree.root.add_child(layer)
+	var label := Label.new()
+	label.position = Vector2(12, 120)
+	label.add_theme_font_size_override("font_size", 15)
+	label.add_theme_color_override("font_color", Color(1, 1, .6))
+	label.add_theme_color_override("font_outline_color", Color.BLACK)
+	label.add_theme_constant_override("outline_size", 5)
+	layer.add_child(label)
+	label.tree_exiting.connect(layer.queue_free)
+	return label
+
+
+static func _coop_overlay_text(scene: Node, role: String, me: int, roles: Array) -> String:
+	var player: PlayerController3D = scene.get("player")
+	var facility: StreamedFacilityView3D = scene.get("facility")
+	var lines := ["CO-OP TEST // ROOM %s // %s peer %d // level %+d" % [RoomState.code, role.to_upper(), me, facility.current_level()],
+		"roster %d: %s   roles A/B/C %s" % [RoomState.peers.size(), _coop_guests(scene), roles]]
+	var states: Dictionary = (scene.get("_remotes") as Object).get("_states")
+	var now := Time.get_ticks_usec()
+	for id in states:
+		var st: Dictionary = states[id]
+		var at = st.get("position")
+		var d := Vector2(player.global_position.x, player.global_position.z).distance_to(at) if at is Vector2 else -1.0
+		lines.append("  peer %d  %5.1f m  level %+d  %s" % [int(id), d, -int(st.get("depth", 0)),
+			"live" if now - int(st.get("received_usec", 0)) < 2000000 else "STALE"])
+	return "\n".join(lines)
 
 
 static func _coop_guests(scene: Node) -> Array:

@@ -689,6 +689,22 @@ func _use_goal(obs: Dictionary, nav: StreamedHunterNavigation) -> Dictionary:
 
 
 ## The hotbar slot holding a crowbar or the rescue axe, or -1.
+## Co-op: keep within `radius` m of a teammate's grid position (null lets go). Walks there through the normal goal (forced_goal).
+func follow(target, radius: float) -> void:
+	var none := Vector2i(-99999, -99999)
+	var scene := tree.current_scene
+	if target == null or not _route_ready(scene):
+		forced_goal = none
+		return
+	var p: Vector3 = (scene.get("player") as PlayerController3D).global_position
+	var at: Vector2 = target
+	if Vector2(p.x, p.z).distance_to(at) > radius:
+		forced_goal = Vector2i(floori(at.x), floori(at.y))
+		forced_kind = "follow"
+	elif forced_goal != none and forced_kind == "follow":
+		forced_goal = none
+
+
 func _breach_tool(player: PlayerController3D) -> int:
 	for slot in PlayerController3D.HOTBAR_SIZE:
 		if String(player.inventory_order[slot]) in ["crowbar", "rescue_axe"]:
