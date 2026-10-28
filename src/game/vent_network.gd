@@ -11,7 +11,8 @@ extends RefCounted
 const CHUNK_SIZE := StreamedRouteGenerator.CHUNK_SIZE
 const VENT_LEVEL := 100
 const LINES := [6, 38]
-const DUCT_HEIGHT := 0.9
+## A crouched runner fits (crouched capsule + 0.05); nothing standing does.
+const DUCT_HEIGHT := PlayerController3D.CROUCH_COLLISION_HEIGHT + 0.05
 const GRATES_PER_LEVEL := 1
 const SOLID := 1
 const DUCT := 0

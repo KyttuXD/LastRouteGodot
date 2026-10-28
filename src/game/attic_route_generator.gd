@@ -23,7 +23,8 @@ const ROOM_HALF := 3
 const EAVES_HALF := 4
 ## Clear heights (m). The player's crouched capsule fits under CRAWL_CEILING; a standing body does not.
 const STAND_CEILING := 2.4
-const CRAWL_CEILING := 1.3
+## Crawl clearance follows the player: crouched capsule + 0.05 (WORLD lane rule), never a hard-coded number.
+const CRAWL_CEILING := PlayerController3D.CROUCH_COLLISION_HEIGHT + 0.05
 const ROOM_KINDS := ["box_storage", "rafter_loft", "water_tank_loft"]
 const HIDE_TYPES := ["atticStorageBox", "insulationRoll"]
 

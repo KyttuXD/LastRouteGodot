@@ -21,6 +21,7 @@ func run(_host: Node) -> int:
 	_expect(not AtticRouteGenerator.passable(AtticRouteGenerator.CRAWL, HUNTER_HEIGHT),
 		"a full-size hunter fits the attic crawlspace")
 	_expect(VentNetwork.DUCT_HEIGHT < HUNTER_HEIGHT, "a hunter fits the vents")
+	_expect(VentNetwork.DUCT_HEIGHT >= PlayerController3D.CROUCH_COLLISION_HEIGHT, "a crouching runner does not fit the vents")
 	var chunks := 0
 	var up_chunks := {}
 	var kinds := {}
