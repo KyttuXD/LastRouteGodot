@@ -57,5 +57,20 @@
    "pose": "stare_camera",
    "face": "camera"
   }
- ]
+ ],
+ "expect": {
+  "t": 5.2,
+  "actor": "javelle",
+  "face_camera_deg": 35,
+  "visible_parts": {
+   "head": true,
+   "chest": true,
+   "legs": true
+  },
+  "no_wall_intersection": true,
+  "screen_fraction": [
+   0.25,
+   1.2
+  ]
+ }
 }

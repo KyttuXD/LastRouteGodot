@@ -24,6 +24,11 @@ extends RefCounted
 const SHOT_DIR := "res://tools/playtest/shots/"
 const EYE := 1.6
 
+## The shot's own camera track and stage, for authoring facing "toward the shot camera" once (never a live look-at of whatever camera renders).
+static var _keys: Array = []
+static var _stage: Dictionary = {}
+static var _actors: Dictionary = {}
+
 
 class Actor:
 	extends RefCounted
@@ -42,6 +47,12 @@ class Actor:
 	var tag_goal := 0.0
 	var height := 1.7
 	var posed := false
+	var authored_yaw := 0.0
+	var head_cfg: Dictionary = {}
+	var head_yaw := 0.0
+	var head_pitch := 0.0
+	var clock := 0.0
+	var lean_deg := 0.0
 
 
 static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, report: Dictionary) -> Dictionary:
@@ -115,6 +126,9 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 
 	# actors
 	var actors: Dictionary = {}
+	_keys = shot.get("camera", [])
+	_stage = stage
+	_actors = actors
 	for key in (shot.get("actors", {}) as Dictionary):
 		var spec: Dictionary = shot["actors"][key]
 		var actor := _make_actor(scene, str(key), spec, stage, space, player)
@@ -147,6 +161,9 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var camera_probe := SphereShape3D.new()
 	camera_probe.radius = .2
 	var camera_keys: Array = shot.get("camera", [])
+	_keys = camera_keys
+	_stage = stage
+	_actors = actors
 	var torch_keys: Array = shot.get("flashlight", [])
 	var events: Array = (shot.get("events", []) as Array).duplicate()
 	events.sort_custom(func(a, b): return float(a["t"]) < float(b["t"]))
@@ -385,11 +402,26 @@ static func _make_actor(scene: Node, key: String, spec: Dictionary, stage: Dicti
 	actor.pos = _floor_at(space, actor.pos + Vector3.UP * 1.3, player, actor.pos.y)
 	actor.face_mode = spec.get("face", "away")
 	actor.yaw = 0.0
+	actor.head_cfg = spec.get("head", {})
+	actor.lean_deg = float(spec.get("lean_deg", 0.0))
+	if actor.anim != null:
+		actor.anim.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
+	_resolve_face(actor, 0.0)
 	_play(actor, spec)
 	if spec.has("tag"):
 		_set_tag(actor, str(spec["tag"]))
 	actor.root.visible = not bool(spec.get("hidden", false))
 	return actor
+
+
+## "camera" / "shot_camera": turn toward where the SHOT camera is at time t, decided once here from the shot file; the actor keeps that heading.
+static func _resolve_face(actor: Actor, t: float) -> void:
+	if actor.face_mode is String and (String(actor.face_mode) == "camera" or String(actor.face_mode) == "shot_camera") and not _keys.is_empty():
+		var cam := _camera_at(_keys, t, _stage, _actors)
+		var d: Vector3 = (cam["pos"] as Vector3) - actor.pos
+		actor.face_mode = rad_to_deg(atan2(-d.x, -d.z))
+	if actor.face_mode is float or actor.face_mode is int:
+		actor.authored_yaw = deg_to_rad(float(actor.face_mode))
 
 
 static func _play(actor: Actor, spec: Dictionary) -> void:
@@ -429,6 +461,7 @@ static func _apply_event(actor: Actor, ev: Dictionary, stage: Dictionary, actors
 		actor.root.visible = true
 	if ev.has("face"):
 		actor.face_mode = ev["face"]
+		_resolve_face(actor, float(ev.get("t", 0.0)))
 	if ev.has("tag"):
 		_set_tag(actor, str(ev["tag"]))
 	if bool(ev.get("tag_off", false)):
@@ -459,15 +492,12 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 			actor.pos.x += step.x
 			actor.pos.z += step.z
 			moving = true
-			if String(actor.face_mode) == "heading":
+			if str(actor.face_mode) == "heading":
 				actor.yaw = lerp_angle(actor.yaw, atan2(-step.x, -step.z), clampf(dt * 10.0, 0.0, 1.0))
 	if not (actor.face_mode is String and String(actor.face_mode) == "heading"):
 		var want := actor.yaw
 		var fm: Variant = actor.face_mode
-		if fm is String and String(fm) == "camera":
-			var d := camera.global_position - actor.pos
-			want = atan2(-d.x, -d.z)
-		elif fm is String and String(fm) == "away":
+		if fm is String and String(fm) == "away":
 			want = actor.yaw
 		elif fm is float or fm is int:
 			want = deg_to_rad(float(fm))
@@ -476,6 +506,10 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 	actor.pos.y = floor_hit.y
 	actor.root.global_position = actor.pos
 	actor.root.rotation.y = actor.yaw
+	if absf(actor.lean_deg) > .01 and _stage.has("corner"):
+		var c: Dictionary = _stage["corner"]
+		var open_dir: Vector3 = -(_stage["r"] as Vector3) * float(c["s"])
+		actor.root.global_basis = Basis(Vector3.UP.cross(open_dir).normalized(), deg_to_rad(actor.lean_deg)) * Basis(Vector3.UP, actor.yaw)
 	# travel clip speed from the stride table, only while a move runs without a pose
 	if moving and actor.anim != null:
 		var preferred := "sprint" if actor.speed > 4.2 else ("chase" if actor.speed > 2.4 else "walk")
@@ -484,9 +518,35 @@ static func _step_actor(actor: Actor, dt: float, space: PhysicsDirectSpaceState3
 			if actor.anim.current_animation != String(pick["clip"]):
 				actor.anim.play(String(pick["clip"]), .15)
 			actor.anim.speed_scale = float(pick["scale"])
+	if actor.anim != null:
+		actor.anim.advance(dt)
+	actor.clock += dt
+	if not actor.head_cfg.is_empty():
+		var head := actor.model.find_child("Head", true, false) as Node3D
+		if head != null:
+			_apply_head(actor, head, dt, camera.global_position)
 	if actor.tag != null:
 		actor.tag_alpha = move_toward(actor.tag_alpha, actor.tag_goal, dt / .4)
 		actor.tag.modulate.a = actor.tag_alpha
+
+
+## Head only: calm (a breath, no wandering) and turned toward the SHOT camera within natural neck limits, eased. The body keeps its authored pose.
+static func _apply_head(actor: Actor, head: Node3D, dt: float, cam_pos: Vector3) -> void:
+	var cfg := actor.head_cfg
+	var body_fwd := Vector3(-sin(actor.yaw), 0.0, -cos(actor.yaw))
+	var to_cam := cam_pos - head.global_position
+	var flat := Vector3(to_cam.x, 0.0, to_cam.z)
+	var want_yaw := 0.0
+	var want_pitch := 0.0
+	if flat.length() > .1:
+		want_yaw = clampf(body_fwd.signed_angle_to(flat.normalized(), Vector3.UP), -deg_to_rad(float(cfg.get("max_yaw", 60.0))), deg_to_rad(float(cfg.get("max_yaw", 60.0))))
+		want_pitch = clampf(atan2(to_cam.y, flat.length()), -deg_to_rad(float(cfg.get("max_pitch", 30.0))), deg_to_rad(float(cfg.get("max_pitch", 30.0))))
+	var k := clampf(dt * float(cfg.get("ease", 4.0)), 0.0, 1.0)
+	actor.head_yaw = lerpf(actor.head_yaw, want_yaw, k)
+	actor.head_pitch = lerpf(actor.head_pitch, want_pitch, k)
+	var breath := sin(actor.clock * 1.7) * deg_to_rad(float(cfg.get("sway", 0.8)))
+	var basis := Basis(Vector3.UP, actor.yaw + actor.head_yaw) * Basis(Vector3.RIGHT, actor.head_pitch + breath) * Basis(Vector3(0, 0, -1), deg_to_rad(float(cfg.get("tilt", 0.0))))
+	head.global_basis = basis.scaled_local(head.global_basis.get_scale())
 
 
 # ------------------------------------------------------------------------------------------------ camera
@@ -565,6 +625,15 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 	var face_deg := rad_to_deg(forward.normalized().angle_to(to_cam.normalized()))
 	if expect.has("face_camera_deg"):
 		rows.append({"name": "faces camera", "pass": face_deg <= float(expect["face_camera_deg"]), "detail": "%.0f deg off (max %s)" % [face_deg, expect["face_camera_deg"]]})
+	# 1b. the head faces the shot camera, the body keeps the authored heading (measured only: nothing here changes a pose)
+	var head_node := actor.model.find_child("Head", true, false) as Node3D
+	if expect.has("head_faces_camera_deg") and head_node != null:
+		var head_fwd := -head_node.global_basis.z
+		var head_deg := rad_to_deg(head_fwd.angle_to((cam_pos - head_node.global_position).normalized()))
+		rows.append({"name": "head faces camera", "pass": head_deg <= float(expect["head_faces_camera_deg"]), "detail": "%.0f deg off (max %s)" % [head_deg, expect["head_faces_camera_deg"]]})
+	if expect.has("body_authored"):
+		var off := absf(rad_to_deg(wrapf(actor.yaw - actor.authored_yaw, -PI, PI)))
+		rows.append({"name": "body keeps authored heading", "pass": off <= float(expect["body_authored"]), "detail": "%.1f deg off the shot file's heading" % off})
 	# 2. lean toward the open side of the corner
 	var corner: Dictionary = stage["corner"]
 	var open_dir: Vector3 = -(stage["r"] as Vector3) * float(corner["s"])   # the hall side, away from the wall the corner turns into
@@ -574,7 +643,7 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 	if bool(expect.get("lean_open_side", false)):
 		rows.append({"name": "leans to the open side", "pass": lean > .06, "detail": "head %.2f m toward the open side of the pelvis (needs > 0.06)" % lean})
 	# 3. visible parts and torso fraction
-	var parts := {"head": ["Head"], "chest": ["Chest"], "hand": ["L-Hand", "R-Hand"], "legs": ["L-Calf", "R-Calf", "L-Foot", "R-Foot"]}
+	var parts := {"head": ["Head"], "chest": ["Chest"], "hand": ["L-Hand", "R-Hand"], "legs": ["L-Calf", "R-Calf", "L-Foot", "R-Foot"], "hips": ["Pelvis"]}
 	var want: Dictionary = expect.get("visible_parts", {})
 	var vis := {}
 	for part in parts:
@@ -610,7 +679,8 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 		for bone in ["Head", "Chest", "Belly", "Pelvis", "L-Hand", "R-Hand", "L-Forearm", "R-Forearm", "L-Foot", "R-Foot", "L-Calf", "R-Calf"]:
 			var query := PhysicsShapeQueryParameters3D.new()
 			query.shape = hand_sphere if bone.ends_with("Hand") else sphere
-			query.transform = Transform3D(Basis.IDENTITY, _bone_pos(actor, bone))
+			# a foot sphere is lifted off the floor collider: only walls count
+			query.transform = Transform3D(Basis.IDENTITY, _bone_pos(actor, bone) + (Vector3.UP * .14 if bone.ends_with("Foot") else Vector3.ZERO))
 			query.exclude = [(player as CollisionObject3D).get_rid()]
 			if not space.intersect_shape(query, 1).is_empty():
 				bad.append(bone)

@@ -56,5 +56,18 @@
    "actor": "elise",
    "tag_off": true
   }
- ]
+ ],
+ "expect": {
+  "t": 3.0,
+  "actor": "elise",
+  "visible_parts": {
+   "head": true,
+   "chest": true
+  },
+  "no_wall_intersection": true,
+  "screen_fraction": [
+   0.2,
+   1.3
+  ]
+ }
 }
