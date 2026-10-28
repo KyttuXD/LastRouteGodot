@@ -53,6 +53,8 @@ var hunters: Array = []
 ## Porcelle's marks pulse (RadarPing) instead of sitting on the map: the HUD minimap turns this on. `radar_time` < 0 uses
 ## the real clock (tests pin it).
 var ghost_ping := false
+## Full-map player arrow: minimum size (tip to tail, HUD units) so it reads at any zoom.
+const PLAYER_ARROW_MIN := 7.0
 var radar_time := -1.0:
 	set(value):
 		radar_time = value
@@ -499,8 +501,7 @@ func _draw_streamed() -> void:
 				# ramps, switchback stairwells and spiral stairs: the stair icon (up or down)
 				if String(ladder.get("kind", "ladder")) in ["ramp", "stairs", "spiral"]:
 					_draw_stair_icon(icon_at, cell, up)
-				else:
-					_draw_ladder_icon(icon_at, cell, up)
+				# ladders are not marked on the maps (KT): only stairs, ramps and spirals
 		for prop_value in chunk.get("props", []):
 			var prop: Dictionary = prop_value
 			var local: Vector2i = prop.get("cell", Vector2i.ZERO)
@@ -732,9 +733,10 @@ func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
 		_draw_floor_exit_marker(at, cell, String(mark.get("exit_direction", "up")),
 			String(mark.get("name", "")))
 		return
-	var radius := maxf(2.0, cell * .48)
+	var radius := maxf(2.5 if interactive else 2.0, cell * .48)
+	var colour: Color = mark.get("colour", COOP_PLAYER_BLUE)
 	draw_circle(at, radius + maxf(1.0, cell * .12), Color(0.01, 0.04, 0.05, .95))
-	draw_circle(at, radius, COOP_PLAYER_BLUE)
+	draw_circle(at, radius, colour)
 	var facing: Vector2 = mark.get("facing", Vector2.UP)
 	if facing.length_squared() > .01:
 		draw_line(at, at + facing.normalized() * radius * 1.55,
@@ -745,6 +747,13 @@ func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
 	var glyph := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 	draw_string(font, at - Vector2(glyph.x * .5, -glyph.y * .32), label,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.01, 0.04, 0.05))
+	# the full map names them: callsign beside the marker, in their colour with a dark outline
+	if interactive:
+		var callsign := String(mark.get("name", "")).to_upper().substr(0, 16)
+		if not callsign.is_empty():
+			var at_label := at + Vector2(radius + 3.0, glyph.y * .3)
+			draw_string_outline(font, at_label, callsign, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, 3, Color(0.01, 0.04, 0.05, .95))
+			draw_string(font, at_label, callsign, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, colour.lightened(.25))
 
 
 func _draw_floor_exit_marker(at: Vector2, cell: float, direction: String,
@@ -938,9 +947,15 @@ func _draw_player(origin: Vector2, cell: float) -> void:
 	var at := origin + player_at * cell
 	var forward := player_facing.normalized() if player_facing.length() > 0.01 else Vector2(0, 1)
 	var side := Vector2(-forward.y, forward.x)
-	var reach := cell * 0.95
-	draw_colored_polygon(PackedVector2Array([
+	# the full map's arrow never shrinks below PLAYER_ARROW_MIN (HUD units) however far it is zoomed out, and has an outline
+	var reach := maxf(cell * 0.95, PLAYER_ARROW_MIN if interactive else 0.0)
+	var arrow := PackedVector2Array([
 		at + forward * reach,
 		at - forward * reach * 0.5 + side * reach * 0.6,
 		at - forward * reach * 0.5 - side * reach * 0.6,
-	]), Palette.INK)
+	])
+	if interactive:
+		var outline := arrow.duplicate()
+		outline.append(arrow[0])
+		draw_polyline(outline, Color(0.01, 0.04, 0.05, .95), maxf(2.0, reach * .22), true)
+	draw_colored_polygon(arrow, Palette.INK)

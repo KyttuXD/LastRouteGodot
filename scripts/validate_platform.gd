@@ -133,18 +133,14 @@ func _check_xr_route_panel(host: Node) -> void:
 	panel.call("_click", false)
 	await host.get_tree().process_frame
 	_expect(clicks[0] == 1, "a laser click on the XR route panel did not press the button under it (%d)" % clicks[0])
-	# The right stick scrolls: nothing inside the dead zone, one step past it, then a short wait between steps.
-	var wait := XRMenuPanel.scroll_from_stick(0.2, Vector2(240, 135), 0.0, 0.016)
-	var stepped := XRMenuPanel.scroll_from_stick(-0.9, Vector2(240, 135), 0.0, 0.016)
-	var waiting := XRMenuPanel.scroll_from_stick(-0.9, Vector2(240, 135), stepped, 0.016)
-	_expect(wait == 0.0 and is_equal_approx(stepped, XRMenuPanel.SCROLL_STEP_SECONDS) and waiting < stepped and waiting > 0.0,
-		"the XR panel stick scroll steps wrongly (%s %s %s)" % [wait, stepped, waiting])
 	open[0] = false
 	panel._process(0.0)
 	_expect(not quad.visible, "the XR route panel stays up after the screen closed")
 	route.queue_free()
 	await host.get_tree().process_frame
 	await _check_xr_keyboard(host)
+	await _check_xr_panel_scroll(host)
+	await _check_vr_pose_sync(host)
 
 
 ## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
@@ -177,6 +173,106 @@ func _check_xr_keyboard(host: Node) -> void:
 	_expect(not keyboard.is_open(), "the XR keyboard stays open after the field lost focus")
 	keyboard.queue_free()
 	layer.queue_free()
+	await host.get_tree().process_frame
+
+
+## XR panel scrolling (XRPanelScroll): a stick held on either controller scrolls the list in use (here the focused one)
+## down and back up, faster with time; a trigger press that stays inside the dead zone is a click, one that moves
+## drags the list like a finger.
+func _check_xr_panel_scroll(host: Node) -> void:
+	var layer := CanvasLayer.new()
+	host.add_child(layer)
+	var list := ScrollContainer.new()
+	list.position = Vector2(40, 40)
+	list.size = Vector2(200, 120)
+	layer.add_child(list)
+	var column := VBoxContainer.new()
+	column.custom_minimum_size = Vector2(180, 900)
+	list.add_child(column)
+	var row := Button.new()
+	row.text = "ROW"
+	column.add_child(row)
+	await host.get_tree().process_frame
+	await host.get_tree().process_frame
+	row.grab_focus()
+	var root := host.get_tree().root
+	_expect(XRPanelScroll.target_in(root) == list, "the XR panel scroll does not find the list in use")
+	var scroll := XRPanelScroll.new()
+	scroll.stick(root, [Vector2.ZERO, Vector2(0, -1)], 0.25)   # right stick down
+	var first := list.scroll_vertical
+	scroll.stick(root, [Vector2.ZERO, Vector2(0, -1)], 0.25)
+	var second := list.scroll_vertical - first
+	_expect(first > 0 and second > first, "stick down did not scroll the list faster over time (%d then %d)" % [first, second])
+	var before := list.scroll_vertical
+	scroll.stick(root, [Vector2(0, 1), Vector2.ZERO], 0.25)   # left stick up
+	_expect(list.scroll_vertical < before, "the left stick does not scroll back up")
+	scroll.stick(root, [Vector2.ZERO, Vector2.ZERO], 0.1)
+	scroll.press(root, Vector2(120, 100))
+	_expect(not scroll.move(root, Vector2(121, 102)) and not scroll.release(), "a still trigger press is not a click")
+	list.scroll_vertical = 100
+	scroll.press(root, Vector2(120, 100))
+	var dragged := scroll.move(root, Vector2(120, 60))
+	var after_drag := list.scroll_vertical
+	_expect(dragged and scroll.release() and absi(after_drag - 140) <= 1,
+		"dragging up 40 units did not scroll the list down 40 (now %d)" % after_drag)
+	layer.queue_free()
+	await host.get_tree().process_frame
+
+
+## VR bodies in co-op (VRPoseSync): a synthetic VR peer's head and hand poses survive the 43-byte packet within a
+## couple of millimetres, drive a real mannequin (each arm points at its hand, the head pitches with the head), turn
+## the body once the head is turned far, leave a flat peer's body untouched, and stay small per peer.
+func _check_vr_pose_sync(host: Node) -> void:
+	var head := Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-30.0)), Vector3(0.02, 1.36, -0.05))
+	var left := Transform3D(Basis(Vector3.UP, 0.4), Vector3(-0.25, 1.1, -0.45))
+	var right := Transform3D(Basis(Vector3.FORWARD, 0.3), Vector3(0.3, 0.75, -0.2))
+	var packet := VRPoseSync.encode(head, left, right, VRPoseSync.FLAG_LEFT | VRPoseSync.FLAG_RIGHT)
+	_expect(packet.size() == VRPoseSync.PACKET_BYTES and packet.size() * 20 <= 1000,
+		"a VR pose packet is %d bytes (%d bytes/s per peer)" % [packet.size(), packet.size() * 20])
+	var pose := VRPoseSync.decode(packet)
+	_expect(not pose.is_empty(), "a VR pose packet does not decode")
+	if pose.is_empty():
+		return
+	for pair in [[head, "head"], [left, "left"], [right, "right"]]:
+		var sent: Transform3D = pair[0]
+		var got: Transform3D = pose[pair[1]]
+		_expect(sent.origin.distance_to(got.origin) < 0.002
+			and absf(sent.basis.get_rotation_quaternion().dot(got.basis.get_rotation_quaternion())) > 0.9999,
+			"the VR %s pose does not survive the packet (%s vs %s)" % [pair[1], sent, got])
+	_expect(VRPoseSync.decode(PackedByteArray([1, 2, 3])).is_empty() and VRPoseSync.decode(null).is_empty(),
+		"a malformed VR packet decodes")
+	var turned := VRPoseSync.decode(VRPoseSync.encode(Transform3D(Basis(Vector3.UP, deg_to_rad(90.0)), head.origin),
+		left, right, 0))
+	_expect(is_equal_approx(rad_to_deg(VRPoseSync.body_follow(turned)), 40.0) and is_zero_approx(VRPoseSync.body_follow(pose)),
+		"the body does not follow a head turned 90 degrees by 40 (got %.1f)" % rad_to_deg(VRPoseSync.body_follow(turned)))
+	var body := ModelSlot.instantiate(PlayerModels.SCENE)
+	var flat := ModelSlot.instantiate(PlayerModels.SCENE)
+	_expect(body != null and flat != null, "the runner mannequin did not load")
+	if body == null or flat == null:
+		return
+	for model in [body, flat]:
+		model.scale = Vector3.ONE * PlayerModels.SCALE
+		model.rotation.y = 0.7
+		host.add_child(model)
+	await host.get_tree().process_frame
+	var flat_arm := (flat.find_child("L-Arm", true, false) as Node3D).global_transform
+	VRPoseSync.apply(flat, {})
+	_expect(flat_arm.is_equal_approx((flat.find_child("L-Arm", true, false) as Node3D).global_transform),
+		"a flat peer's body moved without VR data")
+	VRPoseSync.apply(body, pose)
+	var yaw := Basis(Vector3.UP, body.global_rotation.y)
+	for side in [["L", left], ["R", right]]:
+		var arm := body.find_child("%s-Arm" % side[0], true, false) as Node3D
+		var hand := body.find_child("%s-Hand" % side[0], true, false) as Node3D
+		var target := body.global_position + yaw * (side[1] as Transform3D).origin
+		var angle := rad_to_deg((hand.global_position - arm.global_position).angle_to(target - arm.global_position))
+		_expect(angle < 4.0, "the remote %s arm points %.1f degrees away from the VR hand" % [side[0], angle])
+	var head_node := body.find_child("Head", true, false) as Node3D
+	var flat_head := flat.find_child("Head", true, false) as Node3D
+	var pitch := rad_to_deg(head_node.global_basis.z.normalized().angle_to(flat_head.global_basis.z.normalized()))
+	_expect(absf(pitch - 30.0) < 3.0, "the remote head turned %.1f degrees for a 30 degree head pitch" % pitch)
+	body.queue_free()
+	flat.queue_free()
 	await host.get_tree().process_frame
 
 

@@ -790,6 +790,7 @@ func _ready() -> void:
 		model.scale = Vector3.ONE * PlayerModels.SCALE
 		body_visual.add_child(model)
 		ModelSlot.apply_character_hue(model, Settings.player_hue_degrees)
+		PlayerSkin.apply(model, PlayerSkin.active_texture())
 		_animation_player = ModelSlot.find_animation_player(model)
 		_align_camera_to_model_eyes(model)
 	flashlight.position = FLASHLIGHT_BEAM_LOCAL_POSITION
@@ -806,6 +807,11 @@ func _ready() -> void:
 
 func _apply_visual_settings() -> void:
 	first_person_camera.fov = Settings.field_of_view
+	if _body_model != null:
+		PlayerSkin.apply(_body_model, PlayerSkin.active_texture())
+	if first_person_items != null:
+		for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
+			PlayerSkin.apply(hand, PlayerSkin.active_texture())
 
 
 func _align_camera_to_model_eyes(model: Node3D) -> void:
@@ -1560,7 +1566,7 @@ func _physics_process(delta: float) -> void:
 	var click_ready := xr_active or (_cursor_was_captured and MouseLock.is_captured())
 	_cursor_was_captured = MouseLock.is_captured()
 	if inventory_enabled:
-		if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
+		if inventory_enabled and Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
 			_fire_taser()
 		if Input.is_action_just_pressed("tool_use") and click_ready and not movement_locked:
 			_use_selected_item()
@@ -1689,7 +1695,42 @@ func _try_enter_xr() -> bool:
 	xr_hands.name = "XRHands"
 	add_child(xr_hands)
 	xr_hands.setup(self, xr_origin, xr_left, xr_right)
+	if OS.is_debug_build():
+		get_tree().create_timer(5.0).timeout.connect(_xr_smoke_log)
 	return true
+
+
+## Debug builds on a headset: one line of XR state five seconds after entering XR (docs/XR_ANDROID.md, device smoke
+## log): whether XR is on, the controller trackers and poses OpenXR really offers, whether the hands track, where the
+## head is relative to the body, and whether the panels exist. Read it with adb logcat | grep XR_SMOKE.
+func _xr_smoke_log() -> void:
+	var trackers := []
+	for key in XRServer.get_trackers(XRServer.TRACKER_CONTROLLER):
+		var tracker := XRServer.get_tracker(key) as XRPositionalTracker
+		var poses := []
+		for pose_name in ["default", "default_pose", "aim", "aim_pose", "grip", "grip_pose"]:
+			if tracker != null and tracker.has_pose(pose_name):
+				poses.append(pose_name)
+		trackers.append("%s%s" % [key, poses])
+	var head := xr_camera.global_position - global_position
+	print("XR_SMOKE xr_active=%s trackers=%s left=[%s %s tracked=%s] right=[%s %s tracked=%s] head_offset=%s horizontal=%.2f world_scale=%.3f wrist=%s route_panel=%s" % [
+		xr_active, trackers, xr_left.tracker, xr_left.pose, xr_left.get_has_tracking_data(),
+		xr_right.tracker, xr_right.pose, xr_right.get_has_tracking_data(), head, Vector2(head.x, head.z).length(),
+		xr_origin.world_scale, xr_comfort != null and xr_comfort.wrist != null and xr_comfort.wrist.is_visible_in_tree(),
+		get_tree().root.find_children("XRRoutePanel", "", true, false).size()])
+	var problems := []
+	if not xr_active:
+		problems.append("xr_active is false")
+	for hand in [xr_left, xr_right]:
+		if XRServer.get_tracker(hand.tracker) == null:
+			problems.append("no OpenXR tracker named %s" % hand.tracker)
+		elif not hand.get_has_tracking_data():
+			problems.append("%s not tracked (controller asleep?)" % hand.tracker)
+	if Vector2(head.x, head.z).length() > 0.3:
+		problems.append("head %.2f m from the body" % Vector2(head.x, head.z).length())
+	if get_tree().root.find_children("XRRoutePanel", "", true, false).is_empty():
+		problems.append("no route panel")
+	print("XR_SMOKE_RESULT %s" % ("PASS" if problems.is_empty() else "FAIL: " + ", ".join(problems)))
 
 
 func _connect_xr_buttons() -> void:
@@ -1943,6 +1984,7 @@ func _add_first_person_hand(view: Node3D) -> void:
 		mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		hand.add_child(mesh_node)
 	ModelSlot.apply_character_hue(hand, Settings.player_hue_degrees)
+	PlayerSkin.apply(hand, PlayerSkin.active_texture())
 	hand.visible = first_person_hands
 	view.add_child(hand)
 

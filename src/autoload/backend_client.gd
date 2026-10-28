@@ -82,11 +82,15 @@ var _admin_ticket_request: HTTPRequest
 var _admin_ticket_operation := ""
 var _admin_verify_request_id := 0
 var _requests_suppressed_for_tests := false
+## Custom skin sharing (SkinSync): uploads your skin, downloads peers' into memory.
+var skin_sync: SkinSync
 
 
 func _ready() -> void:
 	offline_mode = "--offline" in OS.get_cmdline_user_args()
 	_apply_loopback_override()
+	skin_sync = SkinSync.new()
+	add_child(skin_sync)
 	account_config_path = RunProfile.path(ACCOUNT_CONFIG_PATH)
 	_host_request = HTTPRequest.new()
 	_host_request.name = "HostDirectoryRequest"

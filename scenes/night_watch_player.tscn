@@ -44,9 +44,9 @@ spot_angle_attenuation = 1.4
 current = false
 
 [node name="LeftController" type="XRController3D" parent="XROrigin"]
-tracker = &"/user/hand/left"
-pose = &"default_pose"
+tracker = &"left_hand"
+pose = &"default"
 
 [node name="RightController" type="XRController3D" parent="XROrigin"]
-tracker = &"/user/hand/right"
-pose = &"default_pose"
+tracker = &"right_hand"
+pose = &"default"
