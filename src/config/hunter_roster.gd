@@ -50,13 +50,13 @@ const _CODE_PROFILES := {
 	"quenelle":  ContentRegistry.DATA,
 	"ravelle":  ContentRegistry.DATA,
 	"solyth":   ContentRegistry.DATA,
-	"thessine": {"name": "Thessine", "tier": "intermediate", "speed": 0.78, "chase": 3.44,  "prog": 0.17, "sight": 8.40, "hearing": 0.90, "spawn": 13},
-	"umbriel":  {"name": "Umbriel",  "tier": "difficult",    "speed": 0.82, "chase": 3.46,  "prog": 0.18, "sight": 8.50, "hearing": 0.86, "spawn": 12},
-	"verrine":  {"name": "Verrine",  "tier": "intermediate", "speed": 0.83, "chase": 3.66,  "prog": 0.18, "sight": 7.70, "hearing": 1.10, "spawn": 13},
-	"wynelle":  {"name": "Wynelle",  "tier": "difficult",    "speed": 0.81, "chase": 3.00,  "prog": 0.18, "sight": 7.80, "hearing": 1.15, "spawn": 12},
-	"xivvy":    {"name": "Xivvy",    "tier": "intermediate", "speed": 0.97, "chase": 4.35,  "prog": 0.12, "sight": 6.72, "hearing": 0.84, "spawn": 13},
-	"ysolde":   {"name": "Ysolde",   "tier": "easy",         "speed": 0.80, "chase": 3.54,  "prog": 0.18, "sight": 8.10, "hearing": 1.00, "spawn": 12},
-	"zellia":  {"name": "Zellia",  "tier": "easy",         "speed": 0.83, "chase": 3.60,  "prog": 0.17, "sight": 8.00, "hearing": 0.95, "spawn": 12},
+	"thessine": ContentRegistry.DATA,
+	"umbriel":  ContentRegistry.DATA,
+	"verrine":  ContentRegistry.DATA,
+	"wynelle":  ContentRegistry.DATA,
+	"xivvy":    ContentRegistry.DATA,
+	"ysolde":   ContentRegistry.DATA,
+	"zellia":  ContentRegistry.DATA,
 	# Void incursions are an extra category, not letters appended to the A-Z
 	# roster. Their source skins are deliberately larger in presentation and
 	# their baseline tuning is more aggressive even before colour-specific
