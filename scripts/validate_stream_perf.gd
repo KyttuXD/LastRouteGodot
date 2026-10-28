@@ -6,8 +6,8 @@ extends RefCounted
 ##   - a level change or teleport never builds the whole window synchronously (MAX_JUMP_MS),
 ##   - the chunk under the runner is always loaded (no pop-in where the player stands) and the queue drains,
 ##   - ladder trips between the maze and the sewer: no frame over MAX_LADDER_FRAME_MS around a level change, and climbing
-##     back rebuilds nothing (the storey left behind is parked, not freed); the first descent builds nothing either (the
-##     linked level's 3x3 is pre-built in the background and parked).
+##     back rebuilds nothing (the storey left behind is parked, not freed); no level change builds anything synchronously
+##     (the linked level's chunks around the ladder are pre-built in the background and parked).
 ## Windowed frame times (no frame > 33 ms while streaming on the mini) come from tools/look/stream_bench.tscn; when
 ## STREAM_BENCH_JSON names its output, those budgets are checked here too.
 ##
@@ -149,6 +149,7 @@ func _ladder(host: Node) -> void:
 		var from := top if trip % 2 == 0 else bottom
 		var to := bottom if trip % 2 == 0 else top
 		var builds_before := facility.chunk_builds
+		var sync_before := facility.sync_builds
 		var last := Time.get_ticks_usec()
 		for i in 120:   # climb over 2 s at 60 frames
 			player.global_position = from.lerp(to, float(i + 1) / 120.0)
@@ -177,9 +178,9 @@ func _ladder(host: Node) -> void:
 				worst = (now - last) / 1000.0
 				worst_trip = trip
 			last = now
-		if trip == 0:
-			_expect(facility.chunk_builds == builds_before,
-				"ladder: the first descent built %d chunks (the linked level should be pre-built and parked)" % (facility.chunk_builds - builds_before))
+		if facility.sync_builds != sync_before:
+			_expect(false, "ladder: trip %d built %d chunks synchronously (the linked level's chunks near the ladder should be pre-built)" % [
+				trip, facility.sync_builds - sync_before])
 		if trip >= 2:
 			rebuilds += facility.chunk_builds - builds_before
 		_expect(facility.current_level() == (SewerRouteGenerator.LEVEL if trip % 2 == 0 else 0),

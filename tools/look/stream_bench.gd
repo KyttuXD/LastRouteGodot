@@ -74,6 +74,10 @@ func _ready() -> void:
 		_scene.set_process(false)
 	for _i in 30:
 		await _settle()
+	for _i in 1200:   # the start position's window (and, in the sewer, the jump down) fully streamed in first
+		if not _streaming() and not (_facility.has_method("is_preloading") and _facility.is_preloading()):
+			break
+		await _settle()
 	if _facility.has_method("take_frame_stream_cost"):
 		_facility.take_frame_stream_cost()
 	_last_usec = Time.get_ticks_usec()
@@ -134,6 +138,13 @@ func _build_path() -> void:
 		return
 	var start := _player.global_position
 	var size := float(StreamedRouteGenerator.CHUNK_SIZE)
+	if _mode == "sewer":
+		# Along the sewer's main tunnel walkway (cells 18-20 of every chunk row), four chunks east and back, looping.
+		var y := SewerRouteGenerator.LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT + .05
+		var a := Vector3(floorf(start.x / size) * size + 2.5, y, floorf(start.z / size) * size + 19.5)
+		_path = [a, a + Vector3(4 * size, 0, 0), a]
+		_player.global_position = a
+		return
 	if _mode == "city":
 		# Clockwise round the inner chunk ring and back through the middle: every chunk enters and leaves the stream window.
 		var a := Vector3(-1.5 * size, start.y, -0.5 * size)
@@ -149,7 +160,7 @@ func _point_at(distance: float) -> Dictionary:
 	var loop := 0.0
 	for i in _path.size() - 1:
 		loop += _path[i].distance_to(_path[i + 1])
-	if _mode == "city" and loop > 0.0:
+	if _mode in ["city", "sewer"] and loop > 0.0:
 		distance = fmod(distance, loop)
 	for i in _path.size() - 1:
 		var leg := _path[i].distance_to(_path[i + 1])
@@ -229,6 +240,7 @@ func _trip_summary() -> Array:
 			if f > HITCH_MS:
 				over += 1
 		out.append({"to": trip["to"], "t": trip["t"], "max_ms": snappedf(worst, .1), "over33": over,
+			"dip_fps": snappedf(_min_window_fps(frames), .1),
 			"mean_ms": snappedf(total / maxf(frames.size(), 1), .01), "builds": trip.get("builds", 0), "loaded_max": trip["loaded_max"]})
 	return out
 
@@ -267,6 +279,32 @@ static func _percentile(sorted: PackedFloat32Array, p: float) -> float:
 	return sorted[clampi(int(round(p * (sorted.size() - 1))), 0, sorted.size() - 1)]
 
 
+## FPS of the slowest `share` of frames (1% low, 0.1% low): the average frame time of that slice, as FPS.
+static func _low_fps(sorted: PackedFloat32Array, share: float) -> float:
+	if sorted.is_empty():
+		return 0.0
+	var count := maxi(1, int(ceil(sorted.size() * share)))
+	var total := 0.0
+	for i in count:
+		total += sorted[sorted.size() - 1 - i]
+	return 1000.0 * count / maxf(total, .001)
+
+
+## Lowest FPS over any 0.5 s window of consecutive frames.
+static func _min_window_fps(frames: PackedFloat32Array, window_ms: float = 500.0) -> float:
+	var best := INF
+	var start := 0
+	var acc := 0.0
+	for i in frames.size():
+		acc += frames[i]
+		while acc - frames[start] >= window_ms and start < i:
+			acc -= frames[start]
+			start += 1
+		if acc >= window_ms * .95:
+			best = minf(best, 1000.0 * (i - start + 1) / acc)
+	return best if best != INF else 0.0
+
+
 func _summary() -> Dictionary:
 	var sorted := _frames.duplicate()
 	sorted.sort()
@@ -296,6 +334,8 @@ func _summary() -> Dictionary:
 		"tag": _tag, "mode": _mode, "seconds": _seconds, "speed": _speed, "frames": _frames.size(),
 		"startup_ms": snappedf(_startup_ms, .1),
 		"avg_fps": snappedf(_frames.size() / maxf(total / 1000.0, .001), .1),
+		"low1_fps": snappedf(_low_fps(sorted, .01), .1), "low01_fps": snappedf(_low_fps(sorted, .001), .1),
+		"min_window_fps": snappedf(_min_window_fps(_frames), .1),
 		"avg_ms": snappedf(total / maxf(_frames.size(), 1), .01),
 		"p50_ms": snappedf(_percentile(sorted, .5), .01), "p95_ms": snappedf(_percentile(sorted, .95), .01),
 		"p99_ms": snappedf(_percentile(sorted, .99), .01), "max_ms": snappedf(sorted[-1] if not sorted.is_empty() else 0.0, .01),
@@ -341,8 +381,11 @@ func _finish() -> void:
 		summary["max_ms"], summary["stream_max_ms"], summary["hitches_33"], summary["stream_hitches_33"]]
 	print(line)
 	for trip in summary["trips"]:
-		print("TRIP to=%d t=%.1f max=%.1f over33=%d mean=%.2f builds=%d loaded_max=%d" % [trip["to"], trip["t"], trip["max_ms"],
-			trip["over33"], trip["mean_ms"], trip["builds"], trip["loaded_max"]])
+		print("TRIP to=%d t=%.1f max=%.1f over33=%d mean=%.2f builds=%d loaded_max=%d dip_fps=%.1f" % [trip["to"], trip["t"], trip["max_ms"],
+			trip["over33"], trip["mean_ms"], trip["builds"], trip["loaded_max"], trip["dip_fps"]])
+	print("FPS %s mode=%s avg=%.1f low1=%.1f low01=%.1f min_window=%.1f res=%s vsync=%s" % [_tag, _mode, summary["avg_fps"],
+		summary["low1_fps"], summary["low01_fps"], summary["min_window_fps"], str(get_viewport().get_visible_rect().size),
+		str(DisplayServer.window_get_vsync_mode())])
 	for hitch in _hitch_log.slice(0, 40):
 		print("HITCH t=%.2f ms=%.1f stream_cpu=%.1f step=%s process=%.1f physics=%.1f" % [hitch["t"], hitch["ms"], hitch["stream_cpu_ms"],
 			hitch["step"], hitch["process_ms"], hitch["physics_ms"]])
