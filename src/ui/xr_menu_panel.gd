@@ -12,6 +12,10 @@ const PANEL_WIDTH := 1.6
 const PANEL_DISTANCE := 1.5
 const PANEL_DROP := 0.15
 const RAY_LENGTH := 4.0
+## The right stick scrolls what the laser points at (scroll containers only drag-scroll for touch, not for a pointer):
+## one wheel step per SCROLL_STEP_SECONDS while pushed past SCROLL_DEADZONE.
+const SCROLL_DEADZONE := 0.5
+const SCROLL_STEP_SECONDS := 0.08
 
 var _view: SubViewport
 var _origin: XROrigin3D
@@ -25,6 +29,7 @@ var _placed := false
 var _place_wait := 0.0
 var _pointer := Vector2(-1, -1)
 var _held := false
+var _scroll_wait := 0.0
 
 
 ## Creates the panel if OpenXR is running; returns null otherwise (desktop, phones, or a headset without a runtime).
@@ -36,6 +41,22 @@ static func attach(host: Node) -> XRMenuPanel:
 	panel.name = "XRMenuPanel"
 	host.add_child(panel)
 	return panel
+
+
+## Sends one mouse-wheel step at `at` (window coordinates) when the stick is pushed far enough; returns the new wait.
+static func scroll_from_stick(stick_y: float, at: Vector2, wait: float, delta: float) -> float:
+	wait = maxf(0.0, wait - delta)
+	if absf(stick_y) < SCROLL_DEADZONE or wait > 0.0 or at.x < 0.0:
+		return wait
+	for pressed in [true, false]:
+		var wheel := InputEventMouseButton.new()
+		wheel.button_index = MOUSE_BUTTON_WHEEL_UP if stick_y > 0.0 else MOUSE_BUTTON_WHEEL_DOWN
+		wheel.pressed = pressed
+		wheel.factor = 1.0
+		wheel.position = at
+		wheel.global_position = at
+		Input.parse_input_event(wheel)
+	return SCROLL_STEP_SECONDS
 
 
 ## Where a ray hits a panel of `size` metres whose centre and facing are `panel` (+Z towards the viewer), as 0..1 UV
@@ -162,6 +183,7 @@ func _process(delta: float) -> void:
 	_dot.global_transform = _panel.global_transform.translated_local(
 		Vector3((uv.x - 0.5) * size.x, (0.5 - uv.y) * size.y, 0.003))
 	var at := (uv * screen).round()
+	_scroll_wait = scroll_from_stick(_right.get_vector2("primary").y, at, _scroll_wait, delta)
 	if at != _pointer:
 		_pointer = at
 		var motion := InputEventMouseMotion.new()
