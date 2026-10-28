@@ -22,7 +22,8 @@
 		"florist",
 		"barber",
 		"pawn_shop",
-		"stationery"
+		"stationery",
+		"music_store"
 	],
 	"shop_names": {
 		"donut_shop": "DONUT COUNTER",
@@ -37,7 +38,8 @@
 		"florist": "FLORIST",
 		"barber": "BARBER",
 		"pawn_shop": "PAWN & LOAN",
-		"stationery": "STATIONERY & READING"
+		"stationery": "STATIONERY & READING",
+		"music_store": "MUSIC & SOUND"
 	},
 	"room_door": "normalRoomDoor",
 	"double_room_door": "normalDoubleRoomDoor",
