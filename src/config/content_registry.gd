@@ -10,7 +10,9 @@ extends RefCounted
 ## by a static var that calls resolve() (or splice() for arrays). Readers keep using the old name; key order is kept.
 ## Unknown keys, wrong types and missing fields are errors with the file and field named, never silently skipped.
 ##
-## Built-in content only for now. Mod packs (user://mods) reuse parse_file() with the same schemas in a later phase.
+## Built-in content is the res://data tree; player packs (ContentPacks, user://mods) layer on top through load_packs()
+## and come off again with unload_packs(), no restart. Every table built by resolve() is rebuilt on both, so with no
+## pack loaded everything is exactly the built-in game.
 
 const DATA := "@data"
 const ROOT := "res://data"
@@ -18,7 +20,8 @@ const KINDS := ["props", "regions", "hunters"]
 
 ## Field -> type. "vec3" is [x, y, z] in JSON, "strings" an array of strings. A trailing "?" marks an optional field.
 const HUNTER_FIELDS := {"name": "string", "tier": "string", "category": "string?", "speed": "float",
-	"chase": "float", "prog": "float", "sight": "float", "hearing": "float", "spawn": "int", "model": "string?", "portrait": "string?"}
+	"chase": "float", "prog": "float", "sight": "float", "hearing": "float", "spawn": "int", "model": "string?", "portrait": "string?",
+	"chase_style": "string?"}
 ## `batchable`: may the view draw repeated placements of this prop in one MultiMesh. Absent = the default in
 ## PropModelCatalog.is_batchable() (pure dressing yes, anything interactive no).
 const PROP_FIELDS := {"models": "strings", "themes": "strings?", "coordinated": "bool?", "batchable": "bool?"}
@@ -28,15 +31,35 @@ const REGION_FIELDS := {"hall_floor": "strings", "hall_runner": "bool", "room_de
 const SCHEMAS := {"hunters": "lr.hunter/1", "props": "lr.prop/1", "regions": "lr.region/1"}
 
 static var _loaded := false
+## Built-in definitions (res://data) and families, never changed after loading.
+static var _builtin := {"props": {}, "regions": {}, "hunters": {}}
+static var _builtin_families := {}
+static var _builtin_hash := ""
+## What readers see: built-in plus the loaded packs.
 static var _defs := {"props": {}, "regions": {}, "hunters": {}}
 static var _families := {}
 static var _errors := PackedStringArray()
+## Loaded packs (ContentPacks.read() results) sorted by pack id; per kind, id -> pack id for every pack definition and
+## the sorted ids packs added (as opposed to overrode).
+static var _packs: Array = []
+static var _origin := {"props": {}, "regions": {}, "hunters": {}}
+static var _added := {"props": [], "regions": [], "hunters": []}
+## Pack asset path -> stripped PackedScene (models) or ImageTexture (PNGs), dropped on unload.
+static var _assets := {}
+## Rebuild callbacks of the tables built from the registry (watch()). The registry never names its readers, so loading
+## it never loads them: a reader loaded later builds its tables from whatever packs are loaded at that moment.
+static var _watchers: Array[Callable] = []
+## Code tables whose keys are built-in ids that are not (yet) data, read by path for the same reason.
+const _CODE_IDS := {"hunters": ["res://src/config/hunter_roster.gd", "_CODE_PROFILES"],
+	"props": ["res://src/config/prop_model_catalog.gd", "_CODE_MODEL_PATHS"],
+	"regions": ["res://src/game/streamed_route_generator.gd", "REGIONS"]}
 
 
 static func ensure_loaded() -> void:
 	if _loaded:
 		return
 	_loaded = true
+	var hash_lines := PackedStringArray()
 	for kind in KINDS:
 		var dir := "%s/%s" % [ROOT, kind]
 		var files := Array(DirAccess.get_files_at(dir))
@@ -44,21 +67,206 @@ static func ensure_loaded() -> void:
 		for file_name in files:
 			if not String(file_name).ends_with(".json"):
 				continue
-			var parsed := parse_file("%s/%s" % [dir, file_name], kind)
+			var path := "%s/%s" % [dir, file_name]
+			hash_lines.append("%s %s" % [ContentPacks._sha256(FileAccess.get_file_as_bytes(path)), path])
+			var parsed := parse_file(path, kind)
 			_errors.append_array(parsed["errors"])
 			for def in parsed["defs"]:
 				var id := String(def["id"])
-				if _defs[kind].has(id):
+				if _builtin[kind].has(id):
 					_errors.append("%s/%s: duplicate %s id \"%s\"" % [dir, file_name, kind, id])
 					continue
-				_defs[kind][id] = def
+				_builtin[kind][id] = def
 				if kind == "props":
 					var family := String(def["family"])
-					if not _families.has(family):
-						_families[family] = []
-					_families[family].append(id)
+					if not _builtin_families.has(family):
+						_builtin_families[family] = []
+					_builtin_families[family].append(id)
+	_builtin_hash = ContentPacks._sha256("\n".join(hash_lines).to_utf8_buffer())
+	_apply([])
 	for message in _errors:
 		push_error("ContentRegistry: " + message)
+
+
+## Load exactly `dirs` (pack folders), replacing whatever packs were loaded. All or nothing: any error in any pack leaves
+## the current state untouched. Returns {"ok", "packs": [summary], "errors", "hash"}.
+static func load_packs(dirs: Array, limits: Dictionary = ContentPacks.LIMITS, folder_is_id: bool = true) -> Dictionary:
+	ensure_loaded()
+	var report := {"ok": false, "packs": [], "errors": PackedStringArray(), "hash": pack_hash()}
+	var read := []
+	for dir in dirs:
+		var pack := ContentPacks.read(String(dir), limits, folder_is_id)
+		report["errors"].append_array(pack["errors"])
+		read.append(pack)
+	if report["errors"].is_empty():
+		report["errors"].append_array(_conflicts(read))
+	if not report["errors"].is_empty():
+		return report
+	read.sort_custom(func(a: Dictionary, b: Dictionary): return String(a["manifest"]["id"]) < String(b["manifest"]["id"]))
+	_packs = read
+	_apply(read)
+	_rebuild_consumers()
+	report["ok"] = true
+	report["packs"] = loaded_packs()
+	report["hash"] = pack_hash()
+	return report
+
+
+## Back to the built-in game. Nodes already instanced from pack models belong to the world being torn down.
+static func unload_packs() -> void:
+	ensure_loaded()
+	if _packs.is_empty():
+		return
+	_packs = []
+	_apply([])
+	_rebuild_consumers()
+
+
+## [{id, name, version, author, size, sha256, dir}] of the loaded packs, sorted by id. `size` is the pack's bytes.
+static func loaded_packs() -> Array:
+	var out := []
+	for pack in _packs:
+		var manifest: Dictionary = pack["manifest"]
+		var size := 0
+		for file in pack["files"]:
+			size += int(file["bytes"])
+		out.append({"id": manifest["id"], "name": manifest["name"], "version": manifest["version"],
+			"author": manifest.get("author", ""), "size": size, "sha256": pack["sha256"], "dir": pack["dir"]})
+	return out
+
+
+## Fingerprint of everything that shapes a world: the built-in data files and each loaded pack's id, version and files.
+## Two peers with the same hash and seed generate the same world.
+static func pack_hash() -> String:
+	ensure_loaded()
+	var lines := PackedStringArray(["builtin " + _builtin_hash])
+	for pack in loaded_packs():
+		lines.append("%s %s %s" % [pack["id"], pack["version"], pack["sha256"]])
+	return ContentPacks._sha256("\n".join(lines).to_utf8_buffer())
+
+
+## The vanilla fingerprint (no packs), for public rooms.
+static func builtin_pack_hash() -> String:
+	ensure_loaded()
+	return ContentPacks._sha256(("builtin " + _builtin_hash).to_utf8_buffer())
+
+
+## Pack id that defines `id` of `kind`, "" when it is built-in.
+static func pack_of(kind: String, id: String) -> String:
+	ensure_loaded()
+	return String(_origin[kind].get(id, ""))
+
+
+## Ids that loaded packs added (not overrides), sorted.
+static func added_ids(kind: String) -> Array:
+	ensure_loaded()
+	return _added[kind]
+
+
+## A loaded pack's model, stripped of scripts and extension nodes; null for anything outside a loaded pack.
+static func pack_scene(path: String) -> PackedScene:
+	if _assets.has(path):
+		return _assets[path]
+	if not _packs.any(func(pack: Dictionary): return path.begins_with(String(pack["dir"]) + "/")):
+		push_warning("ContentRegistry: %s is not part of a loaded pack" % path)
+		return null
+	var scene := ContentPacks.load_scene(path)
+	_assets[path] = scene
+	return scene
+
+
+## A loaded pack's PNG as a nearest-filtered texture; null for anything outside a loaded pack.
+static func pack_texture(path: String) -> Texture2D:
+	if _assets.has(path):
+		return _assets[path]
+	if not _packs.any(func(pack: Dictionary): return path.begins_with(String(pack["dir"]) + "/")):
+		push_warning("ContentRegistry: %s is not part of a loaded pack" % path)
+		return null
+	var image := Image.load_from_file(path)
+	var texture: Texture2D = ImageTexture.create_from_image(image) if image != null else null
+	_assets[path] = texture
+	return texture
+
+
+static func _apply(packs: Array) -> void:
+	_assets.clear()
+	_defs = {}
+	_origin = {}
+	_added = {}
+	for kind in KINDS:
+		_defs[kind] = _builtin[kind].duplicate()
+		_origin[kind] = {}
+		_added[kind] = []
+	_families = {}
+	for family in _builtin_families:
+		_families[family] = _builtin_families[family].duplicate()
+	for pack in packs:
+		var pack_id := String(pack["manifest"]["id"])
+		for kind in KINDS:
+			for def in pack["defs"][kind]:
+				var id := String(def["id"])
+				_defs[kind][id] = def
+				_origin[kind][id] = pack_id
+				if not pack["manifest"].get("overrides", []).has("%s/%s" % [kind, id]):
+					_added[kind].append(id)
+				if kind == "props":
+					_families.get_or_add(String(def["family"]), []).append(id)
+	for kind in KINDS:
+		_added[kind].sort()
+		_added[kind].make_read_only()
+
+
+## Errors only visible across packs: one id from two packs, overrides of ids the game does not have, prop sets naming
+## unknown props.
+static func _conflicts(packs: Array) -> PackedStringArray:
+	var errors := PackedStringArray()
+	var seen := {}
+	var by_id := {}
+	var props := {}
+	for pack in packs:
+		var pack_id := String(pack["manifest"]["id"])
+		if by_id.has(pack_id):
+			errors.append("%s: pack id \"%s\" is also used by %s" % [pack["dir"], pack_id, by_id[pack_id]])
+		by_id[pack_id] = pack["dir"]
+		for entry in pack["manifest"].get("overrides", []):
+			var parts := String(entry).split("/")
+			if not _is_builtin_id(parts[0], parts[1]):
+				errors.append("%s: overrides \"%s\", which the game does not have" % [pack["dir"], entry])
+		for kind in KINDS:
+			for def in pack["defs"][kind]:
+				var key := "%s/%s" % [kind, def["id"]]
+				if seen.has(key):
+					errors.append("%s: %s is also defined by pack %s" % [pack["dir"], key, seen[key]])
+				seen[key] = pack_id
+				if kind == "props":
+					props[def["id"]] = true
+	for pack in packs:
+		for def in pack["defs"]["regions"]:
+			for choice in def["prop_set"]:
+				var type := String(choice["type"])
+				if not props.has(type) and not _is_builtin_id("props", type):
+					errors.append("%s: region %s prop_set type \"%s\" is not a known prop" % [pack["dir"], def["id"],
+						type])
+	return errors
+
+
+static func _is_builtin_id(kind: String, id: String) -> bool:
+	if _builtin[kind].has(id):
+		return true
+	var source: Array = _CODE_IDS[kind]
+	return load(source[0]).get_script_constant_map()[source[1]].has(id)
+
+
+## Register `rebuild`, called whenever the loaded packs change. Returns true, for use in a static var initializer:
+##   static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
+static func watch(rebuild: Callable) -> bool:
+	_watchers.append(rebuild)
+	return true
+
+
+static func _rebuild_consumers() -> void:
+	for rebuild in _watchers:
+		rebuild.call()
 
 
 static func errors() -> PackedStringArray:
@@ -96,10 +304,24 @@ static func resolve(code: Dictionary, kind: String, field: String = "") -> Dicti
 
 
 ## resolve() with `project` turning a def into the table's value (for tables built from several fields).
+## Loaded packs: an overridden key takes the pack's def (an optional field the override leaves out falls back to the
+## built-in value), and ids packs added are appended after the code keys, sorted. No packs = the code table as before.
 static func resolve_with(code: Dictionary, kind: String, project: Callable, field: String = "") -> Dictionary:
+	ensure_loaded()
 	var out := {}
 	for key in code:
 		var value = code[key]
+		if _origin[kind].has(String(key)):
+			var override := get_def(kind, String(key))
+			if field.is_empty() or override.has(field):
+				out[key] = project.call(override)
+				continue
+			var builtin: Dictionary = _builtin[kind].get(String(key), {})
+			if builtin.has(field):
+				out[key] = project.call(builtin)
+			elif not (typeof(value) == TYPE_STRING and value == DATA):
+				out[key] = value
+			continue
 		if typeof(value) == TYPE_STRING and value == DATA:
 			var def := get_def(kind, String(key))
 			if def.is_empty() or (not field.is_empty() and not def.has(field)):
@@ -108,6 +330,10 @@ static func resolve_with(code: Dictionary, kind: String, project: Callable, fiel
 				continue
 			value = project.call(def)
 		out[key] = value
+	for id in _added[kind]:
+		var def := get_def(kind, id)
+		if field.is_empty() or def.has(field):
+			out[id] = project.call(def)
 	out.make_read_only()
 	return out
 
@@ -205,6 +431,12 @@ static func _convert(value, type: String):
 	match type:
 		"string":
 			return value if typeof(value) == TYPE_STRING else null
+		"files":
+			if typeof(value) != TYPE_ARRAY or not value.all(func(v): return typeof(v) == TYPE_DICTIONARY \
+					and typeof(v.get("path")) == TYPE_STRING and typeof(v.get("sha256")) == TYPE_STRING \
+					and typeof(v.get("size")) in [TYPE_INT, TYPE_FLOAT]):
+				return null
+			return value
 		"bool":
 			return value if typeof(value) == TYPE_BOOL else null
 		"float":

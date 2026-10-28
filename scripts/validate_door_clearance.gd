@@ -131,7 +131,7 @@ func _check_frames(doors: Array) -> void:
 		print("    %s  opening %.2f x %.2f m, frame top %.2f m" % [name, float(door["width"]), float(door["height"]), visual_top])
 
 
-## No see-through gap over a door (KT): in generated chunks on several floors and in every biome they reach, each room
+## No see-through gap over a door (KT): in generated chunks on several floors and in every region they reach, each room
 ## door cell gets a header whose faces stop a ray through the opening above the frame on both sides, up to each side's
 ## ceiling, and a soffit that stops a ray straight up; every raised frame reaches the soffit.
 func _check_headers(doors: Array) -> void:

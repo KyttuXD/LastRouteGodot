@@ -69,7 +69,7 @@ goes through the real `Input` actions, so the player controller, pause menu and 
 controller-stick actions (no mouse capture needed, deterministic).
 
 `obs` (Last Route): `frame, time, scene, fps, frame_ms, nodes, ui{buttons[]}, run{over, depth, score, relays, death}, player{pos, yaw, pitch, vel,
-hidden, stamina, lamp, in_safe_room, item...}, focus{kind, prompt} (what interact would hit), world{chunk, biome, relays[], batteries[], safe_zones[],
+hidden, stamina, lamp, in_safe_room, item...}, focus{kind, prompt} (what interact would hit), world{chunk, region, relays[], batteries[], safe_zones[],
 hiding_spots[]}, hunters[{id, state, pos, dist, los, stuck, stun}], interactables[{kind, pos, dist, completed, door_open}], online{peers, remotes}, log{errors}`.
 
 ### How an agent playtests step by step

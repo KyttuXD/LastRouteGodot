@@ -1,14 +1,14 @@
 extends RefCounted
 
 ## Geometry overlap audit (GeometryAudit, docs/GEOMETRY_AUDIT.md): solid-into-solid interpenetration, floating pieces, slivers
-## and ceiling pokes across Last Route (every biome, several seeds), the City master plan and the Night Watch offices.
+## and ceiling pokes across Last Route (every region, several seeds), the City master plan and the Night Watch offices.
 ## RATCHET holds the findings that still exist per rule; a rule may only go down. Tool for the full ranked list with
 ## coordinates: tools/look/geometry_audit.tscn.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- geometry_overlap
 
 const SEEDS := ["GEOM-AUDIT-A", "GEOM-AUDIT-B", "ENDLESS-ROUTE"]
-const PER_BIOME := 3
+const PER_REGION := 3
 ## game -> rule -> allowed count in this sweep
 const RATCHET := {}
 
@@ -23,7 +23,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func run(host: Node) -> int:
 	var findings: Array = []
-	var lr := GeometryAudit.sweep_last_route(SEEDS, PER_BIOME, findings)
+	var lr := GeometryAudit.sweep_last_route(SEEDS, PER_REGION, findings)
 	var sewer := GeometryAudit.sweep_sewers(SEEDS, 4, findings)
 	var offices := await _audit_offices(host, findings)
 	_expect(int(lr["chunks"]) > 20, "only %d Last Route chunks swept" % int(lr["chunks"]))

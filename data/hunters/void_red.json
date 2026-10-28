@@ -1,0 +1,15 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "void_red",
+	"name": "Red",
+	"tier": "void",
+	"category": "void",
+	"speed": 1.02,
+	"chase": 4.9,
+	"prog": 0.3,
+	"sight": 9.3,
+	"hearing": 1.3,
+	"spawn": 14,
+	"model": "res://art/props-3d/characters/void_red.tscn",
+	"chase_style": "reach2"
+}

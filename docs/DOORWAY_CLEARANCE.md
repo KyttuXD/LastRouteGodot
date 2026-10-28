@@ -64,7 +64,7 @@ through it at walk and at run with the real clips and the pose, checking every m
 * hair, ears, horns, tails, wings: may brush a frame or leaf by up to 10 cm, and every brush is listed;
 * parts wider than a one-cell door whichever way she turns are listed every run under "wider than a door" and do not
   fail: Nyxie's and Wynelle's ponytails (in one-cell doors only). Two-cell doors fit everything.
-* no gap over a door: in generated chunks (3 seeds, 3 floors, every biome they reach, halls up to 5.9 m) every room door
+* no gap over a door: in generated chunks (3 seeds, 3 floors, every region they reach, halls up to 5.9 m) every room door
   cell gets a header; rays through the opening above the frame from both sides, up to each side's ceiling, and straight
   up through the soffit all hit wall. Every raised frame reaches its soffit.
 

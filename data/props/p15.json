@@ -1,0 +1,156 @@
+{
+	"schema": "lr.prop/1",
+	"family": "p15",
+	"props": [
+		{
+			"id": "donutFryer",
+			"models": [
+				"res://art/props-3d/props/blocky/donutFryer.glb"
+			]
+		},
+		{
+			"id": "bakeryRack",
+			"models": [
+				"res://art/props-3d/props/blocky/bakeryRack_0.glb",
+				"res://art/props-3d/props/blocky/bakeryRack_1.glb",
+				"res://art/props-3d/props/blocky/bakeryRack_2.glb"
+			]
+		},
+		{
+			"id": "dinerStool",
+			"models": [
+				"res://art/props-3d/props/blocky/dinerStool_0.glb",
+				"res://art/props-3d/props/blocky/dinerStool_1.glb",
+				"res://art/props-3d/props/blocky/dinerStool_2.glb"
+			]
+		},
+		{
+			"id": "dinerBooth",
+			"models": [
+				"res://art/props-3d/props/blocky/dinerBooth_0.glb",
+				"res://art/props-3d/props/blocky/dinerBooth_1.glb",
+				"res://art/props-3d/props/blocky/dinerBooth_2.glb"
+			]
+		},
+		{
+			"id": "menuBoard",
+			"models": [
+				"res://art/props-3d/props/blocky/menuBoard_0.glb",
+				"res://art/props-3d/props/blocky/menuBoard_1.glb",
+				"res://art/props-3d/props/blocky/menuBoard_2.glb"
+			]
+		},
+		{
+			"id": "donutSign",
+			"models": [
+				"res://art/props-3d/props/blocky/donutSign_0.glb",
+				"res://art/props-3d/props/blocky/donutSign_1.glb"
+			]
+		},
+		{
+			"id": "washingMachine",
+			"models": [
+				"res://art/props-3d/props/blocky/washingMachine_0.glb",
+				"res://art/props-3d/props/blocky/washingMachine_1.glb",
+				"res://art/props-3d/props/blocky/washingMachine_2.glb"
+			]
+		},
+		{
+			"id": "dryerStack",
+			"models": [
+				"res://art/props-3d/props/blocky/dryerStack_0.glb",
+				"res://art/props-3d/props/blocky/dryerStack_1.glb"
+			]
+		},
+		{
+			"id": "flowerStand",
+			"models": [
+				"res://art/props-3d/props/blocky/flowerStand_0.glb",
+				"res://art/props-3d/props/blocky/flowerStand_1.glb"
+			]
+		},
+		{
+			"id": "barberChair",
+			"models": [
+				"res://art/props-3d/props/blocky/barberChair_0.glb",
+				"res://art/props-3d/props/blocky/barberChair_1.glb",
+				"res://art/props-3d/props/blocky/barberChair_2.glb"
+			]
+		},
+		{
+			"id": "barberStation",
+			"models": [
+				"res://art/props-3d/props/blocky/barberStation_0.glb",
+				"res://art/props-3d/props/blocky/barberStation_1.glb"
+			]
+		},
+		{
+			"id": "clothesRack",
+			"models": [
+				"res://art/props-3d/props/blocky/clothesRack_0.glb",
+				"res://art/props-3d/props/blocky/clothesRack_1.glb",
+				"res://art/props-3d/props/blocky/clothesRack_2.glb"
+			]
+		},
+		{
+			"id": "tvWall",
+			"models": [
+				"res://art/props-3d/props/blocky/tvWall_0.glb",
+				"res://art/props-3d/props/blocky/tvWall_1.glb",
+				"res://art/props-3d/props/blocky/tvWall_2.glb"
+			]
+		},
+		{
+			"id": "cinemaSeats",
+			"models": [
+				"res://art/props-3d/props/blocky/cinemaSeats_0.glb",
+				"res://art/props-3d/props/blocky/cinemaSeats_1.glb"
+			]
+		},
+		{
+			"id": "cinemaScreen",
+			"models": [
+				"res://art/props-3d/props/blocky/cinemaScreen_0.glb",
+				"res://art/props-3d/props/blocky/cinemaScreen_1.glb"
+			]
+		},
+		{
+			"id": "ticketBooth",
+			"models": [
+				"res://art/props-3d/props/blocky/ticketBooth_0.glb",
+				"res://art/props-3d/props/blocky/ticketBooth_1.glb",
+				"res://art/props-3d/props/blocky/ticketBooth_2.glb"
+			]
+		},
+		{
+			"id": "concessionCounter",
+			"models": [
+				"res://art/props-3d/props/blocky/concessionCounter_0.glb",
+				"res://art/props-3d/props/blocky/concessionCounter_1.glb"
+			]
+		},
+		{
+			"id": "foodCourtTable",
+			"models": [
+				"res://art/props-3d/props/blocky/foodCourtTable_0.glb",
+				"res://art/props-3d/props/blocky/foodCourtTable_1.glb",
+				"res://art/props-3d/props/blocky/foodCourtTable_2.glb"
+			]
+		},
+		{
+			"id": "mallPlanter",
+			"models": [
+				"res://art/props-3d/props/blocky/mallPlanter_0.glb",
+				"res://art/props-3d/props/blocky/mallPlanter_1.glb",
+				"res://art/props-3d/props/blocky/mallPlanter_2.glb"
+			]
+		},
+		{
+			"id": "mallBench",
+			"models": [
+				"res://art/props-3d/props/blocky/mallBench_0.glb",
+				"res://art/props-3d/props/blocky/mallBench_1.glb"
+			]
+		}
+	]
+}

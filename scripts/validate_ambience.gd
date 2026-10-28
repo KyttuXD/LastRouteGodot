@@ -16,12 +16,12 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(host: Node) -> int:
-	for region in StreamedRouteGenerator.BIOMES:
+	for region in StreamedRouteGenerator.REGIONS:
 		_expect(AmbienceTable.key_for(String(region), "") == String(region), "district %s has no ambient bed" % region)
 	_expect(AmbienceTable.key_for("gothic", "chapel") == "room:chapel", "a room purpose with its own bed does not override the district")
 	_expect(AmbienceTable.key_for("gothic", "crypt") == "gothic", "a room purpose without a bed should fall back to the district")
-	AmbienceTable.register("validation_biome", [{"kind": "hum", "hz": 90.0, "vol": .01}])
-	_expect(AmbienceTable.key_for("validation_biome", "") == "validation_biome", "a registered biome bed is not used")
+	AmbienceTable.register("validation_region", [{"kind": "hum", "hz": 90.0, "vol": .01}])
+	_expect(AmbienceTable.key_for("validation_region", "") == "validation_region", "a registered region bed is not used")
 	# crossfade bookkeeping
 	Sound.set_ambience("")
 	_expect(Sound.set_ambience("gothic") and Sound.ambience_key == "gothic", "entering gothic did not start its bed")

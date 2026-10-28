@@ -31,6 +31,7 @@ func _joy(button: int) -> InputEventJoypadButton:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	NightWatchSave.path = "user://night_watch_keys_test.cfg"
 	NightWatchSave.reset()
 	# --- the table, the InputMap, the hint line and the controls tab

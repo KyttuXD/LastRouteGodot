@@ -1,0 +1,15 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "void_yellow",
+	"name": "Yellow",
+	"tier": "void",
+	"category": "void",
+	"speed": 0.99,
+	"chase": 4.78,
+	"prog": 0.27,
+	"sight": 9.8,
+	"hearing": 1.2,
+	"spawn": 15,
+	"model": "res://art/props-3d/characters/void_yellow.tscn",
+	"chase_style": "reach2"
+}

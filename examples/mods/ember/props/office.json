@@ -1,0 +1,11 @@
+{
+	"schema": "lr.prop/1",
+	"family": "office",
+	"props": [
+		{
+			"id": "officePrinter",
+			"models": ["assets/office_printer_ember.glb"],
+			"themes": ["ember"]
+		}
+	]
+}

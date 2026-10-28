@@ -31,51 +31,61 @@ const DEFAULT_ID := "dovelle"
 ## Read PROFILES, not this: entries marked ContentRegistry.DATA live in res://data/hunters/<id>.json
 ## (docs/DATA_DRIVEN_CONTENT.md) and PROFILES is this table with them filled in, in this order.
 const _CODE_PROFILES := {
-	"aki":      {"name": "Aki",      "tier": "easy",         "speed": 0.82, "chase": 3.55,  "prog": 0.20, "sight": 8.20, "hearing": 1.00, "spawn": 11},
-	"briselle": {"name": "Briselle", "tier": "easy",         "speed": 0.84, "chase": 3.62,  "prog": 0.18, "sight": 7.70, "hearing": 1.00, "spawn": 12},
-	"ceryth":   {"name": "Ceryth",   "tier": "intermediate", "speed": 0.78, "chase": 3.45,  "prog": 0.17, "sight": 8.60, "hearing": 0.88, "spawn": 12},
+	"aki":      ContentRegistry.DATA,
+	"briselle": ContentRegistry.DATA,
+	"ceryth":   ContentRegistry.DATA,
 	"dovelle":  ContentRegistry.DATA,
-	"elise":    {"name": "Elise",    "tier": "difficult",    "speed": 0.82, "chase": 3.58,  "prog": 0.18, "sight": 8.10, "hearing": 1.05, "spawn": 12},
-	"ferryn":   {"name": "Ferryn",   "tier": "intermediate", "speed": 0.80, "chase": 2.75,  "prog": 0.17, "sight": 8.30, "hearing": 0.92, "spawn": 12},
-	"glyra":    {"name": "Glyra",    "tier": "easy",         "speed": 0.81, "chase": 3.52,  "prog": 0.18, "sight": 7.90, "hearing": 1.12, "spawn": 12},
-	"haelith":  {"name": "Haelith",  "tier": "easy",         "speed": 0.83, "chase": 3.60,  "prog": 0.18, "sight": 7.80, "hearing": 1.18, "spawn": 12},
-	"ilyra":    {"name": "Ilyra",    "tier": "intermediate", "speed": 0.77, "chase": 3.68,  "prog": 0.17, "sight": 8.70, "hearing": 0.80, "spawn": 12},
-	"javelle":    {"name": "Javelle",    "tier": "easy",         "speed": 0.80, "chase": 3.56,  "prog": 0.18, "sight": 8.00, "hearing": 1.00, "spawn": 12},
-	"kathy":    {"name": "Kathy",    "tier": "difficult",    "speed": 0.82, "chase": 4.15,  "prog": 0.20, "sight": 8.20, "hearing": 1.00, "spawn": 16},
-	"loxelle":  {"name": "Loxelle",  "tier": "easy",         "speed": 0.80, "chase": 3.555, "prog": 0.18, "sight": 7.90, "hearing": 1.12, "spawn": 13},
-	"mavrine":  {"name": "Mavrine",  "tier": "intermediate", "speed": 0.80, "chase": 3.50,  "prog": 0.17, "sight": 8.20, "hearing": 0.95, "spawn": 12},
-	"nyxie":    {"name": "Nyxie",    "tier": "special",      "speed": 0.90, "chase": 3.90,  "prog": 0.15, "sight": 8.40, "hearing": 0.00, "spawn": 10},
-	"opalie":   {"name": "Opalie",   "tier": "easy",         "speed": 0.83, "chase": 3.47,  "prog": 0.18, "sight": 7.70, "hearing": 1.10, "spawn": 13},
-	"porcelle": {"name": "Porcelle", "tier": "intermediate", "speed": 0.80, "chase": 3.55,  "prog": 0.17, "sight": 8.00, "hearing": 0.90, "spawn": 13},
-	"quenelle":  {"name": "Quenelle",  "tier": "easy",         "speed": 0.81, "chase": 3.50,  "prog": 0.17, "sight": 8.10, "hearing": 0.85, "spawn": 12},
-	"ravelle":  {"name": "Ravelle",  "tier": "difficult",    "speed": 0.81, "chase": 3.15,  "prog": 0.18, "sight": 7.70, "hearing": 1.00, "spawn": 12},
-	"solyth":   {"name": "Solyth",   "tier": "special",      "speed": 0.80, "chase": 3.00,  "prog": 0.17, "sight": 7.60, "hearing": 0.95, "spawn": 12},
-	"thessine": {"name": "Thessine", "tier": "intermediate", "speed": 0.78, "chase": 3.44,  "prog": 0.17, "sight": 8.40, "hearing": 0.90, "spawn": 13},
-	"umbriel":  {"name": "Umbriel",  "tier": "difficult",    "speed": 0.82, "chase": 3.46,  "prog": 0.18, "sight": 8.50, "hearing": 0.86, "spawn": 12},
-	"verrine":  {"name": "Verrine",  "tier": "intermediate", "speed": 0.83, "chase": 3.66,  "prog": 0.18, "sight": 7.70, "hearing": 1.10, "spawn": 13},
-	"wynelle":  {"name": "Wynelle",  "tier": "difficult",    "speed": 0.81, "chase": 3.00,  "prog": 0.18, "sight": 7.80, "hearing": 1.15, "spawn": 12},
-	"xivvy":    {"name": "Xivvy",    "tier": "intermediate", "speed": 0.97, "chase": 4.35,  "prog": 0.12, "sight": 6.72, "hearing": 0.84, "spawn": 13},
-	"ysolde":   {"name": "Ysolde",   "tier": "easy",         "speed": 0.80, "chase": 3.54,  "prog": 0.18, "sight": 8.10, "hearing": 1.00, "spawn": 12},
-	"zellia":  {"name": "Zellia",  "tier": "easy",         "speed": 0.83, "chase": 3.60,  "prog": 0.17, "sight": 8.00, "hearing": 0.95, "spawn": 12},
+	"elise":    ContentRegistry.DATA,
+	"ferryn":   ContentRegistry.DATA,
+	"glyra":    ContentRegistry.DATA,
+	"haelith":  ContentRegistry.DATA,
+	"ilyra":    ContentRegistry.DATA,
+	"javelle":    ContentRegistry.DATA,
+	"kathy":    ContentRegistry.DATA,
+	"loxelle":  ContentRegistry.DATA,
+	"mavrine":  ContentRegistry.DATA,
+	"nyxie":    ContentRegistry.DATA,
+	"opalie":   ContentRegistry.DATA,
+	"porcelle": ContentRegistry.DATA,
+	"quenelle":  ContentRegistry.DATA,
+	"ravelle":  ContentRegistry.DATA,
+	"solyth":   ContentRegistry.DATA,
+	"thessine": ContentRegistry.DATA,
+	"umbriel":  ContentRegistry.DATA,
+	"verrine":  ContentRegistry.DATA,
+	"wynelle":  ContentRegistry.DATA,
+	"xivvy":    ContentRegistry.DATA,
+	"ysolde":   ContentRegistry.DATA,
+	"zellia":  ContentRegistry.DATA,
 	# Void incursions are an extra category, not letters appended to the A-Z
 	# roster. Their source skins are deliberately larger in presentation and
 	# their baseline tuning is more aggressive even before colour-specific
 	# mechanics are promoted from the design notes into code.
-	"void_black":  {"name": "Black",  "tier": "void", "category": "void", "speed": 0.94, "chase": 4.55, "prog": 0.24, "sight": 9.4, "hearing": 1.22, "spawn": 15, "model": "res://art/props-3d/characters/void_black.tscn"},
-	"void_blue":   {"name": "Blue",   "tier": "void", "category": "void", "speed": 0.92, "chase": 4.48, "prog": 0.25, "sight": 9.6, "hearing": 1.18, "spawn": 15, "model": "res://art/props-3d/characters/void_blue.tscn"},
-	"void_brown":  {"name": "Brown",  "tier": "void", "category": "void", "speed": 0.96, "chase": 4.62, "prog": 0.23, "sight": 9.0, "hearing": 1.30, "spawn": 14, "model": "res://art/props-3d/characters/void_brown.tscn"},
-	"void_cyan":   {"name": "Cyan",   "tier": "void", "category": "void", "speed": 0.95, "chase": 4.70, "prog": 0.26, "sight": 9.8, "hearing": 1.16, "spawn": 16, "model": "res://art/props-3d/characters/void_cyan.tscn"},
-	"void_gray":   {"name": "Gray",   "tier": "void", "category": "void", "speed": 0.91, "chase": 4.42, "prog": 0.27, "sight": 10.0, "hearing": 1.12, "spawn": 17, "model": "res://art/props-3d/characters/void_gray.tscn"},
-	"void_green":  {"name": "Green",  "tier": "void", "category": "void", "speed": 0.97, "chase": 4.68, "prog": 0.25, "sight": 9.1, "hearing": 1.28, "spawn": 14, "model": "res://art/props-3d/characters/void_green.tscn"},
-	"void_orange": {"name": "Orange", "tier": "void", "category": "void", "speed": 1.00, "chase": 4.82, "prog": 0.28, "sight": 9.2, "hearing": 1.24, "spawn": 14, "model": "res://art/props-3d/characters/void_orange.tscn"},
-	"void_pink":   {"name": "Pink",   "tier": "void", "category": "void", "speed": 0.93, "chase": 4.50, "prog": 0.26, "sight": 9.7, "hearing": 1.20, "spawn": 16, "model": "res://art/props-3d/characters/void_pink.tscn"},
-	"void_purple": {"name": "Purple", "tier": "void", "category": "void", "speed": 0.98, "chase": 4.75, "prog": 0.29, "sight": 9.5, "hearing": 1.15, "spawn": 16, "model": "res://art/props-3d/characters/void_purple.tscn"},
-	"void_red":    {"name": "Red",    "tier": "void", "category": "void", "speed": 1.02, "chase": 4.90, "prog": 0.30, "sight": 9.3, "hearing": 1.30, "spawn": 14, "model": "res://art/props-3d/characters/void_red.tscn"},
-	"void_white":  {"name": "White",  "tier": "void", "category": "void", "speed": 0.90, "chase": 4.45, "prog": 0.24, "sight": 8.8, "hearing": 1.38, "spawn": 17, "model": "res://art/props-3d/characters/void_white.tscn"},
-	"void_yellow": {"name": "Yellow", "tier": "void", "category": "void", "speed": 0.99, "chase": 4.78, "prog": 0.27, "sight": 9.8, "hearing": 1.20, "spawn": 15, "model": "res://art/props-3d/characters/void_yellow.tscn"},
+	"void_black":  ContentRegistry.DATA,
+	"void_blue":   ContentRegistry.DATA,
+	"void_brown":  ContentRegistry.DATA,
+	"void_cyan":   ContentRegistry.DATA,
+	"void_gray":   ContentRegistry.DATA,
+	"void_green":  ContentRegistry.DATA,
+	"void_orange": ContentRegistry.DATA,
+	"void_pink":   ContentRegistry.DATA,
+	"void_purple": ContentRegistry.DATA,
+	"void_red":    ContentRegistry.DATA,
+	"void_white":  ContentRegistry.DATA,
+	"void_yellow": ContentRegistry.DATA,
 }
 
 static var PROFILES: Dictionary = ContentRegistry.resolve(_CODE_PROFILES, "hunters")
+
+
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
+
+
+## Packs changed (ContentRegistry.load_packs / unload_packs): recompute everything derived from the registry.
+static func rebuild_from_registry() -> void:
+	PROFILES = ContentRegistry.resolve(_CODE_PROFILES, "hunters")
+	DRAW_IDS = _draw_ids()
+	_eye_glow_color_cache.clear()
 
 ## The hunters the game actually draws. Grows as gimmicks are ported; a hunter
 ## with a profile and a model but no gimmick is NOT in here, because shipping
@@ -96,6 +106,17 @@ const IMPLEMENTED_IDS := [
 ## whichever route hunter was drawn, which is why main_3d.gd keeps a
 ## collection of hunters rather than one.
 const SPECIAL_IDS := ["nyxie", "solyth"]
+## What pick_for_floor draws from: IMPLEMENTED_IDS plus hunters added by loaded packs (exactly IMPLEMENTED_IDS without
+## packs, so vanilla draws are unchanged). Pack hunters run the default chase behaviour on their own tuning.
+static var DRAW_IDS: Array = _draw_ids()
+
+
+static func _draw_ids() -> Array:
+	var ids := IMPLEMENTED_IDS.duplicate()
+	ids.append_array(ContentRegistry.added_ids("hunters"))
+	ids.make_read_only()
+	return ids
+
 ## Complete letter roster in display/alphabet order. Keeping this explicit
 ## gives debug/admin tooling one canonical source rather than reconstructing
 ## A-Z from the weighted random pool (which intentionally excludes specials).
@@ -277,7 +298,7 @@ static func pick_for_floor(seed_text: String, depth: int,
 	var weights: Dictionary = TIER_WEIGHTS_BY_DIFFICULTY.get(difficulty_id,
 		TIER_WEIGHTS_BY_DIFFICULTY["standard"])
 	var by_tier := {}
-	for id in IMPLEMENTED_IDS:
+	for id in DRAW_IDS:
 		var tier: String = PROFILES[id]["tier"]
 		by_tier.get_or_add(tier, []).append(id)
 
@@ -285,10 +306,10 @@ static func pick_for_floor(seed_text: String, depth: int,
 	for tier in by_tier:
 		total += float(weights.get(tier, 0.0))
 	if total <= 0.0:
-		return IMPLEMENTED_IDS[rng.next_index(IMPLEMENTED_IDS.size())]
+		return DRAW_IDS[rng.next_index(DRAW_IDS.size())]
 
 	# Walk the tiers in a fixed order: a Dictionary's iteration order follows
-	# insertion, which follows IMPLEMENTED_IDS, so it is stable -- but only by
+	# insertion, which follows DRAW_IDS, so it is stable -- but only by
 	# accident. Sorting makes the draw depend on the seed alone.
 	var tiers: Array = by_tier.keys()
 	tiers.sort()

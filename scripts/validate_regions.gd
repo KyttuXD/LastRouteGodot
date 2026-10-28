@@ -1,14 +1,21 @@
 extends RefCounted
 
-## The hospital, research lab and greenhouse biomes over many seeds: each one generates, every room of theirs gets its
+## The hospital, research lab and greenhouse regions over many seeds: each one generates, every room of theirs gets its
 ## furnished recipe with the props that make it that room (a ward has beds, a morgue its drawer cabinets, the dome its
 ## fountain), solid props never interpenetrate, the doorway and the cell inside it stay clear, and every free floor cell
 ## of a room is reachable from its door (so hunters and players can walk the whole room). Hall widths, humps, room sizes
-## and seam connectivity are the shared suites' job; they sample every biome in StreamedRouteGenerator.BIOMES.
+## and seam connectivity are the shared suites' job; they sample every region in StreamedRouteGenerator.REGIONS.
+##
+## The full run is split into one suite per region (regions_hospital, regions_lab, regions_greenhouse, regions_mall:
+## each extends this script and sets `regions`) so the parallel runner can spread it; "regions" still runs all four.
+## A shard can be split again with the runner's `name#i/n` (VALIDATE_SHARD="i/n"): every shard walks the same seeds and
+## chunks and generates only every n-th chunk of its regions, so the shards together check exactly the unsharded
+## chunks. Each shard still requires every room type of its regions (the split is deterministic per seed).
 
+## Seed strings, not names: kept as they were before the biome -> region rename so the same worlds are checked.
 const SEEDS := ["BIOME-A", "BIOME-B", "BIOME-C", "BIOME-D", "KYTTU-LAB", "ENDLESS-ROUTE", "PICKUPS"]
 const RADIUS := 7
-const REGIONS := ["hospital", "lab", "greenhouse", "mall"]
+const FACILITY_REGIONS := ["hospital", "lab", "greenhouse", "mall"]
 const MIN_CHUNKS := 6
 ## The props a room must show to read as that room.
 const KEY_PROPS := {
@@ -33,6 +40,10 @@ const KEY_PROPS := {
 	"pod_room": ["divePod", "divePodLit", "diveConsole", "diveHeadsetShelf", "diveHeadsetStand"],
 }
 
+## The regions this run checks (a shard narrows it) and the room types each one must produce.
+var regions: Array = FACILITY_REGIONS
+const REGION_ROOM_TYPES := {"hospital": [], "lab": ["pod_room"], "greenhouse": ["dome_atrium"], "mall": []}
+
 var _failures := 0
 
 
@@ -46,6 +57,14 @@ func run(_host: Node) -> int:
 	var pockets := []
 	var pocket_types := {}
 	var room_count := 0
+	var shard_index := 0
+	var shard_count := 1
+	var shard := OS.get_environment("VALIDATE_SHARD")
+	if shard.contains("/"):
+		shard_index = int(shard.get_slice("/", 0))
+		shard_count = maxi(1, int(shard.get_slice("/", 1)))
+	_expect(shard_index >= 0 and shard_index < shard_count, "bad shard %s" % shard)
+	var ordinal := -1
 	for seed_text in SEEDS:
 		var generator := StreamedRouteGenerator.new(seed_text)
 		for dz in range(-RADIUS, RADIUS + 1):
@@ -53,8 +72,11 @@ func run(_host: Node) -> int:
 				var coord := Vector3i(dx, 0, dz)
 				if not generator.is_chunk_allowed(coord) or generator.is_safe_room(coord):
 					continue
-				var region := generator.biome_for(coord)
-				if not REGIONS.has(region):
+				var region := generator.region_for(coord)
+				if not regions.has(region):
+					continue
+				ordinal += 1
+				if ordinal % shard_count != shard_index:
 					continue
 				chunks_by_region[region] = int(chunks_by_region.get(region, 0)) + 1
 				var data := generator.chunk(coord)
@@ -101,12 +123,12 @@ func run(_host: Node) -> int:
 						if stranded > 0:
 							pockets.append("%s: %d cells" % [where, stranded])
 							pocket_types[room_type] = int(pocket_types.get(room_type, 0)) + 1
-	for region in REGIONS:
-		_expect(int(chunks_by_region.get(region, 0)) >= MIN_CHUNKS,
+	for region in regions:
+		_expect(int(chunks_by_region.get(region, 0)) >= ceili(float(MIN_CHUNKS) / shard_count),
 			"%s generated only %d chunks over %d seeds" % [region, int(chunks_by_region.get(region, 0)), SEEDS.size()])
-	for room_type in KEY_PROPS:
+	for room_type in _expected_room_types():
 		_expect(rooms_by_type.has(room_type), "no %s room was ever generated" % room_type)
-	_expect(unfurnished.is_empty(), "%d biome rooms have no furnished recipe (e.g. %s)" % [unfurnished.size(),
+	_expect(unfurnished.is_empty(), "%d region rooms have no furnished recipe (e.g. %s)" % [unfurnished.size(),
 		unfurnished.slice(0, 4)])
 	_expect(missing_key.is_empty(), "rooms missing their defining props: %s" % [missing_key])
 	_expect(overlaps.is_empty(), "%d rooms have interpenetrating solid props (e.g. %s)" % [overlaps.size(),
@@ -116,9 +138,21 @@ func run(_host: Node) -> int:
 	_expect(pockets.is_empty(), "%d rooms have floor walled off by props (by type %s; e.g. %s)" % [pockets.size(),
 		pocket_types, pockets.slice(0, 4)])
 	if _failures == 0:
-		print("  biomes  %s chunks, %d rooms of %d types: furnished, key props, no overlaps, doors clear, all floor reachable"
+		print("  regions  %s chunks, %d rooms of %d types: furnished, key props, no overlaps, doors clear, all floor reachable"
 			% [chunks_by_region, room_count, rooms_by_type.size()])
 	return _failures
+
+
+## Every KEY_PROPS room type that one of `regions` generates.
+func _expected_room_types() -> Array:
+	var lists := {"hospital": StreamedRouteGenerator.HOSPITAL_ROOMS, "lab": StreamedRouteGenerator.LAB_ROOMS,
+		"greenhouse": StreamedRouteGenerator.GREENHOUSE_ROOMS, "mall": StreamedRouteGenerator.MALL_ROOMS}
+	var out := []
+	for region in regions:
+		for room_type in Array(lists[region]) + Array(REGION_ROOM_TYPES[region]):
+			if KEY_PROPS.has(room_type) and not out.has(room_type):
+				out.append(room_type)
+	return out
 
 
 static func _solid_cells(props: Array) -> Dictionary:

@@ -25,6 +25,7 @@ enum Kind {
 	LIGHT_SWITCH,
 	FURNITURE,
 	ROOM_DOOR,
+	BREAKABLE,
 }
 
 ## The facility's single heater station, and Wynelle's counterplay. Three
@@ -83,6 +84,7 @@ const GLOW_COLORS := {
 	Kind.BOARDED_PATH: Color(0.94, 0.48, 0.22),
 	Kind.TOOL_PICKUP: Color(0.64, 0.84, 0.96),
 	Kind.LIGHT_SWITCH: Color(0.96, 0.72, 0.30),
+	Kind.BREAKABLE: Color(0.94, 0.48, 0.22),
 }
 
 ## Something happened here that the rest of the room has to know about. Carries
@@ -176,6 +178,9 @@ var _door_target_x := 0.0
 
 func _ready() -> void:
 	add_to_group("interactable")
+	if kind == Kind.BREAKABLE:
+		_ready_breakable()
+		return
 	if kind == Kind.ROOM_DOOR:
 		_ready_room_door()
 		return
@@ -235,6 +240,49 @@ func _ready() -> void:
 		add_child(tune)
 
 	_refresh_visual()
+
+
+## A breakable (Breach, docs/BREACH.md): its spec, the hit points it shows, and the visual pieces that fall away as they drop.
+var breakable_spec := {}
+var breakable_hp := 0
+var _breakable_pieces: Array = []
+
+
+func configure_breakable(spec: Dictionary, hp: int, is_open: bool) -> void:
+	breakable_spec = spec
+	breakable_hp = hp
+	opened = is_open
+	if is_inside_tree():
+		_ready_breakable()
+
+
+func _ready_breakable() -> void:
+	if breakable_spec.is_empty() or _visual != null:
+		return
+	var built := BreakableView.build(breakable_spec)
+	_visual = built["root"]
+	_breakable_pieces = built["pieces"]
+	add_child(_visual)
+	_interaction_focus_local = Vector3(0.0, 1.3, 0.0)
+	_refresh_visual()
+
+
+func apply_breakable_state(hp: int, is_open: bool) -> void:
+	breakable_hp = hp
+	opened = is_open
+	_refresh_visual()
+
+
+func _refresh_breakable_pieces() -> void:
+	var total := _breakable_pieces.size()
+	if total == 0:
+		return
+	var max_hp := maxi(1, int(breakable_spec.get("hp", 1)))
+	var shown := ceili(float(total) * float(breakable_hp) / float(max_hp)) if breakable_hp > 0 else 0
+	for index in total:
+		var piece := _breakable_pieces[index] as Node3D
+		if is_instance_valid(piece):
+			piece.visible = index < shown
 
 
 func _process(delta: float) -> void:
@@ -298,7 +346,7 @@ const AIM_REACH := {
 	Kind.ROOM_DOOR: 1.4, Kind.LIGHT_SWITCH: 1.4, Kind.BOARDED_PATH: 1.5, Kind.VENT: 1.5,
 	Kind.HIDING_SPOT: 1.6, Kind.LIFT: 1.6, Kind.SAFE_ZONE: 1.6, Kind.HEATER_STATION: 1.6, Kind.MUSIC_BOX: 1.6,
 	Kind.RELAY: 1.7, Kind.BATTERY: 1.7, Kind.COIN: 1.7, Kind.TOOL_PICKUP: 1.7,
-	Kind.FURNITURE: 1.8,
+	Kind.FURNITURE: 1.8, Kind.BREAKABLE: 2.0,
 }
 const DEFAULT_AIM_REACH := 1.6
 
@@ -552,6 +600,14 @@ func get_prompt() -> String:
 		return "PICK LOCK // LOCKPICK OR CROWBAR"
 	if kind == Kind.BOARDED_PATH and not opened:
 		return "BREACH BOARDS // CROWBAR OR RESCUE AXE"
+	if kind == Kind.BREAKABLE:
+		if opened:
+			return ""
+		var names := []
+		for tool in breakable_spec.get("tools", []):
+			names.append(String(PlayerController3D.INVENTORY_LABELS.get(tool, tool)).to_upper())
+		var verb := "PICK LOCK" if bool(breakable_spec.get("locked", false)) else "BREAK"
+		return "%s // %s" % [verb, " OR ".join(names)]
 	if kind == Kind.TOOL_PICKUP:
 		return "COLLECT %s" % String(PlayerController3D.INVENTORY_LABELS.get(
 			tool_item_id, tool_item_id)).to_upper()
@@ -563,6 +619,7 @@ func get_prompt() -> String:
 			"sit": return "" if SeatOccupancy.is_taken(SeatOccupancy.plan_of(self)) else "SIT DOWN"
 			"mirror": return "LOOK INTO MIRROR"
 			"ride": return "RIDE CAROUSEL"
+			"music": return MusicProps.prompt_for(String(get_meta("prop_type", "")))
 			"play":
 				if prompt_resolver.is_valid():
 					return String(prompt_resolver.call())
@@ -592,7 +649,7 @@ func activate(player: PlayerController3D) -> String:
 		return _fail("Already collected.")
 	if kind == Kind.RELAY and locked_cache:
 		return activate_with_tool(player, player.selected_inventory_item())
-	if kind == Kind.BOARDED_PATH:
+	if kind == Kind.BOARDED_PATH or kind == Kind.BREAKABLE:
 		return activate_with_tool(player, player.selected_inventory_item())
 
 	match kind:
@@ -632,6 +689,12 @@ func activate(player: PlayerController3D) -> String:
 				return "MIRROR VIEW // MOVE AWAY TO CLOSE"
 			if furniture_action == "play":
 				Sound.menu_blip()
+				return ""
+			if furniture_action == "music":
+				var now := Time.get_ticks_msec()
+				if now - int(get_meta("music_played_ms", -100000)) >= int(MusicProps.COOLDOWN_SECONDS * 1000.0):
+					set_meta("music_played_ms", now)
+					MusicProps.play(String(get_meta("prop_type", "")), player)
 				return ""
 			if furniture_action == "sit" and player.resting_furniture != self and SeatOccupancy.is_taken(SeatOccupancy.plan_of(self)):
 				return "Someone is already sitting there."
@@ -709,7 +772,7 @@ func _fail(message: String) -> String:
 
 
 func configure_furniture(action: String) -> void:
-	furniture_action = action if action in ["sit", "lay", "mirror", "ride", "play"] else ""
+	furniture_action = action if action in ["sit", "lay", "mirror", "ride", "play", "music"] else ""
 
 
 func configure_room_door(door_id: String, model_path: String,
@@ -818,6 +881,17 @@ func activate_with_tool(player: PlayerController3D, item_id: String,
 		changed.emit({"what": "pickup", "cell": source_cell, "kind": kind,
 			"locked_cache": true, "tool": item_id})
 		return "%s OPENED // SIGNAL RELAY RECOVERED" % cache_style.to_upper()
+	if kind == Kind.BREAKABLE:
+		if opened:
+			return _fail("Already broken open.")
+		if not Breach.accepts(breakable_spec, item_id):
+			return _fail("WRONG TOOL // NEEDS %s" % " OR ".join((breakable_spec.get("tools", []) as Array).map(
+				func(tool: String) -> String: return String(PlayerController3D.INVENTORY_LABELS.get(tool, tool)).to_upper())))
+		if not already_consumed and not player.consume_item_durability(item_id, Breach.swing_cost(item_id)):
+			return _fail("%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(item_id, item_id)).to_upper())
+		# the host decides what the swing did (Breach): this only reports it
+		changed.emit({"what": "breakable_hit", "id": String(breakable_spec["id"]), "tool": item_id})
+		return "HIT"
 	if kind == Kind.BOARDED_PATH:
 		if opened:
 			return _fail("Path already cleared.")
@@ -1245,7 +1319,7 @@ func _refresh_visual() -> void:
 	var taken := (completed and (PICKUPS.has(kind) or PERSONAL_PICKUPS.has(kind)) \
 		and not sabotaged) \
 		or (kind == Kind.HIDING_SPOT and disabled)
-	if kind == Kind.BOARDED_PATH:
+	if kind == Kind.BOARDED_PATH or kind == Kind.BREAKABLE:
 		taken = opened
 	var locker_inside := _locker_seal != null and _local_hiding_view_open
 	if _visual:
@@ -1256,6 +1330,12 @@ func _refresh_visual() -> void:
 		_locker_seal.visible = locker_inside and not taken
 	if kind == Kind.BOARDED_PATH and not opened:
 		_refresh_board_pieces()
+	if kind == Kind.BREAKABLE:
+		_refresh_breakable_pieces()
+		for child in _visual.get_children() if _visual != null else []:
+			if child is CollisionObject3D:
+				(child as CollisionObject3D).process_mode = Node.PROCESS_MODE_DISABLED if opened else Node.PROCESS_MODE_INHERIT
+		return
 	if _light:
 		LampField.set_wanted(_light, (not completed or sabotaged) and not _local_hiding_view_open)
 		if kind == Kind.RELAY:

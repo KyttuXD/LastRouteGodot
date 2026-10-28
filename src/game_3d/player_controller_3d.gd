@@ -2939,13 +2939,15 @@ func _use_selected_tool() -> void:
 ## The boarded path or locked cache the player is aiming at, or null.
 func _tool_target() -> RouteInteractable3D:
 	var target := _nearest_interactable()
-	if target != null and (target.kind == RouteInteractable3D.Kind.BOARDED_PATH \
+	if target != null and (target.kind == RouteInteractable3D.Kind.BOARDED_PATH or target.kind == RouteInteractable3D.Kind.BREAKABLE \
 			or (target.kind == RouteInteractable3D.Kind.RELAY and target.locked_cache)):
 		return target
 	return null
 
 
 func _tool_fits_target(item_id: String, target: RouteInteractable3D) -> bool:
+	if target.kind == RouteInteractable3D.Kind.BREAKABLE:
+		return not target.opened and Breach.accepts(target.breakable_spec, item_id)
 	if target.kind == RouteInteractable3D.Kind.BOARDED_PATH:
 		return BREACH_TOOLS.has(item_id)
 	return LOCK_TOOLS.has(item_id)

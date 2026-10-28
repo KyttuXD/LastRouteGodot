@@ -309,6 +309,7 @@ const REGION_DEFAULT_TYPE := {
 ## generator writes that rotation into its deterministic prop entry so visual
 ## geometry and rectangular collision agree on every co-op peer.
 const WALL_BACKED_TYPES := [
+	"uprightPianoMusic", "rackGear", "acousticPanel", "guitarWallHanger", "onAirSign", "instrumentCases",
 	"arcadeCabinet", "arcadeCabinetCyanMagenta", "vendingMachine",
 	"filingCabinet", "serverRack", "privacyCurtain", "loungeCouch",
 	"loungeCouchWide", "diningSideboard", "mansionBookshelf",
@@ -375,9 +376,12 @@ const SURFACE_PARENT_TYPES := {
 	"gothicBedsideCandelabra": ["gothicNightstand", "gothicDresser",
 		"gothicPedestalTable"],
 	"labMicroscope": ["labBench"],
+	"deskMic": ["mixingDesk", "woodenTable", "officeDesk"],
+	"studioMonitors": ["mixingDesk"],
 }
 
 const SURFACE_HEIGHTS := {
+	"mixingDesk": .82,
 	# The dining model reaches 1.03 m only at its goblets. Dressing belongs on
 	# the 0.86 m runner/tabletop, not floating above those place settings.
 	"diningTable": .75,
@@ -541,7 +545,7 @@ const FOOTPRINTS := {
 	"mansionBustPedestal": Vector2(.27, .27),
 	"prisonCellGate": Vector2(1.48, .18), "prisonBunk": Vector2(.55, .98),
 	"dungeonCage": Vector2(1.25, 1.25), "restraintChair": Vector2(.55, .55),
-	# hospital, research lab and greenhouse (tools/props/blocky_props_biomes.py)
+	# hospital, research lab and greenhouse (tools/props/blocky_props_regions.py)
 	"hospitalBed": Vector2(.45, 1.03), "hospitalCurtain": Vector2(.93, .08), "ivDripStand": Vector2(.21, .21),
 	"vitalsMonitor": Vector2(.28, .26), "nursesStation": Vector2(1.18, .45), "waitingChairs": Vector2(.98, .29),
 	"operatingTable": Vector2(.35, .98), "surgicalLight": Vector2(.73, .73),
@@ -573,6 +577,31 @@ const FOOTPRINTS := {
 	"cinemaSeats": Vector2(1.18, .38), "cinemaScreen": Vector2(2.08, .04), "ticketBooth": Vector2(.83, .58),
 	"concessionCounter": Vector2(1.08, .38), "foodCourtTable": Vector2(.83, .83),
 	"mallPlanter": Vector2(.63, .63), "mallBench": Vector2(.88, .28),
+	# music wing
+	"micStand": Vector2(0.25, 0.25),
+	"podiumMic": Vector2(0.3, 0.25),
+	"deskMic": Vector2(0.07, 0.07),
+	"drumKit": Vector2(0.9, 0.75),
+	"electricGuitarStand": Vector2(0.2, 0.17),
+	"acousticGuitarStand": Vector2(0.23, 0.17),
+	"bassGuitarStand": Vector2(0.2, 0.17),
+	"keyboardStand": Vector2(0.65, 0.2),
+	"uprightPianoMusic": Vector2(0.75, 0.47),
+	"ampStack": Vector2(0.38, 0.2),
+	"comboAmp": Vector2(0.3, 0.15),
+	"stageMonitor": Vector2(0.28, 0.2),
+	"paSpeakerPole": Vector2(0.25, 0.25),
+	"mixingDesk": Vector2(0.75, 0.4),
+	"studioMonitors": Vector2(0.4, 0.12),
+	"rackGear": Vector2(0.3, 0.3),
+	"musicStand": Vector2(0.23, 0.2),
+	"cableCoil": Vector2(0.2, 0.2),
+	"cableRun": Vector2(0.7, 0.07),
+	"stageLightRig": Vector2(1.5, 0.2),
+	"acousticPanel": Vector2(0.5, 0.04),
+	"guitarWallHanger": Vector2(0.5, 0.1),
+	"instrumentCases": Vector2(0.5, 0.3),
+	"onAirSign": Vector2(0.3, 0.05),
 }
 
 
@@ -711,7 +740,8 @@ static func is_solid(type: String) -> bool:
 		"grandStaircase", "grandFoyerStaircase",
 		"surgicalLight", "hangingVines", "overgrowthPatch", "labMicroscope",
 		"xrayLightbox", "hospitalWardSign", "monitorWall", "labWhiteboard", "diveHeadsetShelf",
-		"hazardSign", "menuBoard", "donutSign", "cinemaScreen"]
+		"hazardSign", "menuBoard", "donutSign", "cinemaScreen",
+		"deskMic", "studioMonitors", "cableCoil", "cableRun", "acousticPanel", "guitarWallHanger", "onAirSign"]
 
 
 static func is_walkable_structure(type: String) -> bool:

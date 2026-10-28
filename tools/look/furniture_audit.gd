@@ -24,7 +24,7 @@ func _init() -> void:
 	var totals := {"chunks": 0, "rooms": 0, "props": 0, "chairs": 0, "tables": 0, "overlaps": 0, "door_crowded": 0,
 		"blocked_rooms": 0, "pockets": 0, "stray_chairs": 0, "bad_facing": 0}
 	var samples := {}
-	var per_biome := {}
+	var per_region := {}
 	for seed_text in seeds:
 		var generator := StreamedRouteGenerator.new(String(seed_text))
 		var visited := {}
@@ -36,18 +36,18 @@ func _init() -> void:
 					var coord := Vector3i(dx, 0, dz)
 					if not generator.is_chunk_allowed(coord):
 						continue
-					var biome := generator.biome_for(coord)
-					per_biome[biome] = int(per_biome.get(biome, 0)) + 1
-					if int(per_biome[biome]) > 14:
+					var region := generator.region_for(coord)
+					per_region[region] = int(per_region.get(region, 0)) + 1
+					if int(per_region[region]) > 14:
 						continue
-					_audit_chunk(generator, coord, biome, totals, samples)
+					_audit_chunk(generator, coord, region, totals, samples)
 	print("FURNITURE AUDIT  ", totals)
 	for key in samples:
 		print("  %s: %s" % [key, samples[key]])
 	quit()
 
 
-func _audit_chunk(generator: StreamedRouteGenerator, coord: Vector3i, biome: String, totals: Dictionary, samples: Dictionary) -> void:
+func _audit_chunk(generator: StreamedRouteGenerator, coord: Vector3i, region: String, totals: Dictionary, samples: Dictionary) -> void:
 	var data := generator.chunk(coord)
 	totals["chunks"] += 1
 	var grid: Array = data.get("grid", [])
@@ -72,7 +72,7 @@ func _audit_chunk(generator: StreamedRouteGenerator, coord: Vector3i, biome: Str
 			var c: Vector2i = c_value
 			if solid_cells.has(c) and solid_cells[c] != prop:
 				totals["overlaps"] += 1
-				_sample(samples, "overlap", "%s %s %s vs %s at %s" % [biome, coord, type, String(solid_cells[c].get("type", "")), c])
+				_sample(samples, "overlap", "%s %s %s vs %s at %s" % [region, coord, type, String(solid_cells[c].get("type", "")), c])
 			solid_cells[c] = prop
 	# chair / table relations
 	for prop in solids:
@@ -90,14 +90,14 @@ func _audit_chunk(generator: StreamedRouteGenerator, coord: Vector3i, biome: Str
 					best_table = other
 		if best > 3.0:
 			totals["stray_chairs"] += 1
-			_sample(samples, "stray_chair", "%s %s %s (nearest table %.1f)" % [biome, coord, type, best])
+			_sample(samples, "stray_chair", "%s %s %s (nearest table %.1f)" % [region, coord, type, best])
 		else:
 			var target = prop.get("facing_target", cell)
 			var to_table := Vector2(best_table.get("cell", Vector2i.ZERO)) - Vector2(cell)
 			var facing := Vector2(target) - Vector2(cell) if target is Vector2i else Vector2.ZERO
 			if to_table.length() > 0.1 and facing.length() > 0.1 and facing.normalized().dot(to_table.normalized()) < 0.3:
 				totals["bad_facing"] += 1
-				_sample(samples, "bad_facing", "%s %s %s faces %s, table at %s" % [biome, coord, type, facing, to_table])
+				_sample(samples, "bad_facing", "%s %s %s faces %s, table at %s" % [region, coord, type, facing, to_table])
 	# rooms: doorway crowding and reachability
 	for room_value in data.get("rooms", []):
 		var room: Dictionary = room_value
@@ -114,7 +114,7 @@ func _audit_chunk(generator: StreamedRouteGenerator, coord: Vector3i, biome: Str
 				crowded = true
 		if crowded:
 			totals["door_crowded"] += 1
-			_sample(samples, "door_crowded", "%s %s room %s door %s" % [biome, coord, rect, door])
+			_sample(samples, "door_crowded", "%s %s room %s door %s" % [region, coord, rect, door])
 		# flood from the doorway through open, non-prop cells
 		var open := {}
 		for z in range(rect.position.y, rect.end.y):
@@ -131,7 +131,7 @@ func _audit_chunk(generator: StreamedRouteGenerator, coord: Vector3i, biome: Str
 					break
 		if not open.has(start):
 			totals["blocked_rooms"] += 1
-			_sample(samples, "blocked_room", "%s %s room %s door %s" % [biome, coord, rect, door])
+			_sample(samples, "blocked_room", "%s %s room %s door %s" % [region, coord, rect, door])
 			continue
 		var seen := {start: true}
 		var frontier := [start]
@@ -145,7 +145,7 @@ func _audit_chunk(generator: StreamedRouteGenerator, coord: Vector3i, biome: Str
 		var cut_off := open.size() - seen.size()
 		if cut_off >= 4:
 			totals["pockets"] += 1
-			_sample(samples, "pocket", "%s %s room %s cut-off cells %d" % [biome, coord, rect, cut_off])
+			_sample(samples, "pocket", "%s %s room %s cut-off cells %d" % [region, coord, rect, cut_off])
 
 
 func _sample(samples: Dictionary, key: String, text: String) -> void:

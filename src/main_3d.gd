@@ -1117,10 +1117,19 @@ func _play_death_moment(hunter_id: String) -> void:
 	if not DeathMoment.plays(picked):
 		return
 	var is_void := HunterRoster.VOID_IDS.has(hunter_id)
+	hud.set_death_flow(true)   # the line owns the screen: the gameplay HUD is faded out under it
 	if RoomState.online:
 		_death_moment.play(name, picked, is_void)
 	else:
 		await _death_moment.play(name, picked, is_void)
+		if not run_report.is_open():
+			hud.set_death_flow(false)
+
+
+## The end card never opens over the catcher's line (online the line is not awaited): wait for it to be dismissed.
+func _finish_death_moment() -> void:
+	if _death_moment != null and _death_moment.is_open():
+		await _death_moment.finished
 
 
 ## The host's roll for this catch, or a seeded local one when the event carried none (an older host, a scripted catch).
@@ -1157,6 +1166,8 @@ func _enter_game_over() -> void:
 	# A completed solo run must not remain available as a Continue checkpoint.
 	if not RoomState.online and Backend.signed_in():
 		Backend.account_clear_progress()
+	await _finish_death_moment()
+	hud.set_death_flow(true)
 	run_report.open({
 		"online": RoomState.online,
 		"host": RoomState.is_host,
@@ -1176,6 +1187,7 @@ func _enter_game_over() -> void:
 func _restore_gameplay_after_report() -> void:
 	grab.release()
 	run_report.close()
+	hud.set_death_flow(false)
 	player.look_frozen = false
 	pause_menu.tap_to_pause = true
 	pause_menu.set_process(true)

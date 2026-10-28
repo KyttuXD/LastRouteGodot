@@ -38,7 +38,7 @@ ending inside a floor/ceiling slab, cable ends (6 cm), wall-mounted pieces touch
 | City | decor_overlap (lamp head inside canopy) | 38 | 0 |
 | City | prop_in_wall (interior furniture in cells sealed to wall) | 62 | 0 |
 | Night Watch | cube_overlap / slab_coplanar (yard, hall, catwalk, sill slabs over the shell; curtains behind shelves; sill rail) | 17 | 0 |
-| Last Route | junction_floor (junction cells on stone tiles instead of the hall carpet, runner biomes) | 9792 | 0 |
+| Last Route | junction_floor (junction cells on stone tiles instead of the hall carpet, runner regions) | 9792 | 0 |
 | Last Route | prop_in_wall at 2 cm strict tolerance | 1865 | 0 |
 | **Total (10 cm rules, excl. junction_floor)** | | **571** | **0** |
 

@@ -14,6 +14,7 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(host: Node) -> int:
+	NwLeakProbe.fresh()
 	NightWatchSave.path = "user://night_watch_modes_test.cfg"
 	NightWatchSave.reset()
 	var modes: Array = NightWatchModesData.MODES

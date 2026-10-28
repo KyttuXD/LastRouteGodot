@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" path="res://tools/look/death_capture.gd" id="1"]
 
-[node name="AdminCapture" type="Node"]
+[node name="DeathCapture" type="Node"]
 script = ExtResource("1")

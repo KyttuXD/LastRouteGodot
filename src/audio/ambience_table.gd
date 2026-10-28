@@ -3,7 +3,7 @@ extends RefCounted
 
 ## Ambient beds by region / room purpose (docs/AMBIENCE.md). Each bed is a seamless loop rendered by AmbienceSynth from
 ## layers: "hum" (a drone at the frequency), "noise" (low-passed room tone), "pulse" (sparse details at jittered
-## intervals: drips, clanks, relay ticks; long ones are soft chimes), "chirp" (scattered soft trills: birds, rats). A biome registers its own with AmbienceTable.register(key, layers);
+## intervals: drips, clanks, relay ticks; long ones are soft chimes), "chirp" (scattered soft trills: birds, rats). A region registers its own with AmbienceTable.register(key, layers);
 ## room purposes override the district bed when they have one.
 
 const LOOP_SECONDS := AmbienceSynth.LOOP_SECONDS
@@ -41,7 +41,7 @@ static var _rooms := {
 }
 
 
-## Registers (or replaces) a bed: `key` is a region id or a room purpose. Biomes call this once, e.g.
+## Registers (or replaces) a bed: `key` is a region id or a room purpose. Regions call this once, e.g.
 ## AmbienceTable.register("hospital", [{"kind": "hum", "hz": 120.0, "vol": .01}, {"kind": "pulse", "hz": 980.0, ...}])
 static func register(key: String, layers: Array, room_purpose: bool = false) -> void:
 	if room_purpose:

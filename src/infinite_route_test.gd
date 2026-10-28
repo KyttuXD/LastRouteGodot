@@ -95,7 +95,7 @@ var _waypoint_grid_signature := ""
 var _waypoint_grid := AStarGrid2D.new()
 var _waypoint_trail: MeshInstance3D
 var _admin_reveal_map := false
-## Region/biome overlay on the maps (admin only, default off): toggle in the admin menu or with REGION_MAP_KEY.
+## Region/region overlay on the maps (admin only, default off): toggle in the admin menu or with REGION_MAP_KEY.
 var _admin_region_map := false
 var _admin_show_collision := false
 var _collision_overlay: CollisionOverlay
@@ -224,6 +224,7 @@ func _ready() -> void:
 	if minimap_panel != null:
 		minimap_panel.visible = true
 	facility.chunk_changed.connect(_on_chunk_changed)
+	facility.breakable_hit.connect(_request_breach)
 	facility.pickup_claimed.connect(_on_pickup_claimed)
 	facility.pickup_requester = _request_streamed_pickup
 	_music_boxes.difficulty_id = RoomState.difficulty_id()
@@ -3969,6 +3970,64 @@ func _tick_carousels(delta: float) -> void:
 				_accept_carousel(0, {"carousel_id": ride_id})
 
 
+## Breakables (Breach, docs/BREACH.md): a tool swing at a seal, board or pipe. Host-authoritative like doors: the host takes
+## the hit points off and publishes "stream_breach" (the new hp, so replays are harmless); a guest asks.
+func _request_breach(id: String, tool: String) -> void:
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction({"what": "stream_breach_request", "id": id, "tool": tool})
+	else:
+		_host_breach(id, tool, _local_peer_id())
+
+
+func _host_breach(id: String, tool: String, by: int) -> void:
+	var spec := facility.generator.breakable_by_id(id)
+	if spec.is_empty() or world_state.breach_open(id):
+		return
+	var hp_now := world_state.breach_hp(spec)
+	var damage := Breach.damage_for(spec, tool, hp_now)
+	if damage <= 0:
+		return
+	var hp := maxi(0, hp_now - damage)
+	var chunk: Vector3i = spec["chunk"]
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var centre: Vector2 = (spec["extras"] as Dictionary).get("centre", Vector2(spec["cell"]) + Vector2(.5, .5))
+	_publish_stream_event({"what": "stream_breach", "id": id, "kind": spec["kind"], "variant": spec["variant"],
+		"level": chunk.y, "chunk": chunk, "cell": spec["cell"], "hp": hp, "max": spec["hp"], "opened": hp == 0, "tool": tool,
+		"by": by, "position": Vector3(chunk.x * size + centre.x, chunk.y * StreamedFacilityView3D.LEVEL_HEIGHT + 1.0,
+			chunk.z * size + centre.y)})
+
+
+func _accept_breach_request(peer_id: int, event: Dictionary) -> void:
+	_host_breach(String(event.get("id", "")), String(event.get("tool", "")), peer_id)
+
+
+## Every machine: the new hit points, the piece, the hooks; the host also sends the hunters to look.
+func _apply_breach_event(event: Dictionary) -> void:
+	var id := String(event.get("id", ""))
+	var opened := bool(event.get("opened", false))
+	var changed := world_state.set_breach(id, int(event.get("hp", 0)), opened)
+	facility.apply_breach(id, int(event.get("hp", 0)), opened)
+	Breach.dispatch("hit", event)
+	if opened and changed:
+		Breach.dispatch("breached", event)
+		if _remotes.simulates():
+			_hunters_investigate(int(event.get("level", 0)), event.get("position", Vector3.ZERO) as Vector3)
+
+
+## Hunters on the level hear a seal give way and go to see (SealRules.INVESTIGATE_SECONDS: they stay on the spot's trail).
+func _hunters_investigate(level: int, at: Vector3) -> void:
+	for entity_id_value in _hunter_views:
+		var view := _hunter_views.get(entity_id_value) as HunterView3D
+		if view == null or view.brain == null or not view.brain.active or int(_hunter_levels.get(entity_id_value, 0)) != level:
+			continue
+		var point := Vector2(at.x, at.z)
+		if view.brain.position.distance_to(point) > 60.0 or view.brain.state == HunterBrain.State.CHASE:
+			continue
+		view.brain.state = HunterBrain.State.INVESTIGATE
+		view.brain.has_last_known = true
+		view.brain.last_known = point
+
+
 ## Room light switch (docs/LIGHT_SWITCHES.md): host-authoritative like doors. The host applies and relays; a guest asks.
 func _request_room_light(on: bool, room_id: String) -> String:
 	Sound.light_switch()
@@ -4047,6 +4106,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_booth(peer_id, event)
 		"stream_carousel":
 			_accept_carousel(peer_id, event)
+		"stream_breach_request":
+			_accept_breach_request(peer_id, event)
 		"stream_room_light":
 			_publish_stream_event({"what": "stream_room_light", "room_id": String(event.get("room_id", "")),
 				"on": bool(event.get("on", true))})
@@ -4471,6 +4532,8 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			_apply_booth_event(event)
 		"stream_carousel":
 			_apply_carousel_event(event)
+		"stream_breach":
+			_apply_breach_event(event)
 		"stream_room_light":
 			var light_room := String(event.get("room_id", ""))
 			if facility.apply_room_light(light_room, bool(event.get("on", true))) and String(event.get("by", "")) != "":
@@ -5101,6 +5164,8 @@ func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void
 		hud.show_message("YOU DIED // SPECTATOR MODE")
 		_capture_resolving = false
 		return
+	await _finish_death_moment()
+	hud.set_death_flow(true)
 	run_report.open({
 		"online": RoomState.online, "host": RoomState.is_host,
 		"respawn": true, "title": "YOU DIED",
@@ -5114,6 +5179,12 @@ func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void
 		"seed": RoomState.seed_text,
 	})
 	_capture_resolving = false
+
+
+## The end card never opens over the catcher's line (online the line plays without being awaited): wait for it to be dismissed.
+func _finish_death_moment() -> void:
+	if _death_moment != null and _death_moment.is_open():
+		await _death_moment.finished
 
 
 ## The cause the death line is drawn for: Nyxie's dead lamp or her darkness timer, otherwise an ordinary catch.
@@ -5175,7 +5246,10 @@ func _death_moment_for(hunter_id: String, cause_override: Dictionary = {}) -> Di
 func _play_death_moment(hunter_name: String, picked: Dictionary, hunter_id: String) -> void:
 	if _death_moment == null or not DeathMoment.plays(picked):
 		return
+	hud.set_death_flow(true)
 	await _death_moment.play(hunter_name, picked, HunterRoster.VOID_IDS.has(hunter_id))
+	if not run_report.is_open():   # the end card keeps the flow (and the HUD hidden) until it closes
+		hud.set_death_flow(false)
 
 
 func _apply_hunter_event(event: Dictionary) -> void:
@@ -5344,10 +5418,12 @@ func _update_spectating() -> void:
 	# Party wipe: the host was already spectating and the last guest just fell.
 	if RoomState.online and RoomState.is_host and not RoomState.public_route \
 			and not _death_screen_open and not _capture_resolving \
+			and not (_death_moment != null and _death_moment.is_open()) \
 			and _living_runners().is_empty():
 		_end_spectating()
 		_death_screen_open = true
 		_end_run_save()
+		hud.set_death_flow(true)
 		# Party wipe: the last catcher gets the final word, as a line on the card rather than another cutscene.
 		var wipe_line := {}
 		if not _last_death_cause.is_empty():
@@ -5393,6 +5469,7 @@ func _respawn_after_death() -> void:
 	_run_save_ended = false   # the restarted run saves again
 	_clear_local_waypoint()   # a waypoint never survives death
 	run_report.close()
+	hud.set_death_flow(false)
 	GameState.game_over = false
 	_end_spectating()
 	if RoomState.online and RoomState.is_host and _remotes != null:
