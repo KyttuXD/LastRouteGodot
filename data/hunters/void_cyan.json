@@ -1,0 +1,14 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "void_cyan",
+	"name": "Cyan",
+	"tier": "void",
+	"category": "void",
+	"speed": 0.95,
+	"chase": 4.7,
+	"prog": 0.26,
+	"sight": 9.8,
+	"hearing": 1.16,
+	"spawn": 16,
+	"model": "res://art/props-3d/characters/void_cyan.tscn"
+}

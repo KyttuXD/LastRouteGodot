@@ -39,6 +39,12 @@ const FROZEN := {
 	"xivvy": {"name": "Xivvy", "tier": "intermediate", "speed": 0.97, "chase": 4.35, "prog": 0.12, "sight": 6.72, "hearing": 0.84, "spawn": 13},
 	"ysolde": {"name": "Ysolde", "tier": "easy", "speed": 0.80, "chase": 3.54, "prog": 0.18, "sight": 8.10, "hearing": 1.00, "spawn": 12},
 	"zellia": {"name": "Zellia", "tier": "easy", "speed": 0.83, "chase": 3.60, "prog": 0.17, "sight": 8.00, "hearing": 0.95, "spawn": 12},
+	"void_black": {"name": "Black", "tier": "void", "category": "void", "speed": 0.94, "chase": 4.55, "prog": 0.24, "sight": 9.4, "hearing": 1.22, "spawn": 15, "model": "res://art/props-3d/characters/void_black.tscn"},
+	"void_blue": {"name": "Blue", "tier": "void", "category": "void", "speed": 0.92, "chase": 4.48, "prog": 0.25, "sight": 9.6, "hearing": 1.18, "spawn": 15, "model": "res://art/props-3d/characters/void_blue.tscn"},
+	"void_brown": {"name": "Brown", "tier": "void", "category": "void", "speed": 0.96, "chase": 4.62, "prog": 0.23, "sight": 9.0, "hearing": 1.30, "spawn": 14, "model": "res://art/props-3d/characters/void_brown.tscn"},
+	"void_cyan": {"name": "Cyan", "tier": "void", "category": "void", "speed": 0.95, "chase": 4.70, "prog": 0.26, "sight": 9.8, "hearing": 1.16, "spawn": 16, "model": "res://art/props-3d/characters/void_cyan.tscn"},
+	"void_gray": {"name": "Gray", "tier": "void", "category": "void", "speed": 0.91, "chase": 4.42, "prog": 0.27, "sight": 10.0, "hearing": 1.12, "spawn": 17, "model": "res://art/props-3d/characters/void_gray.tscn"},
+	"void_green": {"name": "Green", "tier": "void", "category": "void", "speed": 0.97, "chase": 4.68, "prog": 0.25, "sight": 9.1, "hearing": 1.28, "spawn": 14, "model": "res://art/props-3d/characters/void_green.tscn"},
 }
 ## HunterRoster.PROFILES key order before Phase 3 (migrations must keep every hunter's roster position).
 const ROSTER_ORDER := ["aki", "briselle", "ceryth", "dovelle", "elise", "ferryn", "glyra", "haelith", "ilyra", "javelle", "kathy", "loxelle", "mavrine", "nyxie", "opalie", "porcelle", "quenelle", "ravelle", "solyth", "thessine", "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zellia", "void_black", "void_blue", "void_brown", "void_cyan", "void_gray", "void_green", "void_orange", "void_pink", "void_purple", "void_red", "void_white", "void_yellow"]
