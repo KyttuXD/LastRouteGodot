@@ -25,6 +25,12 @@ const MAP_DISCOVERY_NEARBY_RADIUS := 4.5
 const WAYPOINT_TRAIL_METRES := 28.0
 const DROPPED_TOOL_MARK_RADIUS := 14.0
 const LOCAL_SAVE_SCHEMA := 1
+## Why the last autosave ran (level / checkpoint / relay / quit); read by validate_saves.
+var _last_autosave_reason := ""
+## Set when death ends the run (solo death, party wipe); a restart clears it.
+var _run_save_ended := false
+## validate_saves: 1 = a teammate is still running, 0 = the party is down, -1 = ask the live remotes.
+var _test_party_alive := -1
 const TEMPERATURE_HUNTER_EFFECT_RADIUS := 14.0
 const STORY_DIRECTOR_SCRIPT := preload("res://src/story/infinite_story_director.gd")
 const HUNTER_JUMPSCARE_SCENE := preload("res://scenes/hunter_jumpscare.tscn")
@@ -271,13 +277,8 @@ func _ready() -> void:
 			"This disconnects you and returns to staging. The host's route continues."
 	else:
 		pause_menu.abandon_warning = \
-			"This returns to room staging. Save first if you want to resume later."
-	pause_menu.save_slots_source = RunSaves.list_slots
-	pause_menu.save_new_request = _pause_save_new
-	pause_menu.save_overwrite_request = _pause_save_overwrite
-	pause_menu.save_load_request = _pause_save_load
-	pause_menu.save_rename_request = RunSaves.rename_slot
-	pause_menu.save_delete_request = RunSaves.delete_slot
+			"The run saves as you leave. CONTINUE on the title screen resumes it."
+	pause_menu.save_status_source = _save_status_line
 	pause_menu.statistics_source = _pause_statistics
 	pause_menu.abandoned.connect(_leave_test)
 	pause_menu.opened.connect(_on_pause_opened)
@@ -928,60 +929,59 @@ func _on_story_active_changed(active: bool) -> void:
 		or player.hidden or player.is_stunned()
 
 
-func _pause_save_new(display_name: String) -> Dictionary:
+## One automatic save per run (RunSaves): a new level, a checkpoint, a relay, or quitting from the pause menu.
+## Only the solo player or the co-op host saves; the public route, debug runs and a finished run never do.
+func autosave(reason: String) -> Dictionary:
 	var denial := _save_write_denial()
 	if not denial.is_empty():
 		return {"ok": false, "message": denial}
-	return RunSaves.save_new(display_name, _build_route_save_payload())
+	var result := RunSaves.write(_build_route_save_payload(), "LEVEL %+d" % facility.current_level())
+	_last_autosave_reason = reason
+	return result
 
 
-func _pause_save_overwrite(slot_id: String) -> Dictionary:
-	var denial := _save_write_denial()
-	if not denial.is_empty():
-		return {"ok": false, "message": denial}
-	return RunSaves.overwrite(slot_id, _build_route_save_payload())
-
-
-func _pause_save_load(slot_id: String) -> Dictionary:
-	var denial := _save_load_denial()
-	if not denial.is_empty():
-		return {"ok": false, "message": denial}
-	var result := RunSaves.queue_load(slot_id)
-	if not bool(result.get("ok", false)):
-		return result
-	var payload: Dictionary = result.get("payload", {})
-	RoomState.seed_text = String(payload.get("seed_text", RoomState.seed_text))
-	RoomState.mode = RoomState.Mode.DEFAULT
-	RoomState.map_scale = RoomState.Scale.INFINITE
-	RoomState.difficulty = clampi(int(payload.get("difficulty",
-		RoomState.Difficulty.STANDARD)), RoomState.Difficulty.RELAXED,
-		RoomState.Difficulty.HARD)
-	RoomState.session_active = true
-	RoomState.broadcast()
-	RoomState.status_message = "LOADING LOCAL SAVE // %s" % String(
-		result.get("name", "ROUTE"))
-	get_tree().paused = false
-	call_deferred("_open_queued_route_save")
-	return {"ok": true, "message": "LOADING SAVED ROUTE",
-		"slot_id": slot_id}
+func _save_status_line() -> String:
+	var summary := RunSaves.summary()
+	if not bool(summary.get("ok", false)):
+		return String(summary.get("message", "")) if not String(summary.get("message", "")).is_empty() \
+			else "RUN NOT SAVED YET"
+	return String(summary.get("status", ""))
 
 
 func _save_write_denial() -> String:
+	if RoomState.public_route:
+		return "THE PUBLIC ROUTE IS NOT SAVED"
 	if RoomState.online and not RoomState.is_host:
-		return "ONLY THE ROOM HOST CAN SAVE THE SHARED ROUTE"
+		return "ONLY THE ROOM HOST SAVES THE SHARED ROUTE"
+	if GameState.debug_run:
+		return "DEBUG RUN // NOT SAVED"
+	if _run_save_ended:
+		return "THE RUN HAS ENDED"
+	# co-op: the host may be down (spectating, waiting for a revive) while the party runs on; the run still saves
+	if (_death_screen_open or GameState.game_over) and not _party_run_continues():
+		return "THE RUN HAS ENDED"
 	return ""
 
 
-func _save_load_denial() -> String:
-	if RoomState.online and not RoomState.is_host:
-		return "ONLY THE ROOM HOST CAN LOAD A ROUTE"
-	if RoomState.online and RoomState.peers.size() > 1:
-		return "CO-OP WORLD CANNOT BE REPLACED WHILE GUESTS ARE CONNECTED"
-	return ""
+func _party_run_continues() -> bool:
+	if _test_party_alive >= 0:
+		return RoomState.online and RoomState.peers.size() > 1 and _test_party_alive == 1
+	return RoomState.online and RoomState.peers.size() > 1 and not _living_runners().is_empty()
 
 
-func _open_queued_route_save() -> void:
-	get_tree().change_scene_to_file(RoomState.ROUTE_LOADING_SCENE)
+## The local runner died. Solo that ends the run (every difficulty); in co-op the run and its save carry on until
+## the whole party is down (the party-wipe branch calls _end_run_save).
+func _save_after_local_death() -> void:
+	if not RoomState.online or RoomState.peers.size() <= 1:
+		_end_run_save()
+
+
+## Death ends the run on every difficulty: the save goes with it (co-op: when the whole party is down).
+func _end_run_save() -> void:
+	if RoomState.public_route or (RoomState.online and not RoomState.is_host):
+		return
+	_run_save_ended = true
+	RunSaves.clear()
 
 
 func _build_route_save_payload() -> Dictionary:
@@ -1094,8 +1094,11 @@ func _update_run_statistics(delta: float) -> void:
 	_run_statistics["rooms_discovered"] = _discovered_rooms.size()
 	_run_statistics["relays_collected"] = GameState.relays_collected
 	var levels: Dictionary = _run_statistics.get("visited_levels", {})
+	var new_level := not levels.has(str(facility.current_level()))
 	levels[str(facility.current_level())] = true
 	_run_statistics["visited_levels"] = levels
+	if new_level:
+		autosave("level")
 	var encountered: Dictionary = _run_statistics.get("encountered_hunters", {})
 	for entity_id_value in _hunter_views:
 		var entity_id := String(entity_id_value)
@@ -4355,6 +4358,7 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 				player.restore_at_safe_zone()
 				Sound.recharge(20.0)
 				hud.show_message("SAFE CHECKPOINT ACTIVE")
+				autosave("checkpoint")
 		"stream_sabotage":
 			var entity_id := String(event.get("entity_id", ""))
 			if world_state.set_relay_sabotaged(entity_id,
@@ -4708,6 +4712,8 @@ func _sync_stream_progress() -> void:
 	GameState.relays_sabotaged = world_state.sabotaged_relays.size()
 	GameState.coins = coin_count * GameConfig.COIN_PICKUP_VALUE
 	var gray_removed := false
+	if relay_count > previous_relays:
+		autosave("relay")
 	if relay_count != previous_relays:
 		_anti_idle_last_relay_count = relay_count
 		gray_removed = _reset_gray_void_pressure(
@@ -4945,6 +4951,7 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 		return
 	_capture_resolving = true
 	GameState.resolve_escape_failure()
+	_save_after_local_death()
 	hud.set_escape_active(false)
 	_escaping_entity_id = ""
 	_escaping_hunter_id = ""
@@ -5208,6 +5215,7 @@ func _update_spectating() -> void:
 			and _living_runners().is_empty():
 		_end_spectating()
 		_death_screen_open = true
+		_end_run_save()
 		# Party wipe: the last catcher gets the final word, as a line on the card rather than another cutscene.
 		var wipe_line := {}
 		if not _last_death_cause.is_empty():
@@ -5249,6 +5257,7 @@ func _respawn_after_death() -> void:
 	if not _death_screen_open:
 		return
 	_force_disable_admin_cheats()
+	_run_save_ended = false   # the restarted run saves again
 	_clear_local_waypoint()   # a waypoint never survives death
 	run_report.close()
 	GameState.game_over = false
@@ -5670,6 +5679,7 @@ func _exit_tree() -> void:
 
 
 func _leave_test() -> void:
+	autosave("quit")
 	_force_disable_admin_cheats()
 	get_tree().paused = false
 	if RoomState.public_route:
