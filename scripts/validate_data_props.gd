@@ -50,10 +50,23 @@ func run(_host: Node) -> int:
 		_expect(not table.values().has(ContentRegistry.DATA), "an unresolved @data value is left")
 	_expect(PropModelCatalog.MODEL_PATHS.is_read_only(), "PropModelCatalog.MODEL_PATHS became writable")
 	_check_rejections()
+	_check_export_presets()
 	print("  parity props %s" % Parity.props_hash())
 	if _failures == 0:
 		print("  data_props OK")
 	return _failures
+
+
+## Every export preset ships res://data: JSON is not an imported resource, so a preset without the filter would export
+## a build whose migrated hunters, props and regions are simply missing.
+func _check_export_presets() -> void:
+	var presets := ConfigFile.new()
+	if presets.load("res://export_presets.cfg") != OK:
+		return
+	for section in presets.get_sections():
+		if not section.ends_with(".options") and presets.has_section_key(section, "include_filter"):
+			_expect("data/*.json" in String(presets.get_value(section, "include_filter")),
+				"export preset %s does not include data/*.json" % presets.get_value(section, "name", section))
 
 
 func _check_rejections() -> void:

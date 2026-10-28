@@ -69,6 +69,7 @@ loudly. Any field that is missing takes the value it has today in GDScript.
 | `interaction` | `interaction_for()` | enum string |
 | `light` | `LIGHT_PROFILES` | optional |
 | `keeps_authored_pivot` | `keeps_authored_pivot()` | bool |
+| `batchable` | (new) | optional bool; absent = `PropModelCatalog.is_batchable()` default: pure dressing true, interactive (`interaction_for` non-empty) false. Animated props set it false. PERF batches into MultiMesh keyed by prop id + mesh, after the registry lookup, with placements unchanged |
 
 ### Region (`lr.region/1`)
 

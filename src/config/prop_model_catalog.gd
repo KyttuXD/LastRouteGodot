@@ -890,6 +890,16 @@ static func visual_y(type: String, wall_height: float, mount_y: float = 0.0) -> 
 	return 0.0
 
 
+
+## Whether the view may batch repeated placements of `type` into one MultiMesh (docs/DATA_DRIVEN_CONTENT.md).
+## A prop's data `batchable` wins; otherwise pure dressing is batchable, doors and anything with an interaction are not.
+static func is_batchable(type: String) -> bool:
+	var def := ContentRegistry.get_def("props", type)
+	if def.has("batchable"):
+		return bool(def["batchable"])
+	return interaction_for(type).is_empty() and not is_room_door(type)
+
+
 ## Turn decorative furniture into a gameplay surface without coupling the
 ## generator to model filenames. An empty result remains ordinary dressing.
 static func interaction_for(type: String) -> String:
