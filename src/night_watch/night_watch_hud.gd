@@ -78,7 +78,8 @@ func _ready() -> void:
 	_build_call(root)
 	_build_monitor(root)
 	# the power / usage block, the clock and Pause stay readable and clickable ON the camera screen (the 2D HUD does the same): drawn after the monitor
-	for keep in [status_box, clock_label, pause_button]:
+	# Zellia's call box and the toast go above it too: the camera screen is where the call is read. (When the screen went opaque the call was drawn UNDER it and vanished.)
+	for keep in [status_box, clock_label, pause_button, call_panel, note_label]:
 		root.move_child(keep, root.get_child_count() - 1)
 	_build_pause(root)
 	_build_end(root)
@@ -440,6 +441,7 @@ func set_monitor_available(on: bool) -> void:
 func show_monitor(on: bool) -> void:
 	prompt_label.visible = not on
 	monitor_root.visible = on
+	call_panel.anchor_right = 0.68 if on else 0.8   # on the camera screen the call stops short of the minimap
 	hint_label.visible = not on and not call_panel.visible   # the camera screen has its own guide line
 	cameras_button.visible = _monitor_available and not on
 	feed_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED

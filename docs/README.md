@@ -45,6 +45,7 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [MANSION_LUXURY.md](MANSION_LUXURY.md) — mansion finishes (lacquer, marble, velvet, gilt) for the ordinary furniture types, columns and vases, bed scale fix, before/after
 - [REST_AND_SLEEP.md](REST_AND_SLEEP.md) — rest camera on chairs and beds (what was wrong, the fix), runner sleep and solo drowsiness, hunter naps
 - [LIGHT_SWITCHES.md](LIGHT_SWITCHES.md) — room light switches in the streamed world: lamps per room, light sight, persistence, co-op, hunters
+- [PROP_ORIENTATION.md](PROP_ORIENTATION.md) — pairing table: what faces what, backs to walls, seats in front of screens; before/after
 - [NIGHT_WATCH_3D.md](NIGHT_WATCH_3D.md) — Night Watch 3D: audit of the 2D game, 2D to 3D mapping, milestones, first playable slice
 - [COLLISION.md](COLLISION.md) — colliders from models, door keep-clear and walk-through clean-up, SHOW COLLISION, validators
 - [ROOM_SIZES.md](ROOM_SIZES.md) — room-purpose size profiles, 21x21 great halls, table-grid templates, validators
