@@ -92,6 +92,13 @@ var reduced_motion := false
 var xr_player_height := 1.70
 ## Phone movement control (TouchControls): "dpad" (fixed arrows, double tap to sprint) or "stick" (floating stick).
 var touch_move := "dpad"
+## Phone touch look (TouchControls.look_turn): speed (1.0 = 180 degrees per drag across the short side), vertical
+## speed relative to horizontal, invert Y, smoothing "off" / "low" / "high", and flick acceleration.
+var touch_look_speed := 1.0
+var touch_look_vertical := 0.8
+var touch_look_invert_y := false
+var touch_look_smoothing := "off"
+var touch_look_accel := false
 var xr_smooth_turn := false
 var xr_vignette := true
 var xr_seated := false
@@ -187,6 +194,15 @@ func focus_loss_pauses() -> bool:
 	if not pause_on_focus_loss:
 		return false
 	return not (RoomState.online or RoomState.public_route or RoomState.peers.size() > 1)
+
+
+func set_touch_look(speed: float, vertical: float, invert_y: bool, smoothing: String, accel: bool) -> void:
+	touch_look_speed = clampf(speed, 0.25, 3.0)
+	touch_look_vertical = clampf(vertical, 0.3, 1.5)
+	touch_look_invert_y = invert_y
+	touch_look_smoothing = smoothing if ["off", "low", "high"].has(smoothing) else "off"
+	touch_look_accel = accel
+	_save()
 
 
 func set_touch_move(mode: String) -> void:
@@ -455,6 +471,12 @@ func _load() -> void:
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
 	xr_player_height = clampf(float(config.get_value("xr", "player_height", 1.70)), 1.0, 2.3)
 	touch_move = "stick" if String(config.get_value("touch", "move", "dpad")) == "stick" else "dpad"
+	touch_look_speed = clampf(float(config.get_value("touch", "look_speed", 1.0)), 0.25, 3.0)
+	touch_look_vertical = clampf(float(config.get_value("touch", "look_vertical", 0.8)), 0.3, 1.5)
+	touch_look_invert_y = bool(config.get_value("touch", "look_invert_y", false))
+	var smoothing := String(config.get_value("touch", "look_smoothing", "off"))
+	touch_look_smoothing = smoothing if ["off", "low", "high"].has(smoothing) else "off"
+	touch_look_accel = bool(config.get_value("touch", "look_accel", false))
 	xr_smooth_turn = bool(config.get_value("xr", "smooth_turn", false))
 	xr_vignette = bool(config.get_value("xr", "vignette", true))
 	xr_seated = bool(config.get_value("xr", "seated", false))
@@ -515,6 +537,11 @@ func _save() -> void:
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
 	config.set_value("xr", "player_height", xr_player_height)
 	config.set_value("touch", "move", touch_move)
+	config.set_value("touch", "look_speed", touch_look_speed)
+	config.set_value("touch", "look_vertical", touch_look_vertical)
+	config.set_value("touch", "look_invert_y", touch_look_invert_y)
+	config.set_value("touch", "look_smoothing", touch_look_smoothing)
+	config.set_value("touch", "look_accel", touch_look_accel)
 	config.set_value("xr", "smooth_turn", xr_smooth_turn)
 	config.set_value("xr", "vignette", xr_vignette)
 	config.set_value("xr", "seated", xr_seated)
