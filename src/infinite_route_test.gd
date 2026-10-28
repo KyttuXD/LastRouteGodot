@@ -4318,10 +4318,10 @@ func _accept_axe_rescue(peer_id: int, event: Dictionary) -> void:
 			or (victim_at as Vector3).distance_to(swinger_at as Vector3) > AXE_RESCUE_REACH + .8:
 		return
 	_remotes.send_player_event(target_peer, {"what": "axe_rescue", "rescuer_peer_id": peer_id,
-		"message": "RESCUE AXE // A TEAMMATE CUT YOU FREE"})
+		"message": "AXE // A TEAMMATE CUT YOU FREE"})
 	if peer_id != _local_peer_id():
 		_remotes.send_player_event(peer_id, {"what": "message",
-			"message": "RESCUE AXE // TEAMMATE FREED"})
+			"message": "AXE // TEAMMATE FREED"})
 
 
 func _accept_safe_repair(peer_id: int, event: Dictionary) -> void:
@@ -5038,7 +5038,7 @@ func _begin_escape_struggle(entity_id: String, hunter_id: String) -> void:
 	hud.update_escape(GameState.escape_progress, GameState.escape_required,
 		GameState.escape_remaining, GameState.escape_duration)
 	if player.owns_inventory_item("rescue_axe"):
-		hud.show_message("RESCUE AXE // CLICK TO CUT FREE")
+		hud.show_message("AXE // CLICK TO CUT FREE")
 	if jumpscare != null:
 		jumpscare.start_hold(player.active_camera(), hunter_id)
 
@@ -5049,7 +5049,7 @@ func _update_escape_struggle(delta: float) -> void:
 			and player.owns_inventory_item("rescue_axe") \
 			and player.consume_item_durability("rescue_axe", PlayerController3D.AXE_BREAK_FREE_COST):
 		player.swing_axe_for_escape()
-		_resolve_escape_success(true, "RESCUE AXE // CUT FREE")
+		_resolve_escape_success(true, "AXE // CUT FREE")
 		return
 	if Input.is_action_just_pressed("interact"):
 		GameState.register_escape_press()

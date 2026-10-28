@@ -542,7 +542,7 @@ func _pickups(coord: Vector3i, sewer_grid: Array, grid: Array, features: Array, 
 		kind_indices[kind] = index + 1
 		var item := ""
 		if kind == "tool":
-			item = StreamedRouteGenerator.PICKUP_TYPES[rng.next_index(StreamedRouteGenerator.PICKUP_TYPES.size())]
+			item = StreamedRouteGenerator.pick_tool(rng)
 		result.append({"id": surface.pickup_id(coord, index, kind), "cell": cell, "kind": kind, "item": item})
 	return result
 

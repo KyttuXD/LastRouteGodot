@@ -129,7 +129,7 @@ const BACKPACK_RANK := {
 const COLLECTIBLE_ITEMS := INVENTORY_ITEMS + BACKPACK_ITEMS
 const INVENTORY_LABELS := {
 	"flashlight": "FLASHLIGHT", "taser": "TASER", "lockpick": "LOCKPICK SET",
-	"crowbar": "CROWBAR", "rescue_axe": "RESCUE AXE",
+	"crowbar": "CROWBAR", "rescue_axe": "AXE",
 	"battery": "FLASHLIGHT BATTERY",
 	"backpack_small": "SMALL BACKPACK", "backpack_medium": "MEDIUM BACKPACK",
 	"backpack_large": "LARGE BACKPACK",
