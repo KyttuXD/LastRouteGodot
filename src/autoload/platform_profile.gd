@@ -50,6 +50,8 @@ var render_scale := 1.0
 ## HiDPI (Retina) desktops: the canvas stretch renders 3D at the window's physical pixels, 4x the pixels of the same
 ## window on a 1x screen. 3D renders at logical resolution instead (the art is low-res pixels); 1.0 on 1x screens.
 var hidpi_scale := 1.0
+## The governor's last notch: hold 30 fps steadily when even the lowest settings miss 60 (0 = no governor cap).
+var governor_fps_cap := 0
 ## Share of pure-dressing props (no collider, no interaction) and of wall extras (pipes, cables, frames) that spawn.
 var prop_density := 1.0
 var decor_density := 1.0
@@ -119,6 +121,7 @@ func apply_budgets() -> void:
 	prerender_ambience = budgets["prerender_ambience"]
 	map_update_hz = budgets["map_update_hz"]
 	render_scale = budgets["render_scale"]
+	governor_fps_cap = int(budgets.get("fps_cap", 0))
 	prop_density = budgets["prop_density"]
 	decor_density = budgets["decor_density"]
 	frame_target_hz = budgets["frame_target_hz"]
@@ -153,6 +156,8 @@ func _on_notch_changed(value: int) -> void:
 ## Budgets that can change mid-run: the camera far plane and shadow-casting lights. Streaming budgets are read every
 ## frame; lamp pool, prop ranges and pre-building apply to what streams in next.
 func _apply_live() -> void:
+	if Settings.fps_limit <= 0:
+		Engine.max_fps = default_fps_cap()
 	var viewport := get_viewport()
 	if viewport != null and not is_xr:
 		viewport.scaling_3d_scale = render_scale * hidpi_scale
@@ -179,6 +184,8 @@ func _on_node_added(node: Node) -> void:
 
 ## The frame rate a device can hold when the player sets no limit: phones 60, the Quest its fixed 72 (desktop: none).
 func default_fps_cap() -> int:
+	if governor_fps_cap > 0:
+		return governor_fps_cap
 	if is_quest:
 		return 72
 	if is_phone:
