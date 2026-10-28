@@ -240,8 +240,10 @@ func remove_skin() -> void:
 # -- moderation (owners; WORLD lane's /api/admin/flags API) ----------------------------------------------------------
 ## Flagged / banned / troll accounts and blocked builds; actions: CLEAR, EXTEND 24H, BAN, UNBAN, TROLL ON, TROLL OFF on a
 ## username, and adding / removing a blocked build hash. Owners only (the server answers 403 ADMIN_OWNER_REQUIRED otherwise).
-const MODERATION_ACTIONS := [["CLEAR", "clear"], ["EXTEND 24H", "extend"], ["BAN", "ban"], ["UNBAN", "unban"],
-	["TROLL ON", "troll_on"], ["TROLL OFF", "troll_off"]]
+## Bans and flags are manual only (KT): the server only queues REVIEWS (a kick, kicks from 2+ hosts in 7 days, an unknown
+## build); every action below closes the account's open reviews; DISMISS closes them without restricting anything.
+const MODERATION_ACTIONS := [["FLAG 24H", "extend"], ["BAN", "ban"], ["TROLL ON", "troll_on"], ["DISMISS", "dismiss"],
+	["CLEAR", "clear"], ["UNBAN", "unban"], ["TROLL OFF", "troll_off"]]
 var _moderation_user: LineEdit
 var _moderation_build: LineEdit
 var _moderation_status: Label
@@ -304,21 +306,47 @@ func refresh_moderation() -> void:
 		section_text("MODERATION", "UNAVAILABLE // %s" % String(moderation.get("error", "NO ANSWER")))
 		return
 	var lines := []
+	var open_reviews := 0
 	for record_value in moderation.get("accounts", []):
 		var record: Dictionary = record_value
-		var state := []
-		if bool(record.get("permanent", false)):
-			state.append("BANNED")
-		elif bool(record.get("flagged", false)):
-			state.append("FLAGGED UNTIL %s" % str(record.get("flaggedUntil", "?")))
-		if bool(record.get("troll", false)):
-			state.append("TROLL")
-		lines.append("%s: %s%s" % [String(record.get("username", "?")).to_upper(), " + ".join(state) if not state.is_empty() else "CLEAR",
-			(" // " + String(record.get("reason", ""))) if not String(record.get("reason", "")).is_empty() else ""])
+		var open := int(record.get("reviewOpen", 0))
+		open_reviews += open
+		lines.append_array(format_account(record))
+	lines.push_front("REVIEW QUEUE: %d OPEN" % open_reviews)
 	var builds: Array = moderation.get("builds", [])
 	lines.append("BLOCKED BUILDS: %s" % (", ".join(builds.map(func(b) -> String:
 		return String(b.get("buildHash", b) if b is Dictionary else b).left(12).to_upper())) if not builds.is_empty() else "NONE"))
 	section_text("MODERATION", "\n".join(lines) if not lines.is_empty() else "NO FLAGGED ACCOUNTS")
+
+
+## One account's lines: name + state, then each OPEN review (reason, detail, when), its kicks and its build integrity.
+static func format_account(record: Dictionary) -> Array:
+	var state := []
+	if bool(record.get("permanent", false)):
+		state.append("BANNED")
+	elif bool(record.get("flagged", false)):
+		state.append("FLAGGED UNTIL %s" % str(record.get("flaggedUntil", "?")))
+	if bool(record.get("troll", false)):
+		state.append("TROLL")
+	var open := int(record.get("reviewOpen", 0))
+	var lines := ["%s%s: %s%s" % ["[REVIEW] " if open > 0 else "", String(record.get("username", "?")).to_upper(),
+		" + ".join(state) if not state.is_empty() else "CLEAR",
+		(" // " + String(record.get("reason", ""))) if not String(record.get("reason", "")).is_empty() else ""]]
+	for review_value in record.get("reviews", []):
+		var review: Dictionary = review_value
+		if not bool(review.get("open", false)):
+			continue
+		var why: String = {"kick": "KICKED", "kicks": "KICKED BY 2+ HOSTS IN 7 DAYS", "integrity": "UNKNOWN BUILD"}.get(String(review.get("reason", "")), String(review.get("reason", "")).to_upper())
+		lines.append("   %s // %s // %s" % [why, String(review.get("detail", "")), str(review.get("at", ""))])
+	var kicks: Array = record.get("kicks", [])
+	if not kicks.is_empty():
+		lines.append("   KICKS: %s" % ", ".join(kicks.map(func(k) -> String:
+			return ("%s @ %s" % [String(k.get("by", k.get("host", "?"))), str(k.get("at", ""))]) if k is Dictionary else str(k))))
+	var integrity = record.get("integrity")
+	if integrity is Dictionary and not (integrity as Dictionary).is_empty():
+		lines.append("   BUILD %s @ %s%s" % [String(integrity.get("hash", "")).left(12).to_upper(), String(integrity.get("commit", "")).left(8).to_upper(),
+			"" if bool(integrity.get("known", true)) else " (UNKNOWN)"])
+	return lines
 
 
 ## /api/admin/flags/set {sessionToken, username, action, hours?}.

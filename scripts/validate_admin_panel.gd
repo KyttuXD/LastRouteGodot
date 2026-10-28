@@ -28,8 +28,15 @@ func _fake(path: String, body: Dictionary) -> Dictionary:
 	if path == "/api/skins/remove":
 		return {"ok": true}
 	if path == "/api/admin/flags":
-		return {"ok": true, "accounts": [{"username": "griefer", "flagged": true, "flaggedUntil": "2026-11-01", "troll": true,
-			"reason": "spam"}, {"username": "old", "permanent": true}], "builds": [{"buildHash": "deadbeef0123456789"}]}
+		return {"ok": true, "reviews": ["suspect"], "accounts": [
+			{"username": "suspect", "reviewOpen": 2, "reviews": [
+				{"at": "2026-10-28T09:00", "reason": "kicks", "detail": "HOST A, HOST B", "open": true},
+				{"at": "2026-10-28T10:00", "reason": "integrity", "detail": "build not in list", "open": true},
+				{"at": "2026-10-20T10:00", "reason": "kick", "detail": "old", "open": false, "closedBy": "KYTTU"}],
+				"kicks": [{"by": "HOSTA", "at": "2026-10-27"}, {"by": "HOSTB", "at": "2026-10-28"}],
+				"integrity": {"commit": "117a18a8", "hash": "cafebabe00112233", "known": false}},
+			{"username": "griefer", "flagged": true, "flaggedUntil": "2026-11-01", "troll": true, "reason": "spam"},
+			{"username": "old", "permanent": true}], "builds": [{"buildHash": "deadbeef0123456789"}]}
 	if path in ["/api/admin/flags/set", "/api/admin/builds/add", "/api/admin/builds/remove"]:
 		return {"ok": true}
 	return {}
@@ -83,6 +90,13 @@ func run(host: Node) -> int:
 			var mod := panel.get_section("MODERATION")
 			_expect(mod.contains("GRIEFER: FLAGGED UNTIL") and mod.contains("TROLL") and mod.contains("OLD: BANNED") and mod.contains("DEADBEEF0123"),
 				"moderation list not shown: %s" % mod)
+			_expect(mod.contains("REVIEW QUEUE: 2 OPEN") and mod.contains("[REVIEW] SUSPECT") and mod.contains("KICKED BY 2+ HOSTS IN 7 DAYS // HOST A, HOST B")
+				and mod.contains("UNKNOWN BUILD") and mod.contains("KICKS: HOSTA @ 2026-10-27") and mod.contains("BUILD CAFEBABE0011 @ 117A18A8 (UNKNOWN)")
+				and not mod.contains("// old //"), "review queue not shown right: %s" % mod.replace("\n", " | "))
+			_expect(panel.find_child("Moderation_dismiss", true, false) != null, "no DISMISS button")
+			await panel.moderate("suspect", "dismiss")
+			var dismissed: Dictionary = (_calls.filter(func(c: Array) -> bool: return c[0] == "/api/admin/flags/set")[-1] as Array)[1]
+			_expect(dismissed.get("action") == "dismiss" and dismissed.get("username") == "SUSPECT", "DISMISS did not post: %s" % dismissed)
 			await panel.moderate("griefer", "extend")
 			var sent: Dictionary = (_calls.filter(func(c: Array) -> bool: return c[0] == "/api/admin/flags/set")[-1] as Array)[1]
 			_expect(sent.get("username") == "GRIEFER" and sent.get("action") == "extend" and int(sent.get("hours", 0)) == 24, "EXTEND did not post the right body: %s" % sent)
