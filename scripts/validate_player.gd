@@ -83,6 +83,44 @@ func run(host: Node) -> int:
 	return _failures
 
 
+## The ladder-climb hands are the player's skinned hands (same source as the viewmodel), never the old tan/orange placeholder
+## boxes: every mesh is a mannequin mesh textured with the skin atlas, no BoxMesh, no flat skin-tone material; a skin or arm-style
+## change rebuilds them live.
+func _expect_skinned_climb_hands(controller: PlayerController3D) -> void:
+	controller._show_climb_hands(true)
+	var hands := controller._climb_hands
+	if hands == null or hands.get_child_count() != 2:
+		_fail("the ladder climb shows no pair of hands")
+		return
+	var meshes := hands.find_children("*", "MeshInstance3D", true, false)
+	if meshes.size() < 4:
+		_fail("the climb hands have %d meshes, not forearm + hand per arm" % meshes.size())
+	for mesh_value in meshes:
+		var mesh_node := mesh_value as MeshInstance3D
+		if mesh_node.mesh is BoxMesh or mesh_node.mesh is PrimitiveMesh:
+			_fail("a climb hand is a placeholder primitive box")
+		var material := mesh_node.get_active_material(0)
+		var textured := material is StandardMaterial3D and (material as StandardMaterial3D).albedo_texture != null
+		if not textured:
+			_fail("a climb hand mesh is not textured with the skin atlas (flat material)")
+		elif (material as StandardMaterial3D).albedo_color.is_equal_approx(Color("d9a98a")):
+			_fail("a climb hand still uses the placeholder skin tone")
+	var left := hands.get_node("L").get_child(0) as Node3D
+	var right := hands.get_node("R").get_child(0) as Node3D
+	if left.scale.x * right.scale.x >= 0.0:
+		_fail("the left climb hand is not mirrored")
+	var was_arms := Settings.skin_arms
+	var was_slim := Settings.skin_slim
+	Settings.skin_arms = "slim"
+	controller._apply_visual_settings()
+	var rebuilt := controller._climb_hands
+	if rebuilt == null or not rebuilt.visible or not bool(rebuilt.get_node("R").get_child(0).get_meta("slim", false)):
+		_fail("the climb hands did not rebuild with the slim (Alex) arms when the style changed")
+	Settings.skin_arms = was_arms
+	Settings.skin_slim = was_slim
+	controller._apply_visual_settings()
+
+
 ## XR hand interactions (XRHands, milestone 4): a flat run builds none of the XR helpers and still aims [E] from the head;
 ## the climb and swing maths hold; and a gripping hand's pull moves a real ladder climb by exactly that much.
 func _expect_xr_hands(controller: PlayerController3D) -> void:
@@ -114,6 +152,7 @@ func _expect_xr_hands(controller: PlayerController3D) -> void:
 			_fail("pushing a hand far up does not stop the climb at the foot of the ladder")
 	else:
 		_fail("the test ladder climb did not start")
+	_expect_skinned_climb_hands(controller)
 	controller.ladder_climb = {}
 	controller._show_climb_hands(false)
 	controller.global_position = saved_position

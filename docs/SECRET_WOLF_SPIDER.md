@@ -1,11 +1,11 @@
-# The City's secret creatures (white and black wolf spider, working names)
+# The Inferno's secret creatures (white and black wolf spider, working names)
 
-Two secret hunters for **KYTTU: The City**, made from KT's own `white_wolf_spider.bbmodel` and `black_wolf_spider.bbmodel` (two variants of one species).
-**Status: built but OFF** (KT's decision): `SecretCreatures.TRIGGER = "off"`, so nothing spawns by itself in normal play; only the admin hunter
-picker can summon them, for testing. The validator checks the default is off and that "off" leaves no trace. It is meant to stay secret: it is
-**not** in `HunterRoster`, the dossier lists, the random draw, loading tips, story text or any player-facing string, and
-nothing says it exists until the player has met it. This document and the files named in it are the only places that
-mention it (the `secret_creature` suite greps the whole project to keep that true).
+Two secret hunters, made from KT's own `white_wolf_spider.bbmodel` and `black_wolf_spider.bbmodel` (two variants of one species). They were first made
+for KYTTU: The City (archived on `archive/city-20261027`); **their home is now Last Route's Inferno, level -3** (KT: "the spider dogs go in the inferno
+area with larger biome spaces to traverse"). `SecretCreatures.TRIGGER = "inferno"`: once the local runner has spent 30 s on level -3 the host brings them
+(solo or pair by game difficulty, see below); `"off"` stops anything spawning by itself (admin hunter picker only, and only on -3). They are meant to stay
+secret: **not** in `HunterRoster`, the dossier lists, the random draw, loading tips, story text or any player-facing string, and nothing says they exist until
+the player has met one. This document and the files named in it are the only places that mention them (the `secret_creature` suite greps the whole project).
 
 ## What was built
 
@@ -18,7 +18,8 @@ mention it (the `secret_creature` suite greps the whole project to keep that tru
 | Config, outside the roster (stats, collider, trigger choice, dossier + death-line placeholders) | `src/config/secret_creatures.gd` |
 | Behaviour (lurk, bark, hunt, retreat; the black gimmick subclasses it with harsher numbers) | `src/game/hunter_gimmicks/white_wolf_spider_gimmick.gd`, `black_wolf_spider_gimmick.gd` |
 | Presentation for the non-humanoid rig (clips, bark cue, collider) | `src/game_3d/creature_view.gd` |
-| City trigger and spawn (new file, one hook) | `src/game/city_secrets.gd` |
+| Inferno trigger, lair choice and spawn (new file, two hooks) | `src/game/inferno_secrets.gd` |
+| Solo/pair rest and recall | `src/game/hunter_gimmicks/spider_pack.gd` |
 | Capture tool, validator | `tools/look/creature_check.tscn`, `scripts/validate_secret_creature.gd` |
 
 Rebuild the glb after editing the bbmodel: `python3 tools/city/bbmodel_creature.py tools/city/white_wolf_spider.bbmodel assets/city/white_wolf_spider/white_wolf_spider.glb --scale 0.035`
@@ -82,21 +83,24 @@ every other hunter; `WhiteWolfSpiderGimmick.network_state()` carries `phase` and
 | Counters | shelter, flashlight beam held on it, hiding, outlasting it | shelter, hiding, outlasting it (**it ignores the flashlight**) |
 | Rests after a hunt | 30 s | 60 s |
 
-## The trigger (`SecretCreatures.TRIGGER`, default `"off"`)
+## Home level and trigger (`SecretCreatures.HOME_LEVEL = -3`, `SecretCreatures.TRIGGER = "inferno"`)
 
-City only (`CitySecrets` does nothing unless the route's generator reports biome `city`), host only, once per run (a creature that
-already exists, or was removed by an admin, counts as fired). It appears 16-23 cells from the runner on an open garden/plaza/path cell
-(seeded by the route seed), already barking.
+`InfernoSecrets` (one instance on the route, host only) counts the seconds the local runner spends on level -3 (`DWELL_SECONDS` = 30; the clock does not run on
+any other level and keeps what it has when the runner climbs back up). At zero it fires once per run (a creature that already exists, or was removed by an admin,
+counts as fired): the creature(s) appear 16-23 cells from the runner on level -3, already telegraphing (bark or hiss), on ground that is reachable from the
+runner. Same seed + difficulty gives the same lairs.
 
-| Option | What the player does | Why |
-| --- | --- | --- |
-| `garden_vigil` (**default**) | stands **still** in a garden with the **flashlight off** for 45 s (moving, the light, or leaving drains it twice as fast) | nothing in normal play looks like this: least discoverable, still fair (the bark comes first) |
-| `fountains` | stands at all four fountains (roundabout, both garden fountains, the grand plaza pool) in one run | discoverable by a curious explorer |
-| `off` (**shipped default**) | never | nothing spawns by itself; admin picker only |
+* **Lair choice:** candidates are sampled around the runner and ranked by open ground (share of the 7 x 7 square around the cell that a hunter can stand on):
+  wide ground (>= 90% open: a cavern or a lava hall) first, then roomy ground (>= 60%), then anything. Legs sprawl 3.5 m, so they live in the big spaces.
+* **Stays on -3:** the route's ramp/ladder traffic skips them (`SecretCreatures.stays_home`), so they never follow a runner up a ramp; they hunt anywhere on -3.
+  The admin picker refuses to summon them on any other level.
+* **Sound:** `spider_skitter` (a quick run of dry ticks while it walks/runs, within 30 m) and `inferno_crackle` (an ember crackle with a hollow knock now and then
+  while one is within 45 m of the camera), both positional from the creature, plus the existing bark/hiss tells.
+* **`TRIGGER = "off"`:** nothing ever spawns by itself; the validator checks that off leaves no trace.
+* Needs from the sewer lane for level -3: several open spaces of at least 14 x 14 cells (ideally 20 x 20+, ceiling >= 4 m) joined by halls >= 5 cells wide,
+  one within about a chunk of any point, all connected to the ramp landings (the lair choice derives open ground from the chunk grid, no API needed).
 
-Both trigger implementations stay behind the constant for later. **Question for KT (answered for now: off).**
-
-### Relationship of the two (`SecretCreatures.RELATIONSHIP`, only matters once a trigger is armed)
+### Relationship of the two (`SecretCreatures.RELATIONSHIP`, only matters once the trigger fires)
 
 **Default `"difficulty"` (KT's decision): both creatures, as a SOLO or a PAIR depending on the game difficulty.** `SecretCreatures.DIFFICULTY` is a table keyed by the real difficulty ids; the plan for a trigger is `plan_for(difficulty_id, route_seed)`, pure and seeded, so every peer agrees and a restart repeats it.
 
@@ -129,30 +133,31 @@ The older fixed options still work behind the constant: `black_follows_white` (t
 * Names: no canon identity exists (searched KT-Lore, the archives, dossier and roster docs), so **White Wolf Spider** and **Black Wolf Spider** are working names (`SecretCreatures.PROFILES`).
 * Dossier text (`SecretCreatures.DOSSIER`), death lines (`SecretCreatures.DEATH`, marked `[PLACEHOLDER]`), the bark and hiss sounds (`Sound` cues `spider_bark`, `spider_hiss`, procedural).
 
-## Route hook (the City lane adds these three lines to `src/infinite_route_test.gd`; they are already in this branch)
+## Route hook (`src/infinite_route_test.gd`)
 
 ```gdscript
-var _city_secrets := CitySecrets.new()                 # next to _hunter_emoter
-_city_secrets.update(self, delta)                      # in _update_hunters, after the simulates() guard
+var _inferno_secrets := InfernoSecrets.new()           # next to _hunter_emoter
+_inferno_secrets.update(self, delta)                   # in _update_hunters, after the simulates() guard
 or entity_id.begins_with("SECRET:")                    # next to the "ADMIN:" check in _repair_duplicate_hunter_identities
+SecretCreatures.stays_home(brain.hunter_id)            # first guard in _hunter_ladder_step: never a ramp or ladder
 ```
 
-The City layout is read through the generator's `layout` object (`GARDENS`, `ROUNDABOUT_CENTER`, `GRAND_PLAZA`, `ORIGIN_OFFSET`, `is_open`, `kind_at`),
-so the file compiles on a branch without the City. Other small edits: `HunterRoster.get_identity`, `HunterGimmick.for_id`, `HunterView3D`
-(delegates to `CreatureView`), `DeathLines.pick`, `Backend` discovery id check, `Sound.spider_bark`, the admin picker lists, the dossier
-lists in `pause_menu.gd` / `room_lobby.gd`, and the two admin-picker size assertions in the validators.
+Other small edits: `HunterRoster.get_identity`, `HunterGimmick.for_id`, `HunterView3D` (delegates to `CreatureView`), `DeathLines.pick`, `Backend` discovery id check,
+`Sound.spider_bark/spider_hiss/spider_skitter/inferno_crackle`, the admin picker lists (+ the level check in the admin summon), the dossier lists in `pause_menu.gd` /
+`room_lobby.gd`, and the two admin-picker size assertions in the validators.
 
 ## Known limits / follow-ups
 
-* Only the local (host) runner can start the trigger; a co-op guest lingering in a garden does not.
+* Only the local (host) runner can start the trigger; a co-op guest lingering on -3 does not.
 * The creature takes one slot of the streamed hunter population while it exists.
 * A creature's phase is not saved with the run: after a reload it is back to lurking at the spot where it was saved.
 * Nothing can kill it yet (`CreatureView.play_death()` exists for that day); the `death` clip is checked in the contact sheets only.
-* The in-City behaviour has been exercised on the maze route and with a fake City layout; it needs a playtest in the real City once the City lane merges.
+* The Inferno behaviour is validated on a hand-made level -3 and (once the sewer lane's Inferno is on main) on the real streamed level; it needs a playtest there.
 
 ## Tests
 
-`godot --headless res://scenes/validate.tscn -- secret_creature` (run on the test machines): both models and clips, the shipped trigger is off and leaves no trace, the difficulty table (complete, deterministic, pair spacing, shared rest, staggered tells, nothing spawns with the trigger off) and the three older options, secrecy (roster, dossier, draw,
-death lines in debug vs release), behaviour (lurk, bark head start, hunt, capture, shelter, cooldown, flashlight, hidden runner), determinism
-and network round trip, trigger (never in the maze, vigil build/drain, seeded lair), the real `HunterView3D`, a live streamed route
-(admin summon and the City spawn path), and the whole-project grep for hints.
+`godot --headless res://scenes/validate.tscn -- secret_creature` (run on the test machines): both models and clips, secrecy (roster, dossier, draw, death lines in debug
+vs release), behaviour (lurk, bark head start, hunt, capture, shelter, cooldown, flashlight, hidden runner), determinism and network round trip, the difficulty table
+(complete, deterministic, solo/pair odds), the pack (staggered tells, shared rest, no chain-hunt), the Inferno trigger (only on -3, only after the dwell time, off leaves
+no trace, one run = one fire, per-difficulty determinism, pair spacing/flank, wide ground preferred, always reachable, no floor = no spawn), the real `HunterView3D`, a live
+streamed route (admin summon only on -3), and the whole-project grep for hints.

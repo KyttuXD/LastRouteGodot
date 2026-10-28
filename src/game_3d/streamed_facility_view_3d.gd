@@ -147,6 +147,10 @@ const PREBUILD_LINK_RADIUS := 24.0
 ## those nine chunks on every round trip, so parking reaches one level past the pre-build range (at most 3 x 9).
 const PARK_LEVEL_RANGE := PREBUILD_LEVEL_RANGE + 1
 const PREDATA_LEVEL_RANGE := 2
+## Links walked from level to level (no shaft hides the other storey), and how far around each end of one both
+## levels stay loaded: the deepest look up or down a stairwell or along a ramp tunnel.
+const WALKED_LINKS := ["stairs", "spiral", "ramp"]
+const LINK_VIEW_MARGIN := 20.0
 var _ready_set := {}
 var _wanted_now := {}
 var _pending_prebuild: Array[Vector3i] = []
@@ -226,6 +230,7 @@ func _exit_tree() -> void:
 
 
 func clear() -> void:
+	_walked_link_cache.clear()
 	if _gen_task != -1:
 		WorkerThreadPool.wait_for_task_completion(_gen_task)
 		_gen_task = -1
@@ -428,6 +433,22 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 		var vertical := Vector3i(center.x, far, center.z)
 		if generator.is_chunk_allowed(vertical):
 			wanted[vertical] = true
+	# Stairwells and ramps are walked, not climbed: the other level comes into view
+	# from the landing and the runner's level flips half way along, so in a chunk
+	# with one both levels keep every chunk of the 3x3 column within
+	# LINK_VIEW_MARGIN of the link's ends (KT: a blank, unloaded area beyond the
+	# stairs). Only the runner's own column: the extras then stay inside the
+	# window that parks them, and a jump to another column frees nothing extra.
+	for link_value in _walked_links(center):
+		var link: Dictionary = link_value
+		for level in [int(link["from_level"]), int(link["to_level"])]:
+			var end := LadderTraffic.ladder_point(link, level)
+			for dz in range(-STREAM_RADIUS, STREAM_RADIUS + 1):
+				for dx in range(-STREAM_RADIUS, STREAM_RADIUS + 1):
+					var near := Vector3i(center.x + dx, level, center.z + dz)
+					if not wanted.has(near) and generator.is_chunk_allowed(near) \
+							and _distance_from_point_to_chunk(end, near) < LINK_VIEW_MARGIN:
+						wanted[near] = true
 	# You can see across the falls' drop between the two sewers: in a chunk with
 	# falls the other level's chamber stays loaded.
 	if (center.y == StreamedRouteGenerator.SEWER_LEVEL or center.y == StreamedRouteGenerator.LOWER_SEWER_LEVEL) \
@@ -436,6 +457,22 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 			if center.y == StreamedRouteGenerator.SEWER_LEVEL else StreamedRouteGenerator.SEWER_LEVEL, center.z)
 		wanted[across] = true
 	return wanted
+
+
+## The stairwells and ramps touching `coord`'s level in its column. Deterministic per seed, so it is kept: every
+## level change re-runs _wanted_chunks, and planning the stairwells again there cost a frame.
+var _walked_link_cache := {}
+func _walked_links(coord: Vector3i) -> Array:
+	if _walked_link_cache.has(coord):
+		return _walked_link_cache[coord]
+	var out := []
+	for link_value in generator.vertical_links(coord):
+		if WALKED_LINKS.has(String((link_value as Dictionary)["kind"])):
+			out.append(link_value)
+	if _walked_link_cache.size() >= 64:
+		_walked_link_cache.clear()      # bounded to the window, not to the distance walked
+	_walked_link_cache[coord] = out
+	return out
 
 
 ## Horizontal distance from a point (view-local x/z) to a chunk's footprint; INF for Vector2.INF.
@@ -1042,6 +1079,10 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		# a stairwell's lower level opens straight up the well: full-storey walls
 		if not bool((shaft_cells[cell_value] as Dictionary)["upper"]):
 			heights[cell_value] = LEVEL_HEIGHT
+			# and so does its foot landing, under the head landing one storey up: a
+			# sewer-height ceiling there was a slab across the well at mid-height (KT)
+			for landing_value in ((shaft_cells[cell_value] as Dictionary)["well"] as Dictionary)["lower_landing"]:
+				heights[landing_value] = LEVEL_HEIGHT - SLAB
 	var ramp_cells: Dictionary = data.get("ramp_cells", {})
 	for cell_value in ramp_cells:
 		# the lower end of a ramp tunnel has no ceiling of its own: it opens up to

@@ -1,0 +1,332 @@
+#!/usr/bin/env python3
+"""Run the headless validator suites in parallel Godot processes and print one summary.
+
+    python3 scripts/run_suites.py [--jobs N] [--backend] [--affected BASE_LIST] [suite ...]
+
+With no suites, runs every suite in scripts/validate_runner.gd (the same set as
+`validate.tscn` with no arguments). Each worker runs in its own APFS/copy clone of the
+project (so res:// writes cannot clash), its own HOME (so user:// is private), its own
+TMPDIR and its own VALIDATE_PORT_OFFSET (so ENet test ports cannot clash).
+
+Suites are packed heaviest-first into N bins from the durations recorded by earlier runs
+(.validate_timings.json, falling back to the median). A worker that dies mid-bin does not
+take the rest of its bin with it: every suite without a verdict line is rerun alone once.
+
+Trust rules: a suite PASSES only on its own `-- suite NAME PASS` line from the runner.
+A missing verdict, a crash, a timeout or a parse error is a FAIL. Any FAIL -> exit 1.
+Python 3.9 compatible (the mini's system python).
+"""
+import argparse
+import json
+import os
+import re
+import shutil
+import statistics
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TIMINGS = os.environ.get("VALIDATE_TIMINGS") or os.path.join(ROOT, ".validate_timings.json")
+# Suites that measure frame time or wall-clock budgets: they gave false spikes when run
+# beside other work, so they run alone, one after another, after the parallel phase.
+SERIAL = {"stream_perf", "prop_perf", "idle_stability", "quality_tiers", "lods"}
+VERDICT = re.compile(r"^-- suite (\S+) (PASS|FAIL) ([0-9.]+)s")
+
+
+def all_suites():
+    text = open(os.path.join(ROOT, "scripts", "validate_runner.gd")).read()
+    block = re.search(r"const SUITES := \[(.*?)\]", text, re.S).group(1)
+    return re.findall(r'"([^"]+)"', block)
+
+
+def affected_suites(changed, known):
+    """Map changed repo paths to suites: a suite's own script, or any suite whose script
+    names the changed file (res:// path, file stem or its class_name). Heuristic and only
+    for quick feedback -- the full run stays the push gate."""
+    texts = {}
+    for s in known:
+        try:
+            texts[s] = open(os.path.join(ROOT, "scripts", "validate_%s.gd" % s)).read()
+        except OSError:
+            texts[s] = ""
+    autoloads = dict((m.group(2), m.group(1)) for m in re.finditer(
+        r'^(\w+)="\*?res://([^"]+)"', open(os.path.join(ROOT, "project.godot")).read(), re.M))
+    hit = []
+    for path in changed:
+        m = re.match(r"scripts/validate_(\w+)\.gd$", path)
+        if m and m.group(1) in known:
+            hit.append(m.group(1))
+            continue
+        needles = {"res://" + path, os.path.splitext(os.path.basename(path))[0], autoloads.get(path, "")}
+        try:
+            cn = re.search(r"^class_name\s+(\w+)", open(os.path.join(ROOT, path)).read(), re.M)
+            if cn:
+                needles.add(cn.group(1))
+        except (OSError, UnicodeDecodeError):
+            pass
+        needles = {n for n in needles if len(n) > 3}
+        for s, t in texts.items():
+            if any(re.search(r"\b%s\b" % re.escape(n), t) for n in needles):
+                hit.append(s)
+    return [s for s in known if s in set(hit)]
+
+
+def godot_bin():
+    path = os.environ.get("GODOT_BIN") or shutil.which("godot4") or shutil.which("godot")
+    if not path:
+        sys.exit("Godot not found. Set GODOT_BIN.")
+    return path
+
+
+def clone_project(dst):
+    """Copy-on-write clone on APFS (cp -c); plain copy elsewhere. Includes .godot."""
+    if sys.platform == "darwin" and subprocess.call(["cp", "-cR", ROOT + "/.", dst]) == 0:
+        return
+    shutil.copytree(ROOT, dst, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git", "build", ".playtest"))
+
+
+class Worker:
+    def __init__(self, idx, base):
+        self.idx = idx
+        self.dir = os.path.join(base, "w%d" % idx)
+        self.proj = os.path.join(self.dir, "proj")
+        os.makedirs(os.path.join(self.dir, "home"))
+        os.makedirs(os.path.join(self.dir, "tmp"))
+        os.makedirs(self.proj)
+        clone_project(self.proj)
+        self.env = dict(os.environ)
+        home, tmp = os.path.join(self.dir, "home"), os.path.join(self.dir, "tmp")
+        # user:// lives under HOME (macOS), XDG_DATA_HOME (Linux) or APPDATA (Windows): move all three
+        self.env.update(HOME=home, XDG_DATA_HOME=home, APPDATA=home, TMPDIR=tmp, TEMP=tmp, TMP=tmp,
+                        VALIDATE_PORT_OFFSET=str(100 + 37 * idx))
+
+    def run(self, suites, timeout, log_path):
+        """Run suites in one Godot process. Returns ({suite: (verdict, secs)}, {suite: [lines]}, rc)."""
+        cmd = [godot_bin(), "--headless", "--path", self.proj, "res://scenes/validate.tscn", "--"] + suites
+        env = dict(self.env, VALIDATE_TIMEOUT=str(timeout))
+        verdicts, lines_by, current = {}, {}, None
+        with open(log_path, "a") as log:
+            log.write("$ %s\n" % " ".join(cmd))
+            proc = subprocess.Popen(cmd, cwd=self.proj, env=env, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", **_group_kwargs())
+            killer = threading.Timer(timeout + 60, lambda: _kill_group(proc))
+            killer.start()
+            state = {"last": time.time(), "stalled": False}
+            watcher = threading.Thread(target=_stall_watch, args=(proc, state), daemon=True)
+            watcher.start()
+            for line in proc.stdout:
+                state["last"] = time.time()
+                log.write(line)
+                stripped = line.rstrip("\n")
+                if stripped.startswith("== ") and stripped[3:] in suites:
+                    current = stripped[3:]
+                m = VERDICT.match(stripped)
+                if m:
+                    verdicts[m.group(1)] = (m.group(2), float(m.group(3)))
+                    print("[w%d] %s %s %ss" % (self.idx, m.group(2), m.group(1), m.group(3)), flush=True)
+                if current and ("FAIL" in stripped or "SCRIPT ERROR" in stripped or "ERROR:" in stripped):
+                    lines_by.setdefault(current, []).append(stripped)
+            rc = proc.wait()
+            killer.cancel()
+            state["done"] = True
+            if state["stalled"] and current and current not in verdicts:
+                # a blocking Godot ALERT (or any hang without CPU use) inside this suite: a test FAIL, not a hang
+                verdicts[current] = ("FAIL", 0.0)
+                lines_by.setdefault(current, []).append(
+                    "  FAIL  STALL: no output for %ds and no CPU use (blocking Godot ALERT?); killed" % STALL)
+                print("[w%d] FAIL %s (stall)" % (self.idx, current), flush=True)
+        return verdicts, lines_by, rc
+
+
+STALL = int(os.environ.get("GUARD_STALL_INNER", "30"))
+
+
+def _cpu_seconds(pid):
+    """CPU seconds of every process in pid's process group (POSIX), None where not measurable."""
+    if os.name == "nt":
+        return None
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pgid=,time="], capture_output=True, text=True).stdout
+    except OSError:
+        return None
+    total = 0.0
+    for row in out.splitlines():
+        parts = row.split()
+        if len(parts) != 2 or parts[0] != str(pid):
+            continue
+        m = re.match(r"(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$", parts[1])
+        if m:
+            total += int(m.group(1) or 0) * 86400 + int(m.group(2) or 0) * 3600 + int(m.group(3)) * 60 + float(m.group(4))
+    return total
+
+
+def _stall_watch(proc, state):
+    """Kill this Godot (its own group) when it prints nothing for STALL s and its CPU time stops growing.
+    Windows is covered by the outer guard.ps1, which measures the whole process tree."""
+    if STALL <= 0 or os.name == "nt":
+        return
+    cpu_mark = None
+    while proc.poll() is None and not state.get("done"):
+        time.sleep(5)
+        quiet = time.time() - state["last"]
+        if quiet < STALL / 2:
+            cpu_mark = None
+            continue
+        if cpu_mark is None:
+            cpu_mark = _cpu_seconds(proc.pid)
+            continue
+        if quiet >= STALL:
+            now = _cpu_seconds(proc.pid)
+            if now is not None and now - cpu_mark < 0.3:
+                state["stalled"] = True
+                _kill_group(proc)
+                return
+            state["last"] = time.time()
+            cpu_mark = None
+
+
+def _group_kwargs():
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _kill_group(proc):
+    """Kill exactly this Godot and its children, by its own PID / process group."""
+    try:
+        if os.name == "nt":
+            subprocess.call(["taskkill", "/PID", str(proc.pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            os.killpg(proc.pid, 9)  # the group we created for exactly this Godot (start_new_session)
+    except OSError:
+        pass
+
+
+def pack(suites, durations, n):
+    known = [durations[s] for s in suites if s in durations]
+    default = statistics.median(known) if known else 10.0
+    order = sorted(suites, key=lambda s: -durations.get(s, default))
+    bins = [[0.0, []] for _ in range(n)]
+    for s in order:
+        b = min(bins, key=lambda x: x[0])
+        b[0] += durations.get(s, default)
+        b[1].append(s)
+    return [b[1] for b in bins if b[1]]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("suites", nargs="*")
+    ap.add_argument("--jobs", type=int, default=int(os.environ.get("VALIDATE_JOBS", "5")))
+    ap.add_argument("--backend", action="store_true", help="also run the node backend tests (as validate_all.sh does)")
+    ap.add_argument("--timeout", type=int, default=int(os.environ.get("MINI_TIMEOUT", "1500")))
+    ap.add_argument("--no-serial", action="store_true", help="run perf suites in the pool too (faster, noisier)")
+    ap.add_argument("--affected", help="file listing changed repo paths; run only suites that touch them")
+    ap.add_argument("--json", help="write the per-suite results here")
+    args = ap.parse_args()
+
+    known = all_suites()
+    wanted = args.suites or known
+    if args.affected:
+        changed = [l.strip() for l in open(args.affected) if l.strip()]
+        wanted = affected_suites(changed, known)
+        print("affected: %d changed file(s) -> %d suite(s): %s" % (len(changed), len(wanted), " ".join(wanted) or "(none)"))
+        if not wanted:
+            print("RESULT: PASS (nothing affected; run --full before pushing)")
+            return 0
+    unknown = [s for s in wanted if s not in known and not s.startswith("res://")]
+    durations = {}
+    if os.path.exists(TIMINGS):
+        try:
+            durations = json.load(open(TIMINGS))
+        except ValueError:
+            pass
+    serial = [] if args.no_serial else [s for s in wanted if s in SERIAL]
+    pool = [s for s in wanted if s not in serial and s not in unknown]
+    bins = pack(pool, durations, max(1, args.jobs))
+
+    base = tempfile.mkdtemp(prefix="lr-validate-")
+    logs = os.path.join(base, "logs")
+    os.makedirs(logs)
+    t0 = time.time()
+    workers = [Worker(i, base) for i in range(max(len(bins), 1))]
+    results, fail_lines = {}, {}
+    lock = threading.Lock()
+
+    def run_bin(w, suites):
+        log = os.path.join(logs, "w%d.log" % w.idx)
+        verdicts, lines_by, rc = w.run(suites, args.timeout, log)
+        missing = [s for s in suites if s not in verdicts]
+        if missing and len(suites) > 1:
+            # the process died or quit early; give each unreported suite its own run
+            for s in missing:
+                v, lb, _ = w.run([s], args.timeout, log)
+                verdicts.update(v)
+                for k, lst in lb.items():
+                    lines_by.setdefault(k, []).extend(lst)
+        with lock:
+            for s in suites:
+                if s in verdicts:
+                    results[s] = verdicts[s]
+                else:
+                    results[s] = ("FAIL", 0.0)
+                    lines_by.setdefault(s, []).append("  FAIL  no verdict (crash, timeout or parse error; exit %d) -- see %s" % (rc, log))
+                if results[s][0] == "FAIL":
+                    fail_lines[s] = lines_by.get(s, []) or ["  FAIL  (no FAIL line captured) -- see %s" % log]
+
+    backend = None
+    if args.backend:
+        node = os.environ.get("NODE_BIN", "node")
+        tests = sorted(os.path.join(ROOT, "backend", f) for f in os.listdir(os.path.join(ROOT, "backend")) if f.endswith(".test.mjs"))
+        backend = subprocess.Popen([node, "--test"] + tests, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, encoding="utf-8", errors="replace")
+
+    threads = [threading.Thread(target=run_bin, args=(workers[i], b)) for i, b in enumerate(bins)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    for s in serial:  # alone on the machine (well, alone among our processes)
+        run_bin(workers[0], [s])
+
+    if backend:
+        out, _ = backend.communicate()
+        results["backend"] = ("PASS" if backend.returncode == 0 else "FAIL", 0.0)
+        if backend.returncode != 0:
+            fail_lines["backend"] = [l for l in out.splitlines() if "not ok" in l or "Error" in l][:40]
+    for s in unknown:
+        results[s] = ("FAIL", 0.0)
+        fail_lines[s] = ["  FAIL  no suite named %s" % s]
+    wall = time.time() - t0
+
+    for s, (v, secs) in results.items():
+        if s in known and secs > 0:
+            durations[s] = secs
+    try:
+        json.dump(durations, open(TIMINGS, "w"), indent=1, sort_keys=True)
+    except OSError:
+        pass
+
+    print("\n==== SUMMARY (%d suites, %d workers, %.0fs wall) ====" % (len(results), len(bins), wall))
+    for s in sorted(results, key=lambda k: (results[k][0] == "PASS", -results[k][1])):
+        print("%-4s %7.1fs  %s" % (results[s][0], results[s][1], s))
+    failed = [s for s in results if results[s][0] != "PASS"]
+    for s in failed:
+        print("\n-- %s" % s)
+        for line in fail_lines.get(s, [])[:30]:
+            print("   " + line)
+    if args.json:
+        json.dump({"wall": wall, "jobs": len(bins), "results": results,
+                   "fail_lines": fail_lines}, open(args.json, "w"), indent=1)
+    for w in workers:
+        shutil.rmtree(w.proj, ignore_errors=True)
+    print("\nlogs: %s" % logs)
+    print("RESULT: %s (%d failed of %d)" % ("FAIL" if failed else "PASS", len(failed), len(results)))
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

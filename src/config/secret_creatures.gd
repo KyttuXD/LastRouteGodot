@@ -1,7 +1,7 @@
 class_name SecretCreatures
 extends RefCounted
 
-## The City's secret creatures: two variants of one species, a white and a black wolf spider. Deliberately NOT in HunterRoster.PROFILES: everything that walks PROFILES (dossier
+## The Inferno's secret creatures: two variants of one species, a white and a black wolf spider. Deliberately NOT in HunterRoster.PROFILES: everything that walks PROFILES (dossier
 ## counters, undiscovered-signal rows, random draws, validators' "38 hunters") must never learn this id exists, so
 ## it lives here and is reached through three narrow fallbacks (get_identity, gimmick lookup, death lines) plus the
 ## admin hunter picker. Design and tuning knobs: docs/SECRET_WOLF_SPIDER.md.
@@ -30,10 +30,13 @@ const PROFILES := {
 ## presentation body is never held up by a doorway the grid navigation already let it through (its legs sprawl wider).
 const BODY_RADIUS := 0.36
 const BODY_HEIGHT := 1.2
-## In-world trigger (the archived City trigger): "garden_vigil" or "fountains". "off" (KT's decision for now) means nothing ever spawns
-## by itself: the creatures are fully built but only the admin hunter picker can summon them (debug/admin testing).
-const TRIGGER := "off"
-## How the two relate once a trigger is armed (archived City trigger): "difficulty" (KT's choice, the default: SOLO or PAIR depending on the game
+## The home level: the Inferno (level -3, SewerRouteGenerator.INFERNO_LEVEL). They spawn there, roam and hunt there, and never take a ramp
+## or a ladder off it (stays_home); the City they were first made for is archived.
+const HOME_LEVEL := -3
+## In-world trigger: "inferno" (the runner has spent InfernoSecrets.DWELL_SECONDS on level -3) or "off" (nothing ever spawns by itself: the
+## creatures are fully built but only the admin hunter picker can summon them, on -3, for testing).
+const TRIGGER := "inferno"
+## How the two relate once the trigger fires: "difficulty" (KT's choice, the default: SOLO or PAIR depending on the game
 ## difficulty, see DIFFICULTY below) or one of the older fixed options, kept selectable behind this constant: "black_follows_white"
 ## (the first trigger brings the white one; the black one only comes for a runner who has met the white one, on a second trigger),
 ## "black_rare" (every trigger brings one creature: the black one 1 time in 4) or "pair" (both at once).
@@ -179,15 +182,12 @@ static func dossier_entry(id: String) -> Dictionary:
 	return DOSSIER.get(id, {})
 
 
-## True when the route's generator is the City (duck-typed: the City generator reports biome "city").
-static func is_city_generator(generator) -> bool:
-	if generator == null or not generator.has_method("biome_for"):
-		return false
-	return String(generator.biome_for(Vector3i.ZERO)) == "city"
+## True for a secret creature that must never leave HOME_LEVEL (the route's ramp/ladder traffic skips it).
+static func stays_home(id: String) -> bool:
+	return IDS.has(id)
 
 
-## Admin "pair" spawn: link the two creatures already on the route into one pack with the difficulty's knobs (moved here from
-## the archived CitySecrets).
+## Admin "pair" spawn: link the two creatures already on the route into one pack with the difficulty's knobs .
 static func link_admin_pair(route, difficulty_id: String) -> void:
 	var row: Dictionary = DIFFICULTY.get(difficulty_id, DIFFICULTY["standard"])
 	var views := {}

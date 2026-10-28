@@ -721,7 +721,7 @@ func _launch(id: String) -> void:
 		launch_override.call(id)
 		return
 	GameRegistry.active_game_id = id
-	get_tree().change_scene_to_file(String(GameRegistry.get_game(id)["scene"]))
+	XRFade.change_scene(get_tree(), String(GameRegistry.get_game(id)["scene"]))
 
 
 func _on_account() -> void:
