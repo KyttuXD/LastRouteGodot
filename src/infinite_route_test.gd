@@ -235,7 +235,7 @@ func _ready() -> void:
 	_refresh_hunter_stream()
 
 	if PlatformProfile.is_phone:
-		TouchControls.attach(self, player)   # phones only (docs/XR_ANDROID.md); desktop never creates it
+		TouchControls.attach(self, player, hud)   # phones only (docs/XR_ANDROID.md); desktop never creates it
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "LEAVE ROUTE"
 	pause_menu.pauses_tree = not RoomState.online

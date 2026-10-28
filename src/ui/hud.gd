@@ -516,6 +516,15 @@ func _ensure_inventory_menu_capacity(capacity: int) -> void:
 		_inventory_menu_bars.append(bar)
 
 
+## The hotbar's rect on the HUD canvas (the union of its slots), for TouchControls to keep clear of.
+func hotbar_rect() -> Rect2:
+	var rect := Rect2()
+	for slot in _inventory_slots:
+		if slot != null and slot.is_visible_in_tree():
+			rect = slot.get_global_rect() if rect.size == Vector2.ZERO else rect.merge(slot.get_global_rect())
+	return rect
+
+
 func inventory_is_open() -> bool:
 	return _inventory_overlay != null and _inventory_overlay.visible
 

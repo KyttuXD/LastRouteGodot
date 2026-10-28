@@ -512,6 +512,8 @@ func _on_node_added(node: Node) -> void:
 	if not node is BaseButton:
 		return
 	var button := node as BaseButton
+	if button.has_meta(&"silent_ui"):
+		return   # in-game touch controls (TouchControls): a blip on every jump or step would be a constant beeping
 	var callback := Callable(self, "menu_blip")
 	if not button.pressed.is_connected(callback):
 		button.pressed.connect(callback)

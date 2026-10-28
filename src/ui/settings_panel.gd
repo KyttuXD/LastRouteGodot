@@ -314,6 +314,16 @@ func _build_focus_pause_row() -> void:
 		Settings.set_pause_on_focus_loss(enabled)
 		Palette.set_state_toggle(_focus_pause_button, enabled))
 	row.add_child(_focus_pause_button)
+	if PlatformProfile.is_phone:
+		# Phones only: the movement control for TouchControls (desktop never shows this button).
+		var move_button := Button.new()
+		move_button.name = "TouchMoveButton"
+		move_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		move_button.text = "MOVE: %s" % ("STICK" if Settings.touch_move == "stick" else "ARROWS")
+		move_button.pressed.connect(func() -> void:
+			Settings.set_touch_move("dpad" if Settings.touch_move == "stick" else "stick")
+			move_button.text = "MOVE: %s" % ("STICK" if Settings.touch_move == "stick" else "ARROWS"))
+		row.add_child(move_button)
 	add_child(row)
 
 

@@ -90,6 +90,8 @@ var reduced_motion := false
 ## OpenXR comfort (XRComfort): the player's real standing height (world scale makes them a 1.60 m runner), smooth or snap
 ## turning, the movement vignette and seated mode. Ignored outside XR.
 var xr_player_height := 1.70
+## Phone movement control (TouchControls): "dpad" (fixed arrows, double tap to sprint) or "stick" (floating stick).
+var touch_move := "dpad"
 var xr_smooth_turn := false
 var xr_vignette := true
 var xr_seated := false
@@ -185,6 +187,11 @@ func focus_loss_pauses() -> bool:
 	if not pause_on_focus_loss:
 		return false
 	return not (RoomState.online or RoomState.public_route or RoomState.peers.size() > 1)
+
+
+func set_touch_move(mode: String) -> void:
+	touch_move = "stick" if mode == "stick" else "dpad"
+	_save()
 
 
 func set_xr_comfort(height: float, smooth_turn: bool, vignette: bool, seated: bool) -> void:
@@ -447,6 +454,7 @@ func _load() -> void:
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
 	xr_player_height = clampf(float(config.get_value("xr", "player_height", 1.70)), 1.0, 2.3)
+	touch_move = "stick" if String(config.get_value("touch", "move", "dpad")) == "stick" else "dpad"
 	xr_smooth_turn = bool(config.get_value("xr", "smooth_turn", false))
 	xr_vignette = bool(config.get_value("xr", "vignette", true))
 	xr_seated = bool(config.get_value("xr", "seated", false))
@@ -506,6 +514,7 @@ func _save() -> void:
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
 	config.set_value("xr", "player_height", xr_player_height)
+	config.set_value("touch", "move", touch_move)
 	config.set_value("xr", "smooth_turn", xr_smooth_turn)
 	config.set_value("xr", "vignette", xr_vignette)
 	config.set_value("xr", "seated", xr_seated)

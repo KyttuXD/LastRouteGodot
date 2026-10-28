@@ -45,14 +45,21 @@ standalone now; PC VR later). Desktop behaviour never changes: everything else s
 Every control feeds the game's ordinary Input actions, so gameplay, networking and validators see the same inputs a
 keyboard makes:
 
-- **Move:** a floating stick anywhere in the left 40 % of the screen sets `move_*` with analogue strength; pushing past the
-  ring adds `sprint`.
-- **Look:** dragging on the right 60 % calls `PlayerController3D.apply_look_delta`, scaled by the mouse sensitivity setting
-  times `TOUCH_LOOK_SCALE`. The mouse motion Godot emulates from touches is ignored on phones.
+- **Move (default: D-pad):** fixed arrows in the bottom-left corner set `move_*` at full strength.
+  - Diagonals: touch between two arrows, slide between them, or use two fingers.
+  - Sprint: double-tap an arrow and hold it (second press within 0.3 s); it sprints that way until released.
+  - Settings → `MOVE: ARROWS / STICK` (phones only, `Settings.touch_move`) swaps in the floating analogue stick, which
+    sprints when pushed past its ring.
+- **Look:** dragging on any free part of the screen calls `PlayerController3D.apply_look_delta`, scaled by the mouse
+  sensitivity setting times `TOUCH_LOOK_SCALE`. The mouse motion Godot emulates from touches is ignored on phones.
 - **Buttons:**
   - bottom-right: USE, JUMP, DUCK, TOOL and LIGHT;
-  - either side of the HUD hotbar: the `hotbar_previous` / `hotbar_next` arrows;
+  - either side of the HUD hotbar (measured from its real slots): the `hotbar_previous` / `hotbar_next` arrows;
   - top-left: pause, map, bag and chat.
+- **No conflicts:** no movement zone overlaps the hotbar or its arrows. While the inventory is open it gets every touch;
+  only BAG and pause stay.
+- **Silent:** the buttons carry `silent_ui`, so `Sound` does not give them the menu blip. Every jump or step used to
+  beep.
 - **Sizing:** buttons are at least `MIN_TARGET` (26 canvas units, about 48 dp) and see-through.
 
 Shots: `touch_controls_2400x1080.png`, `touch_controls_1688x780.png` (`tools/look/touch_capture.gd`).
@@ -115,8 +122,10 @@ The prebuilt Android template carries no OpenXR loader and no VR manifest entrie
   - the desktop run keeps the reference budgets;
   - the phone, low-memory and Quest profiles shrink them;
   - the phone and Quest presets exist with the right XR mode and packages;
-  - the touch controls build headless, every button drives an existing action, the stick maps to `move_up` and `sprint`,
-    and every target meets the minimum size.
+  - the touch controls build headless, default to the D-pad, and each arrow and diagonal maps to the right move actions;
+  - a double tap held on an arrow sprints, and nothing overlaps the hotbar or its arrows;
+  - the open inventory takes every touch, no touch button plays the menu blip, the stick mode still maps to `move_up` and
+    `sprint`, and every target meets the minimum size.
 - `platform` also checks the XR comfort maths: world scale, the latched snap turn, proportional smooth turn, and that a
   desktop run builds no comfort node.
 - `player` checks that a flat run builds no XR helpers and keeps [E] aimed from the head, the climb and swing maths, and
