@@ -754,3 +754,31 @@ test("rooms carry the game they belong to (missing or invalid means last_route)"
     await app.close();
   }
 });
+
+test("developer tokens expire and /api/dev/reload is rate limited as a sensitive endpoint", async () => {
+  let current = 50_000;
+  const app = await fixtureWith(() => createLastRouteServer({
+    now: () => current,
+    adminPassword: "server setup proof",
+    devTokenTtlMs: 5_000,
+    rateLimitWindowMs: 60_000,
+    accountRateLimitMax: 4,
+    apiRateLimitMax: 100,
+  }));
+  try {
+    let result = await post(app.url, "/api/dev/login", { password: "server setup proof" });
+    assert.equal(result.response.status, 200);
+    const devToken = result.body.devToken;
+    result = await post(app.url, "/api/dev/reload", { devToken });
+    assert.equal(result.response.status, 200);
+    current += 5_001;
+    result = await post(app.url, "/api/dev/reload", { devToken });
+    assert.equal(result.response.status, 401, "an expired dev token still granted developer proof");
+    result = await post(app.url, "/api/dev/reload", { adminProof: "guess" });
+    assert.equal(result.response.status, 401);
+    result = await post(app.url, "/api/dev/reload", { adminProof: "guess 2" });
+    assert.equal(result.response.status, 429, "adminProof guesses on /api/dev/reload were not rate limited");
+  } finally {
+    await app.close();
+  }
+});

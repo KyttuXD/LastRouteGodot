@@ -28,3 +28,16 @@ Placement: a 21-wide midway has ring toss, shooting gallery and whack-a-mole alo
 ## Validator
 
 `carnival_booths`: data and rules for every booth, bots for every game, the world state through a snapshot, the booth node (prompt, board, movement lock, overlay, exactly one report, cancel, remote turn) and the route flow in a real generated carnival chunk (start, a second player turned away, an impossible result, the cooldown, a late joiner's snapshot, a winning result and its prize, a game left unfinished).
+
+## The merry-go-round (`CarouselRide3D`)
+
+The centre of every carnival **big top** is a working merry-go-round (the old two-storey ride room is dead generator code since the single-level change; its single turning model is replaced by this code-built ride and hidden). `src/game_3d/carousel_ride_3d.gd`:
+
+- **Parts** (blocky, 3.3 m tall so it fits the room): a ramp and platform you walk onto (a still convex collider; the platform is round, so it does not matter that it turns), eight carved horses on brass poles that bob (alternating phase), a canopy with a chase of 24 bulbs, a centre column with four dark empty mirrors (black glass that shows nothing), a lever panel on the floor beside the ramp, and a slightly off-key music-box tune (`Sound` cue `carnival_carousel_tune`, a positional looping player that plays only while the ride runs and is near).
+- **Lever**: a "play" interactable (`START` / `STOP THE MERRY-GO-ROUND`). It asks the host (`stream_carousel`); the clunk (and starting it) is a noise burst for the hunters.
+- **Shared rotation**: `StreamedWorldState.carousels` (ride id -> on, angle, t0 on this machine's clock). The angle is a pure function of that state and the shared speed (0.45 rad/s), so every client draws the same turn; an event carries the angle at that instant and each machine re-bases to its own clock (error = the network delay); a snapshot carries the angle now. A stopped ride keeps its angle.
+- **Riding**: someone standing on the platform (inside the radius, within a step of its top) is carried round the centre each frame by the angle it turned, and their facing turns with it (`PlayerController3D.rotate_with_platform`); the local player is the `carousel_riders` group, hunters are the `streamed_hunter` group, so a hunter that steps on is carried too. Nobody is carried off to the side, from above, or when it is stopped. Horses and the column have collision that turns with the rotor.
+- **Nav**: the generator reserves a solid 1.3 m blocker at the centre (wider than the column), so hunters path round the column; the platform is walkable.
+- **CPU**: beyond 38 m from a camera the ride neither animates nor moves nor plays music (it snaps to the right angle when it comes back); the host also stops a ride nobody is within 32 m of after 20 s.
+
+`carousel` validator: the shared rotation through a snapshot and over ten seconds, the ride's parts, bobbing horses and the bulb chase, a rider carried for twelve seconds without sliding (same place in the ride's frame, same radius, facing turned by the total angle), not carried beside, above or when stopped, LOD, and in a real generated big top the lever through the host (start, angle follows the state, stop keeps the angle, a far peer is ignored, the host's idle stop). Capture: `tools/look/carousel_capture.tscn`.

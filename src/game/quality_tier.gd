@@ -103,6 +103,10 @@ static func budgets(tier: int, specs: Dictionary) -> Dictionary:
 		out["shadows"] = false
 		out["lamp_pool"] = 4
 		out["camera_far"] = 60.0
+	out["render_scale"] = 1.0
+	out["prop_density"] = 1.0 if tier >= Tier.MEDIUM else .55
+	out["decor_density"] = 1.0 if tier >= Tier.MEDIUM else .4
+	out["keep_shadows"] = bool(out["shadows"])
 	out["worker_threads"] = maxi(1, int(specs.get("cores", 4)) - 1)
 	out["frame_target_hz"] = frame_target(specs)
 	return out

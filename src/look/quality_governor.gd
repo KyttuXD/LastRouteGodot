@@ -3,14 +3,14 @@ extends Node
 
 ## Live quality adaptation inside the detected (or chosen) tier. Watches a rolling frame time against the device's
 ## frame target (QualityTier.frame_target); when the target is missed for MISS_SECONDS it gives up one "notch", in
-## this order: draw distance, shadows, prop density, lamps, streaming slice. After a sustained margin it takes one
+## this order: draw distance, shadows, prop density, lamps, streaming slice, render scale. After a sustained margin it takes one
 ## back. Separate thresholds, cooldowns and a hold after every step-down keep it from flickering. Only in GRAPHICS AUTO.
 ##
 ## The decision core (feed) is pure so scripts/validate_quality_tiers.gd can run it on synthetic frame times.
 
 signal notch_changed(notch: int)
 
-const MAX_NOTCH := 5
+const MAX_NOTCH := 6
 const WINDOW_SECONDS := 2.0
 const MISS_SECONDS := 3.0          # target missed this long -> one notch down
 const MARGIN_SECONDS := 12.0       # comfortably under budget this long -> one notch up
@@ -97,8 +97,8 @@ static func degrade(budgets: Dictionary, n: int) -> Dictionary:
 	if n >= 1:
 		var far := float(out.get("camera_far", 0.0))
 		out["camera_far"] = (far if far > 0.0 else 200.0) * .7
-	if n >= 2:
-		out["shadows"] = false
+	if n >= 2 and not bool(out.get("keep_shadows", false)):
+		out["shadows"] = false   # desktop MEDIUM+ keeps the flashlight's shadows through every step (core to the horror)
 	if n >= 3:
 		out["prop_range_scale"] = float(out.get("prop_range_scale", 1.0)) * .75
 	if n >= 4:
@@ -106,4 +106,6 @@ static func degrade(budgets: Dictionary, n: int) -> Dictionary:
 	if n >= 5:
 		out["stream_budget_ms"] = maxf(1.5, float(out.get("stream_budget_ms", 4.0)) - 1.0)
 		out["stream_budget_max_ms"] = maxf(3.0, float(out.get("stream_budget_max_ms", 9.0)) - 2.0)
+	if n >= 6:
+		out["render_scale"] = maxf(.6, float(out.get("render_scale", 1.0)) * .8)
 	return out

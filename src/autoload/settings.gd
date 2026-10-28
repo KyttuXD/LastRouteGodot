@@ -70,7 +70,7 @@ const REBINDABLE_ACTIONS: Array[String] = [
 	"move_left", "move_right", "move_up", "move_down",
 	"look_left", "look_right", "look_up", "look_down",
 	"sprint", "crouch", "jump", "flashlight", "taser", "tool_use", "interact",
-	"inventory", "drop_item", "chat", "toggle_map", "waypoint", "waypoint_clear", "pause",
+	"inventory", "drop_item", "chat", "toggle_map", "pause",
 	"office_left_door", "office_right_door", "office_desk_light",
 	"office_vent", "office_cameras", "office_radio", "office_breaker",
 	"office_reboot", "office_emergency_flash", "office_rear_flash",
@@ -516,7 +516,8 @@ func _apply_display() -> void:
 func _apply_display_performance() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED \
 		if vsync_enabled else DisplayServer.VSYNC_DISABLED)
-	Engine.max_fps = fps_limit
+	# no limit set: phones and the Quest still cap at the rate they can hold (PlatformProfile.default_fps_cap)
+	Engine.max_fps = fps_limit if fps_limit > 0 else PlatformProfile.default_fps_cap()
 
 
 func _apply_volume() -> void:
@@ -698,7 +699,7 @@ func _save() -> void:
 	config.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	for action in REBINDABLE_ACTIONS:
 		var entries := []
-		for event in InputMap.action_get_events(action):
+		for event in MouseLock.true_events(action):
 			if event is InputEventKey:
 				entries.append({"type": "key", "code": event.physical_keycode})
 			elif event is InputEventMouseButton:

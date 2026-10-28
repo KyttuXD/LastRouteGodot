@@ -118,6 +118,8 @@ Point that DNS name at the panel's public address and expose TCP 8105 plus UDP
 | `LASTROUTE_DATA_DIR` | `./.data` | persistent data directory |
 | `LASTROUTE_ACCOUNT_STORE` | `<data>/accounts.json` | optional exact account-store path |
 | `LASTROUTE_ADMIN_PASSWORD` | empty/disabled | enables `/api/dev/login` |
+| `LASTROUTE_MODERATION_STORE` | `moderation.json` beside the account store | flags, kick log, cooldowns, build allow-list |
+| `LASTROUTE_MODERATION_SALT` | generated and persisted in the store | salt for the sha256 of device ids and IPs |
 | `LASTROUTE_RELAY_ENABLED` | `true` | bind the authenticated UDP gameplay relay |
 | `LASTROUTE_RELAY_HOST` | `lastroute.kyttuslab.org` | public relay address returned for room-code joins |
 | `LASTROUTE_RELAY_PORT` | `1105` | UDP relay allocation |
@@ -157,6 +159,8 @@ names from the original deployment remain accepted as compatibility aliases.
 - `POST /api/account/register`, `login`, `session`, `password`, `rename`,
   `save`, `load`, `logout`
 - `POST /api/dev/login`, `reload`
+- `POST /api/moderation/integrity`, `report`, `status`, `peers`
+- `POST /api/admin/flags`, `flags/set`, `builds/add`, `builds/remove` (full owner)
 
 `GET /api/health` reports the exact Git commit currently published for each
 update channel under `updates.<channel>.revision`, together with its version
@@ -302,3 +306,36 @@ Run the real Godot integration smoke test against the deployed primary service:
 ```sh
 godot4 --headless --path .. res://scenes/backend_smoke.tscn
 ```
+
+## Moderation
+
+The host client's anti-cheat kicks cheaters in-room; the server keeps the record in `moderation.mjs`. KT ruling: accounts
+are never restricted automatically, only by an owner.
+(store: `moderation.json` beside the accounts, atomic writes). Device ids and IPs are only stored as
+`sha256(salt + value)`. Restrictions cover shared play only: joining the PUBLIC route
+(`/api/public/join`), registering a PUBLIC ENet room (`/api/enet/rooms/register` with a public code), and
+`/api/skins/upload`. Sign-in, solo play and private rooms are never blocked. Refusals are HTTP 403
+`{ok:false, code:"FLAGGED", error, until, permanent, cooldown}`.
+
+- **Review queue.** Every reported kick (`kick`; `kicks` once 2+ *distinct* hosts reported it within 7 days) and
+  every unknown build hash (`integrity`, once per hash per account) opens a review entry
+  `{at, reason, detail, open}` on the account. Nothing is restricted by it; built-in owners are never queued.
+- **Owner actions only.** A flag (`extend`), `ban` and `troll_on` from `/api/admin/flags/set` are the only things
+  that restrict an account or troll it server-side. Any action (including `dismiss`) closes the open reviews.
+  A rename carries the record along. There are no automatic device/IP cooldowns (`cooldownUntil` stays null).
+- **Known builds.** Owner allow-list, or the `sha256` of the published update manifest entry for that
+  channel/platform; owner sessions on the `debug` channel are always known.
+
+| Endpoint | Body | Response |
+| --- | --- | --- |
+| `/api/moderation/integrity` | `sessionToken?, deviceId?, commit, buildHash, platform, channel, context` | `{ok, known, status}` |
+| `/api/moderation/report` | `code, hostToken, username?, deviceId?, reason, strikes, kind:"kick"` | `{ok, flagged, status}` |
+| `/api/moderation/status` | `sessionToken?, deviceId?` | `{ok, status}` |
+| `/api/moderation/peers` | `code, hostToken, usernames[≤16], deviceIds[≤16]` | `{ok, players:{NAME:{flagged,permanent,troll,reason}}, devices:{id:{cooldown,troll}}}` |
+| `/api/admin/flags` | `sessionToken` | `{ok, accounts, reviews:[NAME with open reviews], builds}` |
+| `/api/admin/flags/set` | `sessionToken, username, action (clear\|extend\|ban\|unban\|troll_on\|troll_off\|dismiss), hours?, note?` | `{ok, record}` |
+| `/api/admin/builds/add` / `remove` | `sessionToken, buildHash, commit?, note?` | `{ok, build?, removed?, builds}` |
+
+`status` is `{flagged, permanent, until, reason, troll, restrictions:{publicRoute, hostPublic, skinUpload},
+cooldownUntil, message}`. Hosts should pass `sessionToken` (and `deviceId`) to `/api/enet/rooms/register` so
+their kick reports count as a distinct host; anonymous rooms count per registered room instance.

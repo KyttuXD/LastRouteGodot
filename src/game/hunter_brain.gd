@@ -78,6 +78,8 @@ var facing := Vector2(0, 1)
 
 var radius := GameConfig.HUNTER_RADIUS
 var base_speed: float
+## Chasing a trolled cheater (RemotePlayers.troll_peers): a little faster.
+var troll_target := false
 var chase_speed: float
 var chase_progression_scale: float
 var sight_range: float
@@ -178,6 +180,7 @@ func _tick_emote(delta: float) -> void:
 
 
 func update(delta: float, generator, target: Dictionary, depth: int, relays_collected: int) -> bool:
+	troll_target = bool(target.get("troll", false))
 	relays_seen = relays_collected
 	_tick_emote(delta)
 	# A rule-summoned hunter decides her own activation inside her gimmick, so
@@ -642,6 +645,8 @@ func _current_speed(depth: int, relays_collected: int) -> float:
 		speed *= gimmick.speed_scale(self)
 	if hard != null:
 		speed *= hard.speed_scale()
+	if troll_target:
+		speed *= GameConfig.TROLL_HUNTER_SPEED_SCALE
 	return speed * float(difficulty_profile["hunter_speed"])
 
 
@@ -938,6 +943,9 @@ func next_random_index(exclusive_max: int) -> int:
 var beam_attention := 0.0
 var beam_alerted := false
 var flash_triggered := false
+## A new flash needs the beam to have been let go (attention back to 0). A hunter walking into the player wobbles on the
+## edge of the cone; a one-frame gap must not count as a second flash.
+var _flash_armed := true
 
 
 func _update_beam_attention(delta: float, generator, target: Dictionary) -> void:
@@ -952,7 +960,11 @@ func _update_beam_attention(delta: float, generator, target: Dictionary) -> void
 	else:
 		beam_attention = maxf(0.0, previous - delta * GameConfig.BEAM_ATTENTION_DECAY)
 	beam_alerted = lit and beam_attention >= GameConfig.BEAM_ATTENTION_TIME
-	flash_triggered = beam_alerted and previous < GameConfig.BEAM_ATTENTION_TIME
+	if beam_attention <= 0.0:
+		_flash_armed = true
+	flash_triggered = beam_alerted and previous < GameConfig.BEAM_ATTENTION_TIME and _flash_armed
+	if flash_triggered:
+		_flash_armed = false
 
 
 func beam_reaches(from: Vector2, from_facing: Vector2, target: Vector2, range_limit: float, half_angle: float, generator) -> bool:
