@@ -59,6 +59,7 @@ func run(host: Node) -> int:
 	_expect(found.has("phone") and found.has("quest") and found.has("iphone"), "missing mobile presets: %s" % [found.keys()])
 	_check_touch_controls(host)
 	_check_quit()
+	_check_player_release_presets()
 	_check_self_update()
 	_check_xr_comfort(host)
 	await _check_xr_route_panel(host)
@@ -393,6 +394,62 @@ func _check_self_update() -> void:
 	_expect(FileAccess.get_sha256(path) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
 		"the download checksum does not match a known sha256")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+## Player Release presets (docs/XR_ANDROID.md, "Encrypted player builds"): one per shipped platform, encrypted (PCK and
+## directory), feature "player", internal code excluded; every other preset is "internal". No shipped script or scene
+## may reference an excluded file, or a player build would fail to load it.
+func _check_player_release_presets() -> void:
+	var presets := ConfigFile.new()
+	_expect(presets.load("res://export_presets.cfg") == OK, "export_presets.cfg does not load")
+	var player := {}
+	var excluded := PackedStringArray()
+	for section in presets.get_sections():
+		if section.ends_with(".options") or not presets.has_section_key(section, "name"):
+			continue
+		var name := String(presets.get_value(section, "name"))
+		var features := String(presets.get_value(section, "custom_features", "")).split(",")
+		if name.ends_with("Player Release"):
+			player[name] = true
+			_expect(features.has("player") and not features.has("internal"), "%s is not a player-only build" % name)
+			_expect(bool(presets.get_value(section, "encrypt_pck", false)) and bool(presets.get_value(section, "encrypt_directory", false)),
+				"%s does not encrypt its PCK" % name)
+			excluded = String(presets.get_value(section, "exclude_filter", "")).split(",")
+			_expect(excluded.size() >= 3, "%s excludes no internal code" % name)
+		else:
+			_expect(features.has("internal"), "%s is not marked internal" % name)
+	for wanted in ["macOS", "Windows", "Linux", "Android Phone", "Meta Quest", "iPhone"]:
+		_expect(player.has("%s Player Release" % wanted), "missing the %s Player Release preset" % wanted)
+	var offenders := []
+	for path in _shipped_sources("res://src") + _shipped_sources("res://scenes"):
+		if _excluded(path, excluded):
+			continue
+		var text := FileAccess.get_file_as_string(path)
+		for pattern in excluded:
+			var folder := pattern.strip_edges().trim_suffix("*")
+			if folder.ends_with("/") and text.contains("res://" + folder) and path != "res://src/look/perf_log.gd":
+				offenders.append("%s -> %s" % [path, folder])
+	_expect(offenders.is_empty(), "shipped code references excluded files: %s" % [offenders])
+
+
+func _shipped_sources(dir_path: String) -> Array:
+	var found := []
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return found
+	for file in dir.get_files():
+		if file.ends_with(".gd") or file.ends_with(".tscn"):
+			found.append(dir_path.path_join(file))
+	for sub in dir.get_directories():
+		found.append_array(_shipped_sources(dir_path.path_join(sub)))
+	return found
+
+
+func _excluded(path: String, patterns: PackedStringArray) -> bool:
+	for pattern in patterns:
+		if path.trim_prefix("res://").match(pattern.strip_edges()):
+			return true
+	return false
 
 
 ## QUIT: hidden on iOS and the web, offered elsewhere (this desktop run included), and the quit path saves before it
