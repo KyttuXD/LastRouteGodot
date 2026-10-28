@@ -151,6 +151,11 @@ func hide_search(pan: float = 0.0, intensity: float = 1.0) -> bool:
 
 ## Sleep (docs/REST_AND_SLEEP.md): settling into sleep, a yawn when drowsy, the muffled stir of something close, the
 ## jolt awake, and a sleeping hunter's snore.
+## Room light switch click (docs/LIGHT_SWITCHES.md).
+func light_switch(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("light_switch", pan, intensity)
+
+
 func sleep_settle(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("sleep_settle", pan, intensity)
 
@@ -421,6 +426,13 @@ func _render_ambience_uncached(key: String) -> AudioStreamWAV:
 	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	stream.loop_begin = 0
 	stream.loop_end = int(seconds * SAMPLE_RATE)
+	# One guard frame after loop_end, a copy of frame 0 so the seam stays clean. With loop_end on the very last frame,
+	# Android's mixer interpolates one frame past the end of the buffer and the hardened allocator kills the process
+	# (SIGSEGV in the AudioTrack thread as a route starts).
+	var data := stream.data
+	data.resize(stream.loop_end * 4)
+	data.append_array(data.slice(0, 4))
+	stream.data = data
 	return stream
 
 
@@ -500,6 +512,8 @@ func _on_node_added(node: Node) -> void:
 	if not node is BaseButton:
 		return
 	var button := node as BaseButton
+	if button.has_meta(&"silent_ui"):
+		return   # in-game touch controls (TouchControls): a blip on every jump or step would be a constant beeping
 	var callback := Callable(self, "menu_blip")
 	if not button.pressed.is_connected(callback):
 		button.pressed.connect(callback)
@@ -585,6 +599,7 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			_noise(.14, .11, 760, 0, pan, .9),
 			_tone(168, .09, .07, .02, "square", pan),
 			_noise(.09, .06, 2100, .08, pan, 1.1)]
+		"light_switch": c = [_tone(2600, .012, .1, 0, "square", pan), _thump(140, .04, .08, .01, pan)]
 		"sleep_settle": c = [_noise(.5, .05, 400, 0, pan, .5), _tone(110, .4, .04, .1, "sine", pan)]
 		"sleep_yawn": c = [_tone(220, .55, .07, 0, "triangle", pan), _tone(165, .5, .05, .35, "triangle", pan),
 			_noise(.4, .04, 900, .2, pan, .6)]

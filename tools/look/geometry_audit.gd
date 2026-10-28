@@ -20,7 +20,6 @@ func _ready() -> void:
 		seeds.append("GEOM-%d" % i)
 	var findings: Array = []
 	var lr := GeometryAudit.sweep_last_route(seeds, per_biome, findings)
-	var city := GeometryAudit.sweep_city(seeds, findings)
 	var offices := 0
 	for mode_id in NightWatchModesData.MODES.map(func(m): return String(m["id"])):
 		if not NightWatchOfficeRegistry.built(mode_id):
@@ -32,7 +31,7 @@ func _ready() -> void:
 		office.queue_free()
 		await get_tree().process_frame
 		offices += 1
-	print("geometry audit [%s]: %d chunks (%d props, biomes %s), %d cities, %d offices" % [tag, lr["chunks"], lr["props"], str(lr["biomes"]), city["cities"], offices])
+	print("geometry audit [%s]: %d chunks (%d props, biomes %s), %d offices" % [tag, lr["chunks"], lr["props"], str(lr["biomes"]), offices])
 	print(GeometryAudit.report_text(findings, 60))
 	var ranked := GeometryAudit.rank(findings)
 	var file := FileAccess.open((out_dir if out_dir.is_absolute_path() else ProjectSettings.globalize_path("res://").path_join(out_dir)).path_join("geometry_audit_%s.json" % tag), FileAccess.WRITE)
