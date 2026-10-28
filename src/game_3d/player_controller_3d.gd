@@ -186,6 +186,9 @@ var stamina := GameConfig.MAX_STAMINA
 var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
 var stamina_recovery_delay := 0.0
+## Set when sprinting stops above GameConfig.STAMINA_QUICK_THRESHOLD: stamina ramps back to full in a blink.
+var stamina_quick_refill := false
+var _was_sprinting_stamina := false
 var movement_mode := "walk"
 ## Noise emitted this frame by movement, consumed by hunter hearing
 ## (hunter_brain.gd) — matches the original's per-frame emittedNoise.
@@ -1829,8 +1832,20 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 		stamina_recovery_delay = GameConfig.STAMINA_RECOVERY_DELAY
 		if stamina <= 0.0:
 			exhausted = true
+		stamina_quick_refill = false
+		_was_sprinting_stamina = true
 		return
 
+	if _was_sprinting_stamina:
+		_was_sprinting_stamina = false
+		stamina_quick_refill = not exhausted and stamina > GameConfig.STAMINA_QUICK_THRESHOLD
+	if stamina_quick_refill:
+		stamina = minf(GameConfig.MAX_STAMINA,
+			stamina + GameConfig.MAX_STAMINA / GameConfig.STAMINA_QUICK_REFILL_TIME * delta)
+		stamina_recovery_delay = 0.0
+		if stamina >= GameConfig.MAX_STAMINA:
+			stamina_quick_refill = false
+		return
 	stamina_recovery_delay = maxf(0.0, stamina_recovery_delay - delta)
 	if stamina_recovery_delay <= 0.0:
 		stamina = minf(GameConfig.MAX_STAMINA, stamina + GameConfig.STAMINA_RECOVERY * delta)
