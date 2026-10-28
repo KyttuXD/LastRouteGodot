@@ -31,6 +31,11 @@ all hang off it.
 `SealPlanner` places seals per chunk from `SealRules` (open share and seals per ring, chained wings, relays and tools).
 Seals never stand on a level link (ramps, stairs, falls) and every relay and tool the rules guarantee is reachable.
 
+On the sewer levels (-1, -2) `SealPlanner.plan_rooms` puts a gate (sluice gate, locked maintenance door or bricked-up wall) across the
+three-wide branch of a pump or valve room, so the room is the sealed wing; the junction stays the entrance, a relay always waits on
+open ground and the second often sits in a room. Seal ids start at index 100 (`SewerRouteGenerator.SEAL_FIRST_INDEX`) so they never
+meet the pipes' ids (0 up).
+
 ## Authored pieces
 
 A spec with variant `"authored"` (or `"none"`) draws nothing and has no collider: only an invisible aim target stands at its

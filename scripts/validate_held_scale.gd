@@ -19,8 +19,9 @@ func _bounds(root: Node3D) -> AABB:
 	return out
 
 
-## Real-world length of each tool in the runner's hand (metres, in the 1.60 m body): flashlight ~0.2, taser ~0.17, lock-pick set
-## ~0.15, a crowbar ~0.5 (shortened for the blocky body), the rescue axe ~0.6, a battery ~0.15.
+## Real-world length of each tool in the runner's hand (metres, in the old 1.60 m body; times PlayerModels.SCALE / 0.9 for the
+## 2.2 m runner): flashlight ~0.2, taser ~0.17, lock-pick set ~0.15, a crowbar ~0.5 (shortened for the blocky body), the rescue axe
+## ~0.6, a battery ~0.15.
 const LENGTH_RANGE := {
 	"flashlight": Vector2(0.16, 0.30), "taser": Vector2(0.13, 0.25), "lockpick": Vector2(0.10, 0.20),
 	"crowbar": Vector2(0.42, 0.64), "rescue_axe": Vector2(0.50, 0.74), "battery": Vector2(0.12, 0.26),
@@ -36,7 +37,7 @@ func _expect(condition: bool, message: String) -> void:
 func _check_items(remote: RemotePlayers, body: Node3D, label: String) -> void:
 	var anchor := remote._remote_hand_anchors.get(91) as Node3D
 	var body_box := _bounds(body)
-	_expect(is_equal_approx(body_box.size.y, 1.6) or absf(body_box.size.y - 1.6) < .03, "%s: the body is %.2f m, not 1.60" % [label, body_box.size.y])
+	_expect(absf(body_box.size.y - 1.78 * PlayerModels.SCALE) < .03, "%s: the body is %.2f m, not %.2f" % [label, body_box.size.y, 1.78 * PlayerModels.SCALE])
 	for item_id in RemotePlayers.REMOTE_HELD_MODELS:
 		remote._sync_remote_held_item(91, body, item_id)
 		var item := remote._remote_held_items.get(91) as Node3D
@@ -45,8 +46,8 @@ func _check_items(remote: RemotePlayers, body: Node3D, label: String) -> void:
 			continue
 		var box := _bounds(item)
 		var longest := maxf(box.size.x, maxf(box.size.y, box.size.z))
-		var range_m: Vector2 = LENGTH_RANGE[item_id]
-		_expect(longest >= range_m.x and longest <= range_m.y, "%s: %s is %.2f m long (want %.2f-%.2f for a 1.60 m body)" % [label, item_id, longest, range_m.x, range_m.y])
+		var range_m: Vector2 = (LENGTH_RANGE[item_id] as Vector2) * (PlayerModels.SCALE / 0.9)
+		_expect(longest >= range_m.x and longest <= range_m.y, "%s: %s is %.2f m long (want %.2f-%.2f for the %.2f m body)" % [label, item_id, longest, range_m.x, range_m.y, 1.78 * PlayerModels.SCALE])
 		_expect(box.grow(.04).has_point(anchor.global_position), "%s: %s is not gripped (the hand is %.2f m from its bounds)" % [label, item_id, box.get_center().distance_to(anchor.global_position)])
 		_expect(body_box.grow(.55).encloses(box), "%s: %s sticks %.2f m out of the body's reach" % [label, item_id, box.get_center().distance_to(body_box.get_center())])
 		var share := longest / body_box.size.y

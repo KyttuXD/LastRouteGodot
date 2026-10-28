@@ -6,7 +6,7 @@ extends RefCounted
 ## placement clean-up and the debug overlay all agree with what the player capsule really meets.
 ## Everything is in chunk-local grid metres (1 cell = 1 m, x right, y = world z).
 
-const PLAYER_RADIUS := 0.2
+const PLAYER_RADIUS := 0.28
 ## Walking lane used by the placement rules: capsule plus a margin, and a comfortable lane to doors and interactables.
 const MARGIN_RADIUS := 0.3
 const LANE_RADIUS := 0.4
