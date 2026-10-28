@@ -18,10 +18,22 @@ static func apply(office: Node3D, office_id: String) -> void:
 	match office_id:
 		"classic_security", "hub_office":
 			_classic(office)
+			if office_id == "hub_office":
+				_mixed(office)
 		"broadcast_booth":
 			_broadcast(office)
 		"front_office":
 			_mask(office)
+		"child_bedroom":
+			_bedroom(office)
+		"control_room":
+			_facility(office)
+		"lift_landing":
+			_descent(office)
+		"cargo_bay":
+			_dayshift(office)
+		"watch_post":
+			_openair(office)
 
 
 static func _classic(office: Node3D) -> void:
@@ -152,32 +164,223 @@ static func _broadcast(office: Node3D) -> void:
 	for i in range(-4, 5):
 		NightWatchArt.box(root, Vector3(0.1, 1.55, 0.07), Vector3(float(i) * 0.35, 1.75, -half_d + 0.05), {"name": "WindowBar", "kind": "metal", "tint": Color(0.12, 0.14, 0.17)})
 	NightWatchArt.box(root, Vector3(0.9, 0.04, 0.4), Vector3(0, 2.96, 0.2), {"name": "CeilingPanelCyan", "kind": "light", "tint": Color(0.8, 1.5, 1.6)})
-	NightWatchArt.box(root, Vector3(0.5, 0.3, 0.4), Vector3(-1.9, 0.15, -half_d + 0.4), {"name": "FloorBox", "kind": "metal", "tint": Color(0.4, 0.45, 0.5)})
+	NightWatchArt.box(root, Vector3(0.5, 0.3, 0.4), Vector3(-1.9, 0.15, -half_d + 0.25), {"name": "LowBox", "kind": "metal", "tint": Color(0.4, 0.45, 0.5)})
 
 
 ## Masked Hours: the 2D picture is a purple corridor with dark vent grilles on both walls, orange dashes along them and a checkered floor:
-## dashes on the side walls and a checker floor laid over the floor (the room already has the vents; the front wall stays plain).
+## dashes on the side walls (the palette lays the checker floor, the room already has the vents; the front wall stays plain).
 static func _mask(office: Node3D) -> void:
 	var hw: float = MaskOffice.HALF_W
-	var fz: float = MaskOffice.FRONT_Z
-	var bz: float = MaskOffice.BACK_Z
 	var root := Node3D.new()
 	root.name = "Signature"
 	office.add_child(root)
 	for side in [-1.0, 1.0]:
 		for z in [-1.2, -0.7, 1.4, 1.8]:
 			NightWatchArt.box(root, Vector3(0.03, 0.07, 0.35), Vector3(side * (hw - 0.04), 1.05, z), {"name": "OrangeDash", "kind": "wall", "tint": ORANGE})
-	var floor_img := Image.create(2, 2, false, Image.FORMAT_RGBA8)
-	floor_img.set_pixel(0, 0, Color8(60, 40, 120))
-	floor_img.set_pixel(1, 1, Color8(60, 40, 120))
-	floor_img.set_pixel(1, 0, Color8(40, 28, 90))
-	floor_img.set_pixel(0, 1, Color8(40, 28, 90))
-	var fm := StandardMaterial3D.new()
-	fm.albedo_texture = ImageTexture.create_from_image(floor_img)
-	fm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	fm.uv1_scale = Vector3(hw * 2.0 / 0.5, (bz - fz) / 0.5, 1.0)
-	fm.roughness = 1.0
-	fm.set_meta("nw_kind", "floor")
-	var fl := NightWatchArt.box(root, Vector3(hw * 2.0 - 0.1, 0.01, bz - fz - 0.1), Vector3(0, 0.006, (bz + fz) * 0.5), {"name": "CheckerFloor", "kind": "floor"})
-	fl.material_override = fm
-	fl.set_meta("nw_palette", "poster")
+
+
+## Bedtime: the 2D picture's far wall is moon wallpaper: rows of small pale stars, a big crescent and a small framed one, under a warm yellow ceiling panel. One painted 44 x 20 pixel quad on the far wall (z = -half) and the lamp panel.
+static func _bedroom(office: Node3D) -> void:
+	var half: float = BedroomOffice.HALF
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var w := 44
+	var h := 20
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var star := Color8(214, 214, 236)
+	var moon := Color8(246, 226, 140)
+	for row in 4:
+		for col in 11:
+			img.set_pixel(2 + col * 4, 2 + row * 4, star)
+	for y in range(3, 15):   # the big crescent: a disc less a shifted disc
+		for x in range(14, 28):
+			var d1 := Vector2(x - 20.0, y - 9.0).length()
+			var d2 := Vector2(x - 22.5, y - 8.0).length()
+			if d1 <= 6.0 and d2 > 5.0:
+				img.set_pixel(x, y, moon)
+	for y in range(5, 12):   # the small framed crescent
+		for x in range(33, 40):
+			img.set_pixel(x, y, Color8(70, 50, 100))
+			if Vector2(x - 36.0, y - 8.0).length() <= 2.6 and Vector2(x - 37.2, y - 7.4).length() > 2.2:
+				img.set_pixel(x, y, moon)
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = ImageTexture.create_from_image(img)
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	m.emission_enabled = true
+	m.emission_texture = m.albedo_texture
+	m.emission_energy_multiplier = 0.5
+	m.roughness = 1.0
+	m.set_meta("nw_kind", "fabric")
+	var quad := QuadMesh.new()
+	quad.size = Vector2(3.6, 3.6 * float(h) / float(w))
+	var wall := MeshInstance3D.new()
+	wall.name = "MoonWallpaper"
+	wall.mesh = quad
+	wall.material_override = m
+	wall.position = Vector3(0, 2.0, -half + 0.04)
+	wall.set_meta("nw_name", "MoonWallpaper")
+	wall.set_meta("nw_palette", "poster")
+	root.add_child(wall)
+	NightWatchArt.box(root, Vector3(1.2, 0.04, 0.4), Vector3(0, BedroomOffice.HEIGHT - 0.03, 0.0), {"name": "CeilingPanelWarm", "kind": "light", "tint": Color(1.6, 1.35, 0.6)})
+
+
+## The Facility (story): the 2D picture is a steel-blue corridor with yellow and black hazard tape along the top of the side walls, a panelled far wall with the lift (a red lamp over its door) and a cold white ceiling lamp:
+## hazard tape over both side walls, panel lines on the far wall, the red lift lamp and the white ceiling panel.
+static func _facility(office: Node3D) -> void:
+	var w: float = ControlRoomOffice.ROOM_W
+	var d: float = ControlRoomOffice.ROOM_D
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var gap := 1.0   # the door slabs are at z 0 on both side walls
+	var seg: float = d * 0.5 - gap - 0.15
+	for side in [-1.0, 1.0]:
+		for zs in [-1.0, 1.0]:
+			NightWatchArt.box(root, Vector3(0.03, 0.18, seg), Vector3(side * (w * 0.5 - 0.05), 2.7, zs * (gap + seg * 0.5)), {"name": "HazardTape", "kind": "hazard"})
+	var z: float = -d * 0.5 + 0.04
+	for y in [0.8, 1.6, 2.4]:
+		NightWatchArt.box(root, Vector3(w - 0.3, 0.03, 0.02), Vector3(0, y, z), {"name": "PanelLineH", "kind": "metal", "tint": Color(0.1, 0.16, 0.26)})
+	for i in range(-3, 4):
+		if absf(float(i) * 0.8) > 1.0:
+			NightWatchArt.box(root, Vector3(0.03, 2.5, 0.02), Vector3(float(i) * 0.8, 1.5, z), {"name": "PanelLineV", "kind": "metal", "tint": Color(0.1, 0.16, 0.26)})
+	NightWatchArt.box(root, Vector3(0.14, 0.08, 0.04), Vector3(0, 2.55, z + 0.02), {"name": "LiftLampRed", "kind": "light", "tint": Color(2.0, 0.25, 0.2)})
+	NightWatchArt.box(root, Vector3(1.4, 0.04, 0.4), Vector3(0, ControlRoomOffice.HEIGHT - 0.03, 0.0), {"name": "CeilingPanelCool", "kind": "light", "tint": Color(1.4, 1.6, 1.8)})
+
+
+## The Descent: the 2D picture is a slate lift landing: a big dark grid panel in an amber frame on the far wall, a small amber lamp above it and a warm amber ceiling lamp:
+## the framed grid panel, the round lamp and the amber ceiling panel.
+static func _descent(office: Node3D) -> void:
+	var hd: float = NightWatchDescentOffice.W.HALF_D
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var z: float = -hd + 0.04
+	var amber := Color(1.9, 1.35, 0.45)
+	var cx := 0.0
+	var cy := 1.45
+	var pw := 1.9
+	var ph := 1.25
+	for e in [[Vector3(pw + 0.08, 0.04, 0.03), Vector3(cx, cy + ph * 0.5, z)], [Vector3(pw + 0.08, 0.04, 0.03), Vector3(cx, cy - ph * 0.5, z)],
+			[Vector3(0.04, ph, 0.03), Vector3(cx - pw * 0.5, cy, z)], [Vector3(0.04, ph, 0.03), Vector3(cx + pw * 0.5, cy, z)]]:
+		NightWatchArt.box(root, e[0], e[1], {"name": "PanelFrame", "kind": "metal", "tint": amber})
+	NightWatchArt.box(root, Vector3(pw - 0.04, ph - 0.04, 0.02), Vector3(cx, cy, z - 0.005), {"name": "PanelGlass", "kind": "metal", "tint": Color(0.05, 0.06, 0.09)})
+	for i in range(1, 8):
+		NightWatchArt.box(root, Vector3(0.015, ph - 0.06, 0.012), Vector3(cx - pw * 0.5 + pw * float(i) / 8.0, cy, z + 0.01), {"name": "PanelGridV", "kind": "metal", "tint": Color(0.3, 0.33, 0.45)})
+	for i in range(1, 5):
+		NightWatchArt.box(root, Vector3(pw - 0.06, 0.015, 0.012), Vector3(cx, cy - ph * 0.5 + ph * float(i) / 5.0, z + 0.01), {"name": "PanelGridH", "kind": "metal", "tint": Color(0.3, 0.33, 0.45)})
+	NightWatchArt.box(root, Vector3(0.14, 0.09, 0.04), Vector3(0, cy + ph * 0.5 + 0.3, z + 0.01), {"name": "LampAmber", "kind": "light", "tint": Color(2.0, 1.4, 0.3)})
+	NightWatchArt.box(root, Vector3(1.0, 0.04, 0.3), Vector3(0, NightWatchDescentOffice.W.HEIGHT - 0.03, 0.0), {"name": "CeilingPanelAmber", "kind": "light", "tint": Color(1.9, 1.4, 0.4)})
+
+
+## Day shift: the 2D picture is the one office that reads as day: cream ceiling tiles, warm wood walls, a red rail round the room, two green and cream posters and a bright daylight lamp (the yard window is the room's own):
+## a red rail on the side walls and the window wall, tile lines on the ceiling, a green star poster and a balloon poster by the window, and a very bright ceiling panel.
+static func _dayshift(office: Node3D) -> void:
+	var hw: float = CargoBay.HALF_W
+	var hd: float = CargoBay.HALF_D
+	var height: float = CargoBay.HEIGHT
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var red := Color(1.8, 0.28, 0.25)
+	for side in [-1.0, 1.0]:
+		NightWatchArt.box(root, Vector3(0.03, 0.1, hd * 2.0 - 0.2), Vector3(side * (hw - 0.04), 1.0, 0.0), {"name": "RedRail", "kind": "wall", "tint": red})
+	NightWatchArt.box(root, Vector3(hw * 2.0 - 0.2, 0.1, 0.03), Vector3(0, 1.0, hd - 0.04), {"name": "RedRail", "kind": "wall", "tint": red})
+	NightWatchArt.box(root, Vector3(hw * 2.0 - 0.2, 0.1, 0.03), Vector3(0, 1.0, -hd + 0.04), {"name": "RedRail", "kind": "wall", "tint": red})
+	var tile := Color(1.6, 1.5, 1.25)
+	for i in range(-int(hw), int(hw) + 1):
+		NightWatchArt.box(root, Vector3(0.03, 0.02, hd * 2.0 - 0.2), Vector3(float(i), height - 0.03, 0.0), {"name": "CeilingTileLine", "kind": "wall", "tint": tile * 0.6})
+	for i in range(-int(hd), int(hd) + 1):
+		NightWatchArt.box(root, Vector3(hw * 2.0 - 0.2, 0.02, 0.03), Vector3(0, height - 0.03, float(i)), {"name": "CeilingTileLine", "kind": "wall", "tint": tile * 0.6})
+	NightWatchArt.box(root, Vector3(1.6, 0.04, 0.5), Vector3(0, height - 0.03, 0.0), {"name": "CeilingPanelDay", "kind": "light", "tint": Color(2.2, 2.0, 1.5)})
+	# two posters either side of the window wall
+	for p in [[-0.5, Color8(60, 130, 80)], [0.5, Color8(235, 200, 150)]]:
+		var x: float = float(p[0]) + (hw - 0.6) * (1.0 if float(p[0]) > 0.0 else -1.0)
+		NightWatchArt.box(root, Vector3(0.5, 0.7, 0.03), Vector3(x, 1.9, hd - 0.05), {"name": "PosterFrameDay", "kind": "wall", "tint": Color(0.45, 0.3, 0.2)})
+		var q := NightWatchArt.box(root, Vector3(0.42, 0.62, 0.02), Vector3(x, 1.9, hd - 0.07), {"name": "PosterDay", "kind": "fabric", "tint": p[1] as Color})
+		q.set_meta("nw_palette", "poster")
+
+
+## Open Air: the three watches are outdoors under the 2D picture's night sky: a pale full moon with a halo, scattered stars, and (at the campfire) a grass and dirt ground:
+## a far dome of stars, the moon, and for watch 2 the grass over the clearing's checker.
+static func _openair(office: Node3D) -> void:
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261028
+	for i in 160:
+		var yaw := rng.randf() * TAU
+		var pitch := lerpf(0.12, 1.3, rng.randf())
+		var dir := Vector3(cos(pitch) * sin(yaw), sin(pitch), -cos(pitch) * cos(yaw))
+		var size := 0.25 + rng.randf() * 0.35
+		var star := _sky_piece(root, "StarLight", Vector3(size, size, 0.1), dir * 70.0, Color(0.9, 0.92, 1.0))
+		star.look_at(Vector3.ZERO, Vector3.UP)
+	var moon_dir := Vector3(0.2, 0.38, -0.9).normalized()
+	var moon := _sky_piece(root, "MoonLight", Vector3(5.0, 5.0, 0.1), moon_dir * 68.0, Color(1.0, 0.92, 0.6))
+	moon.look_at(Vector3.ZERO, Vector3.UP)
+	var halo := _sky_piece(root, "MoonHaloLight", Vector3(8.0, 8.0, 0.1), moon_dir * 69.0, Color(0.22, 0.27, 0.55))
+	halo.look_at(Vector3.ZERO, Vector3.UP)
+	if int((office as NightWatchOpenAirOffice).watch) != 2:
+		return
+	# the campfire clearing is grass and dirt under the firs (the world builds the trees), not a checkerboard
+	_ground(office)
+
+
+## A flat unshaded sky piece (stars, moon): lit by nothing, so the night's ambient cannot dull it.
+static func _sky_piece(parent: Node3D, piece_name: String, size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
+	var mesh := MeshInstance3D.new()
+	mesh.name = piece_name
+	var box := BoxMesh.new()
+	box.size = size
+	mesh.mesh = box
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = color
+	mesh.material_override = m
+	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mesh.position = pos
+	mesh.set_meta("nw_name", piece_name)
+	parent.add_child(mesh)
+	return mesh
+
+
+## Mixed Shift (Classic's office with the vents): the 2D picture's amber framed lamp boards on both side walls by the back corners; the ceiling grate and the floor vents are the office's own.
+static func _mixed(office: Node3D) -> void:
+	var hw: float = NightWatchOffice.HALF_W
+	var root := Node3D.new()
+	root.name = "SignatureMixed"
+	office.add_child(root)
+	for side in [-1.0, 1.0]:
+		var x: float = side * (hw - 0.05)
+		NightWatchArt.box(root, Vector3(0.03, 0.8, 0.56), Vector3(x, 1.75, -1.15), {"name": "BoardFrame", "kind": "wall", "tint": Color(0.5, 0.32, 0.18)})
+		NightWatchArt.box(root, Vector3(0.04, 0.32, 0.16), Vector3(x - side * 0.01, 1.75, -1.15), {"name": "BoardLamp", "kind": "light", "tint": Color(2.0, 1.4, 0.4)})
+
+
+## Watch 2's clearing: painted grass with dirt patches over the floor's checker (the world's own firs ring it).
+static func _ground(office: Node3D) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 777
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	for y in 32:
+		for x in 32:
+			var n := rng.randf()
+			var c := Color8(34, 52, 30)
+			if n > 0.72:
+				c = Color8(48, 72, 38)
+			elif n < 0.14:
+				c = Color8(70, 52, 34)
+			elif n < 0.26:
+				c = Color8(26, 40, 24)
+			img.set_pixel(x, y, c)
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = ImageTexture.create_from_image(img)
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	m.uv1_scale = Vector3(34.0 / 1.6, 34.0 / 1.6, 1.0)
+	m.roughness = 1.0
+	m.set_meta("nw_kind", "floor")
+	for node in office.find_children("Floor*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if mi.get_aabb().size.x > 20.0 or node.name == "FloorChecker":
+			mi.material_override = m
