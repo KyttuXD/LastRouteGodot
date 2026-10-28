@@ -6,7 +6,8 @@ extends RefCounted
 ##   - a level change or teleport never builds the whole window synchronously (MAX_JUMP_MS),
 ##   - the chunk under the runner is always loaded (no pop-in where the player stands) and the queue drains,
 ##   - ladder trips between the maze and the sewer: no frame over MAX_LADDER_FRAME_MS around a level change, and climbing
-##     back rebuilds nothing (the storey left behind is parked, not freed).
+##     back rebuilds nothing (the storey left behind is parked, not freed); the first descent builds nothing either (the
+##     linked level's 3x3 is pre-built in the background and parked).
 ## Windowed frame times (no frame > 33 ms while streaming on the mini) come from tools/look/stream_bench.tscn; when
 ## STREAM_BENCH_JSON names its output, those budgets are checked here too.
 ##
@@ -152,6 +153,9 @@ func _ladder(host: Node) -> void:
 				worst = (now - last) / 1000.0
 				worst_trip = trip
 			last = now
+		if trip == 0:
+			_expect(facility.chunk_builds == builds_before,
+				"ladder: the first descent built %d chunks (the linked level should be pre-built and parked)" % (facility.chunk_builds - builds_before))
 		if trip >= 2:
 			rebuilds += facility.chunk_builds - builds_before
 		_expect(facility.current_level() == (SewerRouteGenerator.LEVEL if trip % 2 == 0 else 0),
