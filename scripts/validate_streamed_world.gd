@@ -17,8 +17,10 @@ func run(host: Node) -> int:
 	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
 		"Infinite corridors are no longer three cells wide")
 	_expect(world.stair_links(Vector3i.ZERO).is_empty() and not world.is_chunk_allowed(Vector3i(0, 1, 0)) \
-		and world.is_chunk_allowed(Vector3i(0, -1, 0)) and not world.is_chunk_allowed(Vector3i(0, -2, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
-		"the route is not one unbounded maze level over the sewer layer")
+		and world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(0, -2, 0)) \
+		and world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL, 0)) \
+		and not world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL - 1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
+		"the route is not one unbounded maze level over the two sewers and the Inferno")
 	_expect(FacilityMap.RELAY_TEAL_BLUE.is_equal_approx(Color("32c9d8")),
 		"relay map markers are not the distinct teal-blue palette colour")
 	_expect(FacilityMap.STAIR_ICON_WHITE.is_equal_approx(Color("f4f7f6")),
@@ -150,11 +152,12 @@ func run(host: Node) -> int:
 	var saw_dual_upper := false
 	var saw_dual_carousel := false
 	var saw_two_cell_double_door := false
-	for level in [0]:
+	# the maze level, and a window of the Inferno (no longer a maze district: the whole of level -3)
+	for level in [0, StreamedRouteGenerator.INFERNO_LEVEL]:
 		for z in range(-12, 13):
 			for x in range(-12, 13):
 				var sampled_coord := Vector3i(x, level, z)
-				if not world.is_chunk_allowed(sampled_coord):
+				if not world.is_chunk_allowed(sampled_coord) or (level != 0 and (absi(x) > 3 or absi(z) > 3)):
 					continue
 				var data := world.chunk(sampled_coord)
 				biomes[data["biome"]] = true
@@ -749,6 +752,15 @@ func run(host: Node) -> int:
 	var facility := live_scene.get_node("World/StreamedFacility") as StreamedFacilityView3D
 	var player := live_scene.get_node("World/Player") as PlayerController3D
 	var remotes := live_scene.get_node("World/RemotePlayers") as RemotePlayers
+	# The runner must not start wedged in a wall junction (a headset camera ends up inside the walls).
+	for _settle in 20:
+		await host.get_tree().physics_frame
+	_expect(not player.spot_blocked(player.global_position),
+		"the runner starts inside level geometry or off the floor at %s" % player.global_position)
+	var spawn_marker := live_scene.find_child("StartingSafeZoneMarker", true, false) as Node3D
+	_expect(spawn_marker == null or Vector2(spawn_marker.global_position.x - player.global_position.x,
+		spawn_marker.global_position.z - player.global_position.z).length() >= 0.6,
+		"the runner starts on the safe-zone marker post (a headset camera ends up inside it)")
 	var pixel_effect := live_scene.get("pixel_signal_effect") as PixelSignalEffect
 	_expect(pixel_effect != null and Settings.DEFAULT_PIXEL_EFFECT_PERCENT > 0.0 \
 		and PixelSignalEffect.SHADER_CODE.contains("floor(pixel / block_size)"),

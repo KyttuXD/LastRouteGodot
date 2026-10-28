@@ -333,5 +333,7 @@ export function createAccountService({ storePath = null, logger = console, now =
 
   return { register, login, currentSession, save, loadProgress, logout,
     changePassword, rename, sessionUsername, sessionAdminIdentity,
-    listAdminRoster, setAdminRoster, removeAdminRoster };
+    listAdminRoster, setAdminRoster, removeAdminRoster,
+    isAdminOwner: (name) => isAdminOwnerUsername(name),
+    accountExists: (name) => accounts.has(usernameOf(name)) };
 }

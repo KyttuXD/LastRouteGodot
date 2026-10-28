@@ -16,6 +16,8 @@ extends CharacterBody3D
 signal flashlight_changed(enabled: bool)
 ## A sewer ladder climb finished; the runner now stands on `to_level`.
 signal ladder_climb_finished(to_level: int)
+## The waterfall plunge is over: where the runner climbed out of the cistern (world position).
+signal plunge_finished(exit_position: Vector3)
 signal taser_requested
 signal tool_used(item_id: String)
 signal item_drop_requested(item_id: String, durability: int, slot: int)
@@ -184,6 +186,13 @@ var stamina := GameConfig.MAX_STAMINA
 var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
 var stamina_recovery_delay := 0.0
+## Set when sprinting stops above GameConfig.STAMINA_QUICK_THRESHOLD: stamina ramps back to full in a blink.
+var stamina_quick_refill := false
+## Troll mode (docs/ANTI_CHEAT.md): the host caught this client cheating, or the server flagged the account. Faster
+## stamina drain, a flickering flashlight and fake hunter footsteps; the host side (hunters, pickups) does the rest.
+var troll_active := false
+var _troll_step_in := 0.0
+var _was_sprinting_stamina := false
 var movement_mode := "walk"
 ## Noise emitted this frame by movement, consumed by hunter hearing
 ## (hunter_brain.gd) — matches the original's per-frame emittedNoise.
@@ -195,6 +204,8 @@ var input_frozen := false
 ## from input_frozen because hiding and the escape struggle still allow the
 ## player to look around.
 var look_frozen := false
+## A booth game (CarnivalBooth3D) holds the player at the counter: no walking, sprinting or jumping, but looking and aiming stay free, with mouse, stick, touch and XR.
+var movement_locked := false
 
 ## Debug-only protections driven by main_3d's tools-gated admin overlay. They
 ## live on the controller so the same state can be published to the ENet host;
@@ -269,9 +280,26 @@ var resting_furniture: RouteInteractable3D
 ## Movement, items and collision are off; the body plays "climb" (guests see it
 ## through current_clip) and the view shows both hands working the rungs.
 var ladder_climb := {}
+## The waterfall plunge in progress (begin_plunge), and the soaked status after it (seconds left).
+var plunge := {}
+var soaked_left := 0.0
+var _drip_left := 0.0
 var _climb_hands: Node3D
 ## Ladder handling: climb speed (m/s), the height under which jump lets go, and
 ## the smooth mount / dismount times.
+## The waterfall jump (begin_plunge): an arc off the ledge into the cistern, a muffled moment under the surface, a slow swim to the
+## walkway ring, then SOAKED_SECONDS of dripping and louder steps (hunters hear a wet runner from further away).
+const PLUNGE_HOP_SPEED := 1.6
+const PLUNGE_GRAVITY := 9.8
+const PLUNGE_SPLASH_SECONDS := .55
+const PLUNGE_SWIM_SPEED := 1.5
+const PLUNGE_CLIMB_OUT_SECONDS := .6
+const PLUNGE_SPLASH_NOISE := 3.0
+const PLUNGE_SPLASH_NOISE_SECONDS := 1.2
+const PLUNGE_SWIM_NOISE := .8
+const SOAKED_SECONDS := 30.0
+const SOAKED_NOISE_SCALE := 1.45
+const SOAKED_DRIP_EVERY := Vector2(1.1, 2.4)
 const LADDER_CLIMB_SPEED := 1.7
 const LADDER_LET_GO_HEIGHT := 1.3 * PlayerModels.SCALE
 const LADDER_MOUNT_SECONDS := .3
@@ -280,6 +308,7 @@ var resting_pose := ""
 ## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
 ## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
 const SIT_EYE := 1.15
+const LAY_EYE_ABOVE_MATTRESS := .22
 const REST_EASE_SECONDS := 0.35
 const SIT_YAW_LIMIT := deg_to_rad(75.0)
 const LAY_YAW_LIMIT := deg_to_rad(55.0)
@@ -393,14 +422,16 @@ func use_furniture(furniture: RouteInteractable3D, pose: String) -> String:
 	_rest_ease = {"from": start_camera, "t": 0.0, "leaving": false}
 	_apply_rest_ease()
 	_rest_idle = 0.0
+	if first_person_items != null:
+		first_person_items.visible = false    # nothing held in view while seated, lying or asleep
 	velocity = Vector3.ZERO
 	_clip = "sit" if pose == "ride" else pose
 	ModelSlot.play_if_available(_animation_player, _clip)
 	if pose == "ride":
 		Sound.menu_blip()
 		return ""
-	return "LYING DOWN // JUMP TO SLEEP // INTERACT TO GET UP" if pose == "lay" \
-		else "SEATED // INTERACT TO STAND"
+	return "LYING DOWN // %s SLEEP // %s GET UP" % [InputGlyphs.key("jump"), InputGlyphs.key("interact")] if pose == "lay" \
+		else "SEATED // %s" % InputGlyphs.prompt("interact", "STAND")
 
 
 ## Where the body and eye go on a piece of furniture (the furniture interactable sits on the prop, facing its open side;
@@ -417,7 +448,9 @@ static func rest_spot(furniture: Node3D, pose: String) -> Dictionary:
 	var xf := furniture.global_transform
 	if pose == "lay":
 		var head := xf * Vector3(0.0, 0.0, maxf(0.0, size.z * .5 - .5))
-		var eye := clampf(size.y * .62 + .14, .72, 1.05) if size.y < 1.6 else .95
+		# the eye just above the pillow: the bed model's measured mattress top (the view's "rest_top"), else an estimate
+		var eye := float(furniture.get_meta("rest_top")) + LAY_EYE_ABOVE_MATTRESS if furniture.has_meta("rest_top") \
+			else (clampf(size.y * .62 + .14, .72, 1.05) if size.y < 1.6 else .95)
 		return {"body": Vector3(head.x, floor_y, head.z), "eye": eye, "yaw": furniture.global_rotation.y, "pitch": .12}
 	var seat := xf * Vector3(0.0, 0.0, -.06)
 	return {"body": Vector3(seat.x, floor_y, seat.z), "eye": SIT_EYE, "yaw": furniture.global_rotation.y, "pitch": -.08}
@@ -450,6 +483,8 @@ func _advance_rest_ease(delta: float) -> void:
 	_rest_ease["t"] = minf(1.0, float(_rest_ease["t"]) + delta / REST_EASE_SECONDS)
 	_apply_rest_ease()
 	if float(_rest_ease["t"]) >= 1.0:
+		if bool(_rest_ease.get("leaving", false)) and first_person_items != null:
+			first_person_items.visible = true
 		_rest_ease = {}
 		first_person_pivot.position.x = 0.0
 		first_person_pivot.position.z = 0.0
@@ -486,7 +521,7 @@ func fall_asleep(accidental: bool) -> String:
 	_sleep_stir_cooldown = 0.0
 	_set_flashlight(false)
 	Sound.sleep_settle()
-	return "YOU DOZED OFF" if accidental else "ASLEEP // JUMP OR INTERACT TO WAKE"
+	return "YOU DOZED OFF" if accidental else "ASLEEP // %s OR %s WAKE" % [InputGlyphs.key("jump"), InputGlyphs.key("interact")]
 
 
 func wake_from_sleep(message: String = "WOKE WITH A JOLT") -> String:
@@ -769,6 +804,8 @@ func _ready() -> void:
 		model.scale = Vector3.ONE * PlayerModels.SCALE
 		body_visual.add_child(model)
 		ModelSlot.apply_character_hue(model, Settings.player_hue_degrees)
+		PlayerSkin.set_arms(model, Settings.effective_slim())
+		PlayerSkin.apply(model, PlayerSkin.active_texture())
 		_animation_player = ModelSlot.find_animation_player(model)
 		_align_camera_to_model_eyes(model)
 	flashlight.position = FLASHLIGHT_BEAM_LOCAL_POSITION
@@ -785,6 +822,17 @@ func _ready() -> void:
 
 func _apply_visual_settings() -> void:
 	first_person_camera.fov = Settings.field_of_view
+	if _body_model != null:
+		PlayerSkin.set_arms(_body_model, Settings.effective_slim())
+		PlayerSkin.apply(_body_model, PlayerSkin.active_texture())
+	if first_person_items != null:
+		for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
+			if bool(hand.get_meta("slim", false)) != Settings.effective_slim():
+				var view := hand.get_parent()
+				hand.free()   # the arm style changed: rebuild the hand from the other mannequin's parts
+				_add_first_person_hand(view)
+				continue
+			PlayerSkin.apply(hand, PlayerSkin.active_texture())
 
 
 func _align_camera_to_model_eyes(model: Node3D) -> void:
@@ -907,6 +955,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Uncaptured relative motion fights the OS cursor on remote/low-FPS
 	# desktops. Keyboard look covers that case; mouse look stays capture-only.
 	# Phones look with the touch drag (apply_look_turn); the mouse motion Godot emulates from touches is ignored.
+	if event is InputEventMouseMotion and xr_active and not look_frozen and not input_frozen:
+		rotate_y(-event.relative.x * Settings.mouse_sensitivity)   # a paired mouse turns a headset player; the head looks
+		return
 	if event is InputEventMouseMotion and not xr_active and not look_frozen \
 			and MouseLock.is_captured() and not PlatformProfile.is_phone:
 		_yaw -= event.relative.x * Settings.mouse_sensitivity
@@ -942,6 +993,103 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func is_climbing() -> bool:
 	return not ladder_climb.is_empty()
+
+
+func is_plunging() -> bool:
+	return not plunge.is_empty()
+
+
+## The deliberate waterfall jump (docs/SEWERS.md): from the ledge `from`, an arc into the cistern pool at `land` (its water surface at
+## `surface_y`), the splash and a muffled moment, a slow swim to `exit` on the walkway ring (floor height `exit.y`), then SOAKED_SECONDS
+## of soaked. Collision is off for the duration; no damage, input is ignored. The level changes by itself as the feet cross the storey.
+func begin_plunge(from: Vector3, land: Vector3, exit: Vector3, surface_y: float) -> void:
+	if is_plunging() or is_climbing() or hidden or spectator_mode:
+		return
+	if resting_furniture != null:
+		leave_furniture()
+	var drop := maxf(from.y - surface_y, .5)
+	var fall_seconds := (PLUNGE_HOP_SPEED + sqrt(PLUNGE_HOP_SPEED * PLUNGE_HOP_SPEED + 2.0 * PLUNGE_GRAVITY * drop)) / PLUNGE_GRAVITY
+	var bed_y := surface_y - SewerRouteGenerator.CHANNEL_DEPTH - SewerRouteGenerator.WATER_SURFACE
+	var swim_distance := Vector2(land.x, land.z).distance_to(Vector2(exit.x, exit.z))
+	plunge = {"phase": "fall", "t": 0.0, "from": from, "land": land, "exit": exit, "surface": surface_y,
+		"fall_seconds": fall_seconds, "swim_seconds": maxf(2.0, swim_distance / PLUNGE_SWIM_SPEED), "bed": bed_y, "splashed": false}
+	velocity = Vector3.ZERO
+	collision_layer = 0
+	collision_mask = 0
+	if first_person_items != null:
+		first_person_items.visible = false
+
+
+func _update_plunge(delta: float) -> void:
+	var phase := String(plunge["phase"])
+	var surface := float(plunge["surface"])
+	var wade_y := float(plunge["bed"])    # feet on the bed: the eye just clears the surface
+	var from: Vector3 = plunge["from"]
+	var land: Vector3 = plunge["land"]
+	var exit: Vector3 = plunge["exit"]
+	plunge["t"] = float(plunge["t"]) + delta
+	var t := float(plunge["t"])
+	match phase:
+		"fall":
+			var d := float(plunge["fall_seconds"])
+			var k := clampf(t / d, 0.0, 1.0)
+			var y := from.y + PLUNGE_HOP_SPEED * t - .5 * PLUNGE_GRAVITY * t * t
+			global_position = Vector3(lerpf(from.x, land.x, k), maxf(y, surface), lerpf(from.z, land.z, k))
+			noise = 0.0
+			if t >= d:
+				plunge["phase"] = "splash"
+				plunge["t"] = 0.0
+				Sound.splash_big(0.0, 1.2)
+				Sound.set_muffled(true)
+				emit_noise_burst(PLUNGE_SPLASH_NOISE, PLUNGE_SPLASH_NOISE_SECONDS)
+				force_flashlight_flicker(1.4)
+				plunge["splashed"] = true
+		"splash":
+			var k := clampf(t / PLUNGE_SPLASH_SECONDS, 0.0, 1.0)
+			global_position = Vector3(land.x, lerpf(surface, wade_y, _smooth(k)), land.z)
+			noise = maxf(noise, _noise_burst)
+			if t >= PLUNGE_SPLASH_SECONDS:
+				plunge["phase"] = "swim"
+				plunge["t"] = 0.0
+		"swim":
+			var d := float(plunge["swim_seconds"])
+			var k := clampf(t / d, 0.0, 1.0)
+			var bob := sin(t * 3.0) * .04
+			global_position = Vector3(lerpf(land.x, exit.x, _smooth(k)), wade_y + bob, lerpf(land.z, exit.z, _smooth(k)))
+			noise = PLUNGE_SWIM_NOISE
+			if t >= d:
+				plunge["phase"] = "climb_out"
+				plunge["t"] = 0.0
+				plunge["swim_end"] = global_position
+				Sound.set_muffled(false)
+		"climb_out":
+			var k := clampf(t / PLUNGE_CLIMB_OUT_SECONDS, 0.0, 1.0)
+			var start: Vector3 = plunge["swim_end"]
+			global_position = start.lerp(exit, _smooth(k)) + Vector3(0, sin(k * PI) * .12, 0)
+			noise = 0.3
+			if t >= PLUNGE_CLIMB_OUT_SECONDS:
+				plunge = {}
+				collision_layer = 1
+				collision_mask = 1
+				if first_person_items != null:
+					first_person_items.visible = true
+				soaked_left = SOAKED_SECONDS
+				_drip_left = 1.0
+				_clip = "idle"
+				plunge_finished.emit(exit)
+				return
+	velocity = Vector3.ZERO
+	_clip = "idle"
+
+
+func _update_soaked(delta: float) -> void:
+	if soaked_left <= 0.0:
+		return
+	soaked_left = maxf(0.0, soaked_left - delta)
+	_drip_left -= delta
+	if _drip_left <= 0.0:
+		_drip_left = randf_range(SOAKED_DRIP_EVERY.x, SOAKED_DRIP_EVERY.y)
+		Sound.water_drip(randf_range(-.3, .3), .35 + .65 * soaked_left / SOAKED_SECONDS)
 
 
 ## Gets onto a sewer ladder (docs/SEWERS.md). The ladder's line runs up from
@@ -1220,6 +1368,7 @@ func _physics_process(delta: float) -> void:
 		if outage_left <= 0.0:
 			outage_system = ""
 	_update_controller_look(delta)
+	_update_soaked(delta)
 	_noise_burst_timer = maxf(0.0, _noise_burst_timer - delta)
 	_update_viewmodel_push(delta)
 	taser_cooldown = maxf(0.0, taser_cooldown - delta)
@@ -1250,6 +1399,9 @@ func _physics_process(delta: float) -> void:
 		return
 	if not ladder_climb.is_empty():
 		_update_ladder_climb(delta)
+		return
+	if not plunge.is_empty():
+		_update_plunge(delta)
 		return
 	if resting_furniture != null and not is_instance_valid(resting_furniture):
 		# An admin teleport can evict the furniture's streamed chunk while the
@@ -1313,6 +1465,8 @@ func _physics_process(delta: float) -> void:
 		if stick.length_squared() > input_vector.length_squared():
 			# OpenXR stick-up is positive; Input.get_vector's forward/W is -Y.
 			input_vector = Vector2(stick.x, -stick.y)
+	if movement_locked:
+		input_vector = Vector2.ZERO
 	var movement_speed := GameConfig.PLAYER_WALK_SPEED
 	var difficulty := RoomState.difficulty_profile()
 	var is_moving := input_vector.length_squared() > 0.0
@@ -1337,6 +1491,8 @@ func _physics_process(delta: float) -> void:
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
 	if _noise_burst_timer > 0.0:
 		noise = maxf(noise, _noise_burst)
+	if soaked_left > 0.0:
+		noise *= SOAKED_NOISE_SCALE
 
 	meters.update(delta, {
 		"flashlight_on": flashlight_enabled,
@@ -1422,19 +1578,22 @@ func _physics_process(delta: float) -> void:
 		Sound.footstep(movement_mode, footstep_surface)
 
 
+	_update_troll(delta)
 	_update_flashlight_flicker(delta)
 	if Input.is_action_just_pressed("flashlight") and owns_inventory_item("flashlight") \
 			and not flashlight_seized():
 		select_inventory_slot(inventory_order.find("flashlight"))
+		if lamp_charge <= 0.0 and not flashlight_enabled:
+			Sound.light_switch()    # an empty flashlight just clicks
 		_set_flashlight(not flashlight_enabled)
 	# Left click acts only while the cursor was already captured last frame too: the click that re-captures the
 	# mouse (after focus loss or a menu) and clicks on open menus never swing, spend or blip.
 	var click_ready := xr_active or (_cursor_was_captured and MouseLock.is_captured())
 	_cursor_was_captured = MouseLock.is_captured()
 	if inventory_enabled:
-		if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
+		if inventory_enabled and Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
 			_fire_taser()
-		if Input.is_action_just_pressed("tool_use") and click_ready:
+		if Input.is_action_just_pressed("tool_use") and click_ready and not movement_locked:
 			_use_selected_item()
 		if Input.is_action_just_pressed("drop_item"):
 			request_drop_selected_item()
@@ -1481,7 +1640,7 @@ func active_camera() -> Camera3D:
 ## capture, stun, or pause cannot leave a player suspended in midair. Crouch
 ## blocks takeoff, but releasing crouch before landing does not alter the arc.
 func _update_vertical_motion(delta: float, allow_jump: bool) -> void:
-	var wants_to_jump := jump_enabled and (_jump_requested or Input.is_action_just_pressed("jump"))
+	var wants_to_jump := jump_enabled and not movement_locked and (_jump_requested or Input.is_action_just_pressed("jump"))
 	# Consume every request immediately, even in midair/frozen/crouching, so a
 	# rejected press cannot be banked into an automatic hop on landing.
 	_jump_requested = false
@@ -1514,6 +1673,12 @@ func _move_and_resolve_landing() -> void:
 		_fall_speed = 0.0
 
 
+## A turning platform (CarouselRide3D) carries the player: the view turns with it.
+func rotate_with_platform(angle: float) -> void:
+	_yaw += angle
+	_apply_look_rotation()
+
+
 func request_jump() -> void:
 	_jump_requested = true
 
@@ -1543,6 +1708,9 @@ func _try_enter_xr() -> bool:
 		push_warning("OPENXR // runtime initialization failed; using desktop camera")
 		return false
 	xr_active = true
+	# The headset renders from the CURRENT XROrigin3D. The menu panel (XRMenuPanel) has its own; unless this one takes
+	# over, the route is drawn from that origin, i.e. world (0, 0, 0), a corner between rooms, not from the runner.
+	xr_origin.current = true
 	get_viewport().use_xr = true
 	first_person_camera.current = false
 	xr_camera.current = true
@@ -1561,10 +1729,99 @@ func _try_enter_xr() -> bool:
 	xr_hands.name = "XRHands"
 	add_child(xr_hands)
 	xr_hands.setup(self, xr_origin, xr_left, xr_right)
+	if OS.is_debug_build():
+		get_tree().create_timer(5.0).timeout.connect(_xr_smoke_log)
 	return true
 
 
+## Debug builds on a headset: one line of XR state five seconds after entering XR (docs/XR_ANDROID.md, device smoke
+## log): whether XR is on, the controller trackers and poses OpenXR really offers, whether the hands track, where the
+## head is relative to the body, and whether the panels exist. Read it with adb logcat | grep XR_SMOKE.
+func _xr_smoke_log() -> void:
+	var trackers := []
+	for key in XRServer.get_trackers(XRServer.TRACKER_CONTROLLER):
+		var tracker := XRServer.get_tracker(key) as XRPositionalTracker
+		var poses := []
+		for pose_name in ["default", "default_pose", "aim", "aim_pose", "grip", "grip_pose"]:
+			if tracker != null and tracker.has_pose(pose_name):
+				poses.append(pose_name)
+		trackers.append("%s%s" % [key, poses])
+	var head := xr_camera.global_position - global_position
+	print("XR_SMOKE xr_active=%s trackers=%s left=[%s %s tracked=%s] right=[%s %s tracked=%s] head_offset=%s horizontal=%.2f world_scale=%.3f wrist=%s route_panel=%s" % [
+		xr_active, trackers, xr_left.tracker, xr_left.pose, xr_left.get_has_tracking_data(),
+		xr_right.tracker, xr_right.pose, xr_right.get_has_tracking_data(), head, Vector2(head.x, head.z).length(),
+		xr_origin.world_scale, xr_comfort != null and xr_comfort.wrist != null and xr_comfort.wrist.is_visible_in_tree(),
+		get_tree().root.find_children("XRRoutePanel", "", true, false).size()])
+	var cell := Vector2(fposmod(global_position.x, GameConfig.TILE_SIZE), fposmod(global_position.z, GameConfig.TILE_SIZE))
+	var blocked := spot_blocked(global_position)
+	print("XR_SMOKE_SEED %s yaw=%.3f origin_current=%s" % [RoomState.seed_text, rotation.y, xr_origin.current])
+	print("XR_SMOKE_PLACE body=%s camera=%s origin=%s cell_offset=%s origin_parent=%s body_blocked=%s" % [global_position,
+		xr_camera.global_position, xr_origin.global_position, cell, xr_origin.get_parent().name, blocked])
+	var eye := xr_camera.global_position
+	for node in get_tree().root.find_children("*", "GeometryInstance3D", true, false):
+		var shape := node as GeometryInstance3D
+		if not shape.is_visible_in_tree() or not (shape.global_transform * shape.get_aabb()).grow(0.35).has_point(eye):
+			continue
+		var many := shape as MultiMeshInstance3D
+		if many != null and many.multimesh != null and many.multimesh.mesh != null:
+			for i in many.multimesh.instance_count:
+				var box := many.global_transform * many.multimesh.get_instance_transform(i) * many.multimesh.mesh.get_aabb()
+				if box.grow(0.35).has_point(eye):
+					print("XR_SMOKE_NEAR_EYE %s #%d aabb=%s" % [shape.name, i, box])
+		elif (shape.global_transform * shape.get_aabb()).size.length() < 20.0:
+			print("XR_SMOKE_NEAR_EYE %s aabb=%s" % [shape.get_path(), shape.global_transform * shape.get_aabb()])
+	var cell_kind := "unknown"
+	var facility := get_tree().root.find_child("StreamedFacility", true, false)
+	if facility != null and facility.get("generator") != null:
+		var generator = facility.get("generator")
+		var size: int = generator.CHUNK_SIZE
+		var coord := Vector3i(floori(global_position.x / size), 0, floori(global_position.z / size))
+		var grid: Array = generator.chunk(coord).get("grid", [])
+		var local := Vector2i(posmod(floori(global_position.x), size), posmod(floori(global_position.z), size))
+		if local.y < grid.size() and local.x < (grid[local.y] as Array).size():
+			cell_kind = "open" if int(grid[local.y][local.x]) == 0 else "wall"
+	var clearance := INF
+	var space := get_world_3d().direct_space_state
+	for i in 16:
+		var direction := Vector3(cos(TAU * i / 16.0), 0, sin(TAU * i / 16.0))
+		var from := global_position + Vector3.UP * 1.0
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, from + direction * 3.0, collision_mask, [get_rid()]))
+		if not hit.is_empty():
+			clearance = minf(clearance, from.distance_to(hit["position"]))
+	print("XR_SMOKE_CELL kind=%s clearance=%.2f" % [cell_kind, clearance])
+	var problems := []
+	if cell_kind != "open":
+		problems.append("the body stands on a %s cell" % cell_kind)
+	if clearance < 0.4:
+		problems.append("a wall is %.2f m from the body" % clearance)
+	if not xr_active:
+		problems.append("xr_active is false")
+	for hand in [xr_left, xr_right]:
+		if XRServer.get_tracker(hand.tracker) == null:
+			problems.append("no OpenXR tracker named %s" % hand.tracker)
+		elif not hand.get_has_tracking_data():
+			problems.append("%s not tracked (controller asleep?)" % hand.tracker)
+	if Vector2(head.x, head.z).length() > 0.3:
+		problems.append("head %.2f m from the body" % Vector2(head.x, head.z).length())
+	if blocked:
+		problems.append("the body is inside level geometry or off the floor")
+	if not xr_origin.current:
+		problems.append("the runner's XROrigin3D is not the current origin (the headset renders from another one)")
+	var render_origin := XRServer.world_origin.origin
+	print("XR_SMOKE_WORLD_ORIGIN %s" % render_origin)
+	if Vector2(render_origin.x - global_position.x, render_origin.z - global_position.z).length() > 0.3:
+		problems.append("the headset renders from %s, not the body" % render_origin)
+	var marker := get_tree().root.find_child("StartingSafeZoneMarker", true, false) as Node3D
+	if marker != null and Vector2(marker.global_position.x - global_position.x, marker.global_position.z - global_position.z).length() < 0.6:
+		problems.append("the body stands on the safe-zone marker post")
+	if get_tree().root.find_children("XRRoutePanel", "", true, false).is_empty():
+		problems.append("no route panel")
+	print("XR_SMOKE_RESULT %s" % ("PASS" if problems.is_empty() else "FAIL: " + ", ".join(problems)))
+
+
 func _connect_xr_buttons() -> void:
+	for hand in [xr_left, xr_right]:
+		hand.show_when_tracked = true   # a sleeping or absent controller hides its hand, laser and wrist instead of lying on the floor
 	xr_right.button_pressed.connect(_on_xr_right_pressed)
 	xr_right.button_released.connect(_on_xr_right_released)
 	xr_left.button_pressed.connect(_on_xr_left_pressed)
@@ -1579,6 +1836,10 @@ func _on_xr_right_pressed(action: StringName) -> void:
 			Input.action_press("flashlight")
 		"by_button":
 			request_jump()
+		"primary_click":
+			if not xr_left.get_has_tracking_data():
+				_emit_xr_action_event("pause", true)   # right hand only: the stick click opens the menu
+				_emit_xr_action_event("pause", false)
 		"grip_click":
 			Input.action_press("sprint")
 
@@ -1595,6 +1856,9 @@ func _on_xr_right_released(action: StringName) -> void:
 
 func _on_xr_left_pressed(action: StringName) -> void:
 	match String(action):
+		"ax_button":
+			if InputMap.has_action("quick_chat"):   # registered by RoomChat in co-op scenes
+				_emit_xr_action_event("quick_chat", true)   # hold X and tilt the stick to pick a quick-chat preset
 		"trigger_click":
 			Input.action_press("taser")
 		"primary_click":
@@ -1609,6 +1873,9 @@ func _on_xr_left_pressed(action: StringName) -> void:
 
 func _on_xr_left_released(action: StringName) -> void:
 	match String(action):
+		"ax_button":
+			if InputMap.has_action("quick_chat"):
+				_emit_xr_action_event("quick_chat", false)
 		"trigger_click":
 			Input.action_release("taser")
 		"primary_click":
@@ -1635,12 +1902,25 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 		exhausted = false
 		return
 	if is_sprinting:
-		stamina = maxf(0.0, stamina - GameConfig.STAMINA_SPRINT_DRAIN * delta)
+		stamina = maxf(0.0, stamina - GameConfig.STAMINA_SPRINT_DRAIN \
+			* (GameConfig.TROLL_STAMINA_DRAIN_SCALE if troll_active else 1.0) * delta)
 		stamina_recovery_delay = GameConfig.STAMINA_RECOVERY_DELAY
 		if stamina <= 0.0:
 			exhausted = true
+		stamina_quick_refill = false
+		_was_sprinting_stamina = true
 		return
 
+	if _was_sprinting_stamina:
+		_was_sprinting_stamina = false
+		stamina_quick_refill = not exhausted and stamina > GameConfig.STAMINA_QUICK_THRESHOLD
+	if stamina_quick_refill:
+		stamina = minf(GameConfig.MAX_STAMINA,
+			stamina + GameConfig.MAX_STAMINA / GameConfig.STAMINA_QUICK_REFILL_TIME * delta)
+		stamina_recovery_delay = 0.0
+		if stamina >= GameConfig.MAX_STAMINA:
+			stamina_quick_refill = false
+		return
 	stamina_recovery_delay = maxf(0.0, stamina_recovery_delay - delta)
 	if stamina_recovery_delay <= 0.0:
 		stamina = minf(GameConfig.MAX_STAMINA, stamina + GameConfig.STAMINA_RECOVERY * delta)
@@ -1658,7 +1938,22 @@ func _update_lamp(delta: float, is_sprinting: bool) -> void:
 	lamp_charge = maxf(0.0, lamp_charge - drain * meters.drain_scale() * delta)
 	_save_active_flashlight_charge()
 	if lamp_charge <= 0.0:
-		_break_inventory_item("flashlight", _active_flashlight_slot)
+		# KT: the flashlight never breaks. An empty one sputters out and stays in its slot until a battery recharges it.
+		_set_flashlight(false)
+		Sound.light_switch()
+		interaction_message.emit("FLASHLIGHT DEAD // FIND A BATTERY")
+
+
+func _update_troll(delta: float) -> void:
+	if not troll_active:
+		return
+	_troll_step_in -= delta
+	if _troll_step_in > 0.0:
+		return
+	_troll_step_in = randf_range(GameConfig.TROLL_FAKE_STEP_SECONDS.x, GameConfig.TROLL_FAKE_STEP_SECONDS.y)
+	Sound.hunter_footstep(randf_range(-1.0, 1.0), randf_range(.05, .12))
+	if flashlight_enabled:
+		force_flashlight_flicker(randf_range(.4, 1.2))
 
 
 func _update_flashlight_flicker(delta: float) -> void:
@@ -1753,7 +2048,79 @@ func _build_first_person_items() -> void:
 	_build_utility_view("crowbar")
 	_build_utility_view("rescue_axe")
 	_build_utility_view("battery")
+	for view in [flashlight_view, taser_view] + tool_views.values():
+		_add_first_person_hand(view as Node3D)
 	_refresh_inventory_view()
+
+
+## First-person hands (docs/RESCUE_AXE.md): the mannequin's own right forearm and hand (same meshes, atlas and player
+## hue as the body), with the hand's prop point (R-HandProp) on the held item's grip, the view origin, and the forearm
+## running back and down toward the camera. `first_person_hands` turns them off (held items only).
+static var first_person_hands := true
+const FP_HAND_SCALE := .37          # mannequin units -> camera space, matched to the held items' scale
+const FP_ARM_TILT := 118.0          # degrees: the forearm comes up from below-behind into the grip
+static var _fp_hand_parts: Array = []   # classic arms: [[mesh, material_override or null, transform relative to R-HandProp], ...]
+static var _fp_hand_parts_slim: Array = []   # the same from the slim (Alex) mannequin
+
+
+static func _mannequin_hand_parts(slim: bool = false) -> Array:
+	var cache: Array = _fp_hand_parts_slim if slim else _fp_hand_parts
+	if not cache.is_empty():
+		return cache
+	var scene := load((PlayerModels.BLOCKY_SLIM if slim else PlayerModels.BLOCKY).replace(".tscn", ".glb")) as PackedScene
+	if scene == null:
+		return []
+	var root := scene.instantiate()
+	var prop := root.find_child("R-HandProp", true, false) as Node3D
+	if prop != null:
+		var prop_xf := _local_to(root, prop)
+		for part_name in ["R-Forearm", "R-Hand"]:
+			var part := root.find_child(part_name, true, false) as MeshInstance3D
+			if part != null:
+				cache.append([part.mesh, part.material_override, prop_xf.affine_inverse() * _local_to(root, part)])
+	root.free()
+	return cache
+
+
+static func _local_to(root: Node, node: Node3D) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	var at: Node = node
+	while at != null and at != root:
+		if at is Node3D:
+			xf = (at as Node3D).transform * xf
+		at = at.get_parent()
+	return xf
+
+
+func _add_first_person_hand(view: Node3D) -> void:
+	var parts := _mannequin_hand_parts(Settings.effective_slim())
+	if parts.is_empty():
+		return
+	var hand := Node3D.new()
+	hand.name = "FirstPersonHand"
+	hand.set_meta("slim", Settings.effective_slim())
+	hand.basis = Basis(Vector3.RIGHT, deg_to_rad(FP_ARM_TILT)).scaled(Vector3.ONE * FP_HAND_SCALE)
+	for part_value in parts:
+		var part: Array = part_value
+		var mesh_node := MeshInstance3D.new()
+		mesh_node.mesh = part[0]
+		if part[1] != null:
+			mesh_node.material_override = part[1]
+		mesh_node.transform = part[2]
+		mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		hand.add_child(mesh_node)
+	ModelSlot.apply_character_hue(hand, Settings.player_hue_degrees)
+	PlayerSkin.apply(hand, PlayerSkin.active_texture())
+	hand.visible = first_person_hands
+	view.add_child(hand)
+
+
+func set_first_person_hands(on: bool) -> void:
+	first_person_hands = on
+	if first_person_items == null:
+		return
+	for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
+		(hand as Node3D).visible = on
 
 
 func _build_utility_view(item_id: String) -> void:
@@ -1839,8 +2206,9 @@ func _flashlight_beam_should_be_visible() -> bool:
 ## they looked up/down, and mounting the replicated SpotLight on their torso
 ## then let the mannequin shadow its own beam.
 func equipment_aim_direction() -> Vector3:
-	var source_basis := xr_left.global_basis if xr_active \
-		else first_person_camera.global_basis
+	var source_basis := first_person_camera.global_basis
+	if xr_active:
+		source_basis = xr_left.global_basis if xr_left.get_has_tracking_data() else xr_camera.global_basis
 	var direction := -source_basis.z
 	return direction.normalized() if direction.length_squared() > .0001 \
 		else -global_basis.z.normalized()
@@ -2489,6 +2857,42 @@ func grid_position() -> Vector2:
 	return Vector2(global_position.x, global_position.z)
 
 
+## Whether the capsule would sit inside level geometry at `at` (feet position), or has no floor under it.
+func spot_blocked(at: Vector3) -> bool:
+	var space := get_world_3d().direct_space_state
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = player_collision.shape
+	query.transform = Transform3D(player_collision.global_basis, at + (player_collision.global_position - global_position))
+	query.exclude = [get_rid()]
+	query.collision_mask = collision_mask
+	if not space.intersect_shape(query, 1).is_empty():
+		return true
+	var floor_ray := PhysicsRayQueryParameters3D.create(at + Vector3.UP * 0.5, at + Vector3.DOWN * 0.6, collision_mask, [get_rid()])
+	return space.intersect_ray(floor_ray).is_empty()
+
+
+## A clear spot for the runner near `at`: `at` itself if the capsule fits there on a floor (and it is at least
+## `avoid_distance` from `avoid`), else the nearest cell centre (the route's 1 m grid) within `radius` cells that is.
+## The route spawn sits on the starting safe-zone marker post, which has no collider: a headset camera started inside
+## it ("between four rooms"), so the spawn avoids it.
+func clear_spot_near(at: Vector3, radius := 4, avoid := Vector3.INF, avoid_distance := 0.0) -> Vector3:
+	var near_avoid := func(spot: Vector3) -> bool:
+		return avoid != Vector3.INF and Vector2(spot.x - avoid.x, spot.z - avoid.z).length() < avoid_distance
+	if not spot_blocked(at) and not near_avoid.call(at):
+		return at
+	var cell := Vector2i(floori(at.x), floori(at.z))
+	var best := at
+	var best_distance := INF
+	for dz in range(-radius, radius + 1):
+		for dx in range(-radius, radius + 1):
+			var candidate := Vector3(cell.x + dx + 0.5, at.y, cell.y + dz + 0.5)
+			var distance := Vector2(candidate.x - at.x, candidate.z - at.z).length()
+			if distance < best_distance and not near_avoid.call(candidate) and not spot_blocked(candidate):
+				best = candidate
+				best_distance = distance
+	return best
+
+
 func restore_at_safe_zone() -> void:
 	stamina = GameConfig.MAX_STAMINA
 	lamp_charge = GameConfig.MAX_LAMP_CHARGE
@@ -2509,22 +2913,33 @@ func is_in_safe_zone() -> bool:
 
 
 func get_interaction_prompt() -> String:
+	if resting_furniture != null:
+		# resting: what you can do from here, never the "LIE DOWN" of the furniture you are on
+		if asleep:
+			return "ASLEEP // %s WAKE" % InputGlyphs.key("jump")
+		if resting_pose == "lay":
+			return "LYING DOWN // %s SLEEP // %s GET UP" % [InputGlyphs.key("jump"), InputGlyphs.key("interact")]
+		return "SEATED // %s" % InputGlyphs.prompt("interact", "STAND")
 	if hidden:
-		return ""    # E only means "come out" while hidden
+		if hiding_lock_timer > 0.0:
+			return "LOCKED IN // %ds" % ceili(hiding_lock_timer)
+		return InputGlyphs.prompt("interact", "LEAVE")
+	if is_climbing():
+		return InputGlyphs.climb_prompt(float(ladder_climb.get("height", 0.0)) <= LADDER_LET_GO_HEIGHT)
 	var percent := resecure_percent()
 	if percent >= 0:
 		return "RESTORING SIGNAL // %d%%" % percent
 	var target := _nearest_interactable()
 	if target != null:
 		var prompt: String = target.get_prompt()
-		# Hiding fixtures and generic development interactables remain usable with
-		# E/right-click, but their one-word toasts add no useful information and sit
-		# directly over the first-person view. Keep contextual prompts (doors, vents,
-		# pickups, furniture) because those communicate a distinct action.
-		if prompt.strip_edges().to_upper() in ["HIDE", "USE"]:
+		# Generic development interactables ("USE") add nothing; every other prompt names its action and gets the key
+		# for the active device: "[E] HIDE", "[E] OPEN DOOR", "HOLD [E] RESTORE SABOTAGED RELAY".
+		if prompt.strip_edges().to_upper() == "USE":
 			prompt = ""
+		if prompt.begins_with("HOLD INTERACT // "):
+			return InputGlyphs.hold("interact", prompt.trim_prefix("HOLD INTERACT // "))
 		if not prompt.is_empty():
-			return prompt
+			return InputGlyphs.prompt("interact", prompt)
 	if shop_prompt_provider.is_valid():
 		var shop_prompt: String = String(shop_prompt_provider.call())
 		if not shop_prompt.is_empty():
@@ -2541,7 +2956,9 @@ var interaction_veto: Callable
 
 ## Where [E] aims from: the head on desktop and phones, the right hand in XR (point and pull the trigger).
 func interaction_aim() -> Transform3D:
-	return xr_right.global_transform if xr_active else active_camera().global_transform
+	if xr_active and xr_right.get_has_tracking_data():
+		return xr_right.global_transform
+	return active_camera().global_transform   # flat, or a headset without a tracked right hand: aim with the head
 
 
 ## XRHands: a gripping hand moved the runner `amount` metres along the ladder this frame (+ is up).

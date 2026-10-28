@@ -44,6 +44,8 @@ var _navigations := {}
 var _hunter_views := {}
 var _hunter_origins := {}
 var _hunter_levels := {}
+const FALLS_ITEM_DROP_CHANCE := .08            # the waterfall jump: chance the item in hand slips away
+var _jump_hint_shown := false
 var _safe_damage_accumulators := {}
 var _capture_cooldown := 0.0
 var _was_chased := false
@@ -69,6 +71,8 @@ var _hunter_activation_announced := false
 var _hunter_simulation_accumulator := 0.0
 var _hunter_broadcast_elapsed := HUNTER_BROADCAST_SECONDS
 var _hunter_stream_signature := ""
+## A neighbouring level's chunks are still being generated: refresh again until they all joined.
+var _hunter_stream_waiting := false
 ## Compact copies of only the chunks the local runner has discovered. Keeping
 ## this separate from the renderer means unloaded history remains map-visible
 ## without retaining any 3D scene nodes.
@@ -180,6 +184,7 @@ func _ready() -> void:
 	player.ladder_climb_finished.connect(_on_player_ladder_finished)
 	player.tool_context_probe = _tool_context_available
 	player.item_drop_requested.connect(_on_item_drop_requested)
+	player.plunge_finished.connect(_on_player_plunge_finished)
 	player.interaction_veto = _stream_guardian_blocking
 	player.vent_resolver = _use_streamed_vent
 	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
@@ -201,11 +206,15 @@ func _ready() -> void:
 	facility.pickup_requester = _request_streamed_pickup
 	facility.door_requester = _request_streamed_door
 	facility.room_light_requester = _request_room_light
+	facility.booth_requester = _request_booth
+	facility.booth_reporter = _report_booth
+	facility.carousel_requester = _request_carousel
 	if not pending_payload.is_empty():
 		_loaded_from_save = _adopt_route_save_before_stream(pending_payload)
 	facility.begin(str(RoomState.run_seed()), player, world_state)
 	if not _loaded_from_save:
 		player.global_position = facility.spawn_position()
+		_settle_spawn.call_deferred()
 	_statistics_last_position = player.global_position
 	_navigation = StreamedHunterNavigation.new(facility.generator,
 		facility.current_level(), world_state)
@@ -222,8 +231,13 @@ func _ready() -> void:
 	_remotes.player_event.connect(_apply_player_event)
 	_remotes.hunter_event.connect(_apply_hunter_event)
 	_remotes.snapshot_source = _build_stream_snapshot
+	# Respawns and checkpoint returns are the only long jumps a guest makes on one floor (docs/ANTI_CHEAT.md).
+	_remotes.guard.legit_spot = func(at: Vector3, _depth: int) -> bool:
+		return at.distance_to(facility.spawn_position()) < 4.0 or at.distance_to(_checkpoint_world_position()) < 4.0
 	world.add_child(_remotes)
 	_room_chat = RoomChat.attach(self, _remotes)
+	_room_chat.ping_posted.connect(hud.add_map_ping)
+	_room_chat.hunter_aim_provider = _aimed_hunter_mark
 	_room_chat.open_changed.connect(_on_chat_open_changed)
 	if not Backend.admin_ticket_verified.is_connected(_on_admin_ticket_verified):
 		Backend.admin_ticket_verified.connect(_on_admin_ticket_verified)
@@ -322,6 +336,9 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	if not _booth_occupants.is_empty():
+		_tick_booth_occupancy()
+	_tick_carousels(delta)
 	if _void_fx != null:
 		_void_fx.tick(delta)
 	if not _slammed_doors.is_empty() and _remotes.simulates():
@@ -373,19 +390,21 @@ func _process(delta: float) -> void:
 	GameState.depth = -level
 	var data := facility.current_chunk_data()
 	_update_map_discovery(data)
+	if not _discovery_queue.is_empty():
+		_pump_map_discovery()
 	# Story presentation freezes both input and host AI. This preserves the
 	# original dialog/cutscene contract instead of letting a hunter capture a
 	# player while every client's choices are on screen.
 	if _story != null and _story.is_active():
 		player.velocity = Vector3.ZERO
-		_update_hud()
+		_update_hud(_map_due())
 		return
 	_clear_reached_waypoints(level)
 	_update_floor_audio(level)
 	_update_ravelle_traps(get_process_delta_time())
-	_handle_waypoint_input(level)
 	_update_waypoint_hud(level)
 	_update_player_ladder(level)
+	_update_falls_jump(level)
 	_update_sewer_ambience(delta, level)
 	if not _awaiting_snapshot:
 		_update_checkpoint(data)
@@ -409,7 +428,7 @@ func _process(delta: float) -> void:
 	_update_hunter_audio(delta, data)
 	_update_player_sleep(delta)
 	hud.set_interaction_prompt(player.get_interaction_prompt())
-	_update_hud()
+	_update_hud(_map_due())
 
 
 func _update_checkpoint(data: Dictionary) -> void:
@@ -463,7 +482,23 @@ func _on_pickup_claimed(entity_id: String) -> void:
 	pass
 
 
-func _update_hud() -> void:
+var _map_update_clock := 0.0
+
+
+## The minimap redraw is the largest steady script cost on a phone or the Quest (~5.7 ms a frame on the Quest 3S):
+## lower quality tiers redraw it at PlatformProfile.map_update_hz from the frame loop instead of every frame.
+func _map_due() -> bool:
+	if PlatformProfile.map_update_hz <= 0.0:
+		return true
+	_map_update_clock -= get_process_delta_time()
+	if _map_update_clock > 0.0:
+		return false
+	_map_update_clock = 1.0 / PlatformProfile.map_update_hz
+	return true
+
+
+## update_map false skips the minimap redraw (the per-frame caller throttles it; see _map_due).
+func _update_hud(update_map: bool = true) -> void:
 	var data := facility.current_chunk_data()
 	var safe := _player_in_intact_safe_room(data)
 	hud.update_infinite_status(GameState.relays_collected,
@@ -477,7 +512,8 @@ func _update_hud() -> void:
 		player.inventory_durability_snapshot(), player.inventory_owned_snapshot(),
 		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot(),
 		player.selected_inventory_slot, player.inventory_slot_durability_snapshot())
-	_update_streamed_maps()
+	if update_map:
+		_update_streamed_maps()
 	_present_afk_void_warning()
 
 
@@ -519,7 +555,7 @@ func _admin_status() -> String:
 	var afk_remaining := maxi(0, ceili(
 		GameConfig.anti_afk_hunter_seconds(RoomState.difficulty_id()) \
 		- _party_afk_seconds))
-	var result := "ROUTE DEBUG\nCHUNK %d:%d:%d  %s\nLOADED %d  DISCOVERED %d  HUNTERS %d\nSAFE %s  CHECKPOINT %s\nPRESSURE %ds  SURGES %d\nMAP REVEAL %s" % [
+	var result := ServerPrivacy.debug_line() + "\nROUTE DEBUG\nCHUNK %d:%d:%d  %s\nLOADED %d  DISCOVERED %d  HUNTERS %d\nSAFE %s  CHECKPOINT %s\nPRESSURE %ds  SURGES %d\nMAP REVEAL %s" % [
 		coord.x, coord.y, coord.z, String(data.get("region", "maze")).to_upper(),
 		facility.loaded_chunk_count(), _discovered_chunks.size(), _hunter_views.size(), safe_text,
 		world_state.active_checkpoint if not world_state.active_checkpoint.is_empty()
@@ -567,6 +603,12 @@ func _infinite_admin_actions() -> Array:
 	return [
 		{"label": "REFRESH ADMIN ROSTER", "action": Backend.admin_roster_refresh,
 			"owner_only": true, "no_debug": true},
+		{"heading": "ROOM CHAT", "label": "ROOM MUTE LAST SPEAKER", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("mute")},
+		{"label": "ROOM UNMUTE EVERYONE", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("unmute")},
+		{"label": "KICK LAST SPEAKER", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("kick")},
 		{"heading": "ITEMS", "label": "CREATIVE INVENTORY",
 			"permission": "inventory",
 			"items": PlayerController3D.COLLECTIBLE_ITEMS,
@@ -766,6 +808,28 @@ func _dismiss_gameplay_overlay() -> bool:
 		_room_chat.close()
 		return true
 	return false
+
+
+## How far the runner starts from the starting safe-zone marker post (it has no collider; a headset camera was inside it).
+const SPAWN_MARKER_CLEARANCE := 0.9
+
+## The spawn cell is the first chunk's centre, which a room layout can make a wall junction: once the first stream
+## window's colliders are in the physics space (the floor under the spawn exists; the window builds incrementally),
+## move the runner to the nearest clear cell.
+func _settle_spawn() -> void:
+	for i in 90:
+		await get_tree().physics_frame
+		if not is_instance_valid(player):
+			return
+		var space := player.get_world_3d().direct_space_state
+		var at := player.global_position
+		if not space.intersect_ray(PhysicsRayQueryParameters3D.create(at + Vector3.UP * 0.5, at + Vector3.DOWN * 0.6,
+				player.collision_mask, [player.get_rid()])).is_empty():
+			break
+	if is_instance_valid(player) and not _loaded_from_save:
+		var marker := find_child("StartingSafeZoneMarker", true, false) as Node3D
+		player.global_position = player.clear_spot_near(player.global_position, 4,
+			marker.global_position if marker != null else Vector3.INF, SPAWN_MARKER_CLEARANCE)
 
 
 ## Whether a 2D screen is open over the run (XRRoutePanel shows them in a headset).
@@ -1174,8 +1238,13 @@ func _force_disable_admin_cheats() -> void:
 func _discover_loaded_chunks() -> void:
 	if facility.generator == null:
 		return
+	# Each chunk is read into the map once (2025 cells plus collider boxes: ~4 ms a chunk, so all nine at every crossing
+	# was a 35 ms frame on a level change). New chunks queue and _pump_map_discovery takes one per frame; the map
+	# filters collected pickups at draw time, so a chunk seen before needs no second pass.
 	for coord in facility.loaded_horizontal_coords():
-		_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+		if not _discovered_chunks.has(coord) and not _discovery_queue.has(coord):
+			_discovery_queue.append(coord)
+	_pump_map_discovery()
 	if _admin_reveal_map:
 		var center := facility.current_chunk_coord()
 		for z in range(center.z - 4, center.z + 5):
@@ -1184,6 +1253,19 @@ func _discover_loaded_chunks() -> void:
 				if not facility.generator.is_chunk_allowed(coord):
 					continue
 				_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+
+
+var _discovery_queue: Array[Vector3i] = []
+
+
+## One queued chunk into the map per frame (the one under the runner first, as queued).
+func _pump_map_discovery() -> void:
+	while not _discovery_queue.is_empty():
+		var coord: Vector3i = _discovery_queue.pop_front()
+		if _discovered_chunks.has(coord) or not facility._loaded.has(coord):
+			continue
+		_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+		return
 
 
 func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
@@ -1246,9 +1328,12 @@ func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
 			for x in side:
 				water[z * side + x] = 1 if int(sewer_grid[z][x]) == SewerRouteGenerator.WATER else 0
 	var ladders := []
-	for link_value in facility.generator.sewer().links_for(coord):
+	for link_value in facility.generator.vertical_links(coord):
 		var link: Dictionary = link_value
-		ladders.append({"cell": LevelLink.cell_on(link, coord.y),
+		var cell := LevelLink.cell_on(link, coord.y)
+		if cell.x < 0:
+			continue
+		ladders.append({"cell": cell, "kind": String(link["kind"]),
 			"direction": "down" if coord.y == int(link["from_level"]) else "up"})
 	_discovered_chunks[coord] = {"walls": walls, "pickups": visible_pickups,
 		"props": visible_props,
@@ -1620,19 +1705,6 @@ func _crosshair_waypoint_target() -> Dictionary:
 
 
 ## The waypoint key: place where you look, or remove the waypoint when you look at it / stand on it. the clear key removes it outright.
-func _handle_waypoint_input(level: int) -> void:
-	if Input.is_action_just_pressed("waypoint_clear"):
-		_clear_local_waypoint()
-		return
-	if not Input.is_action_just_pressed("waypoint"):
-		return
-	var target := _crosshair_waypoint_target()
-	if target.is_empty():
-		hud.show_message("NOWHERE TO PLACE A WAYPOINT")
-		return
-	_place_waypoint_at(target["at"], level)
-
-
 func _update_waypoint_hud(level: int) -> void:
 	if _waypoint_overlay == null:
 		return
@@ -2190,6 +2262,22 @@ func _spawn_anti_idle_hunter() -> bool:
 	return true
 
 
+## The levels a hunter window around `center` covers: its own, and each level
+## one step up or down that a ladder or ramp in the surrounding 3x3 actually
+## leads to. Keeping every neighbouring level generated whether or not anything
+## connects to it built a whole Inferno window the moment a runner reached the
+## collector (a 110-180 ms frame on the level change).
+func _hunter_window_levels(center: Vector3i) -> Array:
+	var levels := [center.y]
+	for z in range(center.z - 1, center.z + 2):
+		for x in range(center.x - 1, center.x + 2):
+			for link_value in facility.generator.vertical_links(Vector3i(x, center.y, z)):
+				var far := int(LevelLink.other_end(link_value, center.y)["level"])
+				if absi(far - center.y) <= HUNTER_VERTICAL_STREAM_RADIUS and not levels.has(far):
+					levels.append(far)
+	return levels
+
+
 func _refresh_hunter_stream() -> void:
 	if _remotes == null or not _remotes.simulates() or facility.generator == null:
 		return
@@ -2203,9 +2291,10 @@ func _refresh_hunter_stream() -> void:
 		return a.y < b.y or (a.y == b.y and (a.x < b.x \
 			or (a.x == b.x and a.z < b.z))))
 	var stream_signature := _build_hunter_stream_signature(centers)
-	if stream_signature == _hunter_stream_signature:
+	if stream_signature == _hunter_stream_signature and not _hunter_stream_waiting:
 		return
 	_hunter_stream_signature = stream_signature
+	_hunter_stream_waiting = false
 	var active_coords := {}
 	var coords_by_level := {}
 	var navigation_centers: Array[Vector3i] = centers.duplicate()
@@ -2230,9 +2319,7 @@ func _refresh_hunter_stream() -> void:
 	# hunter resident across successive stair transfers instead of unloading
 	# immediately when the player climbs twice.
 	for center in navigation_centers:
-		for level_offset in range(-HUNTER_VERTICAL_STREAM_RADIUS,
-				HUNTER_VERTICAL_STREAM_RADIUS + 1):
-			var level := center.y + level_offset
+		for level in _hunter_window_levels(center):
 			if not coords_by_level.has(level):
 				coords_by_level[level] = []
 			var level_coords: Array = coords_by_level[level]
@@ -2240,6 +2327,12 @@ func _refresh_hunter_stream() -> void:
 				for x in range(center.x - 1, center.x + 2):
 					var coord := Vector3i(x, level, z)
 					if not facility.generator.is_chunk_allowed(coord):
+						continue
+					# another level's chunks join once the view's worker has generated them,
+					# so reaching a level never generates a whole window on this thread
+					if level != center.y and not facility.chunk_ready(coord):
+						facility.request_generation(coord)
+						_hunter_stream_waiting = true
 						continue
 					active_coords[coord] = true
 					if not level_coords.has(coord):
@@ -2637,8 +2730,31 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 		var climb := _ladders.advance(entity_id, delta)
 		var link: Dictionary = (_ladders.climb_of(entity_id).get("link", {}) as Dictionary) \
 			if not bool(climb.get("done", false)) else (_ladder_plans.get(entity_id, {}) as Dictionary).get("link", {})
-		var lower_y := float(StreamedRouteGenerator.SEWER_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
-		view.set_climbing(true, lower_y + float(climb.get("height", 0.0)), _ladder_yaw(link))
+		var lower_y := float(mini(int(link.get("from_level", 0)), int(link.get("to_level", 0)))) \
+			* StreamedFacilityView3D.LEVEL_HEIGHT
+		if link.has("path"):
+			# a stairwell: round its landings and up (or down) its flights or helix
+			var going_up := int(climb.get("to_level", level)) > int(climb.get("from_level", level))
+			var p := LadderTraffic.path_point(link, float(climb.get("progress", 0.0)), going_up)
+			var origin := Vector2((link["chunk"] as Vector3i).x, (link["chunk"] as Vector3i).z) * StreamedRouteGenerator.CHUNK_SIZE
+			var ahead := LadderTraffic.path_point(link, minf(1.0, float(climb.get("progress", 0.0)) + .02), going_up)
+			brain.position = origin + Vector2(p.x, p.z)
+			var heading := Vector2(ahead.x - p.x, ahead.z - p.z)
+			view.set_climbing(true, lower_y + p.y, atan2(-heading.x, -heading.y) if heading.length() > .001 else view.rotation.y,
+				"walk")
+		elif String(link.get("kind", "")) == "ramp":
+			# a ramp is walked, not climbed: down the slope from one landing to the other
+			var start := LadderTraffic.ladder_point(link, int(climb.get("from_level", level)))
+			var finish := LadderTraffic.ladder_point(link, int(climb.get("to_level", level)))
+			brain.position = start.lerp(finish, float(climb.get("progress", 0.0)))
+			var heading := finish - start
+			# on the ramp's own surface: flat over the landings, the slope between them
+			var upper_y := float(int(link["from_level"])) * StreamedFacilityView3D.LEVEL_HEIGHT
+			var local_x := brain.position.x - float((link["chunk"] as Vector3i).x * StreamedRouteGenerator.CHUNK_SIZE)
+			view.set_climbing(true, upper_y + StreamedFacilityView3D._ramp_surface_y(link, local_x),
+				atan2(-heading.x, -heading.y), "walk")
+		else:
+			view.set_climbing(true, lower_y + float(climb.get("height", 0.0)), _ladder_yaw(link))
 		if bool(climb.get("done", false)):
 			var to_level := int(climb["to_level"])
 			_hunter_levels[entity_id] = to_level
@@ -2665,8 +2781,11 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 		_ladder_plans.erase(entity_id)
 		plan = {}
 	if plan.is_empty():
-		var other_level := 0 if level == StreamedRouteGenerator.SEWER_LEVEL else StreamedRouteGenerator.SEWER_LEVEL
-		var other := _remotes.best_target(brain.position, local_target, -other_level)
+		# the runner she was after may be one level up or one level down
+		var other := {}
+		for other_level in [level + 1, level - 1]:
+			if other.is_empty() and facility.generator.is_chunk_allowed(Vector3i(0, other_level, 0)):
+				other = _remotes.best_target(brain.position, local_target, -other_level)
 		var pursuing := brain.state == HunterBrain.State.CHASE or brain.state == HunterBrain.State.INVESTIGATE
 		if not other.is_empty() and pursuing:
 			var goal: Vector2 = other["position"]
@@ -2687,8 +2806,13 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 	var point := LadderTraffic.ladder_point(link, level)
 	var arrived := brain.head_to(point, delta, navigation, depth, GameState.relays_collected)
 	if arrived and String(plan["mode"]) != "wait":
-		# One climber at a time: she waits at the ladder while it is taken.
-		_ladders.begin(entity_id, link, level, LadderTraffic.climb_seconds_for_speed(brain.base_speed))
+		# One at a time on a ladder (and a ramp): she waits at it while it is taken.
+		var seconds := LadderTraffic.climb_seconds_for_speed(brain.base_speed)
+		if link.has("path"):
+			seconds = LadderTraffic.path_seconds(link, brain.base_speed)
+		elif String(link["kind"]) == "ramp":
+			seconds = LadderTraffic.ramp_seconds_for_speed(brain.base_speed)
+		_ladders.begin(entity_id, link, level, seconds)
 	return true
 
 
@@ -2702,7 +2826,8 @@ func _update_player_ladder(level: int) -> void:
 			or player.input_frozen or player.admin_noclip:
 		return
 	var at := player.grid_position()
-	var link := LadderTraffic.nearest_ladder(facility.generator, level, at)
+	# runners climb ladders; ramps they simply walk
+	var link := LadderTraffic.nearest_ladder(facility.generator, level, at, ["ladder"])
 	if link.is_empty():
 		_ladder_rearm_id = ""
 		return
@@ -2716,7 +2841,7 @@ func _update_player_ladder(level: int) -> void:
 	var going_down := level == 0
 	if distance <= 1.4 and _ladder_hint_id != link_id:
 		_ladder_hint_id = link_id
-		hud.show_message("[E] LADDER %s // HOLD W / S TO CLIMB" % ("DOWN INTO THE SEWER" if going_down else "UP"))
+		hud.show_message(InputGlyphs.prompt("interact", "LADDER %s" % ("DOWN INTO THE SEWER" if going_down else "UP")))
 	elif distance > 2.0 and _ladder_hint_id == link_id:
 		_ladder_hint_id = ""
 	var wants := distance <= 0.45 or (distance <= 1.4 and Input.is_action_just_pressed("interact"))
@@ -2751,6 +2876,89 @@ func _update_sewer_ambience(delta: float, _level: int) -> void:
 	if _ladder_rung_timer <= 0.0:
 		_ladder_rung_timer = .42
 		Sound.ladder_rung(randf_range(-.2, .2), randf_range(.7, 1.0))
+
+
+## The roar of the falls into the collector drowns out a runner's own noise for
+## the hunters: full masking within FALLS_MASK_NEAR cells of a fall's lip (on
+## either sewer level), fading out by FALLS_MASK_FAR.
+const FALLS_MASK_NEAR := 7.0
+const FALLS_MASK_FAR := 13.0
+const FALLS_MASK_FLOOR := .35
+
+
+func _falls_noise_mask(at: Vector2, level: int) -> float:
+	if level != StreamedRouteGenerator.SEWER_LEVEL and level != StreamedRouteGenerator.LOWER_SEWER_LEVEL:
+		return 1.0
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var cx := floori(at.x / size)
+	var cz := floori(at.y / size)
+	var nearest := INF
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var falls: Dictionary = facility.generator.sewer().falls_between(cx + dx, cz + dz)
+			if falls.is_empty():
+				continue
+			var lip := Vector2((cx + dx) * size + float(falls["edge_x0"]) + 1.5, (cz + dz) * size + float(falls["edge_z"]))
+			nearest = minf(nearest, lip.distance_to(at))
+	if nearest == INF:
+		return 1.0
+	return lerpf(FALLS_MASK_FLOOR, 1.0, clampf((nearest - FALLS_MASK_NEAR) / (FALLS_MASK_FAR - FALLS_MASK_NEAR), 0.0, 1.0))
+
+
+## The waterfall jump (docs/SEWERS.md): on the first sewer, stepping through the railing gap off an overlook ledge into the open drop is a
+## deliberate plunge into the collector's cistern. Nothing happens by accident: the gap is the only open cell, and walking into it is the choice.
+func _update_falls_jump(level: int) -> void:
+	if player == null or level != StreamedRouteGenerator.SEWER_LEVEL or player.is_plunging() or player.is_climbing() \
+			or player.hidden or player.spectator_mode or player.admin_noclip:
+		return
+	var jump := _falls_jump_near(player.grid_position(), level)
+	if jump.is_empty():
+		_jump_hint_shown = false
+		return
+	var at := player.grid_position()
+	var cell: Vector2 = jump["cell_world"]
+	if at.distance_to(cell) <= 2.4 and not _jump_hint_shown:
+		_jump_hint_shown = true
+		hud.show_message("THE FALLS // STEP THROUGH THE GAP TO JUMP")
+	if Vector2i(floori(at.x), floori(at.y)) != Vector2i(floori(cell.x), floori(cell.y)):
+		return
+	var rise := StreamedFacilityView3D.LEVEL_HEIGHT
+	var surface_y := float(StreamedRouteGenerator.LOWER_SEWER_LEVEL) * rise + SewerRouteGenerator.WATER_SURFACE
+	var land: Vector2 = jump["land_world"]
+	var exit: Vector2 = jump["exit_world"]
+	player.begin_plunge(Vector3(cell.x, player.global_position.y, cell.y), Vector3(land.x, surface_y, land.y),
+		Vector3(exit.x, float(StreamedRouteGenerator.LOWER_SEWER_LEVEL) * rise, exit.y), surface_y)
+
+
+## {"cell_world", "land_world", "exit_world"} of the falls jump in the chunk column around `at`, or {}.
+func _falls_jump_near(at: Vector2, level: int) -> Dictionary:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var cx := floori(at.x / size)
+	var cz := floori(at.y / size)
+	var falls: Dictionary = facility.generator.sewer().falls_between(cx, cz)
+	if falls.is_empty() or not falls.has("jump"):
+		return {}
+	var jump: Dictionary = falls["jump"]
+	var origin := Vector2(cx * size, cz * size)
+	return {"cell_world": origin + Vector2(jump["cell"]) + Vector2(.5, .5), "land_world": origin + Vector2(jump["land"]),
+		"exit_world": origin + Vector2(jump["exit"]), "level": level}
+
+
+## Out of the pool: a small chance the item in hand slipped away; it floats to where the runner climbed out. (Soaked runs for SOAKED_SECONDS.)
+func _on_player_plunge_finished(exit_position: Vector3) -> void:
+	hud.show_message("SOAKED // YOUR STEPS CARRY")
+	var item := player.selected_inventory_item()
+	if item.is_empty() or randf() >= FALLS_ITEM_DROP_CHANCE:
+		return
+	var slot: int = player.selected_inventory_slot
+	var event := {"what": "stream_drop", "action": "create", "item": item, "durability": 0, "slot": slot,
+		"at_override": exit_position + Vector3(0, .0, 0)}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_stream_drop(multiplayer.get_unique_id() if RoomState.online else 1, event)
+	hud.show_message("YOUR %s SLIPPED AWAY // IT FLOATED TO THE EDGE" % String(
+		PlayerController3D.INVENTORY_LABELS.get(item, item)).to_upper())
 
 
 func _on_player_ladder_finished(_to_level: int) -> void:
@@ -3092,7 +3300,7 @@ func _hunter_target(in_safe_room: bool) -> Dictionary:
 		"hidden": player.hidden,
 		"hiding_spot": player.hidden_spot,
 		"in_safe_zone": in_safe_room,
-		"noise": player.noise,
+		"noise": player.noise * _falls_noise_mask(player.grid_position(), facility.current_level()),
 		"flashlight_on": player.flashlight_enabled,
 		"sprinting": player.movement_mode == "sprint" and player.noise > 0.0,
 		"facing": player.facing,
@@ -3420,6 +3628,254 @@ func _request_streamed_door(_requesting_player: PlayerController3D,
 		event)
 	return ""
 
+# --- carnival booths (docs/CARNIVAL_BOOTHS.md) ------------------------------------------------------------------------------------------
+## The host judges every booth: one player at a time, the cooldown (kept in the world state, unix time), the result and the prize. A guest only asks (start) and reports (finish / cancel).
+## booth id = "cx:cy:cz:propType:cellX:cellY"; the host re-derives the booth from the generated chunk, so an invented id does nothing.
+
+var _booth_occupants := {}
+
+
+func _request_booth(_requesting_player: PlayerController3D, booth_id: String, prop_type: String) -> String:
+	var booth := facility.booth_node(booth_id)
+	if booth == null:
+		return ""
+	if booth.is_busy() or world_state.booth_cooldown_left(booth_id, Time.get_unix_time_from_system()) > 0.5:
+		Sound.interaction_fail()
+		return booth.prompt_text()
+	var event := {"what": "stream_booth", "action": "start", "booth_id": booth_id, "type": prop_type}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_booth(_local_peer_id(), event)
+	return ""
+
+
+func _report_booth(event: Dictionary) -> void:
+	var out := event.duplicate()
+	out["what"] = "stream_booth"
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(out)
+	else:
+		_accept_booth(_local_peer_id(), out)
+
+
+## {type, center (Vector2 world cell), coord} of a real generated booth, else {}.
+func _booth_info(booth_id: String) -> Dictionary:
+	var parts := booth_id.split(":")
+	if booth_id.length() > 80 or parts.size() != 6 or not parts[0].is_valid_int() or not parts[1].is_valid_int() \
+			or not parts[2].is_valid_int() or not parts[4].is_valid_int() or not parts[5].is_valid_int():
+		return {}
+	var type := String(parts[3])
+	if not CarnivalBooths.is_booth(type):
+		return {}
+	var coord := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+	if absi(coord.x) > 1_000_000 or absi(coord.y) > 1_000_000 or absi(coord.z) > 1_000_000:
+		return {}
+	var cell := Vector2i(int(parts[4]), int(parts[5]))
+	for value in facility.generator.chunk(coord).get("region_props", []):
+		var prop: Dictionary = value
+		if String(prop.get("type", "")) == type and prop.get("cell", Vector2i(-99, -99)) == cell:
+			return {"type": type, "coord": coord,
+				"center": Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5, coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)}
+	return {}
+
+
+func _accept_booth(peer_id: int, event: Dictionary) -> void:
+	var booth_id := String(event.get("booth_id", ""))
+	var info := _booth_info(booth_id)
+	if info.is_empty():
+		return
+	var type := String(info["type"])
+	var now := Time.get_unix_time_from_system()
+	var action := String(event.get("action", ""))
+	if action == "start":
+		if world_state.booth_cooldown_left(booth_id, now) > 0.5 or _booth_occupants.has(booth_id):
+			return
+		var target := _target_state_for_peer(peer_id)
+		var position = target.get("position")
+		if target.is_empty() or not position is Vector2 or -int(target.get("depth", 999999)) != (info["coord"] as Vector3i).y \
+				or (position as Vector2).distance_to(info["center"]) > CarnivalBooths.INTERACT_DISTANCE:
+			return
+		var seed_value := randi()
+		_booth_occupants[booth_id] = {"peer": peer_id, "type": type, "seed": seed_value, "since": now}
+		_publish_stream_event({"what": "stream_booth", "action": "start", "booth_id": booth_id, "type": type, "peer_id": peer_id, "seed": seed_value})
+		return
+	var occupant: Dictionary = _booth_occupants.get(booth_id, {})
+	if occupant.is_empty() or int(occupant["peer"]) != peer_id or action not in ["finish", "cancel"]:
+		return
+	var booth_score := int(event.get("booth_score", 0))
+	var elapsed := float(event.get("elapsed", 0.0))
+	var won := false
+	var cooldown := CarnivalBooths.CANCEL_COOLDOWN
+	if action == "finish" and CarnivalBooths.plausible(type, booth_score, elapsed):
+		won = CarnivalBooths.is_win(type, booth_score)
+		cooldown = CarnivalBooths.cooldown_for(type, won)
+	else:
+		booth_score = 0
+	_booth_occupants.erase(booth_id)
+	_publish_stream_event({"what": "stream_booth", "action": "finish", "booth_id": booth_id, "type": type, "peer_id": peer_id, "booth_score": booth_score,
+		"won": won, "rest_until": now + cooldown, "reward": CarnivalBooths.reward_for(type, int(occupant["seed"])) if won else {}})
+
+
+## Host: a booth whose player left or dropped is freed after the game's length plus a grace.
+func _tick_booth_occupancy() -> void:
+	if RoomState.online and not RoomState.is_host:
+		return
+	var now := Time.get_unix_time_from_system()
+	for booth_id in _booth_occupants.keys():
+		var occupant: Dictionary = _booth_occupants[booth_id]
+		var limit := float(CarnivalBooths.spec(String(occupant["type"])).get("seconds", 30.0)) + CarnivalBooths.OCCUPANCY_GRACE
+		if now - float(occupant["since"]) > limit:
+			_accept_booth(int(occupant["peer"]), {"action": "cancel", "booth_id": booth_id})
+
+
+## Everyone: the start shows the board, the finish rests the booth and, for the winner, pays.
+func _apply_booth_event(event: Dictionary) -> void:
+	var booth_id := String(event.get("booth_id", ""))
+	var booth := facility.booth_node(booth_id)
+	var peer := int(event.get("peer_id", 0))
+	var mine := peer == _local_peer_id()
+	if String(event.get("action", "")) == "start":
+		if booth == null:
+			return
+		if mine:
+			booth.begin_local(player, int(event.get("seed", 0)))
+		else:
+			booth.begin_remote(peer, int(event.get("seed", 0)), player.global_position)
+		return
+	world_state.rest_booth(booth_id, float(event.get("rest_until", 0.0)))
+	var won := bool(event.get("won", false))
+	if booth != null:
+		booth.end_game(won, int(event.get("booth_score", 0)))
+	if won and mine:
+		_pay_booth_reward(event.get("reward", {}))
+
+
+func _pay_booth_reward(reward: Dictionary) -> void:
+	match String(reward.get("kind", "")):
+		"battery", "tool":
+			var item := "battery" if String(reward.get("kind")) == "battery" else String(reward.get("item", "lockpick"))
+			if player.grant_inventory_item(item):
+				hud.show_message("PRIZE // %s" % String(PlayerController3D.INVENTORY_LABELS.get(item, item)).to_upper())
+				Sound.collect()
+			else:
+				hud.show_message("POCKETS FULL // PRIZE LEFT BEHIND")
+		"hint":
+			hud.show_message(_relay_hint())
+
+
+## The strength tester's prize: where the nearest unsecured signal relay is, in words.
+func _relay_hint() -> String:
+	var found := _admin_nearest_relay_position()
+	if found == Vector3.INF:
+		return "THE BELL RINGS ACROSS THE MIDWAY // NO RELAY IN EARSHOT"
+	var to := found - player.global_position
+	var away := Vector2(to.x, to.z)
+	var facing := -player.global_transform.basis.z
+	var angle := rad_to_deg(Vector2(facing.x, facing.z).angle_to(away))
+	var way := "AHEAD"
+	if angle > 135.0 or angle < -135.0:
+		way = "BEHIND YOU"
+	elif angle > 45.0:
+		way = "TO YOUR RIGHT"
+	elif angle < -45.0:
+		way = "TO YOUR LEFT"
+	return "THE BELL CARRIES // A SIGNAL RELAY IS %s, ABOUT %d M" % [way, roundi(away.length())]
+
+
+# --- the merry-go-round (CarouselRide3D) ------------------------------------------------------------------------------------------------
+## The lever asks the host; the host toggles the ride and publishes its angle at that instant; every machine re-bases its own clock to it (StreamedWorldState.carousels), so all show the same angle.
+## A ride nobody is near is stopped by the host after CAROUSEL_IDLE_STOP seconds (CPU, and the music).
+
+const CAROUSEL_IDLE_STOP := 20.0
+const CAROUSEL_NEAR := 32.0
+const CAROUSEL_REACH := 4.6
+var _carousel_idle := {}
+var _carousel_check := 0.0
+
+
+func _request_carousel(_requesting_player: PlayerController3D, ride_id: String) -> String:
+	var event := {"what": "stream_carousel", "carousel_id": ride_id}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_carousel(_local_peer_id(), event)
+	return ""
+
+
+## {center (Vector2 world cell), coord} of a real generated carousel, else {}.
+func _carousel_info(ride_id: String) -> Dictionary:
+	var parts := ride_id.split(":")
+	if ride_id.length() > 80 or parts.size() != 6 or parts[3] != "carouselCenterpiece" or not parts[0].is_valid_int() or not parts[1].is_valid_int() \
+			or not parts[2].is_valid_int() or not parts[4].is_valid_int() or not parts[5].is_valid_int():
+		return {}
+	var coord := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+	if absi(coord.x) > 1_000_000 or absi(coord.y) > 1_000_000 or absi(coord.z) > 1_000_000:
+		return {}
+	var cell := Vector2i(int(parts[4]), int(parts[5]))
+	for value in facility.generator.chunk(coord).get("region_props", []):
+		var prop: Dictionary = value
+		if String(prop.get("type", "")) == "carouselCenterpiece" and prop.get("cell", Vector2i(-99, -99)) == cell:
+			return {"coord": coord, "center": Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5, coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)}
+	return {}
+
+
+func _accept_carousel(peer_id: int, event: Dictionary) -> void:
+	var ride_id := String(event.get("carousel_id", ""))
+	var info := _carousel_info(ride_id)
+	if info.is_empty():
+		return
+	if peer_id != 0:   # peer 0 is the host's own idle stop
+		var target := _target_state_for_peer(peer_id)
+		var position = target.get("position")
+		if target.is_empty() or not position is Vector2 or -int(target.get("depth", 999999)) != (info["coord"] as Vector3i).y \
+				or (position as Vector2).distance_to(info["center"]) > CAROUSEL_REACH + CarouselRide3D.RADIUS:
+			return
+	var now := Time.get_unix_time_from_system()
+	var turn_on := not world_state.carousel_on(ride_id) if peer_id != 0 else false
+	_publish_stream_event({"what": "stream_carousel", "carousel_id": ride_id, "on": turn_on, "angle": world_state.carousel_angle(ride_id, now), "peer_id": peer_id})
+
+
+func _apply_carousel_event(event: Dictionary) -> void:
+	var ride_id := String(event.get("carousel_id", ""))
+	var on := bool(event.get("on", false))
+	world_state.set_carousel(ride_id, on, float(event.get("angle", 0.0)), Time.get_unix_time_from_system())
+	var ride := facility.carousel_node(ride_id)
+	if ride != null:
+		ride._refresh()
+	if int(event.get("peer_id", 0)) == _local_peer_id():
+		Sound.carnival("lever")
+		player.emit_noise_burst(0.8 if on else 0.4, 3.0)
+	_carousel_idle.erase(ride_id)
+
+
+## Host: a ride that runs with nobody near is stopped.
+func _tick_carousels(delta: float) -> void:
+	if RoomState.online and not RoomState.is_host:
+		return
+	_carousel_check -= delta
+	if _carousel_check > 0.0:
+		return
+	_carousel_check = 2.0
+	for ride_id in world_state.carousels.keys():
+		if not world_state.carousel_on(String(ride_id)):
+			continue
+		var info := _carousel_info(String(ride_id))
+		if info.is_empty():
+			continue
+		var near := false
+		for target in _remotes.target_states(_hunter_target(_player_in_intact_safe_room(facility.current_chunk_data()))):
+			var position = target.get("position")
+			if position is Vector2 and -int(target.get("depth", 999999)) == (info["coord"] as Vector3i).y and (position as Vector2).distance_to(info["center"]) < CAROUSEL_NEAR:
+				near = true
+		if near:
+			_carousel_idle.erase(ride_id)
+		else:
+			_carousel_idle[ride_id] = float(_carousel_idle.get(ride_id, 0.0)) + 2.0
+			if float(_carousel_idle[ride_id]) >= CAROUSEL_IDLE_STOP:
+				_accept_carousel(0, {"carousel_id": ride_id})
+
+
 ## Room light switch (docs/LIGHT_SWITCHES.md): host-authoritative like doors. The host applies and relays; a guest asks.
 func _request_room_light(on: bool, room_id: String) -> String:
 	Sound.light_switch()
@@ -3494,6 +3950,10 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_sabotage(peer_id, event)
 		"stream_door":
 			_accept_stream_door(peer_id, event)
+		"stream_booth":
+			_accept_booth(peer_id, event)
+		"stream_carousel":
+			_accept_carousel(peer_id, event)
 		"stream_room_light":
 			_publish_stream_event({"what": "stream_room_light", "room_id": String(event.get("room_id", "")),
 				"on": bool(event.get("on", true))})
@@ -3558,6 +4018,8 @@ func _accept_stream_drop(peer_id: int, event: Dictionary) -> void:
 				return
 			var drop_position: Vector3 = at
 			drop_position += Vector3(facing.x, 0.0, facing.y) * .72
+			if event.has("at_override") and event["at_override"] is Vector3:
+				drop_position = event["at_override"]      # a drop that floated to the pool's edge
 			drop_position.y = facility.streamed_surface_height(Vector2(
 				drop_position.x, drop_position.z), -int(target.get("depth", 0))) + .12
 			var record := world_state.create_drop(item_id, durability, drop_position,
@@ -3905,6 +4367,10 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 				if owner_id == _local_peer_id():
 					_waypoint_feedback(not (waypoint as Dictionary).is_empty())
 				_update_streamed_maps()
+		"stream_booth":
+			_apply_booth_event(event)
+		"stream_carousel":
+			_apply_carousel_event(event)
 		"stream_room_light":
 			var light_room := String(event.get("room_id", ""))
 			if facility.apply_room_light(light_room, bool(event.get("on", true))) and String(event.get("by", "")) != "":
@@ -4264,6 +4730,7 @@ func _collect_hunter_report() -> void:
 		state["presentation_y"] = view.position.y
 		state["climbing"] = view.climbing
 		state["climb_yaw"] = view.rotation.y
+		state["climb_clip"] = view.climb_clip
 		state["asleep"] = _naps.is_asleep(entity_id)
 		state["sleep_yaw"] = float(_naps.bed_of(entity_id).get("yaw", 0.0))
 		state["sleep_stage"] = _naps.stage_of(entity_id)
@@ -4301,7 +4768,7 @@ func _apply_hunter_report(data: Array) -> void:
 		# A host hunter on a sewer ladder: guests show the same climb at the host's height.
 		if bool(state.get("climbing", false)):
 			view.set_climbing(true, float(state.get("presentation_y", view.position.y)),
-				float(state.get("climb_yaw", view.rotation.y)))
+				float(state.get("climb_yaw", view.rotation.y)), String(state.get("climb_clip", "climb")))
 		else:
 			view.set_climbing(false)
 			view.clear_streamed_height_override()
@@ -4374,6 +4841,15 @@ func _apply_player_event(event: Dictionary) -> void:
 			var stun_note := String(event.get("message", ""))
 			if not stun_note.is_empty():
 				hud.show_message(stun_note)
+		"anticheat_snap":
+			# RemotePlayers already moved the player back. Lag gets a plain network note, never anti-cheat wording.
+			hud.show_message("CONNECTION UNSTABLE" if bool(event.get("lag", false)) else "POSITION CORRECTED")
+		"troll":
+			player.troll_active = bool(event.get("on", false))
+		"troll_pickup":
+			# The host refused it; it vanishes for this client only.
+			if facility.apply_pickup_claim(String(event.get("entity_id", ""))):
+				hud.show_message("IT SLIPS AWAY")
 		"revive":
 			if player.spectator_mode and not RoomState.is_host:
 				_end_spectating()
@@ -4483,6 +4959,7 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 	if HunterJumpscare.ENABLED:
 		Sound.office_jumpscare(hunter_id)
 	if jumpscare != null:
+		jumpscare.duration_scale = GameConfig.TROLL_SCARE_SCALE if player.troll_active else 1.0
 		await jumpscare.play(player.active_camera(), hunter_id)
 	# The death moment is only an overlay: online the spectator hand-off below happens at once, solo the run card
 	# waits for it so the line is read before the end card.
@@ -5204,3 +5681,50 @@ func _leave_test() -> void:
 		RoomState.session_active = false
 		RoomState.status_message = "ROUTE SUSPENDED // BACK IN STAGING"
 		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+
+
+## Quick chat "HUNTER!": the hunter in front of the crosshair (within 30 m, close to the view direction), as a map mark.
+func _aimed_hunter_mark() -> Dictionary:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return {}
+	var look := -camera.global_basis.z
+	var best := {}
+	var best_dot := 0.97
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view == null or view.brain == null or not view.brain.active or not view.visible:
+			continue
+		var to := view.global_position + Vector3(0, 1.2, 0) - camera.global_position
+		if to.length() > 30.0:
+			continue
+		var dot := look.dot(to.normalized())
+		if dot > best_dot:
+			best_dot = dot
+			best = {"at": view.brain.position, "depth": GameState.depth}
+	return best
+
+
+## Owner/admin room moderation (host): the last guest heard in chat is room-muted (their lines are dropped before relay)
+## or removed from the room.
+func _admin_room_chat(what: String) -> void:
+	if _remotes == null or not RoomState.is_host:
+		hud.show_message("ROOM MODERATION NEEDS THE HOST")
+		return
+	var target := 0
+	for entry_value in RoomChat.history:
+		var entry: Dictionary = entry_value
+		if int(entry.get("peer", 0)) > 1 and not bool(entry.get("system", false)):
+			target = int(entry["peer"])
+	match what:
+		"unmute":
+			_remotes.room_muted.clear()
+			_remotes.send_system("ROOM CHAT UNMUTED")
+		"mute":
+			if target > 1:
+				_remotes.set_room_muted(target, true)
+				_remotes.send_system("%s IS MUTED IN THIS ROOM" % RoomState.peer_display_name(target).to_upper())
+		"kick":
+			if target > 1:
+				_remotes.send_system("%s WAS REMOVED FROM THE ROOM" % RoomState.peer_display_name(target).to_upper())
+				RoomState.kick_peer(target)

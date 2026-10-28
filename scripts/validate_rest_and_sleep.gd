@@ -68,13 +68,29 @@ func _check_rest_camera(route: Node, player: PlayerController3D) -> void:
 		var forward := Vector3(-sin(yaw), 0, -cos(yaw))
 		var start := player.global_position
 		var furniture := _furniture(route, type, action, Vector3(start.x, floor_y, start.z) - forward * 1.5, yaw)
+		var mattress := -1.0
+		if action == "lay":
+			# the bed's own model gives the mattress top, as the streamed view does
+			var model := ModelSlot.instantiate_prop(PropModelCatalog.model_path(type, type), type)
+			if model != null:
+				route.add_child(model)
+				model.global_position = Vector3(furniture.global_position.x, floor_y, furniture.global_position.z)
+				mattress = StreamedFacilityView3D.mattress_top(model, PropModelCatalog.model_path(type, type))
+				furniture.set_meta("rest_top", mattress)
+				model.queue_free()
 		player.use_furniture(furniture, action)
 		var jump := _step(player, 30)
 		_expect(not player.rest_ease_active(), "%s: the mount never finished easing" % type)
 		_expect(jump < MAX_FRAME_STEP, "%s: the camera jumped %.2f m in one frame mounting" % [type, jump])
 		var eye := player.first_person_pivot.global_position.y - floor_y
-		var band := LAY_EYE if action == "lay" else SIT_EYE
-		_expect(eye >= band.x and eye <= band.y, "%s (%s): eye at %.2f m, wants %.2f-%.2f" % [type, action, eye, band.x, band.y])
+		if mattress >= 0.0:
+			_expect(eye - mattress >= .15 and eye - mattress <= .35, "%s: lying eye %.2f m above its mattress (%.2f), wants 0.15-0.35" % [type, eye - mattress, mattress])
+		else:
+			var band := LAY_EYE if action == "lay" else SIT_EYE
+			_expect(eye >= band.x and eye <= band.y, "%s (%s): eye at %.2f m, wants %.2f-%.2f" % [type, action, eye, band.x, band.y])
+		_expect(not player.first_person_items.visible, "%s: the held item still shows while resting" % type)
+		_expect(not "LIE DOWN" in player.get_interaction_prompt() and not "SIT DOWN" in player.get_interaction_prompt(),
+			"%s: resting still offers '%s'" % [type, player.get_interaction_prompt()])
 		var look := -player.active_camera().global_basis.z
 		look.y = 0.0
 		_expect(look.normalized().dot(forward) > .9, "%s: the camera does not face out of the %s" % [type, "bed" if action == "lay" else "seat"])
@@ -98,6 +114,7 @@ func _check_rest_camera(route: Node, player: PlayerController3D) -> void:
 		_expect(not player.rest_ease_active(), "%s: the dismount never finished" % type)
 		_expect(jump < MAX_FRAME_STEP, "%s: the camera jumped %.2f m in one frame getting up" % [type, jump])
 		_expect(absf(player.first_person_pivot.position.y - player._standing_camera_height) < .01, "%s: standing eye not restored" % type)
+		_expect(player.first_person_items.visible, "%s: the held item did not come back after getting up" % type)
 		furniture.queue_free()
 		checked += 1
 	metrics["rest_types"] = checked

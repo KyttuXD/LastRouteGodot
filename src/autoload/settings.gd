@@ -70,7 +70,7 @@ const REBINDABLE_ACTIONS: Array[String] = [
 	"move_left", "move_right", "move_up", "move_down",
 	"look_left", "look_right", "look_up", "look_down",
 	"sprint", "crouch", "jump", "flashlight", "taser", "tool_use", "interact",
-	"inventory", "drop_item", "chat", "toggle_map", "waypoint", "waypoint_clear", "pause",
+	"inventory", "drop_item", "chat", "toggle_map", "pause",
 	"office_left_door", "office_right_door", "office_desk_light",
 	"office_vent", "office_cameras", "office_radio", "office_breaker",
 	"office_reboot", "office_emergency_flash", "office_rear_flash",
@@ -102,15 +102,32 @@ var touch_look_accel := false
 var xr_smooth_turn := false
 var xr_vignette := true
 var xr_seated := false
+## GRAPHICS: "AUTO" (PlatformProfile's detected tier with live adaptation) or a fixed LOW / MEDIUM / HIGH / ULTRA.
+var graphics_quality := "AUTO"
+const GRAPHICS_CHOICES := ["AUTO", "LOW", "MEDIUM", "HIGH", "ULTRA"]
 ## Death moment plays its whole line and closes after 2.5 s instead of typing it and waiting 7 s.
 var short_death_scenes := false
 ## Open the pause menu when the window loses focus. Default ON only in release builds; always OFF in debug, BETA and
 ## TEST SERVER builds so two windows can be played side by side. focus_loss_pauses() also refuses with other players.
 var pause_on_focus_loss := false
+## Spoken chat (RoomChat): text-to-speech volume 0..100, voices on/off (off = subtitles only), subtitles, locally muted
+## players (by callsign, upper case).
+var voice_volume := 80.0
+var voice_enabled := true
+var voice_subtitles := true
+var muted_players: Array = []
 ## The game the hub focuses when it opens (the one launched last); "" until a game was launched.
 var hub_last_game := ""
 ## 0 preserves the authored skin; 1..360 selects a lightweight texture tint.
 var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
+## The custom player skin (PlayerSkin): sha256 of its canonical PNG in user://skins, "" = the default mannequin skin.
+var skin_hash := ""
+## Whether other players may COPY your skin in co-op (SKIN tab). Honoured by their game; the skin itself is visible either way.
+var skin_copyable := true
+## The arm style of the skin: skin_slim is what the skin's own pixels said when it was picked (Alex = transparent 4th arm column, or the
+## Minecraft profile's model); skin_arms is the player's choice: "auto" follows the skin, "classic" (Steve) / "slim" (Alex) force it.
+var skin_slim := false
+var skin_arms := "auto"
 ## Waypoint HUD (docs/WAYPOINTS.md): guidance "off" (pin only), "arrow" (pin + screen-edge arrow), "path" (+ floor chevrons).
 const WAYPOINT_GUIDANCE_MODES := ["off", "arrow", "path"]
 var waypoint_guidance := "arrow"
@@ -196,6 +213,12 @@ func focus_loss_pauses() -> bool:
 	return not (RoomState.online or RoomState.public_route or RoomState.peers.size() > 1)
 
 
+func set_graphics_quality(choice: String) -> void:
+	graphics_quality = choice if GRAPHICS_CHOICES.has(choice) else "AUTO"
+	PlatformProfile.set_graphics_quality(graphics_quality)
+	_save()
+
+
 func set_touch_look(speed: float, vertical: float, invert_y: bool, smoothing: String, accel: bool) -> void:
 	touch_look_speed = clampf(speed, 0.25, 3.0)
 	touch_look_vertical = clampf(vertical, 0.3, 1.5)
@@ -215,6 +238,26 @@ func set_xr_comfort(height: float, smooth_turn: bool, vignette: bool, seated: bo
 	xr_smooth_turn = smooth_turn
 	xr_vignette = vignette
 	xr_seated = seated
+	_save()
+
+
+func set_voice(volume: float, enabled: bool, subtitles: bool) -> void:
+	voice_volume = clampf(volume, 0.0, 100.0)
+	voice_enabled = enabled
+	voice_subtitles = subtitles
+	_save()
+
+
+func is_player_muted(callsign: String) -> bool:
+	return muted_players.has(callsign.strip_edges().to_upper())
+
+
+func set_player_muted(callsign: String, muted: bool) -> void:
+	var key := callsign.strip_edges().to_upper()
+	if muted and not muted_players.has(key):
+		muted_players.append(key)
+	elif not muted:
+		muted_players.erase(key)
 	_save()
 
 
@@ -287,6 +330,33 @@ func set_pixel_effect_percent(value: float) -> void:
 	visual_changed.emit()
 
 
+func effective_slim() -> bool:
+	return skin_arms == "slim" or (skin_arms == "auto" and skin_slim)
+
+
+func set_skin_slim(value: bool) -> void:
+	skin_slim = value
+	_save()
+	visual_changed.emit()
+
+
+func set_skin_arms(mode: String) -> void:
+	skin_arms = mode if ["auto", "classic", "slim"].has(mode) else "auto"
+	_save()
+	visual_changed.emit()
+
+
+func set_skin_copyable(value: bool) -> void:
+	skin_copyable = value
+	_save()
+
+
+func set_skin_hash(hash: String) -> void:
+	skin_hash = hash if PlayerSkin.valid_hash(hash) else ""
+	_save()
+	visual_changed.emit()
+
+
 func set_player_hue_degrees(value: float) -> void:
 	player_hue_degrees = clampf(value, 0.0, 360.0)
 	_save()
@@ -325,11 +395,29 @@ func rebind_action(action: String, event: InputEvent) -> void:
 	set_action_binding(action, event, false)
 
 
+## Actions that are live at the same time share no key: the route's gameplay actions, and separately Office mode's (Office
+## mode runs on its own scene, so its keys may repeat route keys). The taser used to sit on Q with Drop.
+static func binding_group(action: String) -> Array[String]:
+	var office := action.begins_with("office_")
+	var out: Array[String] = []
+	for candidate in REBINDABLE_ACTIONS:
+		if candidate.begins_with("office_") == office:
+			out.append(candidate)
+	return out
+
+
 func set_action_binding(action: String, event: InputEvent, append: bool) -> void:
 	if not InputMap.has_action(action):
 		return
 	if not (event is InputEventKey or event is InputEventMouseButton):
 		return
+	# a key moves: whatever else in the same group had it lets go, so a rebind can never create a double binding
+	for other in binding_group(action):
+		if other == action or not InputMap.has_action(other):
+			continue
+		for existing in InputMap.action_get_events(other):
+			if _event_signature(existing) == _event_signature(event):
+				InputMap.action_erase_event(other, existing)
 	if not append:
 		_erase_keyboard_mouse_bindings(action)
 	else:
@@ -428,7 +516,8 @@ func _apply_display() -> void:
 func _apply_display_performance() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED \
 		if vsync_enabled else DisplayServer.VSYNC_DISABLED)
-	Engine.max_fps = fps_limit
+	# no limit set: phones and the Quest still cap at the rate they can hold (PlatformProfile.default_fps_cap)
+	Engine.max_fps = fps_limit if fps_limit > 0 else PlatformProfile.default_fps_cap()
 
 
 func _apply_volume() -> void:
@@ -468,6 +557,14 @@ func _load() -> void:
 		"pixel_effect_percent", DEFAULT_PIXEL_EFFECT_PERCENT), 0.0, 100.0)
 	player_hue_degrees = clampf(config.get_value("player",
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
+	skin_hash = String(config.get_value("player", "skin_hash", ""))
+	skin_copyable = bool(config.get_value("player", "skin_copyable", true))
+	skin_slim = bool(config.get_value("player", "skin_slim", false))
+	skin_arms = String(config.get_value("player", "skin_arms", "auto"))
+	if not ["auto", "classic", "slim"].has(skin_arms):
+		skin_arms = "auto"
+	if not PlayerSkin.valid_hash(skin_hash):
+		skin_hash = ""
 	reduced_motion = bool(config.get_value("accessibility", "reduced_motion", false))
 	xr_player_height = clampf(float(config.get_value("xr", "player_height", 1.70)), 1.0, 2.3)
 	touch_move = "stick" if String(config.get_value("touch", "move", "dpad")) == "stick" else "dpad"
@@ -480,6 +577,11 @@ func _load() -> void:
 	xr_smooth_turn = bool(config.get_value("xr", "smooth_turn", false))
 	xr_vignette = bool(config.get_value("xr", "vignette", true))
 	xr_seated = bool(config.get_value("xr", "seated", false))
+	graphics_quality = String(config.get_value("display", "graphics_quality", "AUTO"))
+	if not GRAPHICS_CHOICES.has(graphics_quality):
+		graphics_quality = "AUTO"
+	if graphics_quality != "AUTO":
+		PlatformProfile.set_graphics_quality(graphics_quality)
 	var guidance := String(config.get_value("waypoint", "guidance", "arrow"))
 	waypoint_guidance = guidance if WAYPOINT_GUIDANCE_MODES.has(guidance) else "arrow"
 	waypoint_show_distance = bool(config.get_value("waypoint", "show_distance", true))
@@ -489,6 +591,10 @@ func _load() -> void:
 	short_death_scenes = bool(config.get_value("accessibility", "short_death_scenes", false))
 	hub_last_game = String(config.get_value("hub", "last_game", ""))
 	pause_on_focus_loss = bool(config.get_value("gameplay", "pause_on_focus_loss", default_pause_on_focus_loss()))
+	voice_volume = clampf(float(config.get_value("voice", "volume", 80.0)), 0.0, 100.0)
+	voice_enabled = bool(config.get_value("voice", "enabled", true))
+	voice_subtitles = bool(config.get_value("voice", "subtitles", true))
+	muted_players = Array(config.get_value("voice", "muted", []))
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		_admin_preferences[key] = bool(config.get_value("admin", key,
@@ -520,7 +626,32 @@ func _load() -> void:
 				key.physical_keycode = int(entry.get("code", 0))
 				if key.physical_keycode > 0:
 					InputMap.action_add_event(action, key)
+	_migrate_taser_off_q()
 	_apply_volume()
+
+
+## Old defaults put the taser on Q together with Drop. A saved profile that still has Q on both gives Q back to Drop and
+## the taser its new default (G) if it has no other key.
+func _migrate_taser_off_q() -> void:
+	if not InputMap.has_action("taser") or not InputMap.has_action("drop_item"):
+		return
+	var q_on_drop := false
+	for event in InputMap.action_get_events("drop_item"):
+		if event is InputEventKey and (event as InputEventKey).physical_keycode == KEY_Q:
+			q_on_drop = true
+	if not q_on_drop:
+		return
+	var keys_left := 0
+	for event in InputMap.action_get_events("taser"):
+		if event is InputEventKey:
+			if (event as InputEventKey).physical_keycode == KEY_Q:
+				InputMap.action_erase_event("taser", event)
+			else:
+				keys_left += 1
+	if keys_left == 0:
+		var g := InputEventKey.new()
+		g.physical_keycode = KEY_G
+		InputMap.action_add_event("taser", g)
 
 
 func _save() -> void:
@@ -534,6 +665,10 @@ func _save() -> void:
 	config.set_value("display", "field_of_view", field_of_view)
 	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
 	config.set_value("player", "hue_degrees", player_hue_degrees)
+	config.set_value("player", "skin_hash", skin_hash)
+	config.set_value("player", "skin_copyable", skin_copyable)
+	config.set_value("player", "skin_slim", skin_slim)
+	config.set_value("player", "skin_arms", skin_arms)
 	config.set_value("accessibility", "reduced_motion", reduced_motion)
 	config.set_value("xr", "player_height", xr_player_height)
 	config.set_value("touch", "move", touch_move)
@@ -545,6 +680,7 @@ func _save() -> void:
 	config.set_value("xr", "smooth_turn", xr_smooth_turn)
 	config.set_value("xr", "vignette", xr_vignette)
 	config.set_value("xr", "seated", xr_seated)
+	config.set_value("display", "graphics_quality", graphics_quality)
 	config.set_value("waypoint", "guidance", waypoint_guidance)
 	config.set_value("waypoint", "show_distance", waypoint_show_distance)
 	config.set_value("waypoint", "scale", waypoint_scale)
@@ -553,13 +689,17 @@ func _save() -> void:
 	config.set_value("accessibility", "short_death_scenes", short_death_scenes)
 	config.set_value("hub", "last_game", hub_last_game)
 	config.set_value("gameplay", "pause_on_focus_loss", pause_on_focus_loss)
+	config.set_value("voice", "volume", voice_volume)
+	config.set_value("voice", "enabled", voice_enabled)
+	config.set_value("voice", "subtitles", voice_subtitles)
+	config.set_value("voice", "muted", muted_players)
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
 		config.set_value("admin", key, admin_preference(key))
 	config.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	for action in REBINDABLE_ACTIONS:
 		var entries := []
-		for event in InputMap.action_get_events(action):
+		for event in MouseLock.true_events(action):
 			if event is InputEventKey:
 				entries.append({"type": "key", "code": event.physical_keycode})
 			elif event is InputEventMouseButton:

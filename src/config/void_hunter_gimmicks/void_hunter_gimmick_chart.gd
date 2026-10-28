@@ -6,76 +6,52 @@ extends RefCounted
 ## abilities are canon, this chart follows them. Every Void now has its power.
 const ENTRIES := {
 	"void_black": {
-		"ability": "VOID INCURSION",
 		"behavior": "Black can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "REAR STALKER",
-		"gimmick_behavior": "Freezes while you are looking at her (within 11 cells, in your view, clear line) and moves 1.5x faster whenever you are not watching.",
+		"gimmick_behavior": "This stalker moves 50% faster while you are not watching her. Facing her within 11 cells and with a clear line of sight stops her completely. Check behind you regularly, then use the pause to create distance.",
 	},
 	"void_blue": {
-		"ability": "VOID INCURSION",
 		"behavior": "Blue can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "SILENT STALKER",
-		"gimmick_behavior": "Invisible and off the maps unless revealed. Shining your torch on her (12 cells) shoves her back 6 cells and shows her for 3.5 seconds.",
+		"gimmick_behavior": "This anomaly is invisible in the game view and on radar. Hitting her with the flashlight beam reveals her for 3.5 seconds and pushes her about six cells away. Flash likely approach routes frequently.",
 	},
 	"void_brown": {
-		"ability": "VOID INCURSION",
 		"behavior": "Brown can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "SPOT JAMMER",
-		"gimmick_behavior": "Every 18 seconds she jams up to two hiding spots within 9 cells of you shut for 20 seconds. The spot you are hiding in is never jammed.",
+		"gimmick_behavior": "Every 18 seconds, this entity jams up to two hiding spots within nine cells of you. A jam lasts 20 seconds and never targets the spot you currently occupy. Change rooms if nearby hiding spots are unavailable.",
 	},
 	"void_cyan": {
-		"ability": "VOID INCURSION",
 		"behavior": "Cyan can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "SIGNAL PING",
-		"gimmick_behavior": "If she keeps you in sight for 2.5 seconds she broadcasts your exact position, so every other active hunter investigates it, then she waits 30 seconds.",
+		"gimmick_behavior": "If this hunter keeps clear line of sight to you for 2.5 seconds, she sends your exact position to every other active hunter. After a successful ping she has a 30-second cooldown. Break sight before the lock completes.",
 	},
 	"void_gray": {
-		"ability": "VOID INCURSION",
 		"behavior": "Gray can enter as an additional long-sighted pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "SIGNAL ROUTE",
-		"gimmick_behavior": "Dormant (unseen and uncatchable) while relays keep coming: her grace window is 180 seconds (120 on Nightmare) and restarts at every relay. After that, standing still in the open for 45 seconds (30 on Nightmare) opens a signal route: press E five times, 2.5 seconds per press (1.8 on Nightmare). Missing one shows her and starts a normal chase, light or no light, until the next relay resets her.",
+		"gimmick_behavior": "This entity stays dormant for 180 seconds after activation or collecting a relay, reduced to 120 seconds on Nightmare. When that grace ends, standing still in the open for 45 seconds starts five E-key prompts; Nightmare reduces the idle limit to 30 seconds. Each prompt allows 2.5 seconds, or 1.8 seconds on Nightmare. Completing all five keeps them dormant. Missing one makes her visible and starts a normal chase until another relay resets her.",
 	},
 	"void_green": {
-		"ability": "VOID INCURSION",
 		"behavior": "Green can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "VENT RELOCATE",
-		"gimmick_behavior": "Every 22 seconds, if she is at least 14 cells away, she sinks out of sight for 2 seconds (still, unable to grab), then climbs out 9 cells from you and investigates.",
+		"gimmick_behavior": "Every 22 seconds, this hunter can enter the vent network and reappear about nine cells from you after a two-second delay. This relocation only occurs when she has enough distance to move through the network. Keep moving after she disappears.",
 	},
 	"void_orange": {
-		"ability": "VOID INCURSION",
 		"behavior": "Orange can enter as an additional fast pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "SYSTEM SABOTEUR",
-		"gimmick_behavior": "Every 26 seconds she takes one of your systems offline for 9 seconds, chosen at random: the flashlight (forced off), the climate control (the heater goes off) or the radar (the minimap and map go black). It comes back by itself.",
+		"gimmick_behavior": "Every 26 seconds, this saboteur disables either the flashlight, climate controls, or radar for nine seconds. The selected system returns automatically. Move to a safe position and wait for the outage to end.",
 	},
 	"void_pink": {
-		"ability": "VOID INCURSION",
 		"behavior": "Pink can enter as an additional high-speed pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "FALSE SIGNAL",
 		"gimmick_behavior": "She never attacks and cannot catch you. Every 11 seconds she has a 60% chance to send a FOOTSTEPS // SOMEWHERE CLOSE cue.",
 	},
 	"void_purple": {
-		"ability": "VOID INCURSION",
 		"behavior": "Purple can enter as an additional fast-ramping pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "RADAR CORRUPTER",
-		"gimmick_behavior": "Every 21 seconds she dusts your radar with static for 8 seconds. Each corruption has a 35% chance to black the radar out completely for 11 seconds instead. Use the game view until it returns.",
+		"gimmick_behavior": "Every 21 seconds, this entity adds radar static for eight seconds. Each corruption has a 35% chance to make the radar completely black for 11 seconds. Radar returns automatically; use the game view until it does.",
 	},
 	"void_red": {
-		"ability": "VOID INCURSION",
 		"behavior": "Red can enter as the fastest baseline Void pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "HALL RUNNER",
-		"gimmick_behavior": "1.55x faster in hallways and 0.78x slower inside rooms.",
+		"gimmick_behavior": "This speedster moves at 155% speed in corridors and 78% speed inside rooms. Leave long hallways and cut through rooms whenever she begins chasing.",
 	},
 	"void_white": {
-		"ability": "VOID INCURSION",
 		"behavior": "White can enter as an additional hearing-focused pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "LIGHT FROZEN",
-		"gimmick_behavior": "Freezes while your lit torch is on her (within 10 cells) and moves 1.35x faster in the dark. Her hearing is the sharpest of the Voids.",
+		"gimmick_behavior": "This hunter moves 35% faster unless your flashlight beam is directly hitting her. A beam within 10 cells stops her completely. Hold the beam long enough to create distance, but watch your remaining battery charge.",
 	},
 	"void_yellow": {
-		"ability": "VOID INCURSION",
 		"behavior": "Yellow can enter as an additional fast, far-sighted pursuer alongside the route's A-Z hunter.",
-		"gimmick_title": "MAP PRESSURE",
-		"gimmick_behavior": "While your full-screen map is open her speed grows 0.06 per second up to 1.7x, and it stays for the rest of the route.",
+		"gimmick_behavior": "This hunter gains 6% movement speed for every second the full-screen map remains open, up to 70% faster. The increase lasts for the run. Use the map only in short checks.",
 	},
 }
 

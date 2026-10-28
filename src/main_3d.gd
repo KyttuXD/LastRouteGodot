@@ -148,6 +148,7 @@ func _ready() -> void:
 	_remotes.snapshot_source = _build_snapshot
 	world.add_child(_remotes)
 	_room_chat = RoomChat.attach(self, _remotes)
+	_room_chat.ping_posted.connect(hud.add_map_ping)
 	_room_chat.open_changed.connect(_on_chat_open_changed)
 	if not Backend.admin_ticket_verified.is_connected(_on_admin_ticket_verified):
 		Backend.admin_ticket_verified.connect(_on_admin_ticket_verified)
@@ -1172,10 +1173,10 @@ func _leave_after_report() -> void:
 	elif RoomState.online:
 		RoomState.status_message = "LEFT THE ROUTE"
 		RoomState.leave_network()
-		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 	else:
 		RoomState.session_active = false
-		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 
 
 func _update_hud() -> void:
@@ -2047,7 +2048,7 @@ func _on_abandoned() -> void:
 		RoomState.leave_network()
 		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
 	else:
-		get_tree().change_scene_to_file(GameRegistry.HUB_SCENE)
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 
 
 func _on_pause_opened() -> void:

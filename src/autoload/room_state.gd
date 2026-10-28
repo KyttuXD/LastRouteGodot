@@ -125,7 +125,10 @@ var connecting := false
 ## into the live scene and catch up from the host's world snapshot.
 var session_active := false
 ## Player-facing transport/lifecycle feedback which survives scene changes.
-var status_message := ""
+## Shown in menus and staging, so never with a server address (ServerPrivacy.scrub).
+var status_message := "":
+	set(value):
+		status_message = ServerPrivacy.scrub(value)
 
 ## Peer id -> callsign. The host is always peer 1. Kept as a dictionary rather
 ## than a list so a player leaving removes the right row without the others
@@ -346,6 +349,7 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT,
 
 
 func leave_network() -> void:
+	Backend.skin_sync.clear_cache()   # other players' skins are memory-only: gone when you leave the room
 	# Tell host authority which roster row is leaving before closing ENet. Relay
 	# guests must also drain the loopback proxy once, or the reliable RPC can be
 	# discarded when the relay socket is torn down immediately afterwards.
@@ -432,6 +436,18 @@ func _on_peer_disconnected(id: int) -> void:
 			session_active)
 		Backend.update_room(peers.size(), session_active)
 	changed.emit()
+
+
+## Host only (owner/admin tools): remove a guest from the room, the same way a guest's own leave is handled.
+func kick_peer(id: int) -> void:
+	if not online or not is_host or id <= 1 or not peers.has(id):
+		return
+	peers.erase(id)
+	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers, session_active)
+	Backend.update_room(peers.size(), session_active)
+	changed.emit()
+	if multiplayer.multiplayer_peer != null:
+		multiplayer.multiplayer_peer.disconnect_peer(id)
 
 
 ## A graceful guest exit reaches host authority before its relay tunnel closes.
@@ -965,9 +981,20 @@ func is_city() -> bool:
 	return false   # KYTTU: The City is archived
 
 
-## Where "back to the menu" goes for this room's game: the City has its own menu, Last Route's menu is the hub.
+## Where "back" goes for this room's game: that game's own menu (Last Route's title menu, main_menu.tscn), so leaving staging
+## or a route lands on the game, not the general games hub. Falls back to the hub for a game without a menu scene.
 func menu_scene_path() -> String:
-	return GameRegistry.HUB_SCENE
+	var game := GameRegistry.get_game(game_id())
+	var scene := String(game.get("scene", "")) if not game.is_empty() else ""
+	Settings.hub_last_game = game_id()   # the hub opens on this game's card if the player goes on to it
+	return scene if not scene.is_empty() and ResourceLoader.exists(scene) else GameRegistry.HUB_SCENE
+
+
+## "BACK TO LAST ROUTE": the label of the back button that returns to menu_scene_path().
+func menu_back_label() -> String:
+	var game := GameRegistry.get_game(game_id())
+	var title := String(game.get("title", "")).trim_prefix("THE ").trim_prefix("KYTTU: ") if not game.is_empty() else ""
+	return "BACK TO %s" % title if not title.is_empty() else "BACK"
 
 
 ## Directory answers from servers that predate the `game` field are Last Route rooms.

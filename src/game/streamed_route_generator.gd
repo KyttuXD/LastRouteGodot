@@ -17,6 +17,10 @@ const CHUNK_SIZE := 45
 const BIOME_REGION_SIZE := 4
 ## Level of the sewer/waterworks layer under the maze (SewerRouteGenerator).
 const SEWER_LEVEL := -1
+## The collector sewer under the first one, and the Inferno maze under that
+## (docs/SEWERS.md): reached only by ramps from the sewer level above.
+const LOWER_SEWER_LEVEL := -2
+const INFERNO_LEVEL := -3
 const CHUNK_CACHE_LIMIT := 192
 const BIOMES := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
 	"prison", "inferno", "carnival", "hospital", "lab", "greenhouse", "mall"]
@@ -99,7 +103,8 @@ const STAIR_ACCESS_WIDTH := 5
 ## Rooms are big enough to furnish properly: nothing below 9x9 here (no closets, no 3x3 cells).
 const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 11),
 	Vector2i(11, 13), Vector2i(13, 11), Vector2i(13, 13), Vector2i(15, 15)]
-const PICKUP_TYPES := ["flashlight", "taser", "lockpick", "crowbar", "rescue_axe"]
+## Every runner starts with a flashlight, so it is not a world pickup (batteries recharge it).
+const PICKUP_TYPES := ["taser", "lockpick", "crowbar", "rescue_axe"]
 const BACKPACK_TYPES := ["backpack_small", "backpack_medium", "backpack_large"]
 const REGION_PROP_SETS := {
 	"maze": [
@@ -185,6 +190,10 @@ const REGION_PROP_SETS := {
 		{"type": "popcornCart", "size": Vector3(1.45, 1.9, .9)},
 		{"type": "ringTossStall", "size": Vector3(2.6, 2.65, 1.55)},
 		{"type": "strengthTester", "size": Vector3(1.0, 2.95, .8)},
+		{"type": "shootingGallery", "size": Vector3(2.6, 2.65, 1.55)},
+		{"type": "whackAMole", "size": Vector3(2.6, 2.65, 1.55)},
+		{"type": "duckPond", "size": Vector3(1.7, .8, 1.7)},
+		{"type": "prizeClawMachine", "size": Vector3(.9, 2.0, .8)},
 		{"type": "circusPedestal", "size": Vector3(1.7, .8, 1.7)},
 		{"type": "arcadeCabinet", "size": Vector3(.75, 1.85, .7)},
 		{"type": "arcadeCabinetCyanMagenta", "size": Vector3(.75, 1.85, .7)},
@@ -326,6 +335,11 @@ const TEMPLATE_PROP_SIZES := {
 	"carnivalTicketBooth": Vector3(1.75, 2.45, 1.25),
 	"popcornCart": Vector3(1.45, 1.9, .9),
 	"ringTossStall": Vector3(2.6, 2.65, 1.55),
+	"carouselCenterpiece": Vector3(1.3, 3.3, 1.3),
+	"shootingGallery": Vector3(2.6, 2.65, 1.55),
+	"whackAMole": Vector3(2.6, 2.65, 1.55),
+	"duckPond": Vector3(1.7, .8, 1.7),
+	"prizeClawMachine": Vector3(.9, 2.0, .8),
 	"strengthTester": Vector3(1.0, 2.95, .8),
 	"circusPedestal": Vector3(1.7, .8, 1.7),
 	"frozenTidelinePool": Vector3(6.2, .2, 5.2),
@@ -430,6 +444,7 @@ var _chunk_cache_order: Array[Vector3i] = []
 
 
 var _sewer: SewerRouteGenerator
+var _stairwell_cache := {}
 
 
 func _init(seed_text: String = "ENDLESS-ROUTE") -> void:
@@ -458,6 +473,126 @@ func adopt_chunk(coord: Vector3i, data: Dictionary) -> void:
 	_chunk_cache_order.append(coord)
 	while _chunk_cache_order.size() > CHUNK_CACHE_LIMIT:
 		_chunk_cache.erase(_chunk_cache_order.pop_front())
+
+
+## The stairwell from `upper_level` down one storey in column (x, z), or {} (Stairwells).
+## 0 <-> -1 is decided by the maze chunk, which keeps it clear of the sewer's
+## ramp and falls quadrants and of its own suites (it is read from that chunk,
+## as the sewer's ladders are); +1..+3 are pure seed maths, planned here for the
+## upper-levels lane, which builds around them.
+func stairwell_between(x: int, z: int, upper_level: int) -> Dictionary:
+	if upper_level == 0:
+		for well in chunk(Vector3i(x, 0, z)).get("stairwells", []):
+			if int(well["upper"]) == 0:
+				return well
+		return {}
+	var key := Vector3i(x, upper_level, z)
+	if not _stairwell_cache.has(key):
+		_stairwell_cache[key] = Stairwells.plan(world_seed, x, z, upper_level)
+	return _stairwell_cache[key]
+
+
+const MAX_STAIRWELL_DROPPED_ROOM_CELLS := 100
+
+
+## The maze <-> sewer stairwell for a maze chunk being built: clear of the
+## sewer's ramp and falls quadrants, and only where it fits the maze as built
+## (_maze_stairwell_fits), so no suite or hall loses anything to it.
+func _plan_maze_stairwell(x: int, z: int, grid: Array, layout: Dictionary, circulation: Dictionary) -> Dictionary:
+	var avoid := []
+	var ramp: Dictionary = sewer().ramp_between(x, z, SEWER_LEVEL)
+	if not ramp.is_empty():
+		avoid.append(int(ramp["quadrant"]))
+	var falls: Dictionary = sewer().falls_between(x, z)
+	if not falls.is_empty():
+		avoid.append(int(falls["quadrant"]))
+	return Stairwells.plan(world_seed, x, z, 0, avoid,
+		func(well: Dictionary) -> bool: return _maze_stairwell_fits(grid, layout, circulation, well),
+		Stairwells.MAZE_AREAS)
+
+
+## True when a stairwell's box (and a cell round it) touches no suite or main
+## hall, it drops at most MAX_STAIRWELL_DROPPED_ROOM_CELLS of plain rooms, and a
+## trial carve cuts no open area in two.
+static func _maze_stairwell_fits(grid: Array, layout: Dictionary, circulation: Dictionary, well: Dictionary) -> bool:
+	var reach: Rect2i = (well["box"] as Rect2i).grow(1)
+	for suite_value in layout.get("suites", []):
+		if ((suite_value as Dictionary).get("rect", Rect2i()) as Rect2i).intersects(reach):
+			return false
+	for corridor_value in layout.get("corridors", []):
+		var corridor: Dictionary = corridor_value
+		if String(corridor.get("id", "")).contains(":HALL:") and corridor.has("rect") \
+				and (corridor["rect"] as Rect2i).intersects(well["box"]):
+			return false
+	var trial_grid := grid.duplicate(true)
+	var trial_layout := {"rooms": (layout["rooms"] as Array).duplicate(), "suites": layout.get("suites", [])}
+	_carve_stairwell(trial_grid, trial_layout, circulation.duplicate(), well, 0, {})
+	# a plain room or two may give way (they go back to solid), not a whole bank of them
+	var dropped := 0
+	for room_value in layout["rooms"]:
+		if not (trial_layout["rooms"] as Array).has(room_value):
+			if not String((room_value as Dictionary).get("suite_id", "")).is_empty():
+				return false
+			dropped += ((room_value as Dictionary).get("rect", Rect2i()) as Rect2i).get_area()
+	if dropped > MAX_STAIRWELL_DROPPED_ROOM_CELLS:
+		return false
+	# the seams are carved later, so pockets may exist already: the carve must not add one
+	return _open_components(trial_grid) <= _open_components(grid)
+
+
+static func _open_components(grid: Array) -> int:
+	var seen := {}
+	var count := 0
+	for z in CHUNK_SIZE:
+		for x in CHUNK_SIZE:
+			if int(grid[z][x]) != 0 or seen.has(Vector2i(x, z)):
+				continue
+			count += 1
+			seen[Vector2i(x, z)] = true
+			var queue: Array[Vector2i] = [Vector2i(x, z)]
+			while not queue.is_empty():
+				var cell: Vector2i = queue.pop_back()
+				for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+					var n: Vector2i = cell + step
+					if n.x < 0 or n.y < 0 or n.x >= CHUNK_SIZE or n.y >= CHUNK_SIZE or seen.has(n) or int(grid[n.y][n.x]) != 0:
+						continue
+					seen[n] = true
+					queue.append(n)
+	return count
+
+
+## Every stairwell touching `level` in column (x, z) whose other end is on a
+## level this world has (+1..+3 appear once the upper-levels lane allows them).
+func stairwells_at(x: int, z: int, level: int) -> Array:
+	var out := []
+	for upper in [level, level + 1]:
+		if not is_chunk_allowed(Vector3i(x, upper, z)) or not is_chunk_allowed(Vector3i(x, upper - 1, z)):
+			continue
+		var well := stairwell_between(x, z, upper)
+		if not well.is_empty():
+			out.append(well)
+	return out
+
+
+## Every ladder and ramp touching the chunk's level: ladders between the maze
+## and the first sewer, ramps between the sewers and down into the Inferno.
+## With `cached_only` the ladders are left out until the sewer chunk holding
+## them is generated, so asking costs nothing on this thread (ramps are pure
+## seed maths and always included).
+func vertical_links(coord: Vector3i, cached_only: bool = false) -> Array:
+	var out := []
+	if coord.y == 0 or coord.y == SEWER_LEVEL:
+		var ladder_coord := Vector3i(coord.x, SEWER_LEVEL, coord.z)
+		if not cached_only or _chunk_cache.has(ladder_coord):
+			out.append_array(sewer().links_for(coord))
+	for ramp in sewer().ramps_at(coord.x, coord.z, coord.y):
+		out.append(ramp["link"])
+	# a maze <-> sewer stairwell is read from the maze chunk, like the ladders
+	var maze_coord := Vector3i(coord.x, 0, coord.z)
+	if coord.y not in [0, SEWER_LEVEL] or not cached_only or _chunk_cache.has(maze_coord):
+		for well in stairwells_at(coord.x, coord.z, coord.y):
+			out.append(well["link"])
+	return out
 
 
 ## The sewer layer under the maze (SewerRouteGenerator). Built lazily: it reads
@@ -524,9 +659,14 @@ static func _ensure_pickups_reachable(data: Dictionary) -> void:
 
 
 func chunk(coord: Vector3i) -> Dictionary:
-	# a chunk a streaming worker already generated (adopt_chunk) is reused on every level, the sewer's included
-	if coord.y == SEWER_LEVEL and is_chunk_allowed(coord) and not _chunk_cache.has(coord):
-		return sewer().chunk(coord)
+	if (coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL) and is_chunk_allowed(coord):
+		# one cache for every level, so a sewer chunk the view's worker thread built
+		# (adopt_chunk) is reused here instead of being generated again
+		if _chunk_cache.has(coord):
+			return _chunk_cache[coord]
+		var sewer_data := sewer().chunk(coord)
+		adopt_chunk(coord, sewer_data)
+		return sewer_data
 	if _chunk_cache.has(coord):
 		_chunk_cache_order.erase(coord)
 		_chunk_cache_order.append(coord)
@@ -678,6 +818,21 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	(layout["corridors"] as Array).append_array(edge_corridors)
 	for stair in stairs:
 		_carve_stair_access(grid, stair, layout["rooms"], circulation)
+	var ramps: Array = sewer().ramps_at(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else []
+	for ramp in ramps:
+		_carve_ramp_bottom(grid, layout, circulation, ramp)
+	var wells := []
+	if coord.y == 0:
+		var down := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation)
+		if not down.is_empty():
+			wells.append(down)
+		if is_chunk_allowed(Vector3i(coord.x, 1, coord.z)):
+			var up := stairwell_between(coord.x, coord.z, 1)
+			if not up.is_empty():
+				wells.append(up)
+	var shaft_cells := {}
+	for well in wells:
+		_carve_stairwell(grid, layout, circulation, well, coord.y, shaft_cells)
 	# Perimeter seams and stair approaches are carved after the room banks. They
 	# must never punch a second opening through a room which already owns one
 	# canonical branch doorway. Rebuild each ordinary room's boundary now that
@@ -733,12 +888,107 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"floor_voids": floor_voids,
 		"ceiling_voids": ceiling_voids,
 		"structural_voids": structural_voids,
+		"ramps": ramps,
+		"ramp_cells": sewer().ramp_cells(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else {},
+		"stairwells": wells,
+		"shaft_cells": shaft_cells,
 	}
 
 
+## A stairwell in a maze chunk: rooms its footprint or corridor would cut are
+## dropped, the walled box goes back to solid, then its landing, doorway and a
+## three-wide corridor to the central hall open. The well itself stays off the
+## walk grid (the stairs are walked as a link); `shaft_cells` tells the view.
+static func _carve_stairwell(grid: Array, layout: Dictionary, circulation: Dictionary, well: Dictionary,
+		level: int, shaft_cells: Dictionary) -> void:
+	var box: Rect2i = well["box"]
+	# the corridor starts at the doorway and runs on below until it meets floor
+	var door_row: int = (well["door"] as Rect2i).position.y
+	var lane := Stairwells.corridor(well, door_row + 1 if bool(well["north"]) else door_row - 1)
+	var kept := []
+	for room_value in layout["rooms"]:
+		var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+		if rect.grow(1).intersects(box) or rect.intersects(lane):
+			for z in range(rect.position.y, rect.end.y):
+				for x in range(rect.position.x, rect.end.x):
+					grid[z][x] = 1
+		else:
+			kept.append(room_value)
+	layout["rooms"] = kept
+	for z in range(box.position.y, box.end.y):
+		for x in range(box.position.x, box.end.x):
+			grid[z][x] = 1
+	var cells := Stairwells.cells_for(well, level)
+	for cell in cells["walk"]:
+		grid[cell.y][cell.x] = 0
+	# Carry the corridor on, a row at a time, until it opens onto floor that was
+	# already there (normally the main hall right outside the doorway). A room in the way is dropped
+	# like the ones under the box, so none gets a second doorway.
+	var outward := 1 if bool(well["north"]) else -1
+	var row := lane.end.y if outward > 0 else lane.position.y - 1
+	while row > 0 and row < CHUNK_SIZE - 1:
+		var step := Rect2i(lane.position.x, row, lane.size.x, 1)
+		var still := []
+		for room_value in layout["rooms"]:
+			var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+			if rect.grow(1).intersects(step):
+				for z in range(rect.position.y, rect.end.y):
+					for x in range(rect.position.x, rect.end.x):
+						grid[z][x] = 1
+			else:
+				still.append(room_value)
+		layout["rooms"] = still
+		var open := false
+		for x in range(step.position.x, step.end.x):
+			if int(grid[row][x]) == 0:
+				open = true
+		if open:
+			break
+		lane = lane.merge(step)
+		row += outward
+	_carve_rect(grid, lane)
+	_mark_rect_cells(circulation, lane)
+	for cell in cells["shaft"]:
+		shaft_cells[cell] = {"upper": level == int(well["upper"]), "well": well}
+
+
+## The bottom of a ramp down from the collector sewer into an Inferno chunk: the
+## ramp's footprint, its landing and a three-wide connector to the central hall.
+## Rooms the footprint would cut through are dropped (their cells go back to
+## solid first) so no half-room is left with a hole in it.
+static func _carve_ramp_bottom(grid: Array, layout: Dictionary, circulation: Dictionary, ramp: Dictionary) -> void:
+	var footprint: Array[Rect2i] = [ramp["ramp"], ramp["bottom"], ramp["connector"]]
+	var kept := []
+	for room_value in layout["rooms"]:
+		var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+		var hit := false
+		for part in footprint:
+			if rect.grow(1).intersects(part):
+				hit = true
+		if hit:
+			for z in range(rect.position.y, rect.end.y):
+				for x in range(rect.position.x, rect.end.x):
+					grid[z][x] = 1
+		else:
+			kept.append(room_value)
+	layout["rooms"] = kept
+	_carve_rect(grid, ramp["bottom"])
+	_carve_rect(grid, ramp["connector"])
+	_mark_rect_cells(circulation, ramp["bottom"])
+	_mark_rect_cells(circulation, ramp["connector"])
+	var slope: Rect2i = ramp["ramp"]
+	for z in range(slope.position.y, slope.end.y):
+		for x in range(slope.position.x, slope.end.x):
+			grid[z][x] = 1      # the slope itself is reached only as a ramp link
+
+
 func biome_for(coord: Vector3i) -> String:
-	if coord.y == SEWER_LEVEL:
+	if coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL:
 		return "sewer"
+	# The Inferno is no longer a district of the maze: it is the whole level under
+	# the sewers, and only there.
+	if coord.y == INFERNO_LEVEL:
+		return "inferno"
 	# A two-storey room owns one visual identity on both participating floors.
 	# Resolve this before ordinary biome choice so walls, props and the upper cap
 	# never change theme halfway up a carousel or other tall landmark.
@@ -752,7 +1002,7 @@ func biome_for(coord: Vector3i) -> String:
 	var rng := SeededRandom.new("%s:BIOME:%d:%d:%d" % [
 		world_seed, region_x, coord.y, region_z])
 	var choices := ["maze", "mansion", "hotel", "apartment", "beach", "gothic",
-		"prison", "carnival", "inferno", "mansion", "hotel", "maze",
+		"prison", "carnival", "mansion", "hotel", "maze",
 		"hospital", "lab", "lab", "greenhouse", "mall"]
 	if coord.y == 0:
 		return choices[rng.next_index(choices.size())]
@@ -889,7 +1139,7 @@ func spawn_cell() -> Vector2i:
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
 	# One maze level (y == 0), unbounded horizontally, over the sewer layer.
-	return coord.y == 0 or coord.y == SEWER_LEVEL
+	return coord.y <= 0 and coord.y >= INFERNO_LEVEL
 
 
 func coordinates_around(world_xz: Vector2, level: int, radius: int = 2) -> Array:
@@ -1961,7 +2211,7 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 		var dual_center: Vector2i = dual_room.get("center", Vector2i.ZERO)
 		var activity_specs := [
 			{"type": "carouselCenterpiece", "cell": dual_center,
-				"size": Vector3(.7, 6.45, .7), "offset": Vector2i.ZERO},
+				"size": Vector3(1.3, 6.45, 1.3), "offset": Vector2i.ZERO},
 			{"type": "ringTossStall", "cell": dual_center + Vector2i(-5, 4),
 				"size": Vector3(2.6, 2.65, 1.55), "offset": Vector2i(-5, 4)},
 			{"type": "strengthTester", "cell": dual_center + Vector2i(5, 4),
@@ -2210,11 +2460,48 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		for occupied_value in entry.get("occupied_cells", []):
 			reserved[occupied_value as Vector2i] = true
 	result = even_ceiling_fixtures(one_ceiling_family(result), rect)
+	orient_props(result, grid)
+	if guarantee_beds and template in BED_TEMPLATES and not result.any(func(e: Dictionary) -> bool:
+			return PropModelCatalog.interaction_for(String(e.get("type", ""))) == "lay"):
+		var bed := _fallback_bed(coord, room, basis, template, specs, grid, reserved, result)
+		if not bed.is_empty():
+			bed["spec_index"] = specs.size()
+			result.append(bed)
+			for occupied_value in bed.get("occupied_cells", []):
+				reserved[occupied_value as Vector2i] = true
 	# back to recipe order, so everything downstream sees the same sequence as before the claim order
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["spec_index"]) < int(b["spec_index"]))
 	for entry in result:
 		entry.erase("spec_index")
 	return result
+
+
+## KT: "a gothic bedroom is nearly empty, no bed". A bedroom never goes without a bed: when the recipe's bed could not be
+## placed (the room narrower than the bed, a door or the 3-wide opening on its wall cell, a wardrobe claiming it), the
+## bed is tried along the whole back wall, then the side walls' spans, and then smaller types, before giving up.
+const BED_TEMPLATES := ["bedroom", "gothic_bedroom"]
+const FALLBACK_BEDS := ["singleBed", "bunkBed"]
+static var guarantee_beds := true
+
+
+func _fallback_bed(coord: Vector3i, room: Dictionary, basis: Dictionary, template: String, specs: Array, grid: Array,
+		reserved: Dictionary, placed: Array) -> Dictionary:
+	var types := []
+	for spec in specs:
+		if PropModelCatalog.interaction_for(String(spec.get("type", ""))) == "lay" and not types.has(spec["type"]):
+			types.append(spec["type"])
+	for t in FALLBACK_BEDS:
+		if not types.has(t):
+			types.append(t)
+	var span := int(basis.get("side_span", 9)) / 2
+	for type in types:
+		for step in range(0, span + 1):
+			for side in ([0] if step == 0 else [-step, step]):
+				var spec := {"type": type, "side": side, "depth": 0, "wall_backed": true, "facing": "open"}
+				var entry := _template_prop_entry(coord, room, basis, template, specs.size(), spec, grid, reserved)
+				if not entry.is_empty() and _collider_clear(entry, placed):
+					return entry
+	return {}
 
 
 ## Ceiling fixtures by family (KT: "chandeliers AND ceiling fans together"). A room keeps one family: a chandelier
@@ -2257,6 +2544,167 @@ static func even_ceiling_fixtures(props: Array, rect: Rect2i) -> Array:
 	if dropped.is_empty():
 		return props
 	return props.filter(func(prop: Dictionary) -> bool: return not dropped.has(prop))
+
+
+## KT: "computers facing backwards". A screen (computer, CRT console, terminal, monitor) faces whoever sits at it: the
+## nearest seat within SCREEN_SEAT_REACH turns the screen toward it (gameplay -Z, which the model's screen side follows).
+const SCREEN_SEAT_REACH := 2.6
+
+
+static func prop_point(prop: Dictionary) -> Vector2:
+	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+	return Vector2(cell) + Vector2(.5, .5) + (prop.get("placement_offset", Vector2.ZERO) as Vector2)
+
+
+## KT: "check other connected props and make sure they're rotated correctly". The pairing table, applied to every
+## furnished room after placement (so new recipes follow it too). Wall-backed types first: a prop whose back is not on a
+## wall but whose cell touches one turns its back to that wall (depth permitting) and slides flush. Then the facing pairs,
+## child -> nearest anchor within reach (children that are wall-backed keep their wall). Word matches on the type name.
+const ORIENT_PAIRS := [
+	# seats face the table, desk or counter they are pulled up to
+	{"child": ["Chair", "Stool"], "anchor": ["Table", "Desk", "Counter", "Island", "Workstation", "Bar", "Station", "Console"],
+		"reach": 1.4},
+	# sofas face the TV or the coffee table
+	{"child": ["Couch", "Sofa", "Chaise"], "anchor": ["TvConsole", "CoffeeTable"], "reach": 4.5},
+	# a bench faces its piano or vanity
+	{"child": ["Bench"], "anchor": ["Piano", "Vanity"], "reach": 1.5},
+	# screens face whoever uses them: a seat, else a bed (vitals monitors)
+	{"child": ["Computer", "Monitor", "Console", "Terminal"], "anchor": ["Chair", "Stool", "Couch", "Bench"], "reach": 2.6},
+	{"child": ["Monitor"], "anchor": ["Bed"], "reach": 2.0},
+]
+const ORIENT_EXCLUDE := ["TvConsole"]   # the TV sits against its wall; the sofa turns to it
+
+
+static func _type_has(type: String, words: Array) -> bool:
+	for word in words:
+		if String(word) in type:
+			return true
+	return false
+
+
+static func is_screen_type(type: String) -> bool:
+	return _type_has(type, ["Computer", "Monitor", "Console", "Terminal"]) and not _type_has(type, ORIENT_EXCLUDE)
+
+
+static func orient_props(props: Array, grid: Array) -> void:
+	seat_in_front_of_screens(props, grid)
+	for prop_value in props:
+		var prop: Dictionary = prop_value
+		if RoomCatalog.is_wall_backed(String(prop.get("type", ""))):
+			back_to_wall(prop, grid)
+	for rule_value in ORIENT_PAIRS:
+		var rule: Dictionary = rule_value
+		for child_value in props:
+			var child: Dictionary = child_value
+			var type := String(child.get("type", ""))
+			if not _type_has(type, rule["child"]) or _type_has(type, ORIENT_EXCLUDE) or RoomCatalog.is_wall_backed(type) \
+					or bool(child.get("oriented", false)):
+				continue
+			var anchor := nearest_anchor(child, props, rule["anchor"], float(rule["reach"]))
+			if anchor.is_empty():
+				continue
+			var toward := prop_point(anchor) - prop_point(child)
+			var yaw := snappedf(atan2(-toward.x, -toward.y), PI * .25)   # room props stay on 45-degree angles
+			var size: Vector3 = child.get("collider_size", child.get("blocker_size", Vector3.ONE))
+			var turn := absf(wrapf(yaw - float(child.get("yaw", 0.0)), -PI, PI))
+			if (size.x > .95 or size.z > .95) and turn > .01 and absf(turn - PI) > .01:
+				continue    # a prop wider than a cell only flips (same footprint); turning it would hit its neighbours
+			child["yaw"] = yaw
+			child["oriented"] = true
+
+
+## A screen too wide to turn (a lab console) whose seat is off to its side: the seat moves to the open floor in front of
+## the screen (the screenshot KT sent: the chair beside the desk, the screen facing away), then turns to it.
+static func seat_in_front_of_screens(props: Array, grid: Array) -> void:
+	for screen_value in props:
+		var screen: Dictionary = screen_value
+		if not is_screen_type(String(screen.get("type", ""))):
+			continue
+		var size: Vector3 = screen.get("collider_size", screen.get("blocker_size", Vector3.ONE))
+		if size.x <= .95 and size.z <= .95:
+			continue
+		var seat := nearest_anchor(screen, props, ["Chair", "Stool"], 2.6)
+		if seat.is_empty():
+			continue
+		var yaw := float(screen.get("yaw", 0.0))
+		var front := Vector2(-sin(yaw), -cos(yaw))
+		var at := prop_point(screen)
+		if front.dot((prop_point(seat) - at).normalized()) > .7:
+			continue
+		var spot := at + front * (size.z * .5 + .55)
+		var cell := Vector2i(floori(spot.x), floori(spot.y))
+		if cell.y < 0 or cell.y >= grid.size() or cell.x < 0 or cell.x >= (grid[cell.y] as Array).size() \
+				or int(grid[cell.y][cell.x]) != 0:
+			continue
+		var taken := false
+		for other_value in props:
+			var other: Dictionary = other_value
+			if other != seat and other != screen and bool(other.get("solid", true)) \
+					and prop_point(other).distance_to(spot) < .6:
+				taken = true
+				break
+		if taken:
+			continue
+		seat["cell"] = cell
+		seat["placement_offset"] = spot - (Vector2(cell) + Vector2(.5, .5))
+		seat["yaw"] = snappedf(atan2(front.x, front.y), PI * .25)    # facing back at the screen
+		seat["oriented"] = true
+
+
+static func nearest_anchor(child: Dictionary, props: Array, words: Array, reach: float) -> Dictionary:
+	var at := prop_point(child)
+	var best := {}
+	var best_distance := reach
+	for other_value in props:
+		var other: Dictionary = other_value
+		if other == child or not _type_has(String(other.get("type", "")), words):
+			continue
+		var distance := at.distance_to(prop_point(other))
+		if distance > .05 and distance < best_distance:
+			best = other
+			best_distance = distance
+	return best
+
+
+## Back (gameplay +Z) to a wall: keep a back already on a wall; otherwise turn to the wall the cell touches (first of the
+## four sides that is a wall), when the prop's depth fits in a cell, and slide it flush.
+static func back_to_wall(prop: Dictionary, grid: Array) -> void:
+	if bool(prop.get("wall_mounted", false)) or not bool(prop.get("solid", true)):
+		return
+	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+	if wall_behind(prop, grid):
+		return
+	var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+	if size.z > .95 or size.x > .95:
+		return    # turning a prop wider than a cell could push it into a neighbour
+	for dir in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+		var wall: Vector2i = cell + dir
+		if wall.y < 0 or wall.y >= grid.size() or wall.x < 0 or wall.x >= (grid[wall.y] as Array).size() \
+				or int(grid[wall.y][wall.x]) == 0:
+			continue
+		# back = gameplay +Z toward the wall, so the front (-Z) points away from it
+		prop["yaw"] = atan2(float(dir.x), float(dir.y))
+		prop["placement_offset"] = Vector2(dir) * (.48 - back_extent(String(prop.get("type", "")), size))
+		return
+
+
+## How far the prop's collision reaches behind its point (local +Z), offset collider boxes included.
+static func back_extent(type: String, size: Vector3) -> float:
+	var extent := 0.0
+	for box in PropColliderBoxes.boxes(type, size):
+		extent = maxf(extent, (box["c"] as Vector2).y + (box["h"] as Vector2).y)
+	return extent if extent > 0.0 else size.z * .5
+
+
+## The prop's back face (+Z) is within 15 cm of a wall cell.
+static func wall_behind(prop: Dictionary, grid: Array) -> bool:
+	var yaw := float(prop.get("yaw", 0.0))
+	var back := Vector2(sin(yaw), cos(yaw))
+	var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+	var probe := prop_point(prop) + back * (back_extent(String(prop.get("type", "")), size) + .15)
+	var cell := Vector2i(floori(probe.x), floori(probe.y))
+	return cell.y >= 0 and cell.y < grid.size() and cell.x >= 0 and cell.x < (grid[cell.y] as Array).size() \
+		and int(grid[cell.y][cell.x]) != 0
 
 
 static func one_ceiling_family(props: Array) -> Array:
@@ -2645,10 +3093,11 @@ static func _room_template_specs(template: String, region: String,
 		"carnival_midway":
 			if side_span >= 17:
 				# a 21-wide midway: a row of stalls along the back wall and carts and pedestals down the middle
-				for stall_side in [-7, 0, 7]:
-					specs.append({"type": "ringTossStall", "side": stall_side, "depth": 0, "wall_backed": true, "facing": "open"})
-				for booth_side in [-4, 4]:
-					specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
+				var stall_types := ["ringTossStall", "shootingGallery", "whackAMole"]
+				for stall_index in 3:
+					specs.append({"type": stall_types[stall_index], "side": [-7, 0, 7][stall_index], "depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "carnivalTicketBooth", "side": -4, "depth": 0, "wall_backed": true, "facing": "open"})
+				specs.append({"type": "prizeClawMachine", "side": 4, "depth": 0, "wall_backed": true, "facing": "open"})
 				# Backed against the SIDE walls and facing the middle: with the back wall as its backing a 1.4 m wide tester
 				# stood 0.2 m into the side wall (GeometryAudit prop_in_wall) and pushing it clear hit the end stall.
 				specs.append({"type": "strengthTester", "side": -9, "depth": 1, "facing": "center"})
@@ -2667,8 +3116,10 @@ static func _room_template_specs(template: String, region: String,
 					"depth": mid_depth + 2, "facing": "center"})
 		"carnival_big_top":
 			specs.append({"type": "arcadeCarpetCircle", "side": 0, "depth": mid_depth, "facing": "open", "solid": false})
-			for pedestal_side in [-6, 0, 6]:
-				specs.append({"type": "circusPedestal", "side": pedestal_side, "depth": mid_depth, "facing": "center"})
+			# the room's centre is the working merry-go-round (CarouselRide3D); a duck pond and a pedestal either side
+			specs.append({"type": "carouselCenterpiece", "side": 0, "depth": mid_depth, "facing": "center"})
+			specs.append({"type": "duckPond", "side": 6, "depth": mid_depth, "facing": "center"})
+			specs.append({"type": "circusPedestal", "side": -6, "depth": mid_depth, "facing": "center"})
 			for booth_side in [-8, 8]:
 				specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
 			for cart_side in [-4, 4]:
@@ -3592,8 +4043,9 @@ func _template_prop_entry(coord: Vector3i, room: Dictionary,
 	var placement_offset := Vector2.ZERO
 	var wall_mounted := bool(spec.get("wall_mount", false))
 	if bool(spec.get("wall_backed", false)) and not wall_mounted:
-		var depth_shift := maxf(0.0, blocker_size.z * .5 - .45)
-		placement_offset = Vector2(open_direction) * depth_shift
+		# flush: the back (the fitted collider's depth, what you see) 2 cm off the wall behind the cell; a shallow prop
+		# moves toward the wall, a deep one out into the room (KT: backs to the wall, prop_orientation checks 15 cm)
+		placement_offset = Vector2(open_direction) * (back_extent(prop_type, _collider_size(prop_type, blocker_size)) - .48)
 	var backing_wall := -open_direction if (bool(spec.get("wall_backed", false)) \
 		or wall_mounted) else Vector2i.ZERO
 	if wall_mounted:
@@ -3604,8 +4056,10 @@ func _template_prop_entry(coord: Vector3i, room: Dictionary,
 				or not _grid_cell_open(grid, front_cell):
 			return {}
 	var solid := bool(spec.get("solid", not wall_mounted))
-	var occupied := [] if not solid else _prop_occupied_cells(cell,
-		facing_direction, blocker_size, placement_offset)
+	var occupied := [] if not solid else _prop_occupied_cells(cell, facing_direction,
+		Vector3(blocker_size.x, blocker_size.y, minf(blocker_size.z, _collider_size(prop_type, blocker_size).z)) \
+			if bool(spec.get("wall_backed", false)) else blocker_size,
+		placement_offset if placement_offset.dot(Vector2(open_direction)) >= 0.0 else Vector2.ZERO)   # flush toward the wall stays in its cell
 	for occupied_value in occupied:
 		var at: Vector2i = occupied_value
 		# Authored room recipes are placed inside a sealed room. Circulation

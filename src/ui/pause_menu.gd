@@ -69,6 +69,11 @@ var _hold_fill: ColorRect
 var _resume_button: Button
 var _abandon_button: Button
 var _pause_view: VBoxContainer
+## PAUSE / SAVES / STATISTICS tab buttons: only the open page's tab is lit.
+var _tabs := {}
+var section := "pause"
+var _statistics_scroll: ScrollContainer
+var _saves_scroll: ScrollContainer
 var _saves_view: VBoxContainer
 var _statistics_view: VBoxContainer
 var _save_list: VBoxContainer
@@ -160,9 +165,11 @@ func _build() -> void:
 		tab.focus_mode = Control.FOCUS_ALL
 		tab.custom_minimum_size = Vector2(92, 18)
 		tab.add_theme_font_size_override("font_size", 8)
+		tab.name = "PauseTab_%s" % String(entry[1])
 		Palette.style_button(tab, String(entry[1]) == "pause")
 		tab.pressed.connect(_set_section.bind(String(entry[1])))
 		tabs.add_child(tab)
+		_tabs[String(entry[1])] = tab
 
 	_pause_view = VBoxContainer.new()
 	_pause_view.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -207,23 +214,52 @@ func _build() -> void:
 	_set_section("pause")
 
 
+## SAVES matches STATISTICS: one scroller for the whole page (house-style bar, wheel / touch / focus), the same tracked
+## amber section header, the same inset panel frame around the save controls, the same spacing.
 func _build_saves_view(parent: VBoxContainer) -> void:
 	_saves_view = VBoxContainer.new()
 	_saves_view.name = "PauseSaves"
-	_saves_view.add_theme_constant_override("separation", 5)
 	_saves_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	parent.add_child(_saves_view)
+	var page_scroll := ScrollContainer.new()
+	page_scroll.name = "PauseSavesScroll"
+	page_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	page_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	page_scroll.follow_focus = true
+	_style_scrollbar(page_scroll.get_v_scroll_bar())
+	_saves_view.add_child(page_scroll)
+	_saves_scroll = page_scroll
+	var page := VBoxContainer.new()
+	page.name = "PauseSavesPage"
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page.add_theme_constant_override("separation", 6)
+	page_scroll.add_child(page)
+
+	var heading := Label.new()
+	heading.name = "SavesHeading"
+	heading.text = Palette.track("ROUTE ARCHIVES")
+	Palette.style_label(heading, Palette.AMBER, 8)
+	page.add_child(heading)
+
+	var frame := PanelContainer.new()
+	frame.name = "SaveControls"
+	frame.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET, Palette.ACCENT_DEEP, 6))
+	page.add_child(frame)
+	var frame_stack := VBoxContainer.new()
+	frame_stack.add_theme_constant_override("separation", 4)
+	frame.add_child(frame_stack)
 
 	var help := Label.new()
-	help.text = "ROUTE ARCHIVES // HOST SAVES SHARED PROGRESS; LOAD WHILE SOLO"
+	help.text = "HOST SAVES SHARED PROGRESS // LOAD WHILE SOLO"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	Palette.style_label(help, Palette.MUTED, 7)
-	_saves_view.add_child(help)
+	frame_stack.add_child(help)
 
 	var create_row := HBoxContainer.new()
 	create_row.name = "SaveCreateRow"
 	create_row.add_theme_constant_override("separation", 4)
-	_saves_view.add_child(create_row)
+	frame_stack.add_child(create_row)
 
 	_save_name = LineEdit.new()
 	_save_name.name = "SaveNameInput"
@@ -240,45 +276,78 @@ func _build_saves_view(parent: VBoxContainer) -> void:
 	save_new_button.custom_minimum_size = Vector2(92, 22)
 	create_row.add_child(save_new_button)
 
-	var scroll := ScrollContainer.new()
-	scroll.name = "SaveSlotScroll"
-	scroll.custom_minimum_size = Vector2(0, 112)
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_saves_view.add_child(scroll)
+	var slots_heading := Label.new()
+	slots_heading.text = Palette.track("SAVED ROUTES")
+	Palette.style_label(slots_heading, Palette.AMBER, 8)
+	page.add_child(slots_heading)
 	_save_list = VBoxContainer.new()
 	_save_list.name = "SaveSlotList"
 	_save_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_save_list.add_theme_constant_override("separation", 3)
-	scroll.add_child(_save_list)
+	_save_list.add_theme_constant_override("separation", 5)
+	page.add_child(_save_list)
 
 	_save_status = Label.new()
 	_save_status.name = "SaveStatus"
 	_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	Palette.style_label(_save_status, Palette.MUTED, 7)
-	_saves_view.add_child(_save_status)
+	page.add_child(_save_status)
 
 
+## The whole STATISTICS page scrolls (wheel, touch drag, focus): nothing clips at small windows, phones or the XR panel.
 func _build_statistics_view(parent: VBoxContainer) -> void:
 	_statistics_view = VBoxContainer.new()
 	_statistics_view.name = "PauseStatistics"
-	_statistics_view.add_theme_constant_override("separation", 6)
 	_statistics_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	parent.add_child(_statistics_view)
+	var scroll := ScrollContainer.new()
+	scroll.name = "PauseStatisticsScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	scroll.follow_focus = true
+	_style_scrollbar(scroll.get_v_scroll_bar())
+	_statistics_view.add_child(scroll)
+	_statistics_scroll = scroll
+	var page := VBoxContainer.new()
+	page.name = "PauseStatisticsPage"
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page.add_theme_constant_override("separation", 6)
+	scroll.add_child(page)
 	var heading := Label.new()
 	heading.text = Palette.track("CURRENT RUN")
 	Palette.style_label(heading, Palette.AMBER, 8)
-	_statistics_view.add_child(heading)
-	_statistics_view.add_child(_build_share_block())
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_statistics_view.add_child(scroll)
+	page.add_child(heading)
+	page.add_child(_build_share_block())
+	var grid_parent := page
 	_statistics_grid = GridContainer.new()
 	_statistics_grid.name = "PauseStatisticsGrid"
 	_statistics_grid.columns = 2
 	_statistics_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_statistics_grid.add_theme_constant_override("h_separation", 18)
 	_statistics_grid.add_theme_constant_override("v_separation", 5)
-	scroll.add_child(_statistics_grid)
+	grid_parent.add_child(_statistics_grid)
+
+
+## House-style scrollbar: a slim inset track with an accent grabber.
+static func _style_scrollbar(bar: VScrollBar) -> void:
+	var track := Palette.panel_box(Palette.INSET, Palette.PANEL_EDGE, 0)
+	track.content_margin_left = 3
+	track.content_margin_right = 3
+	bar.add_theme_stylebox_override("scroll", track)
+	for state in ["grabber", "grabber_highlight", "grabber_pressed"]:
+		bar.add_theme_stylebox_override(state, Palette.panel_box(Palette.ACCENT if state == "grabber" else Palette.ACCENT_EDGE, Palette.ACCENT_EDGE, 0))
+
+
+## Scrolls the saves page to its end (the last slot and status).
+func scroll_saves_to_end() -> void:
+	if _saves_scroll != null:
+		_saves_scroll.scroll_vertical = int(_saves_scroll.get_v_scroll_bar().max_value)
+
+
+## Scrolls the statistics page so its last row is visible (keyboard/controller "end", tests).
+func scroll_statistics_to_end() -> void:
+	if _statistics_scroll != null:
+		_statistics_scroll.scroll_vertical = int(_statistics_scroll.get_v_scroll_bar().max_value)
 
 
 func _build_share_block() -> Control:
@@ -386,9 +455,12 @@ func _save_action_button(caption: String, action: Callable,
 	return button
 
 
-func _set_section(section: String) -> void:
+func _set_section(next: String) -> void:
 	if _pause_view == null:
 		return
+	section = next
+	for id in _tabs:
+		Palette.style_button(_tabs[id] as Button, id == section)
 	_pause_view.visible = section == "pause"
 	_saves_view.visible = section == "saves"
 	_statistics_view.visible = section == "statistics"
@@ -614,15 +686,19 @@ func _show_dossier_entry(hunter_id: String) -> void:
 	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
 		return
 	if not Backend.hunter_discovered(hunter_id):
-		_dossier_name.text = "UNDISCOVERED SIGNAL"
-		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" if Backend.signed_in() \
-			else "SIGN IN TO RETAIN DISCOVERIES"
-		_dossier_behavior.text = "ENCOUNTER THIS HUNTER IN THE ROUTE TO REVEAL HER DOSSIER. SPAWN ROLLS AND ROOM SNAPSHOTS DO NOT COUNT."
-		_dossier_gimmick_heading.visible = false
-		_dossier_gimmick.visible = false
-		_dossier_gimmick.text = ""
+		_dossier_name.text = "??? (LOCKED)"
+		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" \
+			if Backend.signed_in() else "SIGN IN TO RETAIN DISCOVERIES"
+		_dossier_behavior.text = HunterDossier.redacted(hunter_id, String(entry["behavior"]))
+		var locked_chart := entry.has("gimmick_behavior")
+		_dossier_gimmick_heading.visible = locked_chart
+		_dossier_gimmick.visible = locked_chart
+		_dossier_gimmick.text = HunterDossier.redacted(hunter_id,
+			String(entry.get("gimmick_behavior", ""))) if locked_chart else ""
 		_dossier_counter.text = ""
-		_dossier_stats.text = "IDENTITY // ABILITY // TUNING HIDDEN"
+		_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
+			float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
+			float(profile["hearing"])]
 		return
 	_dossier_name.text = String(profile["name"]).to_upper()
 	var category := String(profile.get("category", "az"))
@@ -631,15 +707,11 @@ func _show_dossier_entry(hunter_id: String) -> void:
 		else "SECRET // FOUND IN THE CITY" if category == "secret" \
 		else "RULE-SUMMONED // A-Z SPECIAL" if special \
 		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
-	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
-		String(entry["behavior"])]
+	_dossier_behavior.text = String(entry["behavior"])
 	var has_chart := entry.has("gimmick_behavior")
 	_dossier_gimmick_heading.visible = has_chart
 	_dossier_gimmick.visible = has_chart
-	_dossier_gimmick.text = "%s // %s" % [
-		String(entry.get("gimmick_title", "UNASSIGNED")),
-		String(entry.get("gimmick_behavior", "")),
-	] if has_chart else ""
+	_dossier_gimmick.text = String(entry.get("gimmick_behavior", "")) if has_chart else ""
 	_dossier_counter.text = ""
 	_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
 		float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
@@ -877,6 +949,7 @@ func open() -> void:
 	if _open:
 		return
 	_set_open(true)
+	_refresh_voice_history()
 	_set_copy_status("", true)
 	_refresh_share()
 	_set_section("pause")
@@ -1026,3 +1099,44 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif tap_to_pause:
 		open()
 		get_viewport().set_input_as_handled()
+
+
+
+## The only chat log: the last lines said in the room (RoomChat.history), each speaker with a local MUTE toggle.
+func _refresh_voice_history() -> void:
+	if _pause_view == null:
+		return
+	var old := _pause_view.get_node_or_null("VoiceHistory")
+	if old != null:
+		old.free()
+	if RoomChat.history.is_empty():
+		return
+	var box := VBoxContainer.new()
+	box.name = "VoiceHistory"
+	box.add_theme_constant_override("separation", 1)
+	_pause_view.add_child(box)
+	var heading := Label.new()
+	heading.text = Palette.track("SAID RECENTLY")
+	Palette.style_label(heading, Palette.AMBER, 6)
+	box.add_child(heading)
+	var speakers := {}
+	for entry_value in RoomChat.history.slice(maxi(0, RoomChat.history.size() - 6)):
+		var entry: Dictionary = entry_value
+		var line := Label.new()
+		line.text = ("// %s" % entry["text"]) if bool(entry.get("system", false)) else "%s: %s" % [String(entry["name"]).to_upper(), entry["text"]]
+		Palette.style_label(line, Palette.BODY, 6)
+		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		line.custom_minimum_size = Vector2(220, 0)
+		box.add_child(line)
+		if not bool(entry.get("system", false)) and int(entry.get("peer", 0)) != (multiplayer.get_unique_id() if RoomState.online else 1):
+			speakers[String(entry["name"]).to_upper()] = true
+	for callsign in speakers:
+		var mute := Button.new()
+		mute.name = "Mute_%s" % callsign
+		mute.text = ("UNMUTE %s" if Settings.is_player_muted(callsign) else "MUTE %s") % callsign
+		mute.add_theme_font_size_override("font_size", 6)
+		Palette.style_button(mute, false, true)
+		mute.pressed.connect(func() -> void:
+			Settings.set_player_muted(callsign, not Settings.is_player_muted(callsign))
+			mute.text = ("UNMUTE %s" if Settings.is_player_muted(callsign) else "MUTE %s") % callsign)
+		box.add_child(mute)

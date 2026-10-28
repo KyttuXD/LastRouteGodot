@@ -3,6 +3,43 @@
 Last Route is one maze level (0) over a sewer and waterworks level (-1). Both stream on the same 45 x 45 chunk
 coordinates from the same seed, so every peer builds the same tunnels, ladders and pickups.
 
+## The stack
+
+| level | what | how you reach it |
+| --- | --- | --- |
+| 0 | the maze (every district but the Inferno) | spawn |
+| -1 | the sewer | ladders from the maze |
+| -2 | the collector: a second sewer, same tunnels and decks, its own rooms, no ladders | ramp tunnels from -1 |
+| -3 | the Inferno: a full maze level of Inferno districts, and the only place they appear | ramp tunnels from -2 |
+
+**Ramps** (`SewerRouteGenerator.ramp_between`, LevelLink kind `ramp`) are the seamless link down. Each is a walled,
+three-wide tunnel that drops one storey over `RAMP_RUN` (12) cells, about 18 degrees, in one quadrant of a chunk that
+both levels reserve (about 35 % of chunks for -1 to -2, 30 % for -2 to -3).
+
+* The top landing sits beside the upper level's tunnel walkway. The bottom landing joins the lower level's tunnels, or
+  in the Inferno its central hall; any room the footprint would cut through is dropped.
+* You walk it; the level switches on height with no loading break. The upper chunk owns the slope's collider and
+  surface. On the lower level the tunnel opens straight up, so its walls run the full storey.
+* Hunters walk a ramp as a timed link (walk clip, height and position following the slope), with the same follow and
+  avoid rules as ladders. Runners only climb ladders.
+* The map shows ramps with the stair icon.
+* Below the maze every storey is capped to `LEVEL_HEIGHT` - slab, so tall Inferno halls never rise into the sewer
+  above.
+
+**Falls** (`SewerRouteGenerator.falls_between`): the first sewer feeds the collector. In about 28 % of chunks, in a
+quadrant no ramp uses:
+
+* On -1 a spur leaves the main channel, crosses the tunnel walkway on a bridge, and runs beside a railed overlook ledge
+  to a 7 x 7 drop. The floor is gone there, the drop's cells block movement like the channels, and rough stone cliffs
+  fall a full storey.
+* The water pours over the lip as a waterfall sheet (`sewer_falls.gdshader`) into an 11 x 12 cistern on -2. The
+  cistern has a deep pool under the drop, mist where the falls land, and a walkway ring joined to the collector's
+  tunnel. The cistern is open overhead to the drop.
+* A looping positional roar (`Sound` cue `waterfall`) carries about 28 m on both levels. Within about 7-13 m of a lip
+  it masks a runner's noise for the hunters (`InfiniteRouteTest._falls_noise_mask`).
+* In a falls chunk the other sewer level stays loaded, so you can see across the drop.
+* There's no jump-down shortcut: the drop is railed and blocked.
+
 ## Layout (`src/game/sewer_route_generator.gd`)
 
 * **Main cross.** Every sewer chunk has a nine-wide brick tunnel along x = 22 and z = 22, so tunnels always meet
@@ -13,14 +50,14 @@ coordinates from the same seed, so every peer builds the same tunnels, ladders a
   every edge where a walkway, room floor or deck meets open water. The channel cells carry a collider from the bed to
   1.2 m above the walkways, so runners and hunters stay out of the water. Channel cells are blocked in the grid, so
   hunter A* never routes through the water (validated).
-* **Crossings.** Sparse on purpose. Each tunnel arm has one bridge either side of the junction (`BRIDGE_OFFSETS`,
-  about one every 24 m). There, a 3 x 3 m riveted bridge deck (`sewerBridge`) spans the
-  channel on two girders that bear on the walkways. In the junction, a cross-shaped grate plaza (`sewerGrateDeck`
-  tiles, `PLAZA_TILES`) decks over the confluence, cells -4..+4 of both arms. The water keeps flowing under every deck,
-  visible through the grating. Within a chunk no stretch of open water runs longer than 9 cells between decks
-  (validated).
-* **Utility rooms.** One or two quadrants of each chunk hold a pump room, a valve room or an overflow chamber
-  (9 x 9, with a central basin and a barred weir). Each sits on a three-wide dry branch to the tunnel. Each has one
+* **Crossings.** Sparse on purpose: one 3 x 3 m riveted bridge deck (`sewerBridge`) on each tunnel arm either side of
+  the junction (`BRIDGE_OFFSETS`, about one every 24 m), spanning the channel on two girders that bear on the walkways.
+  The junction's confluence is open water: the channels meet with no deck over them, and the arm bridges join all
+  four walkway quadrants around it. The water keeps flowing under every bridge, visible through the grating
+  (validated: every dry cell reachable, hunters never route through water).
+* **Utility rooms.** One or two quadrants of each chunk hold a pump room or a valve room (7 x 7). Rooms reserve
+  their cells: no channel, basin, deck, railing or falls lip inside one (validated on -1 and -2; the overflow
+  chamber's railed basin read as the channel through a room and was retired). Each sits on a three-wide dry branch to the tunnel. Each has one
   hiding spot.
 * **Pickups.** Relays and batteries, sometimes a tool. They spawn on dry cells only, never by a ladder, and slightly
   thinner than the maze.
@@ -83,10 +120,33 @@ dragged aside) or `grate` (a floor grate swung up).
 | avoid | Kathy, Ferryn, Solyth, Porcelle | follow the runner to the ladder and wait at the top (30 s) to ambush them coming back up; never climb |
 | follow (everyone else, Void included) | the rest | follow a runner down or up, never climb on their own |
 
+## Stairwells (`src/game/stairwells.gd`)
+
+Enclosed stairwells, `LevelLink` kinds `stairs` (a switchback: two 2 m half-flights about a 180 degree mid landing,
+in a 7 x 9 box) and `spiral` (a helix round a central post, 270 degrees per storey, in a 7 x 7 box). Both enter and
+leave by the same doorway on both levels; the bottom and top landings are the same cell one storey apart. Each link
+carries a `path` that hunters walk (`LadderTraffic.path_point`) and the validator walks with the movement keys.
+
+* **0 <-> -1 (sparse, 12%).** Placed by the maze chunk itself, which is the source of truth: the sewer and
+  `vertical_links` read it from there, as they read ladders. Every maze biome runs main halls along rows 9-11 and
+  33-35 and the sewer's cross tunnel fills 18-26, so the box goes in an outer room band (`Stairwells.MAZE_AREAS`,
+  rows 0-8 / 36-44, inside one room column, clear of the sewer walkways) with its doorway opening onto a main hall.
+  A candidate must fit the maze as built: no suite or main hall touched, at most 100 cells of plain rooms dropped, and
+  a trial carve that cuts no open area in two. The sewer keeps ladders, rooms, ramps and falls out of its quadrant.
+* **+1..+3 (for the upper-levels lane).** Pure seed maths (`Stairwells.plan`): chance 0.55 / 0.45 / 0.35, always one
+  at chunk (0, 0), one quadrant (`QUADRANT_AREAS`), clear of the spine x/z 21..23 and the duct lines 6 and 38, inside
+  2..41. A level-0 chunk carves its foot only once `is_chunk_allowed` admits the level above.
+* **Geometry.** The upper chunk owns the stairs (collider band rule). Switchback flights are solid wedges whose tops
+  are the walking slope; the spiral is a helicoid cut into radial rings, so only the ring hugging the post is steeper
+  than a walkable floor, with a slab filling the wedge between the helix's top end and the landing. Guard rails close
+  the top landing except where the stairs arrive. The lower level keeps a floor under the whole well.
+
 ## Streaming
 
-`StreamedFacilityView3D` loads the 3 x 3 window on the runner's level. When the runner's chunk has a ladder, it also
-loads the chunk at the other end of it, so a shaft never opens onto nothing.
+`StreamedFacilityView3D` loads the 3 x 3 window on the runner's level. When the runner's chunk has a ladder, ramp or
+stairwell, it also loads the chunk at the other end of it, so a shaft never opens onto nothing. Levels a link in the
+3 x 3 reaches are pre-built and parked; a parked chunk in the runner's column is kept up to `PARK_LEVEL_RANGE` (2)
+levels away, so the level beyond a ramp is not freed and rebuilt on every round trip.
 
 `snapped_level_for_world_y` puts the runner in the sewer once their feet are more than half a storey below the maze
 floor. The minimap only shows the level you are on: in the sewer it draws the sewer, its water, and ladder icons
@@ -116,3 +176,21 @@ Build them with:
 * the view streams the sewer window, keeps the maze collider over the shaft, and stays inside the streaming frame
   budget;
 * a runner climbs down and back up (smoothly, ending on the far floor, collision restored).
+
+## The waterfall jump
+
+At each falls lip on the first sewer (-1) the overlook ledge's railing has one gap in front of one open drop cell (`falls_between()["jump"]`: `start` the ledge cell,
+`cell` the open drop cell, `dir` the way out, `land` and `exit` in the cistern below). Walking into that cell is a deliberate choice, never an accident: the hint "THE FALLS //
+STEP THROUGH THE GAP TO JUMP" shows within 2.4 cells. The route (`_update_falls_jump`) then calls `PlayerController3D.begin_plunge`:
+
+1. **Arc** (about a second, collision off, no damage): off the ledge into the cistern pool; the level changes by itself when the feet cross the storey.
+2. **Splash** (0.55 s): `splash_big` cue, the master bus goes muffled (`Sound.set_muffled`), the flashlight flickers for 1.4 s, and a noise burst of 3.0 for 1.2 s tells nearby hunters (it
+   beats the falls' roar mask).
+3. **Swim** (2-3 s at 1.5 m/s, eye just above the water) to the dry ring beside the pool, then a short climb out.
+4. **Soaked** for `SOAKED_SECONDS` (30): drips (`water_drip`) every 1-2.4 s and footsteps 1.45x louder to hunters. It times out by itself.
+5. 8% chance (`FALLS_ITEM_DROP_CHANCE`) that the item in hand slipped away: it is dropped at the climb-out point (`at_override` of the normal `stream_drop` event, so co-op guests request it
+   through the host like any drop).
+
+Co-op: the plunging runner's position is replicated like any movement; the drop and the noise go through the same host paths as every other drop and noise. Validators: `falls_jump`
+(every lip has a jump cell on dry ledge, lands in a pool, swims 2-3 s over pool water to dry ground connected to the collector, the view leaves the railing and collider open there only,
+and a live plunge ends on the collector floor, soaked, uncolliding nothing, and soaked times out) and the `plunge` section of `stream_perf` (mid-fall level change frame budget, no rebuilds).

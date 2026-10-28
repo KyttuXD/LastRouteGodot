@@ -21,9 +21,10 @@ standalone now; PC VR later). Desktop behaviour never changes: everything else s
 
 ## Export presets
 
-- **Android Phone Debug** (`builds/KyttusLab-Android-Debug.apk`): arm64, flat (OpenXR off), feature `phone`, package
+- **Android Phone Debug** (`builds/KyttusLab-Android-Debug.apk`, Gradle build): arm64, flat (OpenXR off), feature `phone`, package
   `org.kyttuslab.lastroute.phone`, so it installs next to the Quest build.
-- **Meta Quest OpenXR Debug** (`builds/KyttusLab-Quest-Debug.apk`): arm64, OpenXR, features `xr,quest`.
+- **Meta Quest OpenXR Debug** (`builds/KyttusLab-Quest-Debug.apk`, Gradle build with the OpenXR vendors addon): arm64,
+  OpenXR, features `xr,quest`.
 - **iPhone Debug** (`builds/ios/`): exports an Xcode project only, with feature `phone` (same profile and touch controls
   as Android), bundle id `org.kyttuslab.lastroute.phone`, and KT's free Personal Team (7-day signing). Build, sign and
   install on the mini with `xcodebuild -allowProvisioningUpdates -allowProvisioningDeviceRegistration` and
@@ -33,16 +34,68 @@ standalone now; PC VR later). Desktop behaviour never changes: everything else s
 
 ## Building (KT-Mini4-2 only)
 
-- **Toolchain:** Godot 4.7.2 Android templates (prebuilt, no Gradle build). The Android SDK is at
-  `~/Developer/android-sdk` (platform-tools, build-tools 35.0.0, platform android-35). Temurin JDK 17 is at
-  `~/Developer/jdk/jdk-17.0.21+9`; the existing JDK 25 is untouched.
+Both Android presets use Godot's Gradle build. Build them with `tools/android/build_apk.sh phone|quest [source dir]`
+(the default source is the synced lane `~/Developer/lanes/xr-android`):
+
+- **Build copy:** the script copies the project into `~/Developer/lanes/android-<target>`; the repo never holds
+  `android/`, the OpenXR vendors addon or any binary. In that copy it then:
+  - installs Godot's Android build template on first use;
+  - builds the APK installer plugin (`tools/android/build_installer_plugin.sh`, Gradle offline from the mini's cache);
+  - for the Quest, adds the official GodotVR OpenXR Vendors 5.1.0 addon, sha256-checked, from
+    `~/Developer/vendor-cache`;
+  - exports `builds/KyttusLab-Android-Debug.apk` or `builds/KyttusLab-Quest-Debug.apk`.
+- **Toolchain:** Godot 4.7.2 templates and Gradle 8.11.1 (AGP 8.6.1, Kotlin 2.1.21, as the template pins them). The
+  Android SDK is at `~/Developer/android-sdk` (platform-tools, build-tools 35.0.0, platform android-35). Temurin JDK 17
+  is at `~/Developer/jdk/jdk-17.0.21+9`; the existing JDK 25 is untouched.
 - **Debug keystore:** `~/.android/godot-debug.keystore`, with Android's standard debug credentials. It never goes in the
   repo; release signing is a separate, later step.
-- **Environment for an export:**
-  - `ANDROID_HOME`
-  - `JAVA_HOME` (JDK 17)
-  - `GODOT_ANDROID_KEYSTORE_DEBUG_PATH`, `_USER` and `_PASSWORD`
-- **Install on a device:** `adb install -r builds/KyttusLab-Android-Debug.apk` with the phone on the mini's USB.
+- **Environment:** `ANDROID_HOME`, `JAVA_HOME` (JDK 17), and `GODOT_ANDROID_KEYSTORE_DEBUG_PATH`, `_USER` and
+  `_PASSWORD`.
+- **Install:** with the device on the mini's USB, `adb -s <serial> install -r <apk>`. Use the SDK's adb (37.0.1), never
+  the one bundled with Meta Quest Developer Hub: two adb versions keep killing each other's server.
+
+## Self-update (phone and Quest)
+
+The git commit is the build identity. A publish stamps `build_revision.json` with the commit and its build number
+(`git rev-list --count`), and the Android versionCode becomes that build number in the publish copy only.
+`version/name` stays "0.0.1.0" and the repo's `version/code` stays 1.
+
+- **Client (`UpdateManager`):**
+  - Phones check the `phone` channel, the Quest the `quest` channel (`platform_key_for`).
+  - An update is offered when the published commit differs from this build's and its `build` is higher
+    (`mobile_update_needed`); Android refuses a lower versionCode.
+  - The APK downloads to `user://updates` with a progress bar and a sha256 check (`parse_manifest` accepts only HTTPS
+    or the backend's own file route).
+  - It is then handed to Android's installer through the `KyttuInstaller` plugin. The user always confirms on the
+    system screen; nothing installs silently.
+  - If installs from this app aren't allowed yet, the plugin opens that settings page and the game says where it is
+    (on the Quest it also offers installing from the mini).
+  - Phone and Quest builds show `VERSION 0.0.1.0 // BUILD <commit>` on the title screen.
+- **Installer plugin:** `platform/android/kyttu_installer` (Kotlin; `REQUEST_INSTALL_PACKAGES`). It shares the APK
+  through Godot's own FileProvider (`<package>.fileprovider`), and `addons/kyttu_installer` links the built AAR into
+  Gradle exports.
+- **Device test without a server (debug builds):** copy an APK to the app as `files/self-update-test.apk` with
+  `adb shell run-as <package> cp ...` and launch. The game hands it to the installer and logs `SELF_UPDATE_TEST
+  <status>`. Remove the file afterwards with `run-as rm`.
+- **Server (`backend/server.mjs`):**
+  - `/api/updates/<channel>/phone` and `/quest` serve entries with `version`, `revision`, `build`, `file` or `url`,
+    `sha256` and `bytes`.
+  - An entry without a revision or a positive build number is withheld.
+  - Mobile entries are never `required`.
+- **Publishing a phone or Quest update:**
+  1. On the mini, from a clean checkout of the commit being published:
+     `PUBLISH=1 GIT_DIR=<checkout>/.git tools/android/build_apk.sh phone <checkout>` (and `quest`). This prints the
+     commit and build number it stamped.
+  2. Copy the APKs into `builds/` beside the desktop builds for the same commit.
+     `scripts/generate_update_manifest.mjs` adds the `phone` and `quest` entries with `build` from
+     `build_revision.json`; `scripts/generate_build_revision.mjs` writes it. One release holds one commit.
+  3. Upload the APKs and `updates.debug.json` to the GitHub `debug` release as today; the backend's release sync
+     fetches them.
+- **Deploying the server change:** VPS 3 runs the backend as the systemd service `lastroute-godot2` and is deployed by
+  hand by the coordinator, after KT's approval. Run `deploy/deploy.sh` on the VPS for a dry run, then
+  `deploy/deploy.sh --apply` to deploy; `--rollback --apply` returns to the previous release. Nothing redeploys on its
+  own. Afterwards check `GET /api/updates/debug/phone`: 404 until a phone APK is published, then the entry with its
+  `build`.
 
 ## Touch controls (phones)
 
@@ -123,10 +176,52 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
   escape struggle), as a panel 1.2 m in front of the head.
 - **Input:** the right laser and trigger send mouse events to the root viewport. The Controls still belong to it, since
   `custom_viewport` only moves where they are drawn.
-- **Scrolling:** on both panels the right stick scrolls what the laser points at. Scroll containers only drag-scroll
-  for touch, so this is what reaches ENTER ROUTE on the staging screen.
+- **Scrolling (`XRPanelScroll`, both panels):** a hint under each panel says how.
+  - Either stick, up or down, scrolls the list under the laser (or the focused one), smoothly and faster the longer
+    it's held. Left and right step the menu carousel.
+  - Hold the trigger and drag to scroll like a finger. A press that stays inside the dead zone is a click. Sliders and
+    scroll bars keep their normal drag.
+  - Lists scrolled this way show their scroll bar. Scroll containers only drag-scroll for touch, which is why the
+    panels need this; it's also how you reach ENTER ROUTE on the staging screen.
 - **Validator:** `platform` drives it headless. A fake XR player shows the panel only while a screen is open, in front
   of the head, and a laser click presses the button under it.
+
+## Playing without Touch controllers
+
+The Quest build plays with whatever input is there:
+
+- **Gamepad (Bluetooth, a standard Android joypad) or keyboard:**
+  - The left stick or WASD moves, relative to where you look. The right stick or the look keys turn the player, snap
+    or smooth (`XRComfort.turn_input`); a paired mouse turns too.
+  - Buttons and keys keep their usual actions (use, jump, crouch, tool, light, menu).
+  - Menus navigate with the D-pad or arrows, and A or Enter.
+- **Head aim:** without a tracked right hand, [E] aims with the head (`interaction_aim`); without a tracked left hand,
+  the flashlight shines from the head.
+- **One controller:** whichever hand is tracked points at the panels (right first) and its trigger clicks. With only
+  the right hand, its stick click opens the pause menu.
+- **Nothing at all:** with no tracked hand and no gamepad, the head points at the panels (`XRGaze`). Resting the
+  reticle on a button for 1.2 s clicks it; the reticle grows while it dwells.
+- **Hidden hands:** an untracked controller (asleep, flat battery) hides its hand, laser and wrist HUD instead of
+  lying on the floor (`show_when_tracked`).
+
+## VR bodies in co-op
+
+Everyone else sees a VR runner's real motion (`VRPoseSync`, `src/game_3d/vr_pose_sync.gd`):
+
+- **Sending:** the VR player adds a 43-byte `vr` packet to the ordinary 20 Hz remote-player state, about 860 bytes/s
+  per VR peer. It holds the head and both controllers relative to the body (millimetre positions, int16 quaternions)
+  plus tracked and crouch flags. Flat players never send it.
+- **Crouching:** a head below 78 % of the calibrated standing height (a slowly relaxing running maximum) sends the
+  crouch clip, so crouching in real life lowers the body.
+- **Receiving (`RemotePlayers`):**
+  - The pose is smoothed every frame, and the body turns to follow the head beyond 50°.
+  - After the walk/idle clip, the mannequin's `Head` takes the head rotation and each tracked arm swings from the
+    shoulder to point at its hand, forearm straight; the cubes are rigid, so no bending IK is needed.
+  - The held item rides the right hand, and the flashlight beam starts at the left hand. Hand-over-hand climbing,
+    swings and pokes all show.
+- **Flat peers** are drawn exactly as before.
+- **Validator:** `platform` checks the packet round trip and size, that the arms point at the hands, the head pitch,
+  the body follow, and that a flat peer is untouched.
 
 ## Typing in the headset
 

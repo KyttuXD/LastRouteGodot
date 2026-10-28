@@ -563,6 +563,10 @@ const MODEL_PATHS := {
 	"ringTossStall": ["res://art/props-3d/props/carnival/ring_toss_stall.glb"],
 	"strengthTester": ["res://art/props-3d/props/carnival/strength_tester.glb"],
 	"circusPedestal": ["res://art/props-3d/props/carnival/circus_pedestal.glb"],
+	# the other playable booths (CarnivalBooths) reuse a stall / pedestal body; their game board is the booth node's (docs/CARNIVAL_BOOTHS.md)
+	"shootingGallery": ["res://art/props-3d/props/carnival/ring_toss_stall.glb"],
+	"whackAMole": ["res://art/props-3d/props/carnival/ring_toss_stall.glb"],
+	"duckPond": ["res://art/props-3d/props/carnival/circus_pedestal.glb"],
 	"carouselCenterpiece": [
 		"res://art/props-3d/props/carnival/carousel_centerpiece.glb",
 	],
@@ -824,6 +828,19 @@ const WALL_MOUNTED_TYPES := EMPTY_FRAME_TYPES + [
 ]
 
 
+## Walkable decks authored with their walking surface at the model origin
+## (z = 0 in the builder) and structure hanging below it: spawned at the cell's
+## floor height as authored, never seated on their lowest point, so the deck
+## top is flush with the floor collider under it (girders reach down into the
+## channel trench). Seating the sewer bridge on its bearings raised the deck
+## 0.6 m above the walkway and runners walked through it.
+const DECK_TYPES := ["sewerBridge", "sewerGrateDeck"]
+
+
+static func keeps_authored_pivot(type: String) -> bool:
+	return DECK_TYPES.has(type)
+
+
 static func is_floor_dressing(type: String) -> bool:
 	return FLOOR_DRESSING_TYPES.has(type)
 
@@ -916,7 +933,7 @@ static func interaction_for(type: String) -> String:
 	var lowered := type.to_lower()
 	if type == "carouselCenterpiece":
 		return "ride"
-	if type in ["ringTossStall", "strengthTester"]:
+	if CarnivalBooths.is_booth(type):
 		return "play"
 	if type.begins_with("retroComputer"):
 		return "use"
