@@ -1,87 +1,104 @@
 extends RefCounted
 
-## The upper levels and vents over many seeds: the mezzanine (+1), the attic (+2) and the vent ducts generate
+## The upper levels and vents over many seeds: Mezzanine (+1), Offices (+2), Archive (+3) and Attic (+4) generate
 ## deterministically, every walkable cell of a level is reachable from its seam cross, seams meet, both ends of every
-## ladder agree, every attic hatch is reachable standing, the eaves' hide spots are crawl-only (a standing hunter cannot
-## reach them, a crouching runner can), and every vent grate opens onto a walkable cell and a duct.
+## way up are walkable on their own level, ways up thin out going higher, no level's ceiling rises into the slab of
+## the one above, the attic eaves' hide spots are crawl-only (a standing hunter cannot reach them, a crouching runner
+## can), and every vent grate opens onto a walkable cell and a duct.
 
 const SEEDS := ["UPPER-A", "UPPER-B", "KYTTU-LAB", "ENDLESS-ROUTE", "PICKUPS"]
 const RADIUS := 4
 ## A full-size humanoid hunter: the rig is about 1.8 m tall before HunterRoster.MODEL_SCALE.
 const HUNTER_HEIGHT := 1.8 * HunterRoster.MODEL_SCALE
+const OWN_GRID := {1: "mezzanine_grid", 2: "offices_grid", 3: "archive_grid", 4: "attic_grid"}
 
 var _failures := 0
 
 
 func run(_host: Node) -> int:
-	var counts := {"mezz": 0, "attic": 0, "ladders": 0, "stairs": 0, "grates": 0, "hides": 0}
 	_expect(AtticRouteGenerator.passable(AtticRouteGenerator.CRAWL, PlayerController3D.CROUCH_COLLISION_HEIGHT),
 		"a crouching runner does not fit the attic crawlspace")
 	_expect(not AtticRouteGenerator.passable(AtticRouteGenerator.CRAWL, HUNTER_HEIGHT),
 		"a full-size hunter fits the attic crawlspace")
 	_expect(VentNetwork.DUCT_HEIGHT < HUNTER_HEIGHT, "a hunter fits the vents")
+	var chunks := 0
+	var up_chunks := {}
+	var kinds := {}
+	var hides := 0
+	var spots := 0
+	var grates := 0
 	for seed_text in SEEDS:
-		var surface := StreamedRouteGenerator.new(seed_text)
-		var mezz := MezzanineRouteGenerator.new(surface)
-		var attic := AtticRouteGenerator.new(mezz)
-		var vents := VentNetwork.new(surface, mezz, attic)
-		var mezz2 := MezzanineRouteGenerator.new(StreamedRouteGenerator.new(seed_text))
-		var attic2 := AtticRouteGenerator.new(mezz2)
+		var stack := _stack(seed_text)
+		var twin := _stack(seed_text)
+		var vents := VentNetwork.new(stack[0], stack.slice(1))
 		for dz in range(-RADIUS, RADIUS + 1):
 			for dx in range(-RADIUS, RADIUS + 1):
+				chunks += 1
 				var where := "%s (%d,%d)" % [seed_text, dx, dz]
-				var m: Dictionary = mezz.chunk(Vector3i(dx, 1, dz))
-				var a: Dictionary = attic.chunk(Vector3i(dx, 2, dz))
-				counts["mezz"] += 1
-				counts["attic"] += 1
-				_expect(m["mezzanine_grid"] == mezz2.chunk(Vector3i(dx, 1, dz))["mezzanine_grid"]
-					and a["attic_grid"] == attic2.chunk(Vector3i(dx, 2, dz))["attic_grid"], "%s not deterministic" % where)
-				_expect(_all_reached(m["grid"]), "%s mezzanine has unreachable walkway" % where)
-				_expect(_all_reached(a["grid"]), "%s attic has unreachable floor" % where)
-				_expect(_seams_open(m["grid"], m["edges"]) and _seams_open(a["grid"], a["edges"]),
-					"%s seam cross is not walkable" % where)
-				var standing := _flood(a["attic_grid"], [AtticRouteGenerator.STAND])
-				for feature in a["features"]:
+				var grids := {0: stack[0].chunk(Vector3i(dx, 0, dz))["grid"]}
+				for level in range(1, 5):
+					var data: Dictionary = stack[level].chunk(Vector3i(dx, level, dz))
+					grids[level] = data["grid"]
+					var own: String = OWN_GRID[level]
+					_expect(data[own] == twin[level].chunk(Vector3i(dx, level, dz))[own], "%s +%d not deterministic" % [where, level])
+					_expect(_all_reached(data["grid"]), "%s +%d has unreachable floor" % [where, level])
+					_expect(_seams_open(data["grid"], data["edges"]), "%s +%d seam cross is not walkable" % [where, level])
+					_expect(float(data["ceiling_height"]) <= UpperLevelTools.LEVEL_HEIGHT - UpperLevelTools.SLAB,
+						"%s +%d ceiling rises into the slab above" % [where, level])
+				for level in range(0, 5):
+					var links: Array = stack[level].links_for(Vector3i(dx, level, dz)) if level > 0 else \
+						UpperLevelTools.links_up_to(stack[1], Vector3i(dx, 1, dz), 1)
+					var has_up := false
+					for link in links:
+						if int(link["to_level"]) != level or int(link["from_level"]) != level + 1:
+							continue
+						has_up = true
+						kinds[link["kind"]] = int(kinds.get(link["kind"], 0)) + 1
+						var top: Vector2i = link["from_cell"]
+						var foot: Vector2i = link["to_cell"]
+						_expect(int(grids[level + 1][top.y][top.x]) == 0 and int(grids[level][foot.y][foot.x]) == 0,
+							"%s %s %d->%d ends not walkable" % [where, link["kind"], level, level + 1])
+					if has_up:
+						up_chunks[level] = int(up_chunks.get(level, 0)) + 1
+				var attic: Dictionary = stack[4].chunk(Vector3i(dx, 4, dz))
+				var standing := _flood(attic["attic_grid"], [AtticRouteGenerator.STAND])
+				for feature in attic["features"]:
 					var cell: Vector2i = feature["cell"]
 					if feature["type"] == "atticHatch":
 						_expect(standing.has(cell), "%s attic hatch %s not reachable standing" % [where, cell])
 					elif feature.get("hide", false):
-						counts["hides"] += 1
-						_expect(int(a["attic_grid"][cell.y][cell.x]) == AtticRouteGenerator.CRAWL and not standing.has(cell),
+						hides += 1
+						_expect(int(attic["attic_grid"][cell.y][cell.x]) == AtticRouteGenerator.CRAWL and not standing.has(cell),
 							"%s attic hide %s is reachable by a standing hunter" % [where, cell])
-				var below: Array = surface.chunk(Vector3i(dx, 0, dz))["grid"]
-				var hatches := 0
-				var chunk_ladders := 0
-				for link in m["links"]:
-					var top: Vector2i = link["from_cell"]
-					var foot: Vector2i = link["to_cell"]
-					if link["kind"] == "ladder":
-						counts["ladders"] += 1
-						chunk_ladders += 1
-						_expect(int(m["grid"][foot.y][foot.x]) == 0 and int(a["grid"][top.y][top.x]) == 0,
-							"%s ladder ends not walkable" % where)
-					elif link["kind"] == "stairs":
-						counts["stairs"] += 1
-						_expect(int(m["grid"][top.y][top.x]) == 0 and int(below[foot.y][foot.x]) == 0,
-							"%s stair landing not walkable on both levels" % where)
-				for feature in a["features"]:
-					if feature["type"] == "atticHatch":
-						hatches += 1
-				_expect(hatches == chunk_ladders,
-					"%s attic hatches do not match mezzanine ladders" % where)
+				for feature in stack[3].chunk(Vector3i(dx, 3, dz))["features"]:
+					if feature["type"] == "stackSpot":
+						spots += 1
+						var cell: Vector2i = feature["cell"]
+						_expect(int(grids[3][cell.y][cell.x]) == 0, "%s archive spot %s inside the shelving" % [where, cell])
 				var v: Dictionary = vents.chunk(Vector3i(dx, 0, dz))
 				for link in v["links"]:
-					counts["grates"] += 1
+					grates += 1
 					var cell: Vector2i = link["from_cell"]
-					var level_grid: Array = [below, m["grid"], a["grid"]][int(link["from_level"])]
-					_expect(int(level_grid[cell.y][cell.x]) == 0 and int(v["grid"][cell.y][cell.x]) == VentNetwork.DUCT,
+					_expect(int(grids[int(link["from_level"])][cell.y][cell.x]) == 0
+						and int(v["grid"][cell.y][cell.x]) == VentNetwork.DUCT,
 						"%s vent grate %s does not join a duct to a walkable cell" % [where, cell])
-	_expect(counts["ladders"] > 0 and counts["stairs"] > 0 and counts["grates"] > 0 and counts["hides"] > 0,
-		"missing link kinds: %s" % [counts])
+	for level in range(0, 4):
+		_expect(int(up_chunks.get(level, 0)) > 0, "no way up from level %d" % level)
+		_expect(int(up_chunks.get(level + 1, 0)) <= int(up_chunks.get(level, 0)),
+			"ways up do not thin out going higher: %s" % [up_chunks])
+	_expect(hides > 0 and spots > 0 and grates > 0, "missing attic hides, archive spots or vent grates")
 	if _failures == 0:
-		print("  upper_levels  %s: deterministic, connected, seams meet, ladders agree, crawl hides out of hunter reach"
-			% [counts])
+		print("  upper_levels  %d chunks x 4 levels: deterministic, connected, seams meet, under the slab; ways up per level %s (%s); %d crawl-only hides, %d stack spots, %d vent grates"
+			% [chunks, up_chunks, kinds, hides, spots, grates])
 	return _failures
+
+
+static func _stack(seed_text: String) -> Array:
+	var surface := StreamedRouteGenerator.new(seed_text)
+	var mezz := MezzanineRouteGenerator.new(surface)
+	var offices := OfficesRouteGenerator.new(mezz)
+	var archive := ArchiveRouteGenerator.new(offices)
+	return [surface, mezz, offices, archive, AtticRouteGenerator.new(archive)]
 
 
 static func _flood(grid: Array, codes: Array) -> Dictionary:

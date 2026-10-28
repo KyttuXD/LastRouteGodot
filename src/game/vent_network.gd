@@ -4,7 +4,8 @@ extends RefCounted
 ## The vents: crawl-only ducts threaded between the levels. Ducts run one cell wide on a fixed lattice (x = 6 and 38,
 ## z = 6 and 38 in every chunk) so they continue across every seam, and they live on their own layer (VENT_LEVEL) so
 ## nothing on a real level has to make room for them. Each chunk opens a few grates from a duct cell into a walkable
-## cell of level 0 (ceiling grate), the mezzanine (wall grate) or the attic (floor grate): LevelLink kind "grate".
+## cell of every level 0..+4 (a ceiling grate on level 0, wall grates above, a floor grate in the attic): LevelLink
+## kind "grate" until the sewer lane adds "vent".
 ## Only a crawling body fits (DUCT_HEIGHT); no hunter follows a runner in.
 
 const CHUNK_SIZE := StreamedRouteGenerator.CHUNK_SIZE
@@ -14,19 +15,20 @@ const DUCT_HEIGHT := 0.9
 const GRATES_PER_LEVEL := 1
 const SOLID := 1
 const DUCT := 0
-const MOUNTS := {0: "ceiling", 1: "wall", 2: "floor"}
+const MOUNTS := {0: "ceiling", 1: "wall", 2: "wall", 3: "wall", 4: "floor"}
 
 var world_seed: String
 var surface: StreamedRouteGenerator
-var mezzanine: MezzanineRouteGenerator
-var attic: AtticRouteGenerator
+## Level number -> that level's generator (0 is the maze).
+var levels := {}
 var _cache := {}
 
 
-func _init(p_surface: StreamedRouteGenerator, p_mezzanine: MezzanineRouteGenerator, p_attic: AtticRouteGenerator) -> void:
+func _init(p_surface: StreamedRouteGenerator, p_upper: Array) -> void:
 	surface = p_surface
-	mezzanine = p_mezzanine
-	attic = p_attic
+	levels[0] = p_surface
+	for generator in p_upper:
+		levels[int(generator.LEVEL)] = generator
 	world_seed = p_surface.world_seed
 
 
@@ -51,14 +53,7 @@ func grates_for(coord: Vector3i, level: int) -> Array:
 
 
 func _level_grid(coord: Vector3i, level: int) -> Array:
-	var c := Vector3i(coord.x, level, coord.z)
-	match level:
-		0:
-			return surface.chunk(c)["grid"]
-		1:
-			return mezzanine.chunk(c)["grid"]
-		_:
-			return attic.chunk(c)["grid"]
+	return levels[level].chunk(Vector3i(coord.x, level, coord.z))["grid"]
 
 
 func _build_chunk(coord: Vector3i) -> Dictionary:
@@ -75,7 +70,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var rng := SeededRandom.new("%s:VENT:%d:%d" % [world_seed, coord.x, coord.z])
 	var links := []
 	var chunk_coord := Vector3i(coord.x, 0, coord.z)
-	for level in [0, 1, 2]:
+	for level in MOUNTS:
 		var level_grid := _level_grid(coord, level)
 		var candidates := []
 		for line in LINES:

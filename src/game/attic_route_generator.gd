@@ -1,16 +1,15 @@
 class_name AtticRouteGenerator
 extends RefCounted
 
-## Level +2, the Attic: a low level of rafters, insulation, ducts and storage boxes over the mezzanine. A standing spine
-## (the same three-wide cross as the mezzanine, so seams meet) carries the ladder hatches up from the mezzanine; off it,
+## Level +4, the Attic: a low level of rafters, insulation, ducts and storage boxes over the Archive. A standing spine
+## (the shared three-wide cross, so seams meet) carries the ladder hatches up from the Archive; off it,
 ## the eaves are crouch-only crawlspace under the roof pitch, where a full-height hunter cannot follow. Quiet and good
 ## for hiding: storage boxes and insulation rolls in the eaves are hide spots for the hiding-props system.
 ##
-## Topology only; reads MezzanineRouteGenerator for the hatch cells so both ends of every ladder agree.
+## Topology only; reads ArchiveRouteGenerator for the hatch cells so both ends of every ladder agree.
 
 const CHUNK_SIZE := StreamedRouteGenerator.CHUNK_SIZE
-const LEVEL := 2
-const MEZZANINE_LEVEL := 1
+const LEVEL := 4
 
 ## Grid codes. STAND has room to walk upright under the ridge; CRAWL is crouch-only under the eaves.
 const SOLID := 1
@@ -29,13 +28,13 @@ const ROOM_KINDS := ["box_storage", "rafter_loft", "water_tank_loft"]
 const HIDE_TYPES := ["atticStorageBox", "insulationRoll"]
 
 var world_seed: String
-var mezzanine: MezzanineRouteGenerator
+var below: ArchiveRouteGenerator
 var _cache := {}
 
 
-func _init(p_mezzanine: MezzanineRouteGenerator) -> void:
-	mezzanine = p_mezzanine
-	world_seed = p_mezzanine.world_seed
+func _init(p_below: ArchiveRouteGenerator) -> void:
+	below = p_below
+	world_seed = p_below.world_seed
 
 
 static func is_walkable(code: int) -> bool:
@@ -67,6 +66,10 @@ func chunk(coord: Vector3i) -> Dictionary:
 	return _cache[key]
 
 
+func links_for(coord: Vector3i) -> Array:
+	return chunk(Vector3i(coord.x, LEVEL, coord.z))["links"]
+
+
 func _build_chunk(coord: Vector3i) -> Dictionary:
 	var grid := []
 	for z in CHUNK_SIZE:
@@ -83,7 +86,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var features := []
 	var hatch_quadrants := {}
 	var links := []
-	for link in mezzanine.links_for(Vector3i(coord.x, MEZZANINE_LEVEL, coord.z)):
+	for link in below.links_for(Vector3i(coord.x, below.LEVEL, coord.z)):
 		if int(link["from_level"]) != LEVEL:
 			continue
 		links.append(link)
