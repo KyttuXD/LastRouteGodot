@@ -394,12 +394,10 @@ static func stretch_for(style: String, t: float) -> float:
 static func stretch_arms(view: Node3D, factor: float) -> void:
 	for side in ["R", "L"]:
 		var chain := arm_chain(view, side)
-		var arm := chain["arm"] as Node3D
-		var forearm := chain["forearm"] as Node3D
-		var hand := chain["hand"] as Node3D
-		if arm == null or forearm == null or hand == null:
+		var bones: Array = [chain["arm"], chain["forearm"], chain["hand"]]
+		if bones.has(null):
 			continue
-		var bones: Array = [arm, forearm, hand]
+		var arm := bones[0] as Node3D
 		if not arm.has_meta("grab_scale") and is_equal_approx(factor, 1.0):
 			continue
 		if not arm.has_meta("grab_scale"):
