@@ -15,8 +15,10 @@ const MAX_HEIGHT_FRACTION := .25
 const FADE_AFTER := 6.0
 const FADE_SECONDS := 1.5
 const SAFE_MARGIN := 8.0
-## Bottom of the panel, measured from the window bottom: clear of the hotbar, stamina bar and interaction prompt.
-const BOTTOM_CLEARANCE := 104.0
+## Bottom of the panel, measured from the window bottom: clear of the hotbar and stamina bar; its top stays below the
+## interaction prompt under the crosshair (PROMPT_CLEARANCE from the window centre).
+const BOTTOM_CLEARANCE := 58.0
+const PROMPT_CLEARANCE := 34.0
 
 var remotes: RemotePlayers
 var _panel: PanelContainer
@@ -68,8 +70,9 @@ func _refresh_panel() -> void:
 	var inner := width - _panel_margin().x
 	_log.custom_minimum_size.x = inner
 	var column_min := (_panel.get_child(0) as Control).get_combined_minimum_size()
+	var max_h := minf(view.y * MAX_HEIGHT_FRACTION, (view.y - BOTTOM_CLEARANCE) - (view.y * 0.5 + PROMPT_CLEARANCE))
 	var log_h := minf(_log.get_content_height() if show_log else 0.0,
-		maxf(0.0, view.y * MAX_HEIGHT_FRACTION - _panel_margin().y - (_input.get_combined_minimum_size().y + 4.0 if _open else 0.0)))
+		maxf(0.0, max_h - _panel_margin().y - (_input.get_combined_minimum_size().y + 4.0 if _open else 0.0)))
 	_log.custom_minimum_size.y = log_h
 	var height := maxf(_panel.get_combined_minimum_size().y, column_min.y + _panel_margin().y)
 	_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)

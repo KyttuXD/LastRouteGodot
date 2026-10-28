@@ -99,7 +99,8 @@ const STAIR_ACCESS_WIDTH := 5
 ## Rooms are big enough to furnish properly: nothing below 9x9 here (no closets, no 3x3 cells).
 const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 11),
 	Vector2i(11, 13), Vector2i(13, 11), Vector2i(13, 13), Vector2i(15, 15)]
-const PICKUP_TYPES := ["flashlight", "taser", "lockpick", "crowbar", "rescue_axe"]
+## Every runner starts with a flashlight, so it is not a world pickup (batteries recharge it).
+const PICKUP_TYPES := ["taser", "lockpick", "crowbar", "rescue_axe"]
 const BACKPACK_TYPES := ["backpack_small", "backpack_medium", "backpack_large"]
 const REGION_PROP_SETS := {
 	"maze": [
@@ -2210,6 +2211,7 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		for occupied_value in entry.get("occupied_cells", []):
 			reserved[occupied_value as Vector2i] = true
 	result = even_ceiling_fixtures(one_ceiling_family(result), rect)
+	face_screens_to_seats(result)
 	# back to recipe order, so everything downstream sees the same sequence as before the claim order
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["spec_index"]) < int(b["spec_index"]))
 	for entry in result:
@@ -2257,6 +2259,47 @@ static func even_ceiling_fixtures(props: Array, rect: Rect2i) -> Array:
 	if dropped.is_empty():
 		return props
 	return props.filter(func(prop: Dictionary) -> bool: return not dropped.has(prop))
+
+
+## KT: "computers facing backwards". A screen (computer, CRT console, terminal, monitor) faces whoever sits at it: the
+## nearest seat within SCREEN_SEAT_REACH turns the screen toward it (gameplay -Z, which the model's screen side follows).
+const SCREEN_SEAT_REACH := 2.6
+
+
+static func is_screen_type(type: String) -> bool:
+	if "Tv" in type:
+		return false
+	for word in ["Computer", "Monitor", "Console", "Terminal"]:
+		if word in type:
+			return true
+	return false
+
+
+static func prop_point(prop: Dictionary) -> Vector2:
+	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+	return Vector2(cell) + Vector2(.5, .5) + (prop.get("placement_offset", Vector2.ZERO) as Vector2)
+
+
+static func face_screens_to_seats(props: Array) -> void:
+	for prop_value in props:
+		var screen: Dictionary = prop_value
+		if not is_screen_type(String(screen.get("type", ""))):
+			continue
+		var at := prop_point(screen)
+		var best := {}
+		var best_distance := SCREEN_SEAT_REACH
+		for other_value in props:
+			var seat: Dictionary = other_value
+			if PropModelCatalog.interaction_for(String(seat.get("type", ""))) != "sit":
+				continue
+			var distance := at.distance_to(prop_point(seat))
+			if distance > .05 and distance < best_distance:
+				best = seat
+				best_distance = distance
+		if best.is_empty():
+			continue
+		var toward := prop_point(best) - at
+		screen["yaw"] = atan2(-toward.x, -toward.y)
 
 
 static func one_ceiling_family(props: Array) -> Array:

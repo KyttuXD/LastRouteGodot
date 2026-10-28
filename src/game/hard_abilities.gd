@@ -73,7 +73,7 @@ static var enabled := true
 
 ## Both switches: the code-level one (tests) and the host's room setting.
 static func active() -> bool:
-	return enabled and RoomState.hunter_abilities
+	return enabled
 ## Tests set this to drive the budget clock; negative = real time.
 static var clock_override := -1.0
 static var _last_fire := {}

@@ -174,16 +174,14 @@ func _config_block() -> Control:
 	# The route is now the game rather than a selectable experimental mode, so
 	# MODE and MAP SCALE were redundant controls. Difficulty remains the one
 	# meaningful room choice; the freed above-fold space exposes local archives.
-	groups.add_child(_config_group("DIFFICULTY", RoomState.DIFFICULTY_LABELS,
+	var difficulty_group := _config_group("DIFFICULTY", RoomState.DIFFICULTY_LABELS,
 		RoomState.difficulty,
 		func(value: int) -> void: RoomState.set_difficulty(value),
 		func(value: int) -> bool:
-			return RoomState.is_host and RoomState.difficulty_available(value)))
-	# Normal / Hard / Nightmare hunters have extra abilities (HardAbilities); the host can switch them off for the room.
-	groups.add_child(_config_group("HUNTER ABILITIES", {0: "ON", 1: "OFF"},
-		0 if RoomState.hunter_abilities else 1,
-		func(value: int) -> void: RoomState.hunter_abilities = value == 0,
-		func(_value: int) -> bool: return RoomState.is_host))
+			return RoomState.is_host and RoomState.difficulty_available(value),
+		RoomState.DIFFICULTY_BLURBS)
+	difficulty_group.add_child(_label(String(RoomState.DIFFICULTY_BLURBS.get(RoomState.difficulty, "")), Palette.MUTED, 6))
+	groups.add_child(difficulty_group)
 	groups.add_child(_archive_group())
 
 	stack.add_child(_label("SAVE DURING A ROUTE // LOAD FROM STAGING", Palette.MUTED, 6))
@@ -297,24 +295,25 @@ func _format_save_duration(seconds: float) -> String:
 
 
 func _config_group(title: String, labels: Dictionary, selected: int,
-		on_pick: Callable, is_allowed: Callable) -> Control:
+		on_pick: Callable, is_allowed: Callable, tips: Dictionary = {}) -> Control:
 	var group := VBoxContainer.new()
 	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	group.add_theme_constant_override("separation", 2)
 	group.add_child(_label(title, Palette.MUTED, 6))
-	group.add_child(_toggles(labels, selected, on_pick, is_allowed))
+	group.add_child(_toggles(labels, selected, on_pick, is_allowed, tips))
 	return group
 
 
 ## A row of mutually exclusive buttons, amber-filled when selected -- the web
 ## build's quick button groups.
 func _toggles(labels: Dictionary, selected: int, on_pick: Callable,
-		is_allowed: Callable) -> Control:
+		is_allowed: Callable, tips: Dictionary = {}) -> Control:
 	var row := HFlowContainer.new()
 	row.add_theme_constant_override("separation", 3)
 	for value in labels:
 		var button := Button.new()
 		button.text = String(labels[value])
+		button.tooltip_text = String(tips.get(value, ""))
 		button.add_theme_font_size_override("font_size", 7)
 		button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
 		button.focus_mode = Control.FOCUS_ALL

@@ -19,6 +19,13 @@ func _ready() -> void:
 	for _i in 20:
 		await get_tree().process_frame
 	var player: PlayerController3D = scene.player
+	var capture_fill := OmniLight3D.new()    # capture-only fill light so the hands and items read in the dark spawn hall
+	capture_fill.light_energy = 2.0
+	capture_fill.omni_range = 3.0
+	capture_fill.position = Vector3(.3, .2, -.2)
+	player.active_camera().add_child(capture_fill)
+	if player.has_method("set_first_person_hands"):
+		player.set_first_person_hands(not (args.size() > 1 and args[1] == "nohands"))   # second arg "nohands": items only
 	for item_id in ITEMS:
 		if item_id != "flashlight":
 			player.grant_inventory_item(item_id)
