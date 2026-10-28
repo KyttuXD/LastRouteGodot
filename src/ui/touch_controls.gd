@@ -4,7 +4,8 @@ extends CanvasLayer
 ## On-screen controls for phones (PlatformProfile.is_phone; docs/XR_ANDROID.md). Everything feeds the game's ordinary
 ## Input actions (move_*, sprint, jump, crouch, interact, flashlight, tool_use, hotbar_*, inventory, toggle_map, chat,
 ## pause), so gameplay, networking and validators see the same inputs a keyboard would make. Look is a drag on any free
-## part of the screen, applied through PlayerController3D.apply_look_delta. Desktop never creates this node.
+## part of the screen, turned into angles here (look_turn: screen-independent, the TOUCH LOOK settings) and applied
+## through PlayerController3D.apply_look_turn on every drag event. Desktop never creates this node.
 ##
 ## Movement is a fixed D-pad in the bottom-left corner by default (Settings.touch_move "dpad"): four arrows at full
 ## strength, diagonals by touching between two arrows or with two fingers, and a double tap held on an arrow sprints
@@ -22,6 +23,10 @@ const SPRINT_PAST := 1.15
 const MIN_TARGET := 26.0
 ## One D-pad cell; the pad is 3 x 3 cells with the arrows on the edges and a dead centre.
 const PAD_CELL := 30.0
+## Dragging across the screen's short side turns this far at LOOK SPEED 1.0 (the same on every screen size).
+const LOOK_DEGREES_PER_SHORT_SIDE := 180.0
+## LOOK SMOOTHING time constants (seconds) for "low" and "high"; "off" applies each drag at once.
+const LOOK_SMOOTHING_SECONDS := {"off": 0.0, "low": 0.03, "high": 0.08}
 ## A second press on the same arrow within this many seconds of letting go sprints.
 const DOUBLE_TAP_SECONDS := 0.3
 ## Each button: [node name, label, action, hold (true) or tap (false)]
@@ -66,9 +71,23 @@ var _pad_touches := {}
 ## The last D-pad direction let go, and when (seconds), for the double tap.
 var _last_pad_release := {"dir": Vector2.ZERO, "at": -10.0}
 var _mode := ""
+## Turn still to apply when LOOK SMOOTHING is on (radians: x yaw right, y pitch down).
+var _pending_look := Vector2.ZERO
 ## The hotbar rect the last layout used: the HUD sizes its slots after this node is ready, so a change re-lays out.
 var _laid_out_hotbar := Rect2()
 var _inventory_open := false
+
+
+## A look drag of `drag` canvas units, as radians (x: turn right, y: tilt down), on a screen whose short side is
+## `short_side` units. Speed and vertical scale come from the TOUCH LOOK settings; with acceleration a fast flick
+## (more than one short side per second) turns up to 2.5 times as far. Independent of the mouse sensitivity.
+static func look_turn(drag: Vector2, short_side: float, speed: float, vertical: float, invert_y: bool,
+		accel: bool, drag_speed: float) -> Vector2:
+	var per_unit := deg_to_rad(LOOK_DEGREES_PER_SHORT_SIDE) * speed / maxf(short_side, 1.0)
+	var boost := 1.0
+	if accel:
+		boost = 1.0 + clampf((drag_speed / maxf(short_side, 1.0) - 1.0) * 0.75, 0.0, 1.5)
+	return Vector2(drag.x, drag.y * vertical * (-1.0 if invert_y else 1.0)) * per_unit * boost
 
 
 static func attach(host: Node, run_player: Node, run_hud: Node = null) -> TouchControls:
@@ -128,7 +147,15 @@ func _ready() -> void:
 	_apply_mode()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	if _pending_look != Vector2.ZERO:
+		var tau := float(LOOK_SMOOTHING_SECONDS.get(Settings.touch_look_smoothing, 0.0))
+		var step := _pending_look if tau <= 0.0 else _pending_look * (1.0 - exp(-delta / tau))
+		_pending_look -= step
+		if _pending_look.length() < 0.0001:
+			step += _pending_look
+			_pending_look = Vector2.ZERO
+		_turn(step)
 	if not hotbar_rect().is_equal_approx(_laid_out_hotbar):
 		_layout()
 	if _mode != Settings.touch_move:
@@ -275,8 +302,18 @@ func _input(event: InputEvent) -> void:
 			var delta := drag.position - _look_last
 			_look_last = drag.position
 			look_dragged.emit(delta)
-			if player != null and player.has_method("apply_look_delta"):
-				player.call("apply_look_delta", delta)
+			var view := get_viewport().get_visible_rect().size
+			var turn := look_turn(delta, minf(view.x, view.y), Settings.touch_look_speed, Settings.touch_look_vertical,
+				Settings.touch_look_invert_y, Settings.touch_look_accel, drag.velocity.length())
+			if float(LOOK_SMOOTHING_SECONDS.get(Settings.touch_look_smoothing, 0.0)) > 0.0:
+				_pending_look += turn
+			else:
+				_turn(turn)
+
+
+func _turn(turn: Vector2) -> void:
+	if player != null and player.has_method("apply_look_turn"):
+		player.call("apply_look_turn", turn)
 
 
 ## A finger lands on the pad. Landing on the arrow just let go (within DOUBLE_TAP_SECONDS) sprints.

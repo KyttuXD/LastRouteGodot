@@ -55,8 +55,12 @@ keyboard makes:
   - Sprint: double-tap an arrow and hold it (second press within 0.3 s); it sprints that way until released.
   - Settings → `MOVE: ARROWS / STICK` (phones only, `Settings.touch_move`) swaps in the floating analogue stick, which
     sprints when pushed past its ring.
-- **Look:** dragging on any free part of the screen calls `PlayerController3D.apply_look_delta`, scaled by the mouse
-  sensitivity setting times `TOUCH_LOOK_SCALE`. The mouse motion Godot emulates from touches is ignored on phones.
+- **Look:** dragging on any free part of the screen turns the view on every drag event
+  (`TouchControls.look_turn` → `PlayerController3D.apply_look_turn`).
+  - Screen-independent: a drag across the screen's short side turns 180° at LOOK SPEED 1.0, on any phone.
+  - Not scaled by the mouse sensitivity. The mouse motion Godot emulates from touches is ignored on phones.
+  - Settings → CONTROLS → TOUCH LOOK (phones only, saved): LOOK SPEED, VERTICAL SPEED, INVERT Y, SMOOTHING (off by
+    default; low and high ease the turn in over 30 or 80 ms) and ACCELERATION (a fast flick turns up to 2.5×).
 - **Buttons:**
   - bottom-right: USE, JUMP, DUCK, TOOL and LIGHT;
   - either side of the HUD hotbar (measured from its real slots): the `hotbar_previous` / `hotbar_next` arrows;

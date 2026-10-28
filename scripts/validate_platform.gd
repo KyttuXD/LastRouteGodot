@@ -185,6 +185,35 @@ func _xr_player_script() -> GDScript:
 	return script
 
 
+## Touch look: a drag across the short side turns LOOK_DEGREES_PER_SHORT_SIDE at speed 1 on any screen (a 2400x1080
+## phone and a 1688x780 one give the same angle for the same fraction of the screen); speed, vertical and invert apply;
+## acceleration only boosts fast flicks; and the settings round-trip through the settings file.
+func _check_touch_look() -> void:
+	var full := deg_to_rad(TouchControls.LOOK_DEGREES_PER_SHORT_SIDE)
+	for screen in [Vector2(2400, 1080), Vector2(1688, 780)]:
+		var short_side: float = minf(screen.x, screen.y)
+		var turn := TouchControls.look_turn(Vector2(short_side * .5, short_side * .25), short_side, 1.0, 1.0, false, false, 0.0)
+		_expect(is_equal_approx(turn.x, full * .5) and is_equal_approx(turn.y, full * .25),
+			"touch look on %s turns %s instead of %s" % [screen, turn, Vector2(full * .5, full * .25)])
+	var tuned := TouchControls.look_turn(Vector2(100, 100), 270.0, 2.0, 0.5, true, false, 0.0)
+	_expect(is_equal_approx(tuned.x, full * 200.0 / 270.0) and is_equal_approx(tuned.y, -full * 100.0 / 270.0),
+		"touch look speed/vertical/invert are wrong: %s" % tuned)
+	var slow := TouchControls.look_turn(Vector2(10, 0), 270.0, 1.0, 1.0, false, true, 100.0)
+	var flick := TouchControls.look_turn(Vector2(10, 0), 270.0, 1.0, 1.0, false, true, 2000.0)
+	_expect(is_equal_approx(slow.x, full * 10.0 / 270.0) and flick.x > slow.x * 1.5 and flick.x <= slow.x * 2.5 + 0.0001,
+		"touch look acceleration is wrong (slow %s, flick %s)" % [slow.x, flick.x])
+	var saved := [Settings.touch_look_speed, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+		Settings.touch_look_smoothing, Settings.touch_look_accel]
+	Settings.set_touch_look(1.75, 0.6, true, "high", true)
+	var config := ConfigFile.new()
+	var loaded := config.load("user://settings.cfg") == OK
+	_expect(loaded and is_equal_approx(float(config.get_value("touch", "look_speed", 0.0)), 1.75)
+		and is_equal_approx(float(config.get_value("touch", "look_vertical", 0.0)), 0.6)
+		and bool(config.get_value("touch", "look_invert_y", false)) and String(config.get_value("touch", "look_smoothing", "")) == "high"
+		and bool(config.get_value("touch", "look_accel", false)), "the TOUCH LOOK settings do not save")
+	Settings.set_touch_look(saved[0], saved[1], saved[2], saved[3], saved[4])
+
+
 ## XR comfort maths (XRComfort; only built once OpenXR starts, so checked here directly): the world scale makes any
 ## real height see from 1.60 m, snap turn steps once per push, smooth turn is proportional, and a desktop run built no
 ## comfort node.
@@ -316,5 +345,6 @@ func _check_touch_controls(host: Node) -> void:
 	controls.call("_set_move", Vector2.ZERO)
 	_expect(not Input.is_action_pressed("move_up") and not Input.is_action_pressed("sprint"), "releasing the stick leaves movement pressed")
 	Settings.touch_move = saved_mode
+	_check_touch_look()
 	controls.queue_free()
 	fake_hud.queue_free()
