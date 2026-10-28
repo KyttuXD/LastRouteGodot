@@ -39,10 +39,32 @@ standalone now; PC VR later). Desktop behaviour never changes: everything else s
   - `GODOT_ANDROID_KEYSTORE_DEBUG_PATH`, `_USER` and `_PASSWORD`
 - **Install on a device:** `adb install -r builds/KyttusLab-Android-Debug.apk` with the phone on the mini's USB.
 
+## Touch controls (phones)
+
+`TouchControls` (`src/ui/touch_controls.gd`) is a CanvasLayer the run scene attaches only when `PlatformProfile.is_phone`.
+Every control feeds the game's ordinary Input actions, so gameplay, networking and validators see the same inputs a
+keyboard makes:
+
+- **Move:** a floating stick anywhere in the left 40 % of the screen sets `move_*` with analogue strength; pushing past the
+  ring adds `sprint`.
+- **Look:** dragging on the right 60 % calls `PlayerController3D.apply_look_delta`, scaled by the mouse sensitivity setting
+  times `TOUCH_LOOK_SCALE`. The mouse motion Godot emulates from touches is ignored on phones.
+- **Buttons:**
+  - bottom-right: USE, JUMP, DUCK, TOOL and LIGHT;
+  - either side of the HUD hotbar: the `hotbar_previous` / `hotbar_next` arrows;
+  - top-left: pause, map, bag and chat.
+- **Sizing:** buttons are at least `MIN_TARGET` (26 canvas units, about 48 dp) and see-through.
+
+Shots: `touch_controls_2400x1080.png`, `touch_controls_1688x780.png` (`tools/look/touch_capture.gd`).
+
 ## Validators
 
-- `platform`: the desktop run keeps the reference budgets; the phone, low-memory and Quest profiles shrink them; the phone
-  and Quest presets exist with the right XR mode and packages.
+- `platform`:
+  - the desktop run keeps the reference budgets;
+  - the phone, low-memory and Quest profiles shrink them;
+  - the phone and Quest presets exist with the right XR mode and packages;
+  - the touch controls build headless, every button drives an existing action, the stick maps to `move_up` and `sprint`,
+    and every target meets the minimum size.
 - `player` already checks the OpenXR rig and that XR stays off without the feature.
 
 ## Milestones

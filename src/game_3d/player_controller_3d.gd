@@ -235,6 +235,8 @@ var _jump_requested := false
 ## automatic for the Quest preset. If initialization fails, the same binary
 ## falls back to the ordinary first-person camera.
 var xr_active := false
+## Touch drags are in screen pixels on a high-DPI phone: a little gentler than mouse counts.
+const TOUCH_LOOK_SCALE := 0.6
 var _xr_turn_latched := false
 
 ## Out of sight, in a locker. Movement stops, the body is not drawn, and
@@ -871,6 +873,17 @@ func is_look_input_active() -> bool:
 	return stick.length_squared() > 0.0001
 
 
+## Touch look (TouchControls): a drag in pixels, scaled by the same sensitivity setting as the mouse.
+func apply_look_delta(delta: Vector2) -> void:
+	if xr_active or look_frozen or input_frozen:
+		return
+	_yaw -= delta.x * Settings.mouse_sensitivity * TOUCH_LOOK_SCALE
+	_pitch = clampf(_pitch - delta.y * Settings.mouse_sensitivity * TOUCH_LOOK_SCALE, -1.4, 1.4)
+	if resting_furniture != null:
+		note_rest_activity()
+	_apply_look_rotation()
+
+
 func _apply_look_rotation() -> void:
 	rotation.y = _yaw
 	first_person_pivot.rotation.x = _pitch
@@ -880,8 +893,9 @@ func _apply_look_rotation() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	# Uncaptured relative motion fights the OS cursor on remote/low-FPS
 	# desktops. Keyboard look covers that case; mouse look stays capture-only.
+	# Phones look with the touch drag (apply_look_delta); the mouse motion Godot emulates from touches is ignored.
 	if event is InputEventMouseMotion and not xr_active and not look_frozen \
-			and MouseLock.is_captured():
+			and MouseLock.is_captured() and not PlatformProfile.is_phone:
 		_yaw -= event.relative.x * Settings.mouse_sensitivity
 		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity, -1.4, 1.4)
 		if resting_furniture != null:

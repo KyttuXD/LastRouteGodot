@@ -234,6 +234,8 @@ func _ready() -> void:
 		_remotes.request_interaction({"what": "admin_auth"})
 	_refresh_hunter_stream()
 
+	if PlatformProfile.is_phone:
+		TouchControls.attach(self, player)   # phones only (docs/XR_ANDROID.md); desktop never creates it
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "LEAVE ROUTE"
 	pause_menu.pauses_tree = not RoomState.online

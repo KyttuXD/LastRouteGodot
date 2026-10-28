@@ -13,7 +13,7 @@ func _expect(condition: bool, message: String) -> void:
 		_failures += 1
 
 
-func run(_host: Node) -> int:
+func run(host: Node) -> int:
 	# This run is a desktop headless run: the live profile must be the desktop reference.
 	var live := PlatformProfile
 	_expect(not live.is_phone and not live.is_quest, "a desktop run reports a phone or Quest profile")
@@ -46,6 +46,7 @@ func run(_host: Node) -> int:
 			found["quest"] = true
 			_expect(int(presets.get_value(options, "xr_features/xr_mode", -1)) == 1, "the Quest preset lost OpenXR")
 	_expect(found.has("phone") and found.has("quest"), "missing Android presets: %s" % [found.keys()])
+	_check_touch_controls(host)
 	if _failures == 0:
 		print("  platform  desktop keeps the reference budgets; phone %s; quest %s" % [phone.summary(), quest.summary()])
 	return _failures
@@ -69,3 +70,25 @@ func _notification(what: int) -> void:
 		for profile in _made:
 			if is_instance_valid(profile):
 				profile.free()
+
+
+## Touch controls build headless, every button drives a real Input action, the stick maps to move/sprint, and every
+## target is at least MIN_TARGET pixels at a small phone's size. Not attached on desktop runs.
+func _check_touch_controls(host: Node) -> void:
+	var controls := TouchControls.attach(host, null)
+	_expect(controls.button_names().size() >= 10, "only %d touch buttons" % controls.button_names().size())
+	for name in controls.button_names():
+		var action := controls.action_for(String(name))
+		_expect(InputMap.has_action(action), "touch button %s drives a missing action %s" % [name, action])
+	controls.call("_set_move", Vector2(0, -0.6))
+	_expect(Input.is_action_pressed("move_up") and is_equal_approx(Input.get_action_strength("move_up"), 0.6) and not Input.is_action_pressed("sprint"),
+		"the touch stick does not map to move_up at 0.6")
+	controls.call("_set_move", Vector2(0, -1.4))
+	_expect(Input.is_action_pressed("sprint"), "pushing past the ring does not sprint")
+	controls.call("_set_move", Vector2.ZERO)
+	_expect(not Input.is_action_pressed("move_up") and not Input.is_action_pressed("sprint"), "releasing the stick leaves movement pressed")
+	for name in controls.button_names():
+		var button: Button = controls.get_node("TouchRoot/%s" % name)
+		_expect(button.size.x >= TouchControls.MIN_TARGET - .5 and button.size.y >= TouchControls.MIN_TARGET - .5,
+			"touch target %s is %s" % [name, button.size])
+	controls.queue_free()
