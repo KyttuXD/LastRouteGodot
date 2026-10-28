@@ -220,6 +220,8 @@ class Track:
 	var pos := PackedVector3Array()
 	var yaw := PackedFloat32Array()
 	var pitch := PackedFloat32Array()
+	## Frame indexes where the picture cuts to a new shot: angles are not smoothed across them.
+	var cuts: Array[int] = []
 
 	func add(p: Vector3, y: float, pt: float) -> void:
 		pos.append(p)
@@ -270,6 +272,22 @@ static func bake_orbit(track: Track, center: Vector3, degrees: float, seconds: f
 			track.add(p, yaw_for(d.x, d.z), pitch_for(d))
 
 
+## A hard cut to an overview: starts high and wide on the side of `center` the walk ended on, then orbits slowly and drifts a little higher.
+static func bake_overview(track: Track, center: Vector3, from_xz: Vector2, degrees: float, seconds: float, height: float, radius: float, fps: int) -> void:
+	track.cuts.append(track.size())
+	var a0 := atan2(from_xz.y - center.z, from_xz.x - center.x)
+	var frames := int(seconds * fps)
+	for i in frames:
+		var t := float(i + 1) / float(frames)
+		var e := t * t * (3.0 - 2.0 * t)
+		var a := a0 + deg_to_rad(degrees) * e
+		var r := radius * (1.0 + .12 * e)
+		var h := height * (1.0 + .25 * e)
+		var p := Vector3(center.x + cos(a) * r, h, center.z + sin(a) * r)
+		var d := Vector3(center.x, center.y + 1.0, center.z) - p
+		track.add(p, yaw_for(d.x, d.z), pitch_for(d))
+
+
 static func bake_rise(track: Track, xz_from: Vector2, xz_to: Vector2, from_y: float, to_y: float, seconds: float, face: Vector2, up_pitch: float, fps: int) -> void:
 	var frames := int(seconds * fps)
 	var yaw_value := yaw_for(face.x, face.y)
@@ -294,12 +312,20 @@ static func bake_turn(track: Track, degrees: float, seconds: float, pitch: float
 
 ## Low-pass the view angles (unwrapped) so joins between segments turn smoothly instead of snapping.
 static func smooth_angles(track: Track, fps: int, seconds: float) -> void:
-	if track.size() < 2:
+	var bounds: Array[int] = [0]
+	bounds.append_array(track.cuts)
+	bounds.append(track.size())
+	for b in bounds.size() - 1:
+		_smooth_range(track, bounds[b], bounds[b + 1], fps, seconds)
+
+
+static func _smooth_range(track: Track, from_i: int, to_i: int, fps: int, seconds: float) -> void:
+	if to_i - from_i < 2:
 		return
 	var k := 1.0 - exp(-1.0 / (float(fps) * seconds))
-	var yaw_now := track.yaw[0]
-	var pitch_now := track.pitch[0]
-	for i in track.size():
+	var yaw_now := track.yaw[from_i]
+	var pitch_now := track.pitch[from_i]
+	for i in range(from_i, to_i):
 		var target_yaw := track.yaw[i]
 		while target_yaw - yaw_now > PI:
 			target_yaw -= TAU
@@ -368,7 +394,7 @@ static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_ov
 			if track.size() < 10:
 				return {"ok": false, "error": "no walkable route from the middle of chunk %s" % coord}
 			var centre := Vector3(base.x + CHUNK * .5, floor_y, base.y + CHUNK * .5)
-			bake_orbit(track, centre, 90.0, ORBIT_SECONDS, floor_y + 24.0, 15.0, floor_y + 1.0, fps)
+			bake_overview(track, centre, points[points.size() - 1], 80.0, ORBIT_SECONDS, floor_y + 12.0, 14.0, fps)
 			info.merge({"level": level, "chunk": [coord.x, coord.z], "biome": gen.biome_for(coord), "start": [start.x, start.y], "goal": [goal.x, goal.y], "path_cells": points.size()})
 		"sewer_tunnels":
 			var base := Vector2i.ZERO
@@ -455,6 +481,8 @@ static func plan(gen: StreamedRouteGenerator, area: String, fps: int, seconds_ov
 	var padded := Track.new()
 	for _i in int(HOLD_SECONDS * fps):
 		padded.add(first_pos, first_yaw, first_pitch)
+	for cut in track.cuts:
+		padded.cuts.append(cut + int(HOLD_SECONDS * fps))
 	for i in track.size():
 		padded.add(track.pos[i], track.yaw[i], track.pitch[i])
 	padded.hold(int(HOLD_SECONDS * fps))
@@ -519,6 +547,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		frames += 1
 		if frames % 20 == 0:
 			_clear_hunters(scene, show_hunters)
+		scene.set("_relay_inactivity_seconds", 0.0)
+		scene.set("_party_afk_seconds", 0.0)
 	player.global_position = Vector3(first.x, first.y - 1.6, first.z)
 	player._yaw = track.yaw[0]
 	player._pitch = track.pitch[0]
@@ -526,6 +556,15 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	await tree.process_frame
 	var camera := player.active_camera()
 	var eye_offset := camera.global_position.y - player.global_position.y
+	var lamp: OmniLight3D = null
+	if bool(opts.get("lamp", true)):
+		# the maze is dark on purpose: a soft lamp riding on the camera lets a viewer read the architecture (rooms, props, colours)
+		lamp = OmniLight3D.new()
+		lamp.shadow_enabled = false
+		lamp.light_energy = 1.1
+		lamp.omni_range = 11.0
+		lamp.light_color = Color(1.0, .95, .85)
+		camera.add_child(lamp)
 	var clip_start_frame := Engine.get_frames_drawn()
 	for i in track.size():
 		bridge.status = "flythrough %s: frame %d / %d" % [area, i, track.size()]
@@ -535,8 +574,15 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		player._yaw = track.yaw[i]
 		player._pitch = track.pitch[i]
 		player._apply_look_rotation()
+		if lamp != null:
+			var above := maxf(p.y - (floor_y_of(info)) - 2.0, 0.0)
+			lamp.omni_range = 11.0 + above * 2.2
+			lamp.light_energy = 1.1 + above * .12
 		if i % 45 == 0:
 			_clear_hunters(scene, show_hunters)
+		# a camera that does not move "for real" trips the anti-idle clocks: ~30 s in, Gray is sent and the view goes to the grey void
+		scene.set("_relay_inactivity_seconds", 0.0)
+		scene.set("_party_afk_seconds", 0.0)
 		await tree.process_frame
 		frames += 1
 	info["fps"] = fps
@@ -547,6 +593,10 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	info["available"] = true
 	report["flythrough"] = info
 	return {"outcome": "recorded", "game_seconds": snappedf(float(frames) / float(fps), .1), "frames": frames, "scenario_failure": ""}
+
+
+static func floor_y_of(info: Dictionary) -> float:
+	return float(int(info.get("level", 0))) * LEVEL_HEIGHT
 
 
 static func _clear_hunters(scene: Node, keep: bool) -> void:

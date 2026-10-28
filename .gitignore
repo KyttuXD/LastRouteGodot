@@ -40,3 +40,6 @@ build/
 # playtest output (docs/PLAYTEST.md)
 .playtest/
 .playtest-results/
+
+# flythrough videos (docs/FLYTHROUGH.md)
+captures/videos/
