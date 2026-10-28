@@ -734,4 +734,7 @@ func _on_settings() -> void:
 
 
 func _on_admin() -> void:
-	_toast.text = "ADMIN TOOLS OPEN INSIDE A RUN"
+	if not admin_entry_visible():
+		return
+	if find_child("HubAdminPanel", true, false) == null:
+		add_child(HubAdminPanel.new())

@@ -1690,6 +1690,9 @@ func _try_enter_xr() -> bool:
 		push_warning("OPENXR // runtime initialization failed; using desktop camera")
 		return false
 	xr_active = true
+	# The headset renders from the CURRENT XROrigin3D. The menu panel (XRMenuPanel) has its own; unless this one takes
+	# over, the route is drawn from that origin, i.e. world (0, 0, 0), a corner between rooms, not from the runner.
+	xr_origin.current = true
 	get_viewport().use_xr = true
 	first_person_camera.current = false
 	xr_camera.current = true
@@ -1733,9 +1736,46 @@ func _xr_smoke_log() -> void:
 		get_tree().root.find_children("XRRoutePanel", "", true, false).size()])
 	var cell := Vector2(fposmod(global_position.x, GameConfig.TILE_SIZE), fposmod(global_position.z, GameConfig.TILE_SIZE))
 	var blocked := spot_blocked(global_position)
+	print("XR_SMOKE_SEED %s yaw=%.3f origin_current=%s" % [RoomState.seed_text, rotation.y, xr_origin.current])
 	print("XR_SMOKE_PLACE body=%s camera=%s origin=%s cell_offset=%s origin_parent=%s body_blocked=%s" % [global_position,
 		xr_camera.global_position, xr_origin.global_position, cell, xr_origin.get_parent().name, blocked])
+	var eye := xr_camera.global_position
+	for node in get_tree().root.find_children("*", "GeometryInstance3D", true, false):
+		var shape := node as GeometryInstance3D
+		if not shape.is_visible_in_tree() or not (shape.global_transform * shape.get_aabb()).grow(0.35).has_point(eye):
+			continue
+		var many := shape as MultiMeshInstance3D
+		if many != null and many.multimesh != null and many.multimesh.mesh != null:
+			for i in many.multimesh.instance_count:
+				var box := many.global_transform * many.multimesh.get_instance_transform(i) * many.multimesh.mesh.get_aabb()
+				if box.grow(0.35).has_point(eye):
+					print("XR_SMOKE_NEAR_EYE %s #%d aabb=%s" % [shape.name, i, box])
+		elif (shape.global_transform * shape.get_aabb()).size.length() < 20.0:
+			print("XR_SMOKE_NEAR_EYE %s aabb=%s" % [shape.get_path(), shape.global_transform * shape.get_aabb()])
+	var cell_kind := "unknown"
+	var facility := get_tree().root.find_child("StreamedFacility", true, false)
+	if facility != null and facility.get("generator") != null:
+		var generator = facility.get("generator")
+		var size: int = generator.CHUNK_SIZE
+		var coord := Vector3i(floori(global_position.x / size), 0, floori(global_position.z / size))
+		var grid: Array = generator.chunk(coord).get("grid", [])
+		var local := Vector2i(posmod(floori(global_position.x), size), posmod(floori(global_position.z), size))
+		if local.y < grid.size() and local.x < (grid[local.y] as Array).size():
+			cell_kind = "open" if int(grid[local.y][local.x]) == 0 else "wall"
+	var clearance := INF
+	var space := get_world_3d().direct_space_state
+	for i in 16:
+		var direction := Vector3(cos(TAU * i / 16.0), 0, sin(TAU * i / 16.0))
+		var from := global_position + Vector3.UP * 1.0
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, from + direction * 3.0, collision_mask, [get_rid()]))
+		if not hit.is_empty():
+			clearance = minf(clearance, from.distance_to(hit["position"]))
+	print("XR_SMOKE_CELL kind=%s clearance=%.2f" % [cell_kind, clearance])
 	var problems := []
+	if cell_kind != "open":
+		problems.append("the body stands on a %s cell" % cell_kind)
+	if clearance < 0.4:
+		problems.append("a wall is %.2f m from the body" % clearance)
 	if not xr_active:
 		problems.append("xr_active is false")
 	for hand in [xr_left, xr_right]:
@@ -1747,6 +1787,15 @@ func _xr_smoke_log() -> void:
 		problems.append("head %.2f m from the body" % Vector2(head.x, head.z).length())
 	if blocked:
 		problems.append("the body is inside level geometry or off the floor")
+	if not xr_origin.current:
+		problems.append("the runner's XROrigin3D is not the current origin (the headset renders from another one)")
+	var render_origin := XRServer.world_origin.origin
+	print("XR_SMOKE_WORLD_ORIGIN %s" % render_origin)
+	if Vector2(render_origin.x - global_position.x, render_origin.z - global_position.z).length() > 0.3:
+		problems.append("the headset renders from %s, not the body" % render_origin)
+	var marker := get_tree().root.find_child("StartingSafeZoneMarker", true, false) as Node3D
+	if marker != null and Vector2(marker.global_position.x - global_position.x, marker.global_position.z - global_position.z).length() < 0.6:
+		problems.append("the body stands on the safe-zone marker post")
 	if get_tree().root.find_children("XRRoutePanel", "", true, false).is_empty():
 		problems.append("no route panel")
 	print("XR_SMOKE_RESULT %s" % ("PASS" if problems.is_empty() else "FAIL: " + ", ".join(problems)))
@@ -2791,11 +2840,14 @@ func spot_blocked(at: Vector3) -> bool:
 	return space.intersect_ray(floor_ray).is_empty()
 
 
-## A clear spot for the runner near `at`: `at` itself if the capsule fits there on a floor, else the nearest cell centre
-## (the route's 1 m grid) within `radius` cells that does. Spawning on a wall junction put a headset camera inside the
-## walls; flat players were pushed out by the capsule but started wedged too.
-func clear_spot_near(at: Vector3, radius := 4) -> Vector3:
-	if not spot_blocked(at):
+## A clear spot for the runner near `at`: `at` itself if the capsule fits there on a floor (and it is at least
+## `avoid_distance` from `avoid`), else the nearest cell centre (the route's 1 m grid) within `radius` cells that is.
+## The route spawn sits on the starting safe-zone marker post, which has no collider: a headset camera started inside
+## it ("between four rooms"), so the spawn avoids it.
+func clear_spot_near(at: Vector3, radius := 4, avoid := Vector3.INF, avoid_distance := 0.0) -> Vector3:
+	var near_avoid := func(spot: Vector3) -> bool:
+		return avoid != Vector3.INF and Vector2(spot.x - avoid.x, spot.z - avoid.z).length() < avoid_distance
+	if not spot_blocked(at) and not near_avoid.call(at):
 		return at
 	var cell := Vector2i(floori(at.x), floori(at.z))
 	var best := at
@@ -2804,7 +2856,7 @@ func clear_spot_near(at: Vector3, radius := 4) -> Vector3:
 		for dx in range(-radius, radius + 1):
 			var candidate := Vector3(cell.x + dx + 0.5, at.y, cell.y + dz + 0.5)
 			var distance := Vector2(candidate.x - at.x, candidate.z - at.z).length()
-			if distance < best_distance and not spot_blocked(candidate):
+			if distance < best_distance and not near_avoid.call(candidate) and not spot_blocked(candidate):
 				best = candidate
 				best_distance = distance
 	return best

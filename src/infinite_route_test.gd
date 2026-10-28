@@ -806,6 +806,9 @@ func _dismiss_gameplay_overlay() -> bool:
 	return false
 
 
+## How far the runner starts from the starting safe-zone marker post (it has no collider; a headset camera was inside it).
+const SPAWN_MARKER_CLEARANCE := 0.9
+
 ## The spawn cell is the first chunk's centre, which a room layout can make a wall junction: once the first stream
 ## window's colliders are in the physics space (the floor under the spawn exists; the window builds incrementally),
 ## move the runner to the nearest clear cell.
@@ -820,7 +823,9 @@ func _settle_spawn() -> void:
 				player.collision_mask, [player.get_rid()])).is_empty():
 			break
 	if is_instance_valid(player) and not _loaded_from_save:
-		player.global_position = player.clear_spot_near(player.global_position)
+		var marker := find_child("StartingSafeZoneMarker", true, false) as Node3D
+		player.global_position = player.clear_spot_near(player.global_position, 4,
+			marker.global_position if marker != null else Vector3.INF, SPAWN_MARKER_CLEARANCE)
 
 
 ## Whether a 2D screen is open over the run (XRRoutePanel shows them in a headset).

@@ -206,6 +206,7 @@ func _process(delta: float) -> void:
 	if not _view.use_xr:
 		_view.use_xr = true
 		_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		_origin.current = true   # back from a route: the menus render from this origin again
 		_placed = false
 	var screen := Vector2(root.size)
 	var size := Vector2(PANEL_WIDTH, PANEL_WIDTH * screen.y / maxf(screen.x, 1.0))
