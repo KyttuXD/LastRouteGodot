@@ -156,13 +156,14 @@ func _build_status(root: Control) -> void:
 	prompt_label = Label.new()
 	prompt_label.name = "PromptLabel"
 	prompt_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	prompt_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	# same place as the route's InteractionLabel: just under the crosshair
+	prompt_label.set_anchors_preset(Control.PRESET_CENTER)
 	prompt_label.offset_left = -150
-	prompt_label.offset_top = -98
+	prompt_label.offset_top = 16
 	prompt_label.offset_right = 150
-	prompt_label.offset_bottom = -79
+	prompt_label.offset_bottom = 30
 	prompt_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	prompt_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	prompt_label.grow_vertical = Control.GROW_DIRECTION_BOTH
 	prompt_label.add_theme_color_override("font_color", Color(0.949, 0.929, 0.882, 1))
 	prompt_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 1))
 	prompt_label.add_theme_constant_override("shadow_offset_x", 1)

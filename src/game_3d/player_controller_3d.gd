@@ -1560,7 +1560,7 @@ func _physics_process(delta: float) -> void:
 	var click_ready := xr_active or (_cursor_was_captured and MouseLock.is_captured())
 	_cursor_was_captured = MouseLock.is_captured()
 	if inventory_enabled:
-		if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
+		if inventory_enabled and Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
 			_fire_taser()
 		if Input.is_action_just_pressed("tool_use") and click_ready and not movement_locked:
 			_use_selected_item()
