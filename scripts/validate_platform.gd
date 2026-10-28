@@ -399,6 +399,24 @@ func _check_self_update() -> void:
 ## Player Release presets (docs/XR_ANDROID.md, "Encrypted player builds"): one per shipped platform, encrypted (PCK and
 ## directory), feature "player", internal code excluded; every other preset is "internal". No shipped script or scene
 ## may reference an excluded file, or a player build would fail to load it.
+## The macOS template zip a preset exports with (its custom template, else the installed official one) must hold
+## macos_template.app/Contents/MacOS/<binary>. A template that is not on this machine is reported, not failed.
+func _check_macos_template(preset_name: String, custom: String, binary: String) -> void:
+	var path := custom
+	if path.is_empty():
+		var version := Engine.get_version_info()
+		path = OS.get_data_dir().path_join("Godot/export_templates/%d.%d.%d.%s/macos.zip" % [version.major, version.minor,
+			version.patch, version.status])
+	if not FileAccess.file_exists(path):
+		print("NOTE %s: template %s is not on this machine, %s not checked" % [preset_name, path, binary])
+		return
+	var zip := ZIPReader.new()
+	_expect(zip.open(path) == OK, "%s: cannot open its template %s" % [preset_name, path])
+	var found := zip.get_files().has("macos_template.app/Contents/MacOS/" + binary)
+	zip.close()
+	_expect(found, "%s: template %s has no %s, so the export would fail" % [preset_name, path, binary])
+
+
 func _check_player_release_presets() -> void:
 	var presets := ConfigFile.new()
 	_expect(presets.load("res://export_presets.cfg") == OK, "export_presets.cfg does not load")
@@ -420,14 +438,18 @@ func _check_player_release_presets() -> void:
 				"%s does not export GDScript as compressed binary tokens (script_export_mode 2)" % name)
 		else:
 			_expect(features.has("internal"), "%s is not marked internal" % name)
-	# macOS builds are Apple Silicon only unless a preset opts in by name ("... Universal ..."): KT, Intel on request.
+	# Godot's macOS templates (official and our encrypted ones) only ship *.universal binaries, so every macOS preset
+	# exports universal and tools/macos/thin_app.sh thins the app to arm64 afterwards (KT: Apple Silicon only).
+	# The template each preset uses must really contain the binary it asks for, or the export fails on the mini.
 	for section in presets.get_sections():
 		if section.ends_with(".options") or String(presets.get_value(section, "platform", "")) != "macOS":
 			continue
 		var mac_name := String(presets.get_value(section, "name"))
 		var arch := String(presets.get_value(section + ".options", "binary_format/architecture", ""))
-		_expect(arch == ("universal" if mac_name.contains("Universal") else "arm64"),
-			"%s builds %s (macOS is arm64 unless the preset is a Universal opt-in)" % [mac_name, arch])
+		_expect(arch == "universal", "%s builds %s (macOS presets export universal; the scripts thin to arm64)" % [mac_name, arch])
+		for kind in ["debug", "release"]:
+			_check_macos_template(mac_name, String(presets.get_value(section + ".options", "custom_template/" + kind, "")),
+				"godot_macos_%s.%s" % [kind, arch])
 	for wanted in ["macOS", "Windows", "Linux", "Android Phone", "Meta Quest", "iPhone"]:
 		_expect(player.has("%s Player Release" % wanted), "missing the %s Player Release preset" % wanted)
 	var offenders := []

@@ -13,7 +13,7 @@ SCONS="$HOME/Library/Python/3.9/bin/scons"
 export SCRIPT_AES256_ENCRYPTION_KEY="$(tr -d '\n' < "$HOME/Developer/secrets/godot_pck.key")"
 # Speed-ups (KT, 2026-10-28): every core, a shared scons cache so rebuilds only recompile what changed, release
 # templates only (Player Release exports are release; Android keeps debug because Gradle's template packaging needs
-# both), macOS arm64-only (KT's Macs are all Apple Silicon). TARGETS / MACOS_ARCHS override.
+# both), macOS arm64-only (the binary is still named *.universal, which every macOS preset asks for). TARGETS / MACOS_ARCHS override.
 JOBS="${JOBS:-$(sysctl -n hw.ncpu)}"
 export SCONS_CACHE="${SCONS_CACHE:-$HOME/Developer/godot-build/cache}"
 mkdir -p "$SCONS_CACHE"
