@@ -195,6 +195,8 @@ var input_frozen := false
 ## from input_frozen because hiding and the escape struggle still allow the
 ## player to look around.
 var look_frozen := false
+## A booth game (CarnivalBooth3D) holds the player at the counter: no walking, sprinting or jumping, but looking and aiming stay free, with mouse, stick, touch and XR.
+var movement_locked := false
 
 ## Debug-only protections driven by main_3d's tools-gated admin overlay. They
 ## live on the controller so the same state can be published to the ENet host;
@@ -1313,6 +1315,8 @@ func _physics_process(delta: float) -> void:
 		if stick.length_squared() > input_vector.length_squared():
 			# OpenXR stick-up is positive; Input.get_vector's forward/W is -Y.
 			input_vector = Vector2(stick.x, -stick.y)
+	if movement_locked:
+		input_vector = Vector2.ZERO
 	var movement_speed := GameConfig.PLAYER_WALK_SPEED
 	var difficulty := RoomState.difficulty_profile()
 	var is_moving := input_vector.length_squared() > 0.0
@@ -1436,7 +1440,7 @@ func _physics_process(delta: float) -> void:
 	if inventory_enabled:
 		if Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
 			_fire_taser()
-		if Input.is_action_just_pressed("tool_use") and click_ready:
+		if Input.is_action_just_pressed("tool_use") and click_ready and not movement_locked:
 			_use_selected_item()
 		if Input.is_action_just_pressed("drop_item"):
 			request_drop_selected_item()
@@ -1483,7 +1487,7 @@ func active_camera() -> Camera3D:
 ## capture, stun, or pause cannot leave a player suspended in midair. Crouch
 ## blocks takeoff, but releasing crouch before landing does not alter the arc.
 func _update_vertical_motion(delta: float, allow_jump: bool) -> void:
-	var wants_to_jump := jump_enabled and (_jump_requested or Input.is_action_just_pressed("jump"))
+	var wants_to_jump := jump_enabled and not movement_locked and (_jump_requested or Input.is_action_just_pressed("jump"))
 	# Consume every request immediately, even in midair/frozen/crouching, so a
 	# rejected press cannot be banked into an automatic hop on landing.
 	_jump_requested = false

@@ -201,6 +201,8 @@ func _ready() -> void:
 	facility.pickup_requester = _request_streamed_pickup
 	facility.door_requester = _request_streamed_door
 	facility.room_light_requester = _request_room_light
+	facility.booth_requester = _request_booth
+	facility.booth_reporter = _report_booth
 	if not pending_payload.is_empty():
 		_loaded_from_save = _adopt_route_save_before_stream(pending_payload)
 	facility.begin(str(RoomState.run_seed()), player, world_state)
@@ -322,6 +324,8 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	if not _booth_occupants.is_empty():
+		_tick_booth_occupancy()
 	if _void_fx != null:
 		_void_fx.tick(delta)
 	if not _slammed_doors.is_empty() and _remotes.simulates():
@@ -3420,6 +3424,161 @@ func _request_streamed_door(_requesting_player: PlayerController3D,
 		event)
 	return ""
 
+# --- carnival booths (docs/CARNIVAL_BOOTHS.md) ------------------------------------------------------------------------------------------
+## The host judges every booth: one player at a time, the cooldown (kept in the world state, unix time), the result and the prize. A guest only asks (start) and reports (finish / cancel).
+## booth id = "cx:cy:cz:propType:cellX:cellY"; the host re-derives the booth from the generated chunk, so an invented id does nothing.
+
+var _booth_occupants := {}
+
+
+func _request_booth(_requesting_player: PlayerController3D, booth_id: String, prop_type: String) -> String:
+	var booth := facility.booth_node(booth_id)
+	if booth == null:
+		return ""
+	if booth.is_busy() or world_state.booth_cooldown_left(booth_id, Time.get_unix_time_from_system()) > 0.5:
+		Sound.interaction_fail()
+		return booth.prompt_text()
+	var event := {"what": "stream_booth", "action": "start", "booth_id": booth_id, "type": prop_type}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_booth(_local_peer_id(), event)
+	return ""
+
+
+func _report_booth(event: Dictionary) -> void:
+	var out := event.duplicate()
+	out["what"] = "stream_booth"
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(out)
+	else:
+		_accept_booth(_local_peer_id(), out)
+
+
+## {type, center (Vector2 world cell), coord} of a real generated booth, else {}.
+func _booth_info(booth_id: String) -> Dictionary:
+	var parts := booth_id.split(":")
+	if booth_id.length() > 80 or parts.size() != 6 or not parts[0].is_valid_int() or not parts[1].is_valid_int() \
+			or not parts[2].is_valid_int() or not parts[4].is_valid_int() or not parts[5].is_valid_int():
+		return {}
+	var type := String(parts[3])
+	if not CarnivalBooths.is_booth(type):
+		return {}
+	var coord := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+	if absi(coord.x) > 1_000_000 or absi(coord.y) > 1_000_000 or absi(coord.z) > 1_000_000:
+		return {}
+	var cell := Vector2i(int(parts[4]), int(parts[5]))
+	for value in facility.generator.chunk(coord).get("region_props", []):
+		var prop: Dictionary = value
+		if String(prop.get("type", "")) == type and prop.get("cell", Vector2i(-99, -99)) == cell:
+			return {"type": type, "coord": coord,
+				"center": Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5, coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)}
+	return {}
+
+
+func _accept_booth(peer_id: int, event: Dictionary) -> void:
+	var booth_id := String(event.get("booth_id", ""))
+	var info := _booth_info(booth_id)
+	if info.is_empty():
+		return
+	var type := String(info["type"])
+	var now := Time.get_unix_time_from_system()
+	var action := String(event.get("action", ""))
+	if action == "start":
+		if world_state.booth_cooldown_left(booth_id, now) > 0.5 or _booth_occupants.has(booth_id):
+			return
+		var target := _target_state_for_peer(peer_id)
+		var position = target.get("position")
+		if target.is_empty() or not position is Vector2 or -int(target.get("depth", 999999)) != (info["coord"] as Vector3i).y \
+				or (position as Vector2).distance_to(info["center"]) > CarnivalBooths.INTERACT_DISTANCE:
+			return
+		var seed_value := randi()
+		_booth_occupants[booth_id] = {"peer": peer_id, "type": type, "seed": seed_value, "since": now}
+		_publish_stream_event({"what": "stream_booth", "action": "start", "booth_id": booth_id, "type": type, "peer_id": peer_id, "seed": seed_value})
+		return
+	var occupant: Dictionary = _booth_occupants.get(booth_id, {})
+	if occupant.is_empty() or int(occupant["peer"]) != peer_id or action not in ["finish", "cancel"]:
+		return
+	var booth_score := int(event.get("booth_score", 0))
+	var elapsed := float(event.get("elapsed", 0.0))
+	var won := false
+	var cooldown := CarnivalBooths.CANCEL_COOLDOWN
+	if action == "finish" and CarnivalBooths.plausible(type, booth_score, elapsed):
+		won = CarnivalBooths.is_win(type, booth_score)
+		cooldown = CarnivalBooths.cooldown_for(type, won)
+	else:
+		booth_score = 0
+	_booth_occupants.erase(booth_id)
+	_publish_stream_event({"what": "stream_booth", "action": "finish", "booth_id": booth_id, "type": type, "peer_id": peer_id, "booth_score": booth_score,
+		"won": won, "rest_until": now + cooldown, "reward": CarnivalBooths.reward_for(type, int(occupant["seed"])) if won else {}})
+
+
+## Host: a booth whose player left or dropped is freed after the game's length plus a grace.
+func _tick_booth_occupancy() -> void:
+	if RoomState.online and not RoomState.is_host:
+		return
+	var now := Time.get_unix_time_from_system()
+	for booth_id in _booth_occupants.keys():
+		var occupant: Dictionary = _booth_occupants[booth_id]
+		var limit := float(CarnivalBooths.spec(String(occupant["type"])).get("seconds", 30.0)) + CarnivalBooths.OCCUPANCY_GRACE
+		if now - float(occupant["since"]) > limit:
+			_accept_booth(int(occupant["peer"]), {"action": "cancel", "booth_id": booth_id})
+
+
+## Everyone: the start shows the board, the finish rests the booth and, for the winner, pays.
+func _apply_booth_event(event: Dictionary) -> void:
+	var booth_id := String(event.get("booth_id", ""))
+	var booth := facility.booth_node(booth_id)
+	var peer := int(event.get("peer_id", 0))
+	var mine := peer == _local_peer_id()
+	if String(event.get("action", "")) == "start":
+		if booth == null:
+			return
+		if mine:
+			booth.begin_local(player, int(event.get("seed", 0)))
+		else:
+			booth.begin_remote(peer, int(event.get("seed", 0)), player.global_position)
+		return
+	world_state.rest_booth(booth_id, float(event.get("rest_until", 0.0)))
+	var won := bool(event.get("won", false))
+	if booth != null:
+		booth.end_game(won, int(event.get("booth_score", 0)))
+	if won and mine:
+		_pay_booth_reward(event.get("reward", {}))
+
+
+func _pay_booth_reward(reward: Dictionary) -> void:
+	match String(reward.get("kind", "")):
+		"battery", "tool":
+			var item := "battery" if String(reward.get("kind")) == "battery" else String(reward.get("item", "lockpick"))
+			if player.grant_inventory_item(item):
+				hud.show_message("PRIZE // %s" % String(PlayerController3D.INVENTORY_LABELS.get(item, item)).to_upper())
+				Sound.collect()
+			else:
+				hud.show_message("POCKETS FULL // PRIZE LEFT BEHIND")
+		"hint":
+			hud.show_message(_relay_hint())
+
+
+## The strength tester's prize: where the nearest unsecured signal relay is, in words.
+func _relay_hint() -> String:
+	var found := _admin_nearest_relay_position()
+	if found == Vector3.INF:
+		return "THE BELL RINGS ACROSS THE MIDWAY // NO RELAY IN EARSHOT"
+	var to := found - player.global_position
+	var away := Vector2(to.x, to.z)
+	var facing := -player.global_transform.basis.z
+	var angle := rad_to_deg(Vector2(facing.x, facing.z).angle_to(away))
+	var way := "AHEAD"
+	if angle > 135.0 or angle < -135.0:
+		way = "BEHIND YOU"
+	elif angle > 45.0:
+		way = "TO YOUR RIGHT"
+	elif angle < -45.0:
+		way = "TO YOUR LEFT"
+	return "THE BELL CARRIES // A SIGNAL RELAY IS %s, ABOUT %d M" % [way, roundi(away.length())]
+
+
 ## Room light switch (docs/LIGHT_SWITCHES.md): host-authoritative like doors. The host applies and relays; a guest asks.
 func _request_room_light(on: bool, room_id: String) -> String:
 	Sound.light_switch()
@@ -3494,6 +3653,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_sabotage(peer_id, event)
 		"stream_door":
 			_accept_stream_door(peer_id, event)
+		"stream_booth":
+			_accept_booth(peer_id, event)
 		"stream_room_light":
 			_publish_stream_event({"what": "stream_room_light", "room_id": String(event.get("room_id", "")),
 				"on": bool(event.get("on", true))})
@@ -3905,6 +4066,8 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 				if owner_id == _local_peer_id():
 					_waypoint_feedback(not (waypoint as Dictionary).is_empty())
 				_update_streamed_maps()
+		"stream_booth":
+			_apply_booth_event(event)
 		"stream_room_light":
 			var light_room := String(event.get("room_id", ""))
 			if facility.apply_room_light(light_room, bool(event.get("on", true))) and String(event.get("by", "")) != "":
