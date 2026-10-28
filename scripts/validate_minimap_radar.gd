@@ -123,8 +123,8 @@ func _check_teammates_and_icons() -> void:
 	_expect(not source.contains("\t\t\t\t\t_draw_ladder_icon(icon_at"), "ladder icons are still drawn on the maps")
 	var map_source := source
 	_expect(map_source.contains("draw_string_outline(font, tag_at, label"), "the full map does not label teammates")
-	_expect(RemotePlayers.NAME_TAG_HEIGHT * PlayerModels.SCALE < 1.95 and RemotePlayers.NAME_TAG_HEIGHT * PlayerModels.SCALE > 1.6,
-		"the nametag is not just above a 1.60 m runner (%.2f m)" % (RemotePlayers.NAME_TAG_HEIGHT * PlayerModels.SCALE))
+	_expect(RemotePlayers.NAME_TAG_HEIGHT * PlayerModels.SCALE < 1.78 * PlayerModels.SCALE + .35 and RemotePlayers.NAME_TAG_HEIGHT * PlayerModels.SCALE > 1.78 * PlayerModels.SCALE,
+		"the nametag is not just above the runner (%.2f m)" % (RemotePlayers.NAME_TAG_HEIGHT * PlayerModels.SCALE))
 
 
 func run(host: Node) -> int:
