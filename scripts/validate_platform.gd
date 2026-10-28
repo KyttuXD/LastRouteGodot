@@ -418,6 +418,14 @@ func _check_player_release_presets() -> void:
 			_expect(excluded.size() >= 3, "%s excludes no internal code" % name)
 		else:
 			_expect(features.has("internal"), "%s is not marked internal" % name)
+	# macOS builds are Apple Silicon only unless a preset opts in by name ("... Universal ..."): KT, Intel on request.
+	for section in presets.get_sections():
+		if section.ends_with(".options") or String(presets.get_value(section, "platform", "")) != "macOS":
+			continue
+		var mac_name := String(presets.get_value(section, "name"))
+		var arch := String(presets.get_value(section + ".options", "binary_format/architecture", ""))
+		_expect(arch == ("universal" if mac_name.contains("Universal") else "arm64"),
+			"%s builds %s (macOS is arm64 unless the preset is a Universal opt-in)" % [mac_name, arch])
 	for wanted in ["macOS", "Windows", "Linux", "Android Phone", "Meta Quest", "iPhone"]:
 		_expect(player.has("%s Player Release" % wanted), "missing the %s Player Release preset" % wanted)
 	var offenders := []
