@@ -30,6 +30,8 @@ static func apply(office: Node3D, office_id: String) -> void:
 			_descent(office)
 		"cargo_bay":
 			_dayshift(office)
+		"watch_post":
+			_openair(office)
 
 
 static func _classic(office: Node3D) -> void:
@@ -296,3 +298,54 @@ static func _dayshift(office: Node3D) -> void:
 		NightWatchArt.box(root, Vector3(0.5, 0.7, 0.03), Vector3(x, 1.9, hd - 0.05), {"name": "PosterFrameDay", "kind": "wall", "tint": Color(0.45, 0.3, 0.2)})
 		var q := NightWatchArt.box(root, Vector3(0.42, 0.62, 0.02), Vector3(x, 1.9, hd - 0.07), {"name": "PosterDay", "kind": "fabric", "tint": p[1] as Color})
 		q.set_meta("nw_palette", "poster")
+
+
+## Open Air: the three watches are outdoors under the 2D picture's night sky: a pale full moon with a halo, scattered stars, and (at the campfire) a dark ring of fir trees:
+## a far dome of stars, the moon, and for watch 2 the tree ring (all well outside every footprint).
+static func _openair(office: Node3D) -> void:
+	var root := Node3D.new()
+	root.name = "Signature"
+	office.add_child(root)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261028
+	for i in 160:
+		var yaw := rng.randf() * TAU
+		var pitch := lerpf(0.12, 1.3, rng.randf())
+		var dir := Vector3(cos(pitch) * sin(yaw), sin(pitch), -cos(pitch) * cos(yaw))
+		var size := 0.25 + rng.randf() * 0.35
+		var star := _sky_piece(root, "StarLight", Vector3(size, size, 0.1), dir * 70.0, Color(0.9, 0.92, 1.0))
+		star.look_at(Vector3.ZERO, Vector3.UP)
+	var moon_dir := Vector3(0.2, 0.38, -0.9).normalized()
+	var moon := _sky_piece(root, "MoonLight", Vector3(5.0, 5.0, 0.1), moon_dir * 68.0, Color(1.0, 0.92, 0.6))
+	moon.look_at(Vector3.ZERO, Vector3.UP)
+	var halo := _sky_piece(root, "MoonHaloLight", Vector3(8.0, 8.0, 0.1), moon_dir * 69.0, Color(0.22, 0.27, 0.55))
+	halo.look_at(Vector3.ZERO, Vector3.UP)
+	if int((office as NightWatchOpenAirOffice).watch) != 2:
+		return
+	for i in 28:
+		var a := TAU * float(i) / 28.0 + rng.randf() * 0.2
+		var r := 15.5 + rng.randf() * 3.0
+		var base := Vector3(cos(a) * r, 0.0, sin(a) * r)
+		var h := 5.0 + rng.randf() * 3.0
+		for tier in 4:
+			var w := 3.0 - float(tier) * 0.7
+			NightWatchArt.box(root, Vector3(w, h * 0.22, w), base + Vector3(0, h * (0.2 + 0.2 * float(tier)), 0), {"name": "FirTier", "kind": "wall", "tint": Color(0.05, 0.1, 0.07)})
+		NightWatchArt.box(root, Vector3(0.5, h * 0.3, 0.5), base + Vector3(0, h * 0.15, 0), {"name": "FirTrunk", "kind": "wall", "tint": Color(0.1, 0.07, 0.05)})
+
+
+## A flat unshaded sky piece (stars, moon): lit by nothing, so the night's ambient cannot dull it.
+static func _sky_piece(parent: Node3D, piece_name: String, size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
+	var mesh := MeshInstance3D.new()
+	mesh.name = piece_name
+	var box := BoxMesh.new()
+	box.size = size
+	mesh.mesh = box
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = color
+	mesh.material_override = m
+	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mesh.position = pos
+	mesh.set_meta("nw_name", piece_name)
+	parent.add_child(mesh)
+	return mesh
