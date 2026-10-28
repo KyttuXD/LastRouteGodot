@@ -791,7 +791,9 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	# Vertical links participate in room planning. When layout ran first, its
 	# rooms could be carved directly through the later stair footprint.
 	var stairs := stair_links(coord)
-	var layout := _region_layout(coord, region, grid, stairs)
+	# Level -3 is a cave network, not a maze: no rooms, halls or doorways to plan (InfernoCaverns).
+	var layout := {"rooms": [], "corridors": [], "suites": [], "circulation": {}} if coord.y == INFERNO_LEVEL \
+		else _region_layout(coord, region, grid, stairs)
 	var dual_level := dual_level_room_spec(coord)
 	var floor_voids: Array[Vector2i] = []
 	var ceiling_voids: Array[Vector2i] = []
@@ -810,25 +812,22 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"north": edge_openings(coord, Vector2i(0, -1)),
 		"south": edge_openings(coord, Vector2i(0, 1)),
 	}
-	var edge_corridors := _carve_edges(grid, edges, layout["rooms"], circulation, DENSE_DISTRICTS.has(region))
-	(layout["corridors"] as Array).append_array(edge_corridors)
-	for stair in stairs:
-		_carve_stair_access(grid, stair, layout["rooms"], circulation)
 	var ramps: Array = sewer().ramps_at(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else []
-	for ramp in ramps:
-		_carve_ramp_bottom(grid, layout, circulation, ramp)
 	var inferno_caverns := []
-	if coord.y == INFERNO_LEVEL and not is_safe_room(coord):
-		var keep_out: Array[Rect2i] = []
+	if coord.y == INFERNO_LEVEL:
+		inferno_caverns = InfernoCaverns.carve(world_seed, coord, grid, edges, ramps, is_safe_room(coord), circulation)
 		for ramp in ramps:
-			for part in ["ramp", "bottom", "connector"]:
-				keep_out.append((ramp[part] as Rect2i).grow(1))
-		inferno_caverns = InfernoCaverns.carve(world_seed, coord, grid, layout, circulation, keep_out)
+			_carve_ramp_bottom(grid, layout, circulation, ramp)
 		# lava is rock to the walk grid but no wall and no floor to the view
 		for pit in InfernoCaverns.pits_in({"inferno_caverns": inferno_caverns}):
 			for cell in pit["lava"]:
 				floor_voids.append(cell)
 				structural_voids.append(cell)
+	else:
+		var edge_corridors := _carve_edges(grid, edges, layout["rooms"], circulation, DENSE_DISTRICTS.has(region))
+		(layout["corridors"] as Array).append_array(edge_corridors)
+		for stair in stairs:
+			_carve_stair_access(grid, stair, layout["rooms"], circulation)
 	var wells := []
 	if coord.y == 0:
 		var down := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation)
@@ -851,6 +850,8 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		_carve_safe_room(grid)
 	var region_props := _region_props(coord, region, layout["rooms"], grid, safe,
 		stairs, circulation)
+	if coord.y == INFERNO_LEVEL:
+		region_props.append_array(_cave_props(coord, inferno_caverns, grid, ramps))
 	# Safe-lobby carving and door-frame planning are the final topology-aware
 	# operations. Reassert every room threshold afterwards so a central safe
 	# square or overlapping suite perimeter cannot reopen a diagonal corner.
@@ -2367,6 +2368,67 @@ func _region_props(coord: Vector3i, region: String, rooms: Array, grid: Array,
 			reserved[occupied] = true
 			_exclude_neighbourhood(solid_exclusion, occupied, 1)
 	return result
+
+
+## Dressing for level -3's caves: basalt pillars, ember braziers and crystal clusters standing against the walls of each
+## chamber, off the tunnel mouths, the crevices, the lava and the cages.
+func _cave_props(coord: Vector3i, chambers: Array, grid: Array, ramps: Array) -> Array:
+	var choices: Array = REGION_PROP_SETS["inferno"]
+	var rng := SeededRandom.new("%s:CAVE-DRESSING:%s" % [world_seed, chunk_id(coord)])
+	var excluded := {}
+	var reserved := {}
+	for ramp in ramps:
+		for part in ["ramp", "bottom", "connector"]:
+			_exclude_rect(excluded, (ramp[part] as Rect2i).grow(2))
+	var result := []
+	var index := 0
+	for chamber_value in chambers:
+		var chamber: Dictionary = chamber_value
+		for tunnel_cell in chamber["tunnel_cells"]:
+			_exclude_neighbourhood(excluded, tunnel_cell as Vector2i, 1)
+		for slit in chamber["crevices"]:
+			_exclude_neighbourhood(excluded, slit["mouth"] as Vector2i, 2)
+		var pit: Dictionary = chamber.get("pit", {})
+		if not pit.is_empty():
+			for cell in pit["lava"]:
+				_exclude_neighbourhood(excluded, cell as Vector2i, 1)
+			_exclude_rect(excluded, (pit["bridge"] as Rect2i).grow(3))
+			for cage in pit["cages"]:
+				excluded[cage["cell"]] = true
+			for entry in pit["row"]:
+				excluded[entry["cell"]] = true
+		var rect: Rect2i = chamber["rect"]
+		for _k in 5:
+			var choice: Dictionary = choices[rng.next_index(choices.size())]
+			var blocker_size: Vector3 = choice.get("size", Vector3.ONE)
+			var placement := _solid_prop_placement(rect, grid, excluded, reserved, blocker_size, rng)
+			if placement.is_empty():
+				continue
+			var cell: Vector2i = placement["cell"]
+			var open_direction: Vector2i = placement["open_direction"]
+			var prop_type := String(choice["type"])
+			result.append({"id": "%s:PROP:CAVE:%d" % [chunk_id(coord), index],
+				"type": prop_type, "cell": cell,
+				"yaw": _room_facing_yaw(cell, cell + open_direction),
+				"facing_target": cell + open_direction,
+				"placement_offset": placement["placement_offset"],
+				"backing_wall": -open_direction,
+				"open_direction": open_direction,
+				"blocker_size": blocker_size, "solid": true,
+				"collider_size": _collider_size(prop_type, blocker_size),
+				"occupied_cells": placement["occupied_cells"],
+				"corridor_clear": true})
+			index += 1
+			for occupied_value in placement["occupied_cells"]:
+				reserved[occupied_value as Vector2i] = true
+				_exclude_neighbourhood(excluded, occupied_value as Vector2i, 1)
+	return result
+
+
+static func _exclude_rect(excluded: Dictionary, rect: Rect2i) -> void:
+	for z in range(rect.position.y, rect.end.y):
+		for x in range(rect.position.x, rect.end.x):
+			excluded[Vector2i(x, z)] = true
 
 
 func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,

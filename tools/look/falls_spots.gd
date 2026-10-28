@@ -12,6 +12,25 @@ func _ready() -> void:
 	var generator := StreamedRouteGenerator.new(seed_text)
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var spots: Array[String] = []
+	if what == "cave":
+		var at := Vector3i(int(args[2]), StreamedRouteGenerator.INFERNO_LEVEL, int(args[3]))
+		var data := generator.chunk(at)
+		var grid: Array = data["grid"]
+		var covered := {}
+		for z in range(1, size - 1):
+			for x in range(1, size - 1):
+				if InfernoCaverns.clearance(grid, Vector2i(x, z), 1) >= 1:
+					for dz in range(-1, 2):
+						for dx in range(-1, 2):
+							covered[Vector2i(x + dx, z + dz)] = true
+		for z in size:
+			var row := ""
+			for x in size:
+				row += "#" if int(grid[z][x]) != 0 else ("x" if not covered.has(Vector2i(x, z)) else ".")
+			print(row)
+		print("ramps ", data.get("ramps", []).size(), " pits ", InfernoCaverns.pits_in(data).size())
+		get_tree().quit(0)
+		return
 	if what == "ascii":
 		var at := Vector2i(int(args[2]), int(args[3]))
 		var falls := generator.sewer().falls_between(at.x, at.y)
