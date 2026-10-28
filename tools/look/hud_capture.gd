@@ -37,7 +37,7 @@ func _shot(out: String, file: String, pixels: Vector2i, state: String) -> void:
 	holder.add_child(hud)
 	var chat: RoomChat = null
 	await get_tree().process_frame
-	hud.status_bar.set_segment("env", "BETA  //  play.kyttulab.org:8105", "env")
+	hud.status_bar.set_segment("env", "TEST SERVER", "env")
 	hud.status_bar.set_segment("admin", "ADMIN ACTIVE // SOLO", "admin")
 	hud.update_inventory("flashlight", 0.0)
 	hud.update_objective(1, 0, 5)

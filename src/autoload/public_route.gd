@@ -70,6 +70,7 @@ func use_player_key(key: String) -> void:
 
 
 func _set_status(message: String) -> void:
+	message = ServerPrivacy.scrub(message)
 	status = message
 	status_changed.emit(message)
 

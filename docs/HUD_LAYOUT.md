@@ -91,3 +91,10 @@ mute (pause menu); owner/admin ROOM MUTE / UNMUTE EVERYONE / KICK in the admin t
 Quick chat (`quick_chat`: ` key, D-pad up, Quest left X + stick, QUICK touch button): a radial of OVER HERE!, HUNTER!, RELAY HERE,
 NEED LIGHT, HIDE!, FOLLOW ME, THANKS, YES, NO, spoken like a line, plus a 6 s ping in the sender's colour on both maps (HUNTER!
 on the aimed hunter). Test: `chat`.
+
+## No server addresses for players
+
+`ServerPrivacy` (`src/config/server_privacy.gd`): no host name, IP, port or URL in player-facing text. The BETA badge is gone; the
+TEST SERVER badge shows (without an address) only for a debug build pointed at the test server. `RoomState.status_message`,
+public-route status, account-panel messages and menu update text are scrubbed; a connection failure that named an address reads
+"CAN'T REACH THE SERVER". Admins see `SERVER <host> // CHANNEL <channel>` in the route's admin readout only. Test: `server_privacy`.
