@@ -25,8 +25,6 @@ const ACTION_LABELS := {
 	"drop_item": "DROP HELD ITEM",
 	"chat": "ROOM CHAT",
 	"toggle_map": "TOGGLE MAP",
-	"waypoint": "PLACE / REMOVE WAYPOINT",
-	"waypoint_clear": "CLEAR WAYPOINT",
 	"pause": "PAUSE",
 	"office_left_door": "OFFICE — LEFT DOOR",
 	"office_right_door": "OFFICE — RIGHT DOOR",
