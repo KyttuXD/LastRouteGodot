@@ -17,8 +17,13 @@ func run(host: Node) -> int:
 	# This run is a desktop headless run: the live profile must be the desktop reference.
 	var live := PlatformProfile
 	_expect(not live.is_phone and not live.is_quest, "a desktop run reports a phone or Quest profile")
-	_expect(live.lamp_pool == 8 and live.camera_far == 0.0 and live.prebuild_linked_levels and live.default_pixel_effect_percent < 0.0,
-		"the desktop profile changed a reference budget: %s" % live.summary())
+	# Desktops adapt to their tier (QualityTier); a desktop on ULTRA keeps the reference budgets exactly.
+	var expected := QualityGovernor.degrade(QualityTier.budgets(live.tier, live.specs), live.notch)
+	_expect(live.lamp_pool == int(expected["lamp_pool"]) and live.camera_far == float(expected["camera_far"])
+		and live.default_pixel_effect_percent < 0.0, "the desktop profile does not match its tier: %s" % live.summary())
+	if live.tier == QualityTier.Tier.ULTRA and live.notch == 0:
+		_expect(live.lamp_pool == 8 and live.camera_far == 0.0 and live.prebuild_linked_levels,
+			"an ULTRA desktop changed a reference budget: %s" % live.summary())
 	# The other profiles, built from a fresh instance with the feature checks faked.
 	var phone = _profile({"mobile": true})
 	_expect(phone.is_phone and phone.lamp_pool < 8 and phone.camera_far > 0.0 and phone.default_pixel_effect_percent == 0.0,

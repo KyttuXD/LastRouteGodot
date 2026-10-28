@@ -137,6 +137,8 @@ var _dormant_data := {}
 ## the current window and parked at once (a level change is then a visibility/physics swap, not a build); levels two
 ## away keep generated data only. Parked chunks are bounded to those sets (at most 2 x 9 here).
 const PREBUILD_LEVEL_RANGE := 1
+## Only links this close to the runner are pre-built (re-checked as the runner moves, see _process).
+const PREBUILD_LINK_RADIUS := 24.0
 ## A parked chunk in the runner's column is kept up to this many levels away. With ramps on -1 and -2 the level
 ## beyond a link is pre-built too (on -1 the ready set is 0 and -2): freeing it on the way back up would rebuild
 ## those nine chunks on every round trip, so parking reaches one level past the pre-build range (at most 3 x 9).
@@ -147,6 +149,7 @@ var _wanted_now := {}
 var _pending_prebuild: Array[Vector3i] = []
 var _pending_data: Array[Vector3i] = []
 var _ready_dirty := false
+var _ready_recheck := 0.0
 var _chunk_data := {}
 var _pickup_nodes := {}
 var _door_nodes := {}
@@ -387,6 +390,13 @@ func _process(_delta: float) -> void:
 		return
 	_refresh_stream(false)
 	_prestream_ladder_destination()
+	_ready_recheck -= _delta
+	if _ready_recheck <= 0.0 and _last_player_chunk.x != 999999:
+		_ready_recheck = .5
+		var ready := _vertical_ready_set(_last_player_chunk)
+		if ready != _ready_set:
+			_ready_set = ready
+			_settle_dormant(_last_player_chunk, _wanted_now)
 	_drain_stream_queue()
 	_collect_taken_pickups()
 	_update_shared_mirror(_delta)
@@ -458,13 +468,14 @@ func _refresh_stream(force: bool) -> void:
 	var t_refresh := Time.get_ticks_usec()
 	_pending_loads.clear()
 	_pending_unloads.clear()
-	if not _active_build.is_empty():
-		var active_coord: Vector3i = _active_build.get("coord", Vector3i.ZERO)
-		if not wanted.has(active_coord):
-			_discard_active_build()
 	_wanted_now = wanted
 	_pending_data.clear()
 	_ready_set = _vertical_ready_set(center)
+	if not _active_build.is_empty():
+		# a chunk still wanted or still to pre-build keeps building (restarting it on every level change wasted the work)
+		var active_coord: Vector3i = _active_build.get("coord", Vector3i.ZERO)
+		if not wanted.has(active_coord) and not _ready_set.has(active_coord):
+			_discard_active_build()
 	_settle_dormant(center, wanted)
 	for coord_value in wanted:
 		var coord: Vector3i = coord_value
@@ -497,6 +508,11 @@ func _refresh_stream(force: bool) -> void:
 					or coord.y == center.y and _distance_to_chunk(coord) < IMMEDIATE_MARGIN:
 				urgent.append(coord)
 		if not urgent.is_empty():
+			if not _active_build.is_empty() and urgent.has(_active_build.get("coord")):
+				while not _advance_chunk_build(_active_build, true):
+					pass
+				_active_build = {}
+				urgent = urgent.filter(func(c: Vector3i) -> bool: return not _loaded.has(c))
 			_discard_active_build()
 			_generate_parallel(urgent)
 			for coord in urgent:
@@ -581,8 +597,10 @@ func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 			_pending_prebuild.append(coord)
 	_pending_prebuild.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 		return _chunk_distance(a, center) < _chunk_distance(b, center))
+	# Data only (no nodes) for the levels around this one: hunter navigation reads them (one level each way), and
+	# without pre-built storeys (phones, the Quest) it used to generate them on the main thread at every chunk crossing.
 	for level in range(center.y - PREDATA_LEVEL_RANGE, center.y + PREDATA_LEVEL_RANGE + 1):
-		if absi(level - center.y) != PREDATA_LEVEL_RANGE:
+		if level == center.y:
 			continue
 		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
@@ -591,10 +609,10 @@ func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 					_pending_data.append(coord)
 
 
-## The other levels a link (ladder, ramp, stairwell ...) in the runner's 3x3 leads to. Generators with
-## vertical_links(coord) (every level) are asked directly; otherwise the sewer's ladders link 0 and -1.
-func _linked_levels(center: Vector3i) -> Array[int]:
-	var out: Array[int] = []
+## Links (ladder, ramp, stairwell ...) in the runner's 3x3. Generators with vertical_links(coord) (every level) are asked
+## directly; otherwise the sewer's ladders link 0 and -1.
+func _nearby_links(center: Vector3i) -> Array:
+	var out := []
 	for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
 			var coord := Vector3i(x, center.y, z)
@@ -619,25 +637,54 @@ func _linked_levels(center: Vector3i) -> Array[int]:
 				elif generator.is_chunk_allowed(sewer_coord) and not _pending_data.has(sewer_coord):
 					_pending_data.append(sewer_coord)
 					_ready_dirty = true
+			# The waterfall plunge (-1 -> -2) is a jump, not a LevelLink: pre-build its landing like a link's far end.
+			if center.y in [SewerRouteGenerator.LEVEL, SewerRouteGenerator.LOWER_LEVEL] and generator.has_method("sewer"):
+				var falls: Dictionary = generator.sewer().falls_between(x, z)
+				if not falls.is_empty():
+					var jump: Dictionary = falls["jump"]
+					var land: Vector2 = jump["land"]
+					links = links + [{"from_level": SewerRouteGenerator.LEVEL, "to_level": SewerRouteGenerator.LOWER_LEVEL,
+						"from_cell": jump["cell"], "to_cell": Vector2i(floori(land.x), floori(land.y))}]
 			for link_value in links:
 				var link: Dictionary = link_value
-				for key in ["from_level", "to_level"]:
-					var level := int(link.get(key, center.y))
-					if level != center.y and absi(level - center.y) <= PREBUILD_LEVEL_RANGE and not out.has(level):
-						out.append(level)
+				out.append({"chunk": Vector3i(x, 0, z), "link": link})
 	return out
 
 
+## What gets pre-built on the levels a nearby link reaches: the link's own chunk column plus the chunks within
+## IMMEDIATE_MARGIN of the link cell (what the runner sees on arrival). Pre-building the whole 3x3 kept building
+## the other storey on every chunk crossed while walking (-15 % average FPS in the sewer).
 func _vertical_ready_set(center: Vector3i) -> Dictionary:
 	var out := {}
 	if not PlatformProfile.prebuild_linked_levels:
 		return out   # low-memory phones and Quest: a ladder trip rebuilds the other storey instead of parking it (~30 MB)
-	for level in _linked_levels(center):
-		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
-			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
-				var coord := Vector3i(x, level, z)
-				if generator.is_chunk_allowed(coord):
-					out[coord] = true
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	for entry in _nearby_links(center):
+		var link: Dictionary = entry["link"]
+		var column: Vector3i = entry["chunk"]
+		var cell: Vector2i = link.get("from_cell", Vector2i(size / 2, size / 2))
+		var at := Vector2(column.x * size + cell.x + .5, column.z * size + cell.y + .5)
+		if tracked_player != null and Vector2(tracked_player.global_position.x, tracked_player.global_position.z) \
+				.distance_to(at) > PREBUILD_LINK_RADIUS:
+			continue   # a ladder the runner is only passing: walking past it must not build the other storey
+		# both ends: the cell the link leaves from and the cell it lands on (a plunge or drop lands metres away)
+		var landing: Vector2i = link.get("to_cell", cell)
+		var points: Array[Vector2] = [at, Vector2(column.x * size + landing.x + .5, column.z * size + landing.y + .5)]
+		for key in ["from_level", "to_level"]:
+			var level := int(link.get(key, center.y))
+			if level == center.y or absi(level - center.y) > PREBUILD_LEVEL_RANGE:
+				continue
+			for point in points:
+				var home := Vector2i(floori(point.x / size), floori(point.y / size))
+				for dz in range(-1, 2):
+					for dx in range(-1, 2):
+						var coord := Vector3i(home.x + dx, level, home.y + dz)
+						var lo := Vector2(coord.x * size, coord.z * size)
+						var nearest := Vector2(clampf(point.x, lo.x, lo.x + size), clampf(point.y, lo.y, lo.y + size))
+						# inside the runner's 3x3 column only: parked chunks outside it are freed on the next level change
+						if (dx == 0 and dz == 0 or nearest.distance_to(point) < IMMEDIATE_MARGIN) \
+								and _near_column(coord, center) and generator.is_chunk_allowed(coord):
+							out[coord] = true
 	return out
 
 
@@ -864,7 +911,8 @@ func _drain_stream_queue() -> void:
 			and _active_build.is_empty() and _pending_prebuild.is_empty():
 		return
 	# A long queue (after a teleport) gets a little more time per frame so the window fills in seconds, not tens.
-	var budget := minf(STREAM_BUDGET_MS + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(), STREAM_BUDGET_MAX_MS)
+	var budget := minf(PlatformProfile.stream_budget_ms + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(),
+		PlatformProfile.stream_budget_max_ms)
 	_stream_deadline_usec = Time.get_ticks_usec() + int(budget * 1000.0)
 	while true:
 		# Never register new collision and retire an old physics island in the same
@@ -932,7 +980,10 @@ static func _chunk_distance(a: Vector3i, b: Vector3i) -> int:
 	return absi(a.x - b.x) + absi(a.y - b.y) + absi(a.z - b.z)
 
 
+## Chunks built synchronously in one frame (teleports, the first load, level changes without pre-built chunks).
+var sync_builds := 0
 func _load_chunk(coord: Vector3i) -> void:
+	sync_builds += 1
 	var build := _create_chunk_build(coord)
 	while not _advance_chunk_build(build, true):
 		pass
@@ -2683,6 +2734,7 @@ func _limit_prop_visibility(visual: Node3D, bounds: AABB, prop_type: String) -> 
 	var range_end := prop_visibility_range(bounds, prop_type) if limit_prop_visibility else 0.0
 	if range_end <= 0.0:
 		return
+	range_end *= PlatformProfile.prop_range_scale   # quality tier: lower tiers stop drawing small props sooner
 	for node in visual.find_children("*", "GeometryInstance3D", true, false):
 		var geometry := node as GeometryInstance3D
 		geometry.visibility_range_end = range_end

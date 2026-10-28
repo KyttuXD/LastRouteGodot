@@ -315,6 +315,21 @@ func _build_focus_pause_row() -> void:
 		Settings.set_pause_on_focus_loss(enabled)
 		Palette.set_state_toggle(_focus_pause_button, enabled))
 	row.add_child(_focus_pause_button)
+	# GRAPHICS: AUTO follows the detected device tier (PlatformProfile / QualityTier); the label shows what AUTO picked.
+	var graphics_button := Button.new()
+	graphics_button.name = "GraphicsQualityButton"
+	graphics_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var graphics_label := func() -> String:
+		return "GRAPHICS: %s" % (("AUTO (%s)" % QualityTier.name_of(PlatformProfile.tier)) \
+			if Settings.graphics_quality == "AUTO" else Settings.graphics_quality)
+	graphics_button.text = graphics_label.call()
+	graphics_button.tooltip_text = "Detected: %s" % PlatformProfile.tier_readout()
+	graphics_button.pressed.connect(func() -> void:
+		var choices: Array = Settings.GRAPHICS_CHOICES
+		Settings.set_graphics_quality(choices[(choices.find(Settings.graphics_quality) + 1) % choices.size()])
+		graphics_button.text = graphics_label.call()
+		graphics_button.tooltip_text = "Detected: %s" % PlatformProfile.tier_readout())
+	row.add_child(graphics_button)
 	if PlatformProfile.is_phone:
 		# Phones only: the movement control for TouchControls (desktop never shows this button).
 		var move_button := Button.new()

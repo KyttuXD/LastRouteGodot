@@ -384,12 +384,14 @@ func _process(delta: float) -> void:
 	GameState.depth = -level
 	var data := facility.current_chunk_data()
 	_update_map_discovery(data)
+	if not _discovery_queue.is_empty():
+		_pump_map_discovery()
 	# Story presentation freezes both input and host AI. This preserves the
 	# original dialog/cutscene contract instead of letting a hunter capture a
 	# player while every client's choices are on screen.
 	if _story != null and _story.is_active():
 		player.velocity = Vector3.ZERO
-		_update_hud()
+		_update_hud(_map_due())
 		return
 	_clear_reached_waypoints(level)
 	_update_floor_audio(level)
@@ -421,7 +423,7 @@ func _process(delta: float) -> void:
 	_update_hunter_audio(delta, data)
 	_update_player_sleep(delta)
 	hud.set_interaction_prompt(player.get_interaction_prompt())
-	_update_hud()
+	_update_hud(_map_due())
 
 
 func _update_checkpoint(data: Dictionary) -> void:
@@ -475,7 +477,23 @@ func _on_pickup_claimed(entity_id: String) -> void:
 	pass
 
 
-func _update_hud() -> void:
+var _map_update_clock := 0.0
+
+
+## The minimap redraw is the largest steady script cost on a phone or the Quest (~5.7 ms a frame on the Quest 3S):
+## lower quality tiers redraw it at PlatformProfile.map_update_hz from the frame loop instead of every frame.
+func _map_due() -> bool:
+	if PlatformProfile.map_update_hz <= 0.0:
+		return true
+	_map_update_clock -= get_process_delta_time()
+	if _map_update_clock > 0.0:
+		return false
+	_map_update_clock = 1.0 / PlatformProfile.map_update_hz
+	return true
+
+
+## update_map false skips the minimap redraw (the per-frame caller throttles it; see _map_due).
+func _update_hud(update_map: bool = true) -> void:
 	var data := facility.current_chunk_data()
 	var safe := _player_in_intact_safe_room(data)
 	hud.update_infinite_status(GameState.relays_collected,
@@ -489,7 +507,8 @@ func _update_hud() -> void:
 		player.inventory_durability_snapshot(), player.inventory_owned_snapshot(),
 		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot(),
 		player.selected_inventory_slot, player.inventory_slot_durability_snapshot())
-	_update_streamed_maps()
+	if update_map:
+		_update_streamed_maps()
 	_present_afk_void_warning()
 
 
@@ -1186,8 +1205,13 @@ func _force_disable_admin_cheats() -> void:
 func _discover_loaded_chunks() -> void:
 	if facility.generator == null:
 		return
+	# Each chunk is read into the map once (2025 cells plus collider boxes: ~4 ms a chunk, so all nine at every crossing
+	# was a 35 ms frame on a level change). New chunks queue and _pump_map_discovery takes one per frame; the map
+	# filters collected pickups at draw time, so a chunk seen before needs no second pass.
 	for coord in facility.loaded_horizontal_coords():
-		_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+		if not _discovered_chunks.has(coord) and not _discovery_queue.has(coord):
+			_discovery_queue.append(coord)
+	_pump_map_discovery()
 	if _admin_reveal_map:
 		var center := facility.current_chunk_coord()
 		for z in range(center.z - 4, center.z + 5):
@@ -1196,6 +1220,19 @@ func _discover_loaded_chunks() -> void:
 				if not facility.generator.is_chunk_allowed(coord):
 					continue
 				_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+
+
+var _discovery_queue: Array[Vector3i] = []
+
+
+## One queued chunk into the map per frame (the one under the runner first, as queued).
+func _pump_map_discovery() -> void:
+	while not _discovery_queue.is_empty():
+		var coord: Vector3i = _discovery_queue.pop_front()
+		if _discovered_chunks.has(coord) or not facility._loaded.has(coord):
+			continue
+		_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+		return
 
 
 func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
