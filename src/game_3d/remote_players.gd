@@ -47,6 +47,11 @@ var _remote_held_items := {}
 var _remote_held_item_ids := {}
 var _remote_swing_seq := {}
 var _remote_swing_tweens := {}
+## VR peers (VRPoseSync): the latest received head/hand pose and the smoothed one drawn on their body.
+var _vr_targets := {}
+var _vr_current := {}
+## The local VR runner's standing head height (running maximum, slowly relaxing), for real-life crouch.
+var _vr_standing_height := 0.0
 ## Peer id -> the most recent simulation-facing state plus received_usec.
 var _states := {}
 var _floor_exit_marks := {}
@@ -66,6 +71,8 @@ signal chat_received(peer_id: int, display_name: String, message: String)
 
 
 func _ready() -> void:
+	# After the peers' animation players, so VR head and arm poses are drawn over the walk/idle clips.
+	process_priority = 50
 	if not RoomState.online:
 		return
 	if not multiplayer.peer_disconnected.is_connected(_drop):
@@ -204,6 +211,14 @@ func _local_state() -> Dictionary:
 		"ambient": controller.meters.ambient,
 		"heat_locked": controller.meters.heat_locked,
 	}
+	if controller.xr_active:
+		var head_height := controller.xr_camera.global_position.y - controller.global_position.y
+		_vr_standing_height = maxf(head_height, _vr_standing_height - 0.002)
+		var packet := VRPoseSync.local_pose(controller, controller.xr_camera, controller.xr_left, controller.xr_right,
+			_vr_standing_height)
+		state["vr"] = packet
+		if packet.decode_u8(0) & VRPoseSync.FLAG_CROUCH and String(state["clip"]) in ["idle", "walk"]:
+			state["clip"] = "crouch"   # crouching in real life lowers the body for everyone else
 	return _merge_state_overrides(state)
 
 
@@ -295,6 +310,13 @@ func _place(state: Dictionary) -> void:
 		_attach_remote_flashlight(id, body)
 	_positions[id] = at
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
+	var vr_pose := VRPoseSync.decode(state.get("vr"))
+	if vr_pose.is_empty():
+		_vr_targets.erase(id)
+		_vr_current.erase(id)
+	else:
+		_vr_targets[id] = vr_pose
+		_facings[id] = float(_facings[id]) + VRPoseSync.body_follow(vr_pose)
 	var clip := String(state.get("clip", "idle"))
 	# A runner going into hiding stays visible while their body slides into the spot (the local camera move,
 	# PlayerController3D.HIDE_MOVE_SECONDS), crouched for a bed, then disappears.
@@ -347,6 +369,9 @@ func _interpolate_bodies(delta: float) -> void:
 			float(body.get_meta("fade_target", 0.0)), delta * 2.8)
 		body.set_meta("fade_current", fade)
 		ModelSlot.set_character_fade(body, fade)
+		if _vr_targets.has(id):
+			_vr_current[id] = VRPoseSync.blend(_vr_current.get(id, {}), _vr_targets[id], weight)
+			VRPoseSync.apply(body, _vr_current[id])
 		_update_remote_equipment_pose(id, body)
 		_update_remote_footstep(id, body, previous)
 
@@ -532,6 +557,9 @@ func _update_remote_equipment_pose(id: int, body: Node3D,
 	var anchor := _remote_hand_anchors.get(id) as Node3D
 	var origin := anchor.global_position if anchor != null \
 		else body.global_position + Vector3.UP * 1.1
+	var vr_left = VRPoseSync.left_hand_world(body, _vr_current.get(id, {}))
+	if vr_left is Vector3:
+		origin = vr_left   # a VR runner holds the flashlight in the left hand
 	# Start beyond the hand/mannequin silhouette so the remote body cannot cast
 	# a shadow across its own beam. The same aim still strikes nearby walls.
 	light.global_position = origin + aim * REMOTE_BEAM_HAND_OFFSET
@@ -569,6 +597,8 @@ func _drop(id: int) -> void:
 	if body != null:
 		body.queue_free()
 	_bodies.erase(id)
+	_vr_targets.erase(id)
+	_vr_current.erase(id)
 	_players.erase(id)
 	_positions.erase(id)
 	_facings.erase(id)
