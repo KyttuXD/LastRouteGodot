@@ -150,6 +150,7 @@ var _loaded_from_save := false
 
 
 func _ready() -> void:
+	Sound.reset_run_effects()   # a new run or CONTINUE never inherits the last run's muffle or duck
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	RefLook.install(self, get_node_or_null("WorldEnvironment") as WorldEnvironment)
 	add_to_group("gameplay_session")
@@ -5268,6 +5269,9 @@ func _respawn_after_death() -> void:
 			if peer != 0 and bool((target_value as Dictionary).get("spectating", false)):
 				_remotes.send_player_event(peer, {"what": "revive"})
 	_death_screen_open = false
+	Sound.reset_run_effects()
+	if player.xr_active:
+		player.xr_camera.current = true   # the listener follows the current camera; the jumpscare borrowed it
 	_capture_cooldown = 3.5
 	player.global_position = _checkpoint_world_position()
 	player.velocity = Vector3.ZERO
@@ -5676,6 +5680,7 @@ func _state_chunk(state: Dictionary) -> Vector3i:
 
 func _exit_tree() -> void:
 	Sound.set_ambience("")   # the bed belongs to the run
+	Sound.reset_run_effects()
 
 
 func _leave_test() -> void:

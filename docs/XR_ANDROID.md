@@ -176,6 +176,12 @@ In a route the root viewport renders in XR, so CanvasLayers no longer reach the 
   lay out at 1:1 on the eye buffer (about 1680 x 1760 on a Quest 3S), and the pause menu was a small box. The panel
   re-anchors each layer's top-level Controls against the designed 480 x 270 canvas (`XRRoutePanel.fit_to_canvas`,
   which places them exactly where the stretch would have), and the pointer maps onto that canvas.
+- **Death:** the death screen stays in front of the head (re-placed once the head turns more than 50 degrees away), and
+  an alert cue plus a haptic pulse on both controllers repeat every 15 s while it is up. Respawn, a new run or CONTINUE,
+  and leaving the route call `Sound.reset_run_effects()` (underwater muffle and chase duck off) and, in XR, make the
+  XR camera current again (the audio listener follows it; the jumpscare borrows the camera).
+- **Hands:** the controllers track Godot's `default` pose, which OpenXR binds to the aim pose. The hand models (skinned
+  hands and gloves) are turned each frame by aim to grip from the controller's own tracker (`XRHands.grip_offset`).
 - **When it shows:** while any of those screens is open (`InfiniteRouteTest._xr_overlay_open`, which also covers the
   escape struggle), as a panel 1.2 m in front of the head.
 - **Input:** the right laser and trigger send mouse events to the root viewport. The Controls still belong to it, since

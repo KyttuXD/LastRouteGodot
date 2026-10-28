@@ -151,6 +151,7 @@ func _check_xr_route_panel(host: Node) -> void:
 	await _check_no_touch_controllers(host)
 	await _check_xr_origin_handover(host)
 	_check_xr_canvas_fit()
+	_check_death_audio_reset()
 
 
 ## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
@@ -175,6 +176,21 @@ func _check_xr_canvas_fit() -> void:
 	_expect(full.offset_right == 480.0 and full.offset_bottom == 270.0 and full.offset_left == 0.0,
 		"the XR panel does not fit a full-rect screen to 480 x 270")
 	full.free()
+
+
+## KT lost the sound in VR after dying: the run's audio effects (underwater muffle, chase duck) must clear on respawn,
+## continue and the return to the hub. And a hand without a grip pose keeps the identity offset.
+func _check_death_audio_reset() -> void:
+	Sound.set_muffled(true)
+	Sound.ambience_duck = 1.0
+	Sound.reset_run_effects()
+	var bus := AudioServer.get_bus_index("Master")
+	var muffled := false
+	for index in AudioServer.get_bus_effect_count(bus):
+		if AudioServer.get_bus_effect(bus, index) is AudioEffectLowPassFilter and AudioServer.is_bus_effect_enabled(bus, index):
+			muffled = true
+	_expect(not muffled and Sound.ambience_duck == 0.0, "Sound.reset_run_effects leaves the muffle or the chase duck on")
+	_expect(XRHands.grip_offset(null) == Transform3D.IDENTITY, "an XR hand without a grip pose is not left on the controller")
 
 
 func _check_xr_keyboard(host: Node) -> void:

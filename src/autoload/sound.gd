@@ -277,6 +277,16 @@ func set_muffled(on: bool) -> void:
 			AudioServer.set_bus_effect_enabled(bus, index, on)
 
 
+## Back to normal hearing after a death, a continue or the return to the hub: a death mid-plunge never reached the
+## swim's set_muffled(false), and a chase duck can stay down while nothing updates it (KT lost the sound in VR after
+## dying). The player's own mute and volume settings are untouched.
+func reset_run_effects() -> void:
+	set_muffled(false)
+	set_ambience_duck(0.0)
+	_pending.clear()
+	_office_queue_until_usec = 0
+
+
 ## A hand or boot on an iron ladder rung.
 func ladder_rung(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("ladder_rung", pan, clampf(intensity, 0.1, 2.0))
