@@ -16,8 +16,8 @@ extends RefCounted
 ## quadrant, clear of the spine x/z 21..23 and the duct lines 6 and 38, inside
 ## 2..41, thinning going up, and always one at chunk (0, 0).
 
-const CHANCE := {0: .12, 1: .55, 2: .45, 3: .35}
-const SPIRAL_SHARE := {0: .5, 1: .4, 2: .6, 3: .7}
+const CHANCE := {0: .12, 1: .75, 2: .45, 3: .35}   # +1: the maze vetoes about a quarter of them (_maze_stairwell_fits)
+const SPIRAL_SHARE := {0: .5, 1: 1.0, 2: .6, 3: .7}   # +1 is all spirals: the maze's banks are too shallow for a switchback
 ## The 9 x 9 cell area a stairwell (walls included) may use in each quadrant:
 ## inside 2..41, clear of the spine and of the duct lines 6 and 38.
 const QUADRANT_AREAS := [Rect2i(7, 7, 9, 9), Rect2i(29, 7, 9, 9), Rect2i(7, 29, 9, 9), Rect2i(29, 29, 9, 9)]
@@ -30,6 +30,11 @@ const QUADRANT_AREAS := [Rect2i(7, 7, 9, 9), Rect2i(29, 7, 9, 9), Rect2i(7, 29, 
 ## more than a thin wall away from the maze's spine.
 const MAZE_AREAS := [Rect2i(2, 0, 7, 9), Rect2i(11, 0, 7, 9), Rect2i(27, 0, 7, 9), Rect2i(36, 0, 7, 9),
 	Rect2i(2, 36, 7, 9), Rect2i(11, 36, 7, 9), Rect2i(27, 36, 7, 9), Rect2i(36, 36, 7, 9)]
+## The maze's areas for 0 <-> +1: the middle banks either side of the five-wide centre hall (rows 13-19 north, 26-32 south).
+## A well here is always a spiral (7 x 7: a switchback is 9 deep and the banks are 8), its box inside one room of the
+## bank (x 12-18 left, 26-32 right: clear of the duct lines 6 and 38 and of the spine), its doorway opening straight onto
+## the centre hall.
+const MAZE_UP_AREAS := [Rect2i(11, 11, 9, 9), Rect2i(25, 11, 9, 9), Rect2i(11, 25, 9, 9), Rect2i(25, 25, 9, 9)]
 const RISE := 4.0                    # LEVEL_HEIGHT
 
 

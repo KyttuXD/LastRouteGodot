@@ -4,7 +4,8 @@ extends RefCounted
 ## What size each kind of room should be, and how much of its signature furniture it holds (docs/ROOM_SIZES.md).
 ## Sizes are cells (x, z) in either orientation. `generated` says whether the generators make this room type today; the
 ## planned types (classroom, library, gym, warehouse...) are listed so new districts and the city follow the same table.
-## Small rooms never go below the 9x9 playable minimum; corridors and halls are not rooms and are not listed.
+## Small rooms never go below the 9x9 playable minimum (the maze's middle banks are 8 deep beside its five-wide centre
+## hall: KT, "5 wide maze region hallways"); corridors and halls are not rooms and are not listed.
 
 const PROFILES := {
 	# music wing (src/game/music_wing.gd; MusicWing.SIZE_PROFILES): real sizes x 1.5, kept in step with that table
@@ -21,7 +22,7 @@ const PROFILES := {
 	"music_store": {"min": Vector2i(9, 9), "preferred": Vector2i(20, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0),
 		"signature": ["guitarWallHanger"], "generated": true},
 	# great gathering rooms
-	"restaurant_dining": {"min": Vector2i(11, 9), "preferred": Vector2i(21, 21), "max": Vector2i(21, 21), "tables": Vector2i(2, 12),
+	"restaurant_dining": {"min": Vector2i(11, 8), "preferred": Vector2i(21, 21), "max": Vector2i(21, 21), "tables": Vector2i(2, 12),
 		"signature": ["restaurantPartyTable"], "generated": true},
 	"prison_cafeteria": {"min": Vector2i(11, 9), "preferred": Vector2i(21, 21), "max": Vector2i(21, 21), "tables": Vector2i(1, 9),
 		"signature": ["prisonCafeteriaTable"], "generated": true},
@@ -37,7 +38,7 @@ const PROFILES := {
 	"archive": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 2), "signature": [], "generated": true},
 	"chapel": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"crypt": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
-	"storage": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": ["supplyCrates"], "generated": true},
+	"storage": {"min": Vector2i(9, 8), "preferred": Vector2i(11, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": ["supplyCrates"], "generated": true},
 	"cove": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"tide_pool": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"forge": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
@@ -50,12 +51,12 @@ const PROFILES := {
 	"hotel_bathroom": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(11, 9), "tables": Vector2i(0, 0), "signature": ["houseToilet"], "generated": true},
 	"house_bathroom": {"min": Vector2i(9, 9), "preferred": Vector2i(9, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": ["houseToilet"], "generated": true},
 	"luxury_bathroom": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
-	"public_restroom": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
+	"public_restroom": {"min": Vector2i(9, 8), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"infirmary": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": ["hospitalBed"], "generated": true},
 	"prison_cell": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(11, 9), "tables": Vector2i(0, 0), "signature": ["prisonBunk"], "generated": true},
 	"living_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 11), "max": Vector2i(15, 15), "tables": Vector2i(0, 2), "signature": ["loungeCouch"], "generated": true},
 	"mourning_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 1), "signature": [], "generated": true},
-	"arcade_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 11), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": ["arcadeCabinet"], "generated": true},
+	"arcade_room": {"min": Vector2i(9, 8), "preferred": Vector2i(11, 11), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": ["arcadeCabinet"], "generated": true},
 	"game_stall": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"backstage": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"beach_hut": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 1), "signature": [], "generated": true},

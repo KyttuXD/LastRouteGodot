@@ -1117,6 +1117,10 @@ func _check_stairwells(host: Node) -> void:
 				if upper == 0:
 					# the maze's own areas: outer room bands, clear of the main halls and the spine
 					clear = Stairwells.MAZE_AREAS.any(func(area: Rect2i) -> bool: return area.encloses(box))
+				elif upper == 1:
+					# the way up to the Mezzanine is decided by the maze chunk, in the middle banks beside the centre hall
+					clear = clear and Stairwells.MAZE_UP_AREAS.any(func(area: Rect2i) -> bool: return area.encloses(box)) \
+						and String(well["kind"]) == "spiral"
 				_expect(clear, "stairwell %s breaks the placement rules (box %s)" % [well["link"]["id"], box])
 				if upper == 0:
 					_check_stairwell_ends(generator, x, z, well)
