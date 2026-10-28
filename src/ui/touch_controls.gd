@@ -227,6 +227,17 @@ func hotbar_rect() -> Rect2:
 	return Rect2(view.x * .5 - view.x * .19, view.y - MIN_TARGET * 1.6, view.x * .38, MIN_TARGET * 1.6)
 
 
+## Left and right insets (canvas units) that keep the controls clear of a notch, Dynamic Island or rounded corners
+## (DisplayServer's safe area; zero on screens without a cutout or where the OS already letterboxes it).
+func safe_insets() -> Vector2:
+	var window := Vector2(DisplayServer.window_get_size())
+	var safe := Rect2(DisplayServer.get_display_safe_area())
+	if window.x <= 0.0 or safe.size.x <= 0.0 or safe.size.x >= window.x:
+		return Vector2.ZERO
+	var scale := get_viewport().get_visible_rect().size.x / window.x
+	return Vector2(maxf(0.0, safe.position.x), maxf(0.0, window.x - safe.end.x)) * scale
+
+
 ## Button grid: the action cluster in the bottom-right corner, the D-pad in the bottom-left, the hotbar arrows just
 ## outside the HUD's centred hotbar, the menu buttons along the top-left after the FPS readout (the top-right holds the
 ## HUD's minimap and status).
@@ -234,12 +245,13 @@ func _layout() -> void:
 	var view := get_viewport().get_visible_rect().size
 	var unit := maxf(MIN_TARGET, view.y * .13)
 	var gap := unit * .16
+	var insets := safe_insets()
 	var cluster := [["TouchInteract", 0, 0], ["TouchJump", 1, 0], ["TouchTool", 0, 1], ["TouchCrouch", 1, 1], ["TouchLight", 2, 1]]
 	for entry in cluster:
 		var button: Button = _buttons[String(entry[0])]["button"]
 		button.size = Vector2(unit, unit)
-		button.position = Vector2(view.x - (int(entry[1]) + 1) * (unit + gap), view.y - (int(entry[2]) + 1) * (unit + gap))
-	_pad.position = Vector2(gap * 2.0, view.y - _pad.size.y - gap)
+		button.position = Vector2(view.x - insets.y - (int(entry[1]) + 1) * (unit + gap), view.y - (int(entry[2]) + 1) * (unit + gap))
+	_pad.position = Vector2(insets.x + gap * 2.0, view.y - _pad.size.y - gap)
 	var hotbar := hotbar_rect()
 	_laid_out_hotbar = hotbar
 	var prev: Button = _buttons["TouchPrev"]["button"]
@@ -253,7 +265,7 @@ func _layout() -> void:
 	for index in top.size():
 		var button: Button = _buttons[top[index]]["button"]
 		button.size = Vector2(MIN_TARGET, MIN_TARGET)
-		button.position = Vector2(view.x * .08 + index * (MIN_TARGET + gap), gap)
+		button.position = Vector2(maxf(view.x * .08, insets.x + gap) + index * (MIN_TARGET + gap), gap)
 
 
 ## The movement zone: the D-pad's rect, or the stick's left 40 % (minus the hotbar and its arrows).
