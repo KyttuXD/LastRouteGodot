@@ -2191,7 +2191,7 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 		result.append(entry)
 		for occupied_value in entry.get("occupied_cells", []):
 			reserved[occupied_value as Vector2i] = true
-	result = one_ceiling_family(result)
+	result = even_ceiling_fixtures(one_ceiling_family(result), rect)
 	# back to recipe order, so everything downstream sees the same sequence as before the claim order
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["spec_index"]) < int(b["spec_index"]))
 	for entry in result:
@@ -2203,6 +2203,42 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 ## wins over a fan, a fan (which has its own light kit) over a plain ceiling light; the others are dropped.
 const CEILING_FIXTURE_FAMILY := {"diningChandelier": "chandelier", "ceilingFan": "fan", "ceilingLight": "light"}
 const CEILING_FAMILY_ORDER := ["chandelier", "fan", "light"]
+
+
+## Recipe ceiling fixtures laid out evenly (KT: "center or even with the room"): one sits at the exact centre of the
+## room's interior; several form rows along the long axis (two rows in a room 12+ cells deep when there are 4 or more),
+## each at the middle of an equal share, so they are symmetric about the centre with equal margins to the walls. The
+## fixture keeps its cell (and room); placement_offset moves it. Leftovers that would break the grid are dropped.
+static func even_ceiling_fixtures(props: Array, rect: Rect2i) -> Array:
+	var fixtures := props.filter(func(prop: Dictionary) -> bool:
+		return CEILING_FIXTURE_FAMILY.has(String(prop.get("type", ""))))
+	if fixtures.is_empty():
+		return props
+	var long_x := rect.size.x >= rect.size.y
+	var short_len := float(mini(rect.size.x, rect.size.y))
+	var rows := 2 if fixtures.size() >= 4 and short_len >= 12.0 else 1
+	var cols := fixtures.size() / rows
+	var along := func(prop: Dictionary) -> float:
+		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		return float(cell.x if long_x else cell.y)
+	fixtures.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return along.call(a) < along.call(b))
+	var long_start := float(rect.position.x if long_x else rect.position.y)
+	var long_len := float(rect.size.x if long_x else rect.size.y)
+	var short_start := float(rect.position.y if long_x else rect.position.x)
+	var dropped := {}
+	for index in fixtures.size():
+		var prop: Dictionary = fixtures[index]
+		if index >= rows * cols:
+			dropped[prop] = true
+			continue
+		var a := long_start + long_len * (float(index % cols) + .5) / float(cols)
+		var b := short_start + short_len * (float(index / cols) + .5) / float(rows)
+		var desired := Vector2(a, b) if long_x else Vector2(b, a)
+		var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+		prop["placement_offset"] = desired - (Vector2(cell) + Vector2(.5, .5))
+	if dropped.is_empty():
+		return props
+	return props.filter(func(prop: Dictionary) -> bool: return not dropped.has(prop))
 
 
 static func one_ceiling_family(props: Array) -> Array:

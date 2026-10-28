@@ -23,7 +23,7 @@ func run(host: Node) -> int:
 	_expect(AudioServer.get_bus_index("UI") >= 0, "UI audio bus is missing")
 
 	var cues := ["collect", "recharge", "menu", "music_box", "alert", "chase_start", "taser",
-		"door_open", "door_close", "door_breach", "interaction_fail", "tool_break", "axe_swing", "axe_chop", "hide_search", "sleep_settle", "sleep_yawn", "sleep_stir", "sleep_jolt", "hunter_snore",
+		"door_open", "door_close", "door_breach", "interaction_fail", "tool_break", "axe_swing", "axe_chop", "hide_search", "light_switch", "sleep_settle", "sleep_yawn", "sleep_stir", "sleep_jolt", "hunter_snore",
 		"nyxie_timer", "nyxie_empty", "hunter_footstep", "mimic",
 		"mimic_rare", "heartbeat",
 		"footstep_walk", "footstep_sprint", "footstep_crouch", "capture",

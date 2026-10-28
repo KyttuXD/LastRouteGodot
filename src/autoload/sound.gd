@@ -151,6 +151,11 @@ func hide_search(pan: float = 0.0, intensity: float = 1.0) -> bool:
 
 ## Sleep (docs/REST_AND_SLEEP.md): settling into sleep, a yawn when drowsy, the muffled stir of something close, the
 ## jolt awake, and a sleeping hunter's snore.
+## Room light switch click (docs/LIGHT_SWITCHES.md).
+func light_switch(pan: float = 0.0, intensity: float = 1.0) -> bool:
+	return _play_named("light_switch", pan, intensity)
+
+
 func sleep_settle(pan: float = 0.0, intensity: float = 1.0) -> bool:
 	return _play_named("sleep_settle", pan, intensity)
 
@@ -585,6 +590,7 @@ func _cue_components(cue: String, pan: float, intensity: float) -> Array:
 			_noise(.14, .11, 760, 0, pan, .9),
 			_tone(168, .09, .07, .02, "square", pan),
 			_noise(.09, .06, 2100, .08, pan, 1.1)]
+		"light_switch": c = [_tone(2600, .012, .1, 0, "square", pan), _thump(140, .04, .08, .01, pan)]
 		"sleep_settle": c = [_noise(.5, .05, 400, 0, pan, .5), _tone(110, .4, .04, .1, "sine", pan)]
 		"sleep_yawn": c = [_tone(220, .55, .07, 0, "triangle", pan), _tone(165, .5, .05, .35, "triangle", pan),
 			_noise(.4, .04, 900, .2, pan, .6)]

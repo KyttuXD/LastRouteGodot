@@ -43,6 +43,7 @@ var _budget := {}          # room id -> {"lamp": n, "window": n}
 ## Rooms whose recipe placed its own ceiling fixture (a fan, a ceiling light, a chandelier prop): the prop owns that
 ## ceiling, so the decor adds no chandelier, pendant or strip lamp there -- one fixture family per room.
 var _prop_ceiling_rooms := {}
+var _room_rects := {}        # room id -> interior Rect2i (symmetric sconces)
 ## Ceiling points (x, z, ceiling height) of chandeliers that get a mansion ceiling medallion.
 var _medallions: Array = []
 
@@ -59,6 +60,8 @@ func _init(root: Node3D, data: Dictionary, room_map: Dictionary,
 	_room_map = room_map
 	_size = (data["grid"] as Array).size()
 	_salt = hash(String(data.get("chunk_id", "")))
+	for room_value in data.get("rooms", []):
+		_room_rects[String((room_value as Dictionary).get("id", ""))] = (room_value as Dictionary).get("rect", Rect2i())
 	for prop_value in data.get("region_props", []):
 		var prop: Dictionary = prop_value
 		if CEILING_FIXTURE_PROPS.has(String(prop.get("type", ""))):
@@ -67,7 +70,8 @@ func _init(root: Node3D, data: Dictionary, room_map: Dictionary,
 				_prop_ceiling_rooms[room_id] = true
 			if _region == "mansion":
 				var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
-				_medallions.append(Vector2(cell.x + .5, cell.y + .5))
+				var offset: Vector2 = prop.get("placement_offset", Vector2.ZERO)
+				_medallions.append(Vector2(cell.x + .5, cell.y + .5) + offset)
 
 
 ## Template props that are ceiling fixtures (StreamedRouteGenerator.CEILING_FIXTURE_FAMILY has the families).
@@ -192,46 +196,98 @@ func _room_lamps() -> void:
 	for room_value in _data.get("rooms", []):
 		var room: Dictionary = room_value
 		var rect: Rect2i = room.get("rect", Rect2i())
-		if mini(rect.size.x, rect.size.y) < 4:
-			continue
+		if mini(rect.size.x, rect.size.y) < 4 or bool(room.get("suite_parent", false)):
+			continue    # a suite's parent spans its child rooms; each child lights itself
+		var room_id := String(room.get("id", ""))
 		var cx := rect.position.x + rect.size.x / 2
 		var cz := rect.position.y + rect.size.y / 2
 		var height := _hh(Vector2i(cx, cz))
 		var garden: bool = RefLook.is_glasshouse(_region, String(room.get("room_type", "")))
-		var prop_owned := _prop_ceiling_rooms.has(String(room.get("id", "")))
-		if height > RefLook.TALL_ROOM and not prop_owned:
-			_tall_room(rect, height, garden)
-		if garden:
-			_greenery(rect, height, String(room.get("id", "")))
-		if prop_owned:
-			continue
-		if _h(cx, cz, 111, 100) >= _lit_percent(style):
-			continue
-		if not _take(String(room.get("id", "")), "lamp"):
-			continue
-		var world := Vector3(cx + .5, 0, cz + .5)
+		var prop_owned := _prop_ceiling_rooms.has(room_id)
+		var tall := height > RefLook.TALL_ROOM
 		var fancy := _region in ["mansion", "hotel", "apartment", "gothic", "carnival"] \
 			and String(room.get("room_type", "")) not in ["hotel_bathroom", "house_bathroom", "stairwell"]
-		if fancy or (height > RefLook.TALL_ROOM and _region not in ["hospital", "lab"]):
-			# mansion: the chandelier is sized to the room (the grand three-tier one in big rooms)
-			_pendant(world, height, cx, cz, _region == "mansion" and rect.size.x * rect.size.y >= 150)
-		else:
-			_ceiling_lamp(world, cx, cz, height)
-		_decal_pool.append(Vector3(world.x, 0, world.z))
+		var pendants := fancy or (tall and _region not in ["hospital", "lab"])
+		# Even fixture layout (docs/LIGHT_SWITCHES.md, KT: "center or even with the room"): a grid centred on the room's
+		# interior, equal margins to every wall, rows along the long axis; one fixture sits at the exact centre.
+		var grid := fixture_grid(rect, PENDANT_SPACING if pendants else STRIP_SPACING)
+		if tall and not prop_owned and not garden:
+			_roof_ribs(rect, height, grid)
+		if garden:
+			_greenery(rect, height, room_id)
+		if prop_owned or not _room_lit(room_id, style):
+			continue
+		for at_value in grid:
+			var at: Vector2 = at_value
+			var world := Vector3(at.x, 0, at.y)
+			var ix := floori(at.x)
+			var iz := floori(at.y)
+			if pendants:
+				# mansion: a lone chandelier in a big room is the grand three-tier one
+				_pendant(world, height, ix, iz, _region == "mansion" and grid.size() == 1 and rect.size.x * rect.size.y >= 150)
+			else:
+				_ceiling_lamp(world, ix, iz, height)
+			_decal_pool.append(Vector3(world.x, 0, world.z))
 
 
-## Iron roof ribs across a tall room, and pendant lights on a lattice.
-func _tall_room(rect: Rect2i, height: float, garden: bool = false) -> void:
-	for z in range(rect.position.y + 2, rect.end.y - 1, 6) if not garden else []:
-		var rib := Transform3D(Basis.IDENTITY.scaled(Vector3(float(rect.size.x), 1.0, 1.0)),
-			Vector3(rect.position.x + rect.size.x * .5, height - .22, z + .5))
-		_add("rib", rib)
-	for z in range(rect.position.y + 3, rect.end.y - 2, 7):
-		for x in range(rect.position.x + 3, rect.end.x - 2, 7):
-			if x == rect.position.x + rect.size.x / 2 and z == rect.position.y + rect.size.y / 2:
-				continue
-			if _h(x, z, 113, 3) != 0:
-				_pendant(Vector3(x + .5, 0, z + .5), height, x, z)
+const PENDANT_SPACING := 7.0
+const STRIP_SPACING := 5.0
+
+
+## Fixture centres for a room: n = round(length / spacing) per axis (at least one), each at the middle of its equal
+## share of the interior, so the layout is symmetric about the room centre with equal margins to opposite walls.
+static func fixture_grid(rect: Rect2i, spacing: float) -> Array:
+	var out := []
+	for z in even_positions(float(rect.position.y), float(rect.size.y), spacing):
+		for x in even_positions(float(rect.position.x), float(rect.size.x), spacing):
+			out.append(Vector2(x, z))
+	return out
+
+
+static func even_positions(start: float, length: float, spacing: float) -> Array:
+	var count := maxi(1, roundi(length / spacing))
+	var out := []
+	for i in count:
+		out.append(start + length * (float(i) + .5) / float(count))
+	return out
+
+
+## The exact along-wall position of a sconce on this wall cell, or NAN: positions are evenly spaced over the room's
+## interior length (even_positions with the region's spacing), shared by both walls of the pair.
+func _sconce_spot(room_id: String, d: Vector2i, along: int, spacing: int) -> float:
+	if not _room_rects.has(room_id):
+		return NAN
+	var rect: Rect2i = _room_rects[room_id]
+	var start := float(rect.position.x if d.y != 0 else rect.position.y)
+	var length := float(rect.size.x if d.y != 0 else rect.size.y)
+	for p_value in even_positions(start, length, float(maxi(spacing, 6))):
+		if floori(float(p_value)) == along:
+			return float(p_value)
+	return NAN
+
+
+## Whether a room's lights are on in this region's lit share (one decision per room, not per cell).
+func _room_lit(room_id: String, style: Dictionary) -> bool:
+	return room_id == "" or absi(hash(room_id + ":lit")) % 100 < _lit_percent(style)
+
+
+## Iron roof ribs across a tall room, on the lines halfway between pendant rows (never through a pendant's chain);
+## with one row, at the thirds.
+func _roof_ribs(rect: Rect2i, height: float, grid: Array) -> void:
+	var rows := {}
+	for at_value in grid:
+		rows[snappedf((at_value as Vector2).y, .01)] = true
+	var zs: Array = rows.keys()
+	zs.sort()
+	var lines := []
+	if zs.size() <= 1:
+		lines = [rect.position.y + rect.size.y / 3.0, rect.position.y + rect.size.y * 2.0 / 3.0]
+	else:
+		for i in range(1, zs.size()):
+			lines.append((float(zs[i - 1]) + float(zs[i])) * .5)
+	for z in lines:
+		_add("rib", Transform3D(Basis.IDENTITY.scaled(Vector3(float(rect.size.x), 1.0, 1.0)),
+			Vector3(rect.position.x + rect.size.x * .5, height - .22, float(z))))
 
 
 ## The greenhouse: a vaulted iron roof (arched ribs and purlins), foliage canopy and hanging
@@ -429,6 +485,8 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 		var lit_room := rt == "" or _h(x + d.x, z + d.y, 91, 100) < _lit_percent(style)
 		var spacing: int = maxi(int(style["wall_lamp"]), 6)
 		var rid := _room_id_at(Vector2i(x + d.x, z + d.y))
+		if rid != "":
+			lit_room = _room_lit(rid, style)    # one decision per room keeps its sconces symmetric
 		var wants_lamp := false
 		if lit_room and int(style["wall_lamp"]) < 90:
 			if rid == "":
@@ -436,8 +494,14 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 				wants_lamp = (along + _h(0, line, 5, 12)) % 12 == 0 and (along / 12 + line) % 2 == 0 \
 					and _corridor_lit(x + d.x, z + d.y)
 			else:
-				wants_lamp = (along + line * 3 + _h(0, line, 5, spacing)) % spacing == 0 \
-					and _take(rid, "lamp")
+				# rooms: sconces evenly spaced along each wall, at the same places on opposite walls (symmetric pairs)
+				var spot := _sconce_spot(rid, d, along, spacing)
+				if not is_nan(spot):
+					wants_lamp = _room_lit(rid, style)
+					if d.y != 0:
+						base.x = spot
+					else:
+						base.z = spot
 		if wants_lamp:
 			_wall_lamp(base, n, String(style["lamp"]) if String(style["lamp"]) != "ceiling" else "sconce_short", x, z)
 		elif int(style["teal"]) < 90 and _h(x, z, 21 + d.x * 3 + d.y, int(style["teal"]) * 3) == 0:
@@ -538,9 +602,7 @@ func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 		var rid := _room_id_at(Vector2i(x, z))
 		# lamps sit on a lattice inside rooms (budgeted) and every ten metres down halls
 		if rid != "":
-			if x % 5 == 2 and z % 5 == 2 and _lit_block(x, z, style) and not _prop_ceiling_rooms.has(rid) \
-					and _hh(Vector2i(x, z)) <= RefLook.TALL_ROOM and _take(rid, "lamp"):
-				_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)))
+			pass    # rooms: the even grid in _room_lamps
 		elif _is_corridor_mid(grid, x, z) and (x + z) % 12 == 0 and _corridor_lit(x, z):
 			_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)))
 	# (sconce regions light their corridors from the walls only)

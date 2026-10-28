@@ -200,6 +200,7 @@ func _ready() -> void:
 	facility.pickup_claimed.connect(_on_pickup_claimed)
 	facility.pickup_requester = _request_streamed_pickup
 	facility.door_requester = _request_streamed_door
+	facility.room_light_requester = _request_room_light
 	if not pending_payload.is_empty():
 		_loaded_from_save = _adopt_route_save_before_stream(pending_payload)
 	facility.begin(str(RoomState.run_seed()), player, world_state)
@@ -2580,6 +2581,8 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 			breach_rooms[room_id] = entry
 		if not captured and not target.is_empty():
 			_update_hide_check(entity_id, view, target, navigation, delta)
+		if not captured:
+			_hunter_flips_light(entity_id, view, delta)
 		if captured:
 			_capture_target(view, target)
 	_update_safe_room_breaches(delta, breach_rooms)
@@ -3359,6 +3362,43 @@ func _request_streamed_door(_requesting_player: PlayerController3D,
 		event)
 	return ""
 
+## Room light switch (docs/LIGHT_SWITCHES.md): host-authoritative like doors. The host applies and relays; a guest asks.
+func _request_room_light(on: bool, room_id: String) -> String:
+	Sound.light_switch()
+	var event := {"what": "stream_room_light", "room_id": room_id, "on": on}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_publish_stream_event(event)
+	return "ROOM LIGHT %s" % ("ON" if on else "OFF")
+
+
+## Hunters at a switch (host): Nyxie puts the lights out; the others, searching or investigating, put them on.
+var _switch_cooldowns := {}
+
+
+func _hunter_flips_light(entity_id: String, view: HunterView3D, delta: float) -> void:
+	for room_id in _switch_cooldowns.keys():
+		_switch_cooldowns[room_id] = float(_switch_cooldowns[room_id]) - delta
+	var brain := view.brain
+	var nyxie := brain.hunter_id == "nyxie"
+	if not nyxie and brain.state not in [HunterBrain.State.SEARCH, HunterBrain.State.INVESTIGATE]:
+		return
+	for room_id in facility.lit_rooms():
+		var switch := facility.room_light_switch(String(room_id))
+		if switch == null or float(_switch_cooldowns.get(room_id, 0.0)) > 0.0:
+			continue
+		var at := Vector2(switch.global_position.x, switch.global_position.z)
+		if at.distance_to(brain.position) > 1.6 \
+				or absf(switch.global_position.y - (view.global_position.y + StreamedFacilityView3D.SWITCH_HEIGHT)) > 2.5:
+			continue
+		var on := world_state.room_light_on(String(room_id))
+		if nyxie == on:
+			_switch_cooldowns[room_id] = 15.0
+			_publish_stream_event({"what": "stream_room_light", "room_id": String(room_id), "on": not on, "by": entity_id})
+			return
+
+
 func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 	if not _remotes.simulates():
 		return
@@ -3396,6 +3436,9 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_sabotage(peer_id, event)
 		"stream_door":
 			_accept_stream_door(peer_id, event)
+		"stream_room_light":
+			_publish_stream_event({"what": "stream_room_light", "room_id": String(event.get("room_id", "")),
+				"on": bool(event.get("on", true))})
 		"stream_waypoint":
 			_accept_stream_waypoint(peer_id, event)
 		"ravelle_disarm":
@@ -3804,6 +3847,10 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 				if owner_id == _local_peer_id():
 					_waypoint_feedback(not (waypoint as Dictionary).is_empty())
 				_update_streamed_maps()
+		"stream_room_light":
+			var light_room := String(event.get("room_id", ""))
+			if facility.apply_room_light(light_room, bool(event.get("on", true))) and String(event.get("by", "")) != "":
+				Sound.light_switch()
 		"stream_hide_check":
 			var check_cell: Vector2i = event.get("cell", Vector2i(-1, -1))
 			for spot_value in get_tree().get_nodes_in_group("streamed_hiding_spot"):
