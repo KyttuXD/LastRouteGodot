@@ -426,6 +426,13 @@ func _render_ambience_uncached(key: String) -> AudioStreamWAV:
 	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	stream.loop_begin = 0
 	stream.loop_end = int(seconds * SAMPLE_RATE)
+	# One guard frame after loop_end, a copy of frame 0 so the seam stays clean. With loop_end on the very last frame,
+	# Android's mixer interpolates one frame past the end of the buffer and the hardened allocator kills the process
+	# (SIGSEGV in the AudioTrack thread as a route starts).
+	var data := stream.data
+	data.resize(stream.loop_end * 4)
+	data.append_array(data.slice(0, 4))
+	stream.data = data
 	return stream
 
 
