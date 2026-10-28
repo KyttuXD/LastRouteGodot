@@ -5366,6 +5366,7 @@ func _living_runners() -> Array[Dictionary]:
 
 
 func _begin_spectating() -> void:
+	grab.release()   # the hold ends when the caught runner starts spectating (it was drawn on every peer)
 	player.enter_spectator()
 	player.input_frozen = false
 	player.look_frozen = false
