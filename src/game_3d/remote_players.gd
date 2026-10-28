@@ -39,6 +39,7 @@ var state_overrides: Callable
 var _bodies := {}
 ## id -> the skin hash that body shows (or is waiting for); peers' skins live in PlayerSkin's memory cache only.
 var _peer_skin := {}
+var _peer_slim := {}   # id -> whether that body has the slim (Alex) arms
 var _players := {}
 var _positions := {}
 var _facings := {}
@@ -366,6 +367,8 @@ func _local_state() -> Dictionary:
 		"player_hue": Settings.player_hue_degrees,
 		"player_skin": "mannequin",
 		"skin": _own_skin_hash(),
+		"skin_copy": Settings.skin_copyable,
+		"skin_slim": Settings.effective_slim(),
 		"in_vent": controller.in_vent,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,
@@ -478,15 +481,15 @@ func _place(state: Dictionary) -> void:
 		_bodies[id] = body
 		_players[id] = ModelSlot.find_animation_player(body)
 		ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
-		_apply_peer_skin(id, body, String(state.get("skin", "")))
+		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
 		_add_name_tag(body, String(state.get("display_name",
 			RoomState.peer_display_name(id))))
 		body.set_meta("fade_current", 0.0)
 		_step_distances[id] = 0.0
 		_attach_remote_flashlight(id, body)
 	_positions[id] = at
-	if String(state.get("skin", "")) != String(_peer_skin.get(id, "")):
-		_apply_peer_skin(id, body, String(state.get("skin", "")))
+	if String(state.get("skin", "")) != String(_peer_skin.get(id, "")) or bool(state.get("skin_slim", false)) != bool(_peer_slim.get(id, false)):
+		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
 	var vr_pose := VRPoseSync.decode(state.get("vr"))
 	if vr_pose.is_empty():
@@ -777,11 +780,14 @@ func _own_skin_hash() -> String:
 	return Backend.skin_sync.shared_hash()
 
 
-func _apply_peer_skin(id: int, body: Node3D, hash: String) -> void:
+func _apply_peer_skin(id: int, body: Node3D, hash: String, slim: bool = false) -> void:
 	if not PlayerSkin.valid_hash(hash):
 		hash = ""
 	var previous := String(_peer_skin.get(id, ""))
 	_peer_skin[id] = hash
+	_peer_slim[id] = slim
+	PlayerSkin.set_arms(body, slim and not hash.is_empty())
+	PlayerSkin.note_peer(id, String(_states.get(id, {}).get("display_name", RoomState.peer_display_name(id))), hash, bool(_states.get(id, {}).get("skin_copy", true)), slim)
 	if hash.is_empty():
 		if not previous.is_empty():
 			PlayerSkin.apply(body, PlayerSkin.default_texture())
@@ -813,6 +819,8 @@ func _drop(id: int) -> void:
 		body.queue_free()
 	var gone := String(_peer_skin.get(id, ""))
 	_peer_skin.erase(id)
+	_peer_slim.erase(id)
+	PlayerSkin.forget_peer(id)
 	if not gone.is_empty():
 		PlayerSkin.release_peer(gone, _peer_skin.values())
 	_bodies.erase(id)

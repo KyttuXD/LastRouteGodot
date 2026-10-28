@@ -8,6 +8,8 @@ extends RefCounted
 const USE_BLOCKY := true
 const USE_WOODEN := true
 const BLOCKY := "res://assets/hunters_blocky/player_mannequin/player_mannequin.tscn"
+## The Alex (slim, 3 px arms) variant: same rig, bones and clips, only the arm meshes differ (PlayerSkin.set_arms swaps them in).
+const BLOCKY_SLIM := "res://assets/hunters_blocky/player_mannequin_slim/player_mannequin_slim.tscn"
 const WOODEN := "res://art/props-3d/characters/player.tscn"
 const LEGACY := "res://art/props-3d/characters/player_legacy.tscn"
 const SCENE := BLOCKY if USE_BLOCKY else (WOODEN if USE_WOODEN else LEGACY)
