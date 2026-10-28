@@ -93,10 +93,8 @@ const UPDATE_SCREEN_PATH := "res://scenes/update_progress.tscn"
 
 ## An update was found: the hub and the games never load; the update screen takes over until it is installed.
 func _open_update_screen() -> void:
-	if _opening_menu:
-		return
-	_opening_menu = true
-	UpdateManager.open_update_screen()
+	# no blocking screen: the update downloads in the background (UpdateBadge) and applies on quit / RESTART NOW
+	_allow_main_menu("UPDATE AVAILABLE // DOWNLOADING IN THE BACKGROUND")
 
 
 func _handoff_desktop_update() -> bool:
@@ -108,7 +106,7 @@ func _handoff_desktop_update() -> bool:
 
 func _sync_update_state() -> void:
 	if UpdateManager.is_dev_build() and not UpdateManager.available.is_empty():
-		_show_dev_notice()
+		_allow_main_menu("DEV BUILD // UPDATE AVAILABLE")
 		return
 	if _handoff_desktop_update():
 		_update_discovered = true
@@ -165,7 +163,7 @@ func _show_dev_notice() -> void:
 
 func _on_update_check_finished(success: bool, update_needed: bool) -> void:
 	if update_needed and UpdateManager.is_dev_build():
-		_show_dev_notice()
+		_allow_main_menu("DEV BUILD // UPDATE AVAILABLE")   # the badge says so
 		return
 	if update_needed:
 		_update_discovered = true
@@ -189,7 +187,10 @@ func _on_update_status(message: String) -> void:
 	var upper := message.to_upper()
 	_status.text = upper
 	if UpdateManager.is_failure_status(upper):
-		_show_retry(upper, false)   # a failed download/install keeps the player here with RETRY
+		if _update_discovered or not UpdateManager.available.is_empty():
+			_allow_main_menu("UPDATE DOWNLOAD FAILED // PLAYING THIS BUILD")   # the badge retries later; never blocks
+		else:
+			_show_retry(upper, false)
 	elif upper.contains("CHECKING"):
 		_phase.text = "CHECKING FOR UPDATES"
 		_set_progress(0.12, true)
