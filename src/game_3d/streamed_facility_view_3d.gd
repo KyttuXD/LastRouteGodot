@@ -103,6 +103,10 @@ var generator: StreamedRouteGenerator
 var world_state: StreamedWorldState
 var tracked_player: PlayerController3D
 var pickup_requester: Callable
+## Carnival booths (CarnivalBooth3D): requester(player, booth_id, prop_type) -> String starts a game through the host; reporter(event) sends a finished / cancelled game to it.
+var booth_requester: Callable
+var booth_reporter: Callable
+var _booth_nodes := {}
 var door_requester: Callable
 
 var _library: MeshLibrary
@@ -1786,7 +1790,8 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		Vector3(cell.x + .5 + mount_offset.x,
 			prop_y, cell.y + .5 + mount_offset.y),
 		float(prop.get("yaw", 0.0)), prop.get("collider_size", prop.get("blocker_size", Vector3.ONE)),
-		"streamed_region_prop", bool(prop.get("solid", true)), type)
+		"streamed_region_prop", bool(prop.get("solid", true)), type,
+		"%d:%d:%d:%s:%d:%d" % [coord.x, coord.y, coord.z, type, cell.x, cell.y] if CarnivalBooths.is_booth(type) else "")
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:
@@ -1943,10 +1948,34 @@ func room_doors_on_level(level: int) -> Array[RouteInteractable3D]:
 	return result
 
 
+## A playable carnival booth: the animated booth node beside the prop, and the interact prompt and request wired to it.
+func _attach_booth(parent: Node3D, furniture: RouteInteractable3D, booth_id: String, prop_type: String, at: Vector3, yaw: float, blocker_size: Vector3) -> void:
+	var booth := CarnivalBooth3D.new()
+	booth.setup(booth_id, prop_type, blocker_size)
+	booth.position = at
+	booth.rotation.y = yaw
+	booth.reporter = booth_reporter
+	booth.rest_resolver = func() -> float:
+		return world_state.booth_cooldown_left(booth_id, Time.get_unix_time_from_system()) if world_state != null else 0.0
+	parent.add_child(booth)
+	furniture.prompt_resolver = booth.prompt_text
+	if booth_requester.is_valid():
+		furniture.activation_override = booth_requester.bind(booth_id, prop_type)
+	_booth_nodes[booth_id] = booth
+	booth.tree_exited.connect(func() -> void:
+		if _booth_nodes.get(booth_id) == booth:
+			_booth_nodes.erase(booth_id))
+
+
+func booth_node(booth_id: String) -> CarnivalBooth3D:
+	var node := _booth_nodes.get(booth_id) as CarnivalBooth3D
+	return node if node != null and is_instance_valid(node) else null
+
+
 func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		yaw: float, blocker_size: Vector3,
 		group_name: String = "streamed_prison_prop", solid: bool = true,
-		prop_type: String = "") -> void:
+		prop_type: String = "", booth_id: String = "") -> void:
 	var visual := ModelSlot.instantiate_prop(path, prop_type)
 	if visual == null:
 		return
@@ -1984,6 +2013,8 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
 		furniture.rotation.y = yaw
 		parent.add_child(furniture)
+		if furniture_action == "play" and not booth_id.is_empty():
+			_attach_booth(parent, furniture, booth_id, prop_type, at, yaw, blocker_size)
 	if not solid:
 		return
 	var body := StaticBody3D.new()

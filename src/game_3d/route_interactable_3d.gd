@@ -128,6 +128,8 @@ var activation_override: Callable
 ## becoming a shared mutable world object. Carnival games remain personal and
 ## deterministic; the carousel uses the same replicated resting pose as seats.
 var furniture_action := ""
+## Carnival booths: the live prompt (the game's name, the cooldown, "in use"); empty Callable = the generic one.
+var prompt_resolver: Callable
 ## Lets the controller replace routine failure text with one consistent sound
 ## without guessing from the wording returned by every interaction kind.
 var last_activation_failed := false
@@ -462,7 +464,10 @@ func get_prompt() -> String:
 			"sit": return "SIT DOWN"
 			"mirror": return "LOOK INTO MIRROR"
 			"ride": return "RIDE CAROUSEL"
-			"play": return "PLAY CARNIVAL GAME"
+			"play":
+				if prompt_resolver.is_valid():
+					return String(prompt_resolver.call())
+				return "PLAY CARNIVAL GAME"
 			_: return ""
 	if kind == Kind.LIFT:
 		if GameState.relays_collected < GameState.relay_target:
