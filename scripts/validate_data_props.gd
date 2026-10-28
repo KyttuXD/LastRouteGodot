@@ -58,9 +58,37 @@ const FROZEN_MODELS := {
 	"stageSpeaker": ["res://art/props-3d/props/maze/stage_speaker.glb"],
 	"utilityCart": ["res://art/props-3d/props/maze/utility_cart.glb"],
 	"floorLamp": ["res://art/props-3d/props/maze/floor_lamp.glb", "res://art/props-3d/props/mansion/floor_lamp_teal.glb", "res://art/props-3d/props/mansion/floor_lamp_ivory.glb"],
+	"ceilingLight": ["res://art/props-3d/props/mansion/ceiling_light_warm.glb", "res://art/props-3d/props/mansion/ceiling_light_cool.glb", "res://art/props-3d/props/mansion/ceiling_light_teal.glb"],
+	"ceilingFan": ["res://art/props-3d/props/mansion/ceiling_fan_walnut.glb", "res://art/props-3d/props/mansion/ceiling_fan_ivory.glb", "res://art/props-3d/props/mansion/ceiling_fan_charcoal.glb"],
+	"tableLamp": ["res://art/props-3d/props/mansion/table_lamp_burgundy.glb", "res://art/props-3d/props/mansion/table_lamp_teal.glb", "res://art/props-3d/props/mansion/table_lamp_ivory.glb"],
+	"loungeCouch": ["res://art/props-3d/props/maze/lounge_couch_red.glb", "res://art/props-3d/props/mansion/lounge_couch_black.glb", "res://art/props-3d/props/mansion/lounge_couch_brown.glb", "res://art/props-3d/props/mansion/lounge_couch_ivory.glb", "res://art/props-3d/props/mansion/lounge_couch_navy.glb", "res://art/props-3d/props/mansion/lounge_couch_olive.glb", "res://art/props-3d/props/mansion/lounge_couch_violet.glb"],
+	"loungeCouchWide": ["res://art/props-3d/props/mansion/lounge_couch_red_wide.glb", "res://art/props-3d/props/mansion/lounge_couch_black_wide.glb", "res://art/props-3d/props/mansion/lounge_couch_brown_wide.glb", "res://art/props-3d/props/mansion/lounge_couch_ivory_wide.glb", "res://art/props-3d/props/mansion/lounge_couch_navy_wide.glb", "res://art/props-3d/props/mansion/lounge_couch_olive_wide.glb", "res://art/props-3d/props/mansion/lounge_couch_violet_wide.glb"],
+	"privacyCurtain": ["res://art/props-3d/props/maze/privacy_curtain.glb"],
+	"serverRack": ["res://art/props-3d/props/maze/server_rack.glb"],
+	"supplyCrates": ["res://art/props-3d/props/maze/supply_crates.glb"],
+	"trashBin": ["res://art/props-3d/props/maze/trash_bin.glb"],
+	"vendingMachine": ["res://art/props-3d/props/maze/vending_machine.glb"],
+	"woodenChair": ["res://art/props-3d/props/maze/wooden_chair_oak.glb", "res://art/props-3d/props/maze/wooden_chair_walnut.glb", "res://art/props-3d/props/maze/wooden_chair_mahogany.glb", "res://art/props-3d/props/maze/wooden_chair_ash.glb"],
+	"woodenChairCushion": ["res://art/props-3d/props/maze/wooden_chair_cushion.glb", "res://art/props-3d/props/maze/wooden_chair_cushion_walnut.glb", "res://art/props-3d/props/maze/wooden_chair_cushion_mahogany.glb", "res://art/props-3d/props/maze/wooden_chair_cushion_ash.glb"],
+	"woodenTable": ["res://art/props-3d/props/maze/wooden_table.glb", "res://art/props-3d/props/maze/wooden_table_walnut.glb", "res://art/props-3d/props/maze/wooden_table_mahogany.glb", "res://art/props-3d/props/maze/wooden_table_ash.glb"],
+	"restaurantPartyTable": ["res://art/props-3d/props/maze/restaurant_party_table.glb"],
+	"woodenDresserSideboard": ["res://art/props-3d/props/maze/wooden_dresser_sideboard.glb", "res://art/props-3d/props/maze/wooden_dresser_sideboard_walnut.glb", "res://art/props-3d/props/maze/wooden_dresser_sideboard_mahogany.glb", "res://art/props-3d/props/maze/wooden_dresser_sideboard_ash.glb"],
+	"retroComputerCompact": ["res://art/props-3d/props/maze/retro_computer_compact_ivory.glb", "res://art/props-3d/props/maze/retro_computer_compact_charcoal.glb", "res://art/props-3d/props/maze/retro_computer_compact_teal.glb", "res://art/props-3d/props/maze/retro_computer_compact_burgundy.glb"],
+	"retroComputerTower": ["res://art/props-3d/props/maze/retro_computer_tower_ivory.glb", "res://art/props-3d/props/maze/retro_computer_tower_charcoal.glb", "res://art/props-3d/props/maze/retro_computer_tower_teal.glb", "res://art/props-3d/props/maze/retro_computer_tower_burgundy.glb"],
+	"retroComputerDesktop": ["res://art/props-3d/props/maze/retro_computer_desktop_ivory.glb", "res://art/props-3d/props/maze/retro_computer_desktop_charcoal.glb", "res://art/props-3d/props/maze/retro_computer_desktop_teal.glb", "res://art/props-3d/props/maze/retro_computer_desktop_burgundy.glb"],
+	"retroComputerTerminal": ["res://art/props-3d/props/maze/retro_computer_terminal_ivory.glb", "res://art/props-3d/props/maze/retro_computer_terminal_charcoal.glb", "res://art/props-3d/props/maze/retro_computer_terminal_teal.glb", "res://art/props-3d/props/maze/retro_computer_terminal_burgundy.glb"],
+	"diningTable": ["res://art/props-3d/props/mansion/grand_dining_table.glb"],
 	# FROZEN_MODELS_END
 }
 const FROZEN_THEMES := {
+	"woodenChair": ["oak", "walnut", "mahogany", "ash"],
+	"woodenChairCushion": ["oak", "walnut", "mahogany", "ash"],
+	"woodenTable": ["oak", "walnut", "mahogany", "ash"],
+	"woodenDresserSideboard": ["oak", "walnut", "mahogany", "ash"],
+	"retroComputerCompact": ["ivory", "charcoal", "teal", "burgundy"],
+	"retroComputerTower": ["ivory", "charcoal", "teal", "burgundy"],
+	"retroComputerDesktop": ["ivory", "charcoal", "teal", "burgundy"],
+	"retroComputerTerminal": ["ivory", "charcoal", "teal", "burgundy"],
 	# FROZEN_THEMES_END
 }
 
