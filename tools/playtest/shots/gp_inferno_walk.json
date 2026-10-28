@@ -1,0 +1,48 @@
+{
+ "name": "gp_inferno_walk",
+ "area": "inferno",
+ "seconds": 2.2,
+ "gameplay": true,
+ "dark": 0.0,
+ "world_dim": 1.0,
+ "torch_energy": 0,
+ "min_run": 8.0,
+ "start": [
+  0.0,
+  0.0
+ ],
+ "face_at": [
+  6.0,
+  0.0,
+  1.2
+ ],
+ "actors": {},
+ "camera": [],
+ "flashlight": [],
+ "inputs": [
+  {
+   "t": 0.0,
+   "until": 2.2,
+   "move": [
+    0.0,
+    0.45
+   ]
+  }
+ ],
+ "events": [],
+ "expects": [
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 1.0,
+   "label": "walk",
+   "player_moving": 0.8
+  }
+ ],
+ "near_node": {
+  "name": "Lava",
+  "distance": 5.0
+ }
+}

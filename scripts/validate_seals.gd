@@ -23,6 +23,8 @@ func _expect(condition: bool, message: String) -> void:
 func run(host: Node) -> int:
 	for seed_text in SEEDS:
 		_check_seed(seed_text)
+	for seed_text in SEEDS:
+		_check_sewer_seed(seed_text)
 	_check_breach_api()
 	await _live(host)
 	return _failures
@@ -61,6 +63,74 @@ func _check_seed(seed_text: String) -> void:
 	_expect(far_avg >= near_avg, "%s: seals do not thicken going out (%.2f near, %.2f far)" % [seed_text, near_avg, far_avg])
 	_expect(float(stats["far_open"]) / maxf(1.0, float(stats["far_chunks"])) <= float(stats["near_open"]) / maxf(1.0, float(stats["near_chunks"])) + .02,
 		"%s: open share does not shrink going out" % seed_text)
+
+
+## The sewer levels (-1, -2): a gate across the branch of some utility rooms; each shuts its room in, the junction stays
+## connected to the rest, a relay waits on open ground, and the plan is the same from a second generator.
+func _check_sewer_seed(seed_text: String) -> void:
+	var generator := StreamedRouteGenerator.new(seed_text)
+	var other := StreamedRouteGenerator.new(seed_text)
+	var seals := 0
+	var chunks := 0
+	var sealed_relays := 0
+	for level in [StreamedRouteGenerator.SEWER_LEVEL, StreamedRouteGenerator.LOWER_SEWER_LEVEL]:
+		for cz in range(-3, 4):
+			for cx in range(-3, 4):
+				var coord := Vector3i(cx, level, cz)
+				if not generator.is_chunk_allowed(coord):
+					continue
+				chunks += 1
+				var data := generator.chunk(coord)
+				var specs: Array = data.get("breakables", []).filter(
+						func(spec: Dictionary) -> bool: return String(spec["kind"]) == Breach.KIND_SEAL)
+				_expect(JSON.stringify(_ids(specs)) == JSON.stringify(_ids(other.chunk(coord).get("breakables", []).filter(
+						func(spec: Dictionary) -> bool: return String(spec["kind"]) == Breach.KIND_SEAL))),
+					"%s %s: sewer seal plan differs between two generators" % [seed_text, coord])
+				var grid: Array = data["grid"]
+				var sealed := {}
+				for cell in data.get("sealed_cells", []):
+					sealed[cell] = true
+				_expect(specs.is_empty() == sealed.is_empty(), "%s %s: sewer seals and sealed cells disagree" % [seed_text, coord])
+				var gate_cells := {}
+				for spec in specs:
+					seals += 1
+					var extras: Dictionary = spec["extras"]
+					_expect(String(spec["id"]).begins_with("BRK:%d:%d:%d:" % [coord.x, coord.y, coord.z]), "%s: sewer seal id %s" % [coord, spec["id"]])
+					_expect(String(spec["variant"]) in ["sluiceGate", "lockedMaintenanceDoor", "brickedUpWall"],
+						"%s: sewer seal variant %s" % [coord, spec["variant"]])
+					_expect(not (spec["tools"] as Array).is_empty(), "%s: sewer seal opens with no tool" % coord)
+					for cell in extras["cells"]:
+						gate_cells[cell] = true
+						_expect(int(grid[cell.y][cell.x]) == 0, "%s: sewer gate cell %s is not floor" % [coord, cell])
+				# the junction reaches everything that is not sealed or gate: flood with the gates closed
+				var middle := Vector2i(StreamedRouteGenerator.CHUNK_SIZE / 2 - 6, StreamedRouteGenerator.CHUNK_SIZE / 2 - 6)
+				var seen := {middle: true}
+				var queue: Array[Vector2i] = [middle]
+				while not queue.is_empty():
+					var cur: Vector2i = queue.pop_back()
+					for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+						var n: Vector2i = cur + d
+						if n.x < 0 or n.y < 0 or n.x >= StreamedRouteGenerator.CHUNK_SIZE or n.y >= StreamedRouteGenerator.CHUNK_SIZE \
+								or seen.has(n) or gate_cells.has(n) or int(grid[n.y][n.x]) != 0:
+							continue
+						seen[n] = true
+						queue.append(n)
+				for cell in sealed:
+					_expect(not seen.has(cell), "%s: sealed sewer cell %s is reachable with the gates closed" % [coord, cell])
+				var open_relay := false
+				for pickup in data["pickups"]:
+					var at: Vector2i = pickup["cell"]
+					if String(pickup["kind"]) == "relay":
+						if sealed.has(at):
+							sealed_relays += 1
+						else:
+							open_relay = true
+					if not sealed.has(at):
+						_expect(seen.has(at) or gate_cells.has(at) == false, "%s: open pickup %s unreachable" % [coord, pickup["id"]])
+				if not specs.is_empty():
+					_expect(open_relay, "%s: no relay on open ground with the sewer seals closed" % coord)
+	_expect(seals >= chunks / 4, "%s: only %d sewer seals over %d chunks" % [seed_text, seals, chunks])
+	_expect(sealed_relays > 0, "%s: no sewer relay ever sits behind a seal" % seed_text)
 
 
 func _ids(specs: Array) -> Array:

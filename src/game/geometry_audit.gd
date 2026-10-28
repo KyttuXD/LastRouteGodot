@@ -591,8 +591,8 @@ static func audit_sewer_chunk(data: Dictionary, seed_text: String, out: Array) -
 		var type := String(prop.get("type", ""))
 		if type == "sewerLamp":
 			lamps[cell] = prop
-		# explicit allowance: a crawl-under pipe is a deliberate low obstacle (validated by the sewer_crawl suite)
-		if bool(prop.get("solid", false)) and not bool(prop.get("crawl_under", false)):
+		# explicit allowance: a crawl-under pipe or an outflow main is a deliberate low obstacle (validated by the sewer_crawl suite)
+		if bool(prop.get("solid", false)) and not bool(prop.get("crawl_under", false)) and not bool(prop.get("outflow", false)):
 			var in_room := false
 			for room in rooms:
 				if (room["rect"] as Rect2i).has_point(cell):

@@ -43,7 +43,7 @@ func attach(body_model: Node3D, body_visual: Node3D, player: AnimationPlayer) ->
 	_arm_rest.clear()
 	if model == null:
 		return
-	for bone_name in ["L-Arm", "L-Forearm", "L-Hand", "R-Arm", "R-Forearm", "R-Hand"]:
+	for bone_name in ["L-Arm", "L-Forearm", "L-Hand", "R-Arm", "R-Forearm", "R-Hand", "L-Thigh", "R-Thigh"]:
 		var bone := model.find_child(bone_name, true, false) as Node3D
 		if bone != null:
 			_arm_rest[bone] = bone.transform
@@ -135,16 +135,29 @@ func pose(feet: Vector3, basis: Basis, clip: String) -> void:
 			(bone as Node3D).transform = _arm_rest[bone]
 
 
-## Where the model's eyes are: the camera goes exactly here.
+## Where the camera goes (KT): in front of the head, on the plane where the head box ends (its face) plus FACE_GAP, at the
+## eyes' height, along the head's own facing. The eye attachments sit a little inside the head box, so a camera there would
+## look out through the face from inside; this is just past it. The head is still kept off the first-person layer, as a
+## backup.
+const FACE_GAP := .015
+
+
 func eye() -> Vector3:
 	if model == null:
 		return global_position + Vector3.UP * 1.35
+	var head := model.find_child("Head", true, false) as Node3D
 	var left := model.find_child("L-Eye-Attachment", true, false) as Node3D
 	var right := model.find_child("R-Eye-Attachment", true, false) as Node3D
+	if head == null:
+		return model.global_position + Vector3.UP * 1.35
+	var eye_local := Vector3(0.0, .19, -.22)
 	if left != null and right != null:
-		return (left.global_position + right.global_position) * .5
-	var head := model.find_child("Head", true, false) as Node3D
-	return head.global_position + head.global_basis.y.normalized() * .17 if head != null else model.global_position
+		eye_local = head.global_transform.affine_inverse() * ((left.global_position + right.global_position) * .5)
+	var front := eye_local.z
+	if head is MeshInstance3D and (head as MeshInstance3D).mesh != null:
+		front = (head as MeshInstance3D).mesh.get_aabb().position.z   # the face of the head box (the head faces -Z)
+	var on_face := head.global_transform * Vector3(0.0, eye_local.y, front)
+	return on_face - head.global_basis.z.normalized() * FACE_GAP
 
 
 func _process(_delta: float) -> void:

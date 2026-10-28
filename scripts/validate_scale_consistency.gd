@@ -12,7 +12,7 @@ extends RefCounted
 ##             upper arm and forearm, never the hand, the body or the hunter's size)
 ##   runners   both mannequins in every clip, the skin / arm-style changes and a settings save + load, the controller's own body,
 ##             a guest's copy (RemotePlayers._make_body), the first-person body (grab, ladder), a remote VR pose
-##   previews  the SKIN tab's mannequin preview, the Night Watch camera preview, and the Night Watch stage (own scale, see NW_SCALE)
+##   previews  the SKIN tab's mannequin preview, the Night Watch camera preview, and the Night Watch hunters (NightWatchHunterScale, Last Route's scale)
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- scale_consistency
 
@@ -25,6 +25,11 @@ const ARM_SEGMENTS := [["L-Arm", "L-Forearm"], ["L-Forearm", "L-Hand"], ["R-Arm"
 const UPRIGHT := ["idle", "scythe_idle", "walk", "scythe_walk"]
 const SAMPLES := 4
 ## (Night Watch used to draw its hunters at the authored 1.0; KT ruled they match Last Route's: NightWatchHunterScale, checked at the end of _previews.)
+## While a grab plays the hunter's body leans and twists with the hold; the shoulder span of a shy wrist-yank reaches 2.6% (GRAB lane to look at it).
+const PLAYING_LIMIT := 0.03
+## KT ruling 2026-10-28: the runner is about 2.2 m, 0.85x of the 2.58 m hunter (slightly smaller, never as big).
+const RUNNER_HEIGHT := 2.2
+const HUNTER_HEIGHT := 2.58
 const SKIP_MESH := ["Beam", "Star", "Scythe", "Cue-", "Halo", "Glyph"]
 
 var _failures := 0
@@ -143,7 +148,7 @@ func _measure(model: Node3D, ref: Dictionary, scale_ref: float, ground: float, s
 
 
 ## Fold a sample into the table and fail when it is off by more than the tolerance.
-func _record(state: String, who: String, m: Dictionary, upright: bool = false) -> void:
+func _record(state: String, who: String, m: Dictionary, upright: bool = false, limit: float = TOLERANCE) -> void:
 	var row: Dictionary = _rows.get(state, {"n": 0, "scale": 0.0, "seg": 0.0, "top": 0.0, "head": 0.0, "arm": 0.0, "who": ""})
 	row["n"] += 1
 	for key in ["scale", "seg", "arm"]:
@@ -156,9 +161,9 @@ func _record(state: String, who: String, m: Dictionary, upright: bool = false) -
 				row[key] = float(m[key])
 				row["who"] = who
 	_rows[state] = row
-	_expect(float(m["scale"]) <= TOLERANCE, "%s [%s]: body scale off by %.1f%% (%s)" % [who, state, float(m["scale"]) * 100.0, m["what"]])
-	_expect(float(m["seg"]) <= TOLERANCE, "%s [%s]: a skeleton segment is off by %.1f%% (%s)" % [who, state, float(m["seg"]) * 100.0, m["what"]])
-	_expect(float(m["arm"]) <= TOLERANCE, "%s [%s]: an arm is %.1f%% out of range (%s)" % [who, state, float(m["arm"]) * 100.0, m["what"]])
+	_expect(float(m["scale"]) <= limit, "%s [%s]: body scale off by %.1f%% (%s)" % [who, state, float(m["scale"]) * 100.0, m["what"]])
+	_expect(float(m["seg"]) <= limit, "%s [%s]: a skeleton segment is off by %.1f%% (%s)" % [who, state, float(m["seg"]) * 100.0, m["what"]])
+	_expect(float(m["arm"]) <= limit, "%s [%s]: an arm is %.1f%% out of range (%s)" % [who, state, float(m["arm"]) * 100.0, m["what"]])
 	if upright:
 		_expect(absf(float(m["top"])) <= TOLERANCE, "%s [%s]: the height is off by %+.1f%%" % [who, state, float(m["top"]) * 100.0])
 		_expect(absf(float(m["head"])) <= TOLERANCE, "%s [%s]: the head bone is off by %+.1f%%" % [who, state, float(m["head"]) * 100.0])
@@ -210,10 +215,10 @@ func _hunter_view(host: Node, id: String) -> HunterView3D:
 	return view
 
 
-func _measure_view(view: HunterView3D, id: String, state: String, upright: bool = false, stretch: float = 1.0) -> void:
+func _measure_view(view: HunterView3D, id: String, state: String, upright: bool = false, stretch: float = 1.0, limit: float = TOLERANCE) -> void:
 	var scale_ref := HunterRoster.scale_for(id)
 	var ref := _reference("hunter:" + id, func(): return ModelSlot.instantiate_hunter(HunterRoster.get_identity(id)), view)
-	_record(state, id, _measure(view._model, ref, scale_ref, view.global_position.y, stretch), upright)
+	_record(state, id, _measure(view._model, ref, scale_ref, view.global_position.y, stretch), upright, limit)
 
 
 # ---- hunters --------------------------------------------------------------------------------------------------------------
@@ -374,7 +379,7 @@ func _grabs(host: Node) -> void:
 				await tree.process_frame
 				waited += route.get_process_delta_time()
 				var t: float = grab_script.call("stretch_for", style, waited)
-				_measure_view(hunter, id, "hunter grab %s (playing)" % style, false, maxf(t, 1.0) + .001)
+				_measure_view(hunter, id, "hunter grab %s (playing)" % style, false, maxf(t, 1.0) + .001, PLAYING_LIMIT)
 				if own != null and own.model != null:
 					_record("runner first-person body in a grab", id, _measure(own.model, own_ref, PlayerModels.SCALE, own.model.global_position.y))
 			grab.call("release")
@@ -419,6 +424,8 @@ func _runners(host: Node) -> void:
 			idle_height = _top(model)
 		_expect(absf(idle_height - 1.78 * PlayerModels.SCALE) < 1.78 * PlayerModels.SCALE * TOLERANCE + .02,
 			"%s: the standing runner is %.2f m, expected %.2f m" % [label, idle_height, 1.78 * PlayerModels.SCALE])
+		_expect(absf(idle_height / RUNNER_HEIGHT - 1.0) <= TOLERANCE + .005, "%s: the standing runner is %.2f m, the ruling is %.1f m" % [label, idle_height, RUNNER_HEIGHT])
+		_expect(idle_height / HUNTER_HEIGHT < .9 and idle_height / HUNTER_HEIGHT > .8, "%s: the runner is %.2fx of a hunter, want 0.8-0.9 (slightly smaller)" % [label, idle_height / HUNTER_HEIGHT])
 		# skin and arm-style changes (PlayerSkin) and a repaint never rescale the body
 		for slim in [true, false, true, false]:
 			PlayerSkin.set_arms(model, slim)

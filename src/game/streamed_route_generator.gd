@@ -110,6 +110,8 @@ const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(
 	Vector2i(11, 13), Vector2i(13, 11), Vector2i(13, 13), Vector2i(15, 15)]
 ## Every runner starts with a flashlight, so it is not a world pickup (batteries recharge it).
 const PICKUP_TYPES := ["taser", "lockpick", "crowbar", "rescue_axe"]
+## How often each world tool turns up (KT: the Axe is rarer; it is the one tool that breaks the sewer's pipes).
+const PICKUP_WEIGHTS := {"taser": 0.3, "lockpick": 0.3, "crowbar": 0.3, "rescue_axe": 0.1}
 const BACKPACK_TYPES := ["backpack_small", "backpack_medium", "backpack_large"]
 ## Read REGION_PROP_SETS, not this: ContentRegistry.DATA regions take their prop_set from res://data/regions.
 const _CODE_REGION_PROP_SETS := {
@@ -4854,7 +4856,7 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 		kind_indices[kind] = index + 1
 		var item := ""
 		if kind == "tool":
-			item = PICKUP_TYPES[rng.next_index(PICKUP_TYPES.size())]
+			item = pick_tool(rng)
 		elif kind == "backpack":
 			var depth_rank := clampi(1 + floori(maxf(0.0, -float(coord.y)) / 4.0), 1, 3)
 			var rolled_rank := clampi(1 + rng.next_index(depth_rank), 1, 3)
@@ -4903,6 +4905,16 @@ func _music_boxes(coord: Vector3i, grid: Array, stairs: Array, safe: bool, regio
 		return []
 	var rng := SeededRandom.new("%s:MUSICBOX-CELL:%s" % [world_seed, chunk_id(coord)])
 	return [{"id": "%s:music_box" % chunk_id(coord), "cell": candidates[rng.next_index(candidates.size())]}]
+
+
+## One world tool by PICKUP_WEIGHTS (one roll of the chunk's stream, like the old even pick).
+static func pick_tool(rng: SeededRandom) -> String:
+	var roll := rng.next_float()
+	for type in PICKUP_TYPES:
+		roll -= float(PICKUP_WEIGHTS[type])
+		if roll < 0.0:
+			return type
+	return PICKUP_TYPES[0]
 
 
 static func _exclude_neighbourhood(excluded: Dictionary, cell: Vector2i,

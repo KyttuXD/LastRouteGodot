@@ -27,7 +27,11 @@ Exit code: `0` pass, `1` thresholds failed, `2` could not run (no bot for the ga
 
 ## Runner options
 `--game --scenario --seed --difficulty --minutes` (game minutes) `--bot-seed --name --out --target --hunters --screenshots --passive --hash-frames`
-and thresholds `--max-stuck=3 --max-soft-locks=0 --max-errors=0 --max-unreachable=6 --min-fps=0`.
+and thresholds `--max-stuck=3 --max-soft-locks=0 --max-errors=0 --max-unreachable=6 --min-fps=0 --max-pitch-median-deg=15`.
+`--observe-every=N` builds the bot's observation every Nth physics tick (default 1; `soak` 3): a full observation every tick
+costs more than the game itself on old machines, so the fps of a run at 1 is not a player's fps.
+Bot scenarios run with the master bus muted (`--mute=false` keeps the sound; `flythrough`/`sequence` keep it unless `--mute`).
+Bot scenarios keep the mouse uncaptured (the look stick aims), so someone using the machine cannot turn the bot's view.
 
 | scenario | what it does |
 |---|---|
@@ -38,12 +42,13 @@ and thresholds `--max-stuck=3 --max-soft-locks=0 --max-errors=0 --max-unreachabl
 | `menu_tour` | hub -> Last Route menu -> every safe button -> solo lobby -> a real route -> leave -> back to games -> hub; fails on engine errors, a lost way back, a scene that never loads |
 | `death_scene_tour` | summons each hunter (`--hunters=a,b` or all A-Z + Void) next to a passive bot and records who killed, how fast, and the death line; fails on a missing line or an engine error; hunters that never kill (non-lethal by design) are listed, not failed |
 | `coop_bot` | one client of a bot party (`--role=host|guest --dir=<shared> --guests=N`), driven by `scripts/playtest_multi.sh`; reports peers/remote bodies seen |
+| `soak` | a long run for leak hunting (PerfLog measures). Plays like `survive` and on timers: changes level along 0, +1, -1, -2, -3 through real level links, put at each link's far end because the bot does not climb (`--level-every=150`, or `--hop-every=20` for quick hops). Every `--save-every=600` it saves into a scratch save folder with cloud off, leaves to the menu and CONTINUEs. Every `--pause-every=60` it opens the pause menu and flips the graphics quality and back. Every `--seam-every=90` it sprints across a chunk seam. It winds music boxes within 2.5 m, and `--hunters=all|N|ids` re-summons hunters after every restart. Stuck/unreachable limits scale with `--minutes`; fails when a save/load does not resume |
 | `probe` | teleports to `--probe-x/--probe-z` (`--probe-y` for another level, e.g. `-3.96` in the sewer), takes 4 screenshots turning 90 degrees (windowed), optionally presses interact on the nearest `--probe-interact=ROOM_DOOR`; for looking at a stuck spot a bot found |
 
 ## Reports (`.playtest/<name>/`)
 `report.json`, `report.md`, `events.jsonl`: outcome, game time, deaths (hunter + cause), relays, depth, chunk coverage, **stuck spots** (one per
 spot within 3 m, with a repeat `count`, the focused interactable and the nearest ones), **soft-locks** (stuck > 12 s), **unreachable goals**
-(nav found no path), **door failures**, engine **errors/warnings** from the log, fps p5/avg and frame-time p95/max, sampled online peers. The swarm
+(nav found no path), **door failures**, the camera **pitch median** (fails beyond `--max-pitch-median-deg`: a bot that stares at the floor draws a different game), engine **errors/warnings** from the log, fps p5/avg and frame-time p95/max, sampled online peers. The swarm
 writes `.playtest-results/<stamp>/summary.md` (+ `summary.json`) with a table per seed and the distinct problems across seeds.
 
 ## Protocol (agents)

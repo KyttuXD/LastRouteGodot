@@ -25,6 +25,10 @@ var room_doors := {}
 var room_lights := {}
 ## Breakables (Breach, docs/BREACH.md): spec id -> {hp, opened}, only things somebody has hit. Untouched ones are at their spec hp.
 var breaches := {}
+## Floods from burst sewer pipes (SewerFloods): breakable id -> the unix time on THIS machine the pipe burst. A snapshot
+## carries the seconds since, and the receiver re-bases them to its own clock (like the carousels), so every machine's
+## water rises and drains together and a reloaded run carries on mid-flood.
+var floods := {}
 ## One waypoint per player (WaypointState); never a shared list.
 var waypoints := WaypointState.new()
 var disabled_hiding := {}
@@ -417,12 +421,36 @@ func snapshot() -> Dictionary:
 		"room_doors": room_doors.duplicate(true),
 		"room_lights": room_lights.duplicate(true),
 		"breaches": breaches.duplicate(true),
+		"floods": _flood_snapshot(Time.get_unix_time_from_system()),
 		"booth_ready_at": booth_ready_at.duplicate(true),
 		"carousels": _carousel_snapshot(Time.get_unix_time_from_system()),
 	}
 
 
 ## The rides with their angle at `now`.
+## A burst pipe's flood starts (once; a replayed event keeps the first time). Returns whether it is new.
+func start_flood(id: String) -> bool:
+	if id.is_empty() or floods.has(id):
+		return false
+	floods[id] = Time.get_unix_time_from_system()
+	return true
+
+
+## Seconds since a pipe burst, or -1 when it has not.
+func flood_age(id: String) -> float:
+	return Time.get_unix_time_from_system() - float(floods[id]) if floods.has(id) else -1.0
+
+
+## Floods with the seconds since each began (spent ones, fully drained, are left out).
+func _flood_snapshot(now: float) -> Dictionary:
+	var out := {}
+	for id in floods:
+		var age := now - float(floods[id])
+		if age < SewerFloods.DURATION:
+			out[id] = age
+	return out
+
+
 func _carousel_snapshot(now: float) -> Dictionary:
 	var out := {}
 	for id in carousels:
@@ -467,6 +495,12 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	room_lights = (lights as Dictionary).duplicate(true) if lights is Dictionary else {}
 	var broken = snapshot_data.get("breaches", {})
 	breaches = (broken as Dictionary).duplicate(true) if broken is Dictionary else {}
+	floods.clear()
+	var flood_ages = snapshot_data.get("floods", {})
+	if flood_ages is Dictionary:
+		var flood_now := Time.get_unix_time_from_system()
+		for flood_id in (flood_ages as Dictionary):
+			floods[String(flood_id)] = flood_now - float((flood_ages as Dictionary)[flood_id])
 	var booths = snapshot_data.get("booth_ready_at", {})
 	booth_ready_at = (booths as Dictionary).duplicate(true) if booths is Dictionary else {}
 	carousels = {}
