@@ -89,3 +89,30 @@ The `seating` suite covers:
   seats, sitting, a far quiet runner not getting her up, and a noise or a sighting getting her up.
 
 `rest_and_sleep` checks the runner's seated eye against each seat's measured pan.
+
+## Prompt hitboxes, every interactable (KT: "fix prompt hitboxes for other props too", "make the reach closer")
+
+- **Aim test:** a prompt shows only when the aim ray (the camera, or the controller ray in XR) hits the interactable's
+  aim box within its kind's reach (`RouteInteractable3D.aim_box`, `AIM_REACH`). The box hugs the interactive part:
+  - a door's leaf and frame;
+  - the switch plate;
+  - the pickup itself, with 16 cm of slack for small items;
+  - a seat's own cushion (one per sit point);
+  - a bed's mattress, and a locker or wardrobe body.
+  Everything else gets an 8 cm margin.
+- **Nearest wins:** when several boxes are on the ray, the nearest hit wins. Interactables with no known shape keep
+  the old aim cone, but inside the same reach.
+- **No prompt through walls:** the line-of-sight ray to the hit point must reach the interactable.
+- **Reach,** measured from the eye along the ray (the runner's eye is at 1.44 m):
+
+  | Interactable | Reach |
+  | --- | --- |
+  | doors and light switches | 1.4 m |
+  | boards and vents | 1.5 m |
+  | hiding spots, lift, safe zone, heater, music box | 1.6 m |
+  | relays, batteries, coins, tools | 1.7 m |
+  | furniture | 1.8 m |
+
+- **Check:** the `interact_aim` suite runs each sampled kind (door, switch, battery, relay, vent, tool, seat, locker,
+  wardrobe) through its real setup. For each one it aims at the part inside its reach, then from past the reach,
+  0.2 m beside it, through a wall, and at two side by side.

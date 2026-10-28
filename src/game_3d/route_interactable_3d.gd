@@ -278,27 +278,67 @@ func interaction_focus() -> Vector3:
 	return global_transform * _interaction_focus_local
 
 
-## Hiding spots are aimed at, not just looked toward (KT: "locker instruction hitbox too big"): the prompt needs the aim
-## ray to hit this local box (the prop itself plus AIM_BOX_MARGIN) within PlayerController3D.HIDE_AIM_REACH.
+## Every interactable is aimed at, not just looked toward (KT: "locker instruction hitbox too big", "fix prompt hitboxes
+## for other props too", "make the reach closer"): the prompt needs the aim ray to hit this local box (the interactive
+## part plus AIM_BOX_MARGIN) within its kind's AIM_REACH, measured from the eye along the ray. Nearest hit wins.
 const AIM_BOX_MARGIN := .08
+## Small things (a battery, a coin, a tool on the floor) get a little more slack so they are not fiddly.
+const SMALL_AIM_MARGIN := .16
+## Reach along the aim ray, metres, per kind (the runner is 1.60 m, eye 1.44): wall controls and doors close
+## (you stand at the doorway and reach the handle), furniture and hiding props a step further.
+const AIM_REACH := {
+	Kind.ROOM_DOOR: 1.4, Kind.LIGHT_SWITCH: 1.4, Kind.BOARDED_PATH: 1.5, Kind.VENT: 1.5,
+	Kind.HIDING_SPOT: 1.6, Kind.LIFT: 1.6, Kind.SAFE_ZONE: 1.6, Kind.HEATER_STATION: 1.6, Kind.MUSIC_BOX: 1.6,
+	Kind.RELAY: 1.7, Kind.BATTERY: 1.7, Kind.COIN: 1.7, Kind.TOOL_PICKUP: 1.7,
+	Kind.FURNITURE: 1.8,
+}
+const DEFAULT_AIM_REACH := 1.6
+
+var _aim_box_cache := AABB()
+var _aim_box_cached := false
 
 
 func has_aim_box() -> bool:
-	return kind == Kind.HIDING_SPOT
+	return aim_box().size != Vector3.ZERO
 
 
+func aim_reach() -> float:
+	return float(AIM_REACH.get(kind, DEFAULT_AIM_REACH))
+
+
+## The interactive part in this node's frame, cached once it is known (a door's box is its closed leaf and frame).
 func aim_box() -> AABB:
-	if _visual != null:
+	if _aim_box_cached:
+		return _aim_box_cache
+	var box := _compute_aim_box()
+	if box.size != Vector3.ZERO and is_inside_tree():
+		_aim_box_cache = box
+		_aim_box_cached = true
+	return box
+
+
+func _compute_aim_box() -> AABB:
+	if kind == Kind.FURNITURE and has_meta("rest_size"):
+		# a seat's own cushion (one sit point of a bench), a bed's mattress, a booth or a mirror's footprint
+		var size: Vector3 = get_meta("rest_size")
+		var floor_y := -(.48 if furniture_action == "lay" else .03)    # the view seats it this far above the floor
+		var top := float(get_meta("seat_top", 0.0)) + .25 if has_meta("seat_top") \
+			else (float(get_meta("rest_top", 0.0)) + .2 if has_meta("rest_top") else size.y)
+		return AABB(Vector3(-size.x * .5, floor_y, -size.z * .5), Vector3(size.x, maxf(top, .3), size.z)).grow(AIM_BOX_MARGIN)
+	if _visual != null and is_instance_valid(_visual):
 		var boxes: Array[AABB] = []
 		_collect_mesh_bounds(_visual, boxes)
 		if not boxes.is_empty():
 			var combined := boxes[0]
 			for i in range(1, boxes.size()):
 				combined = combined.merge(boxes[i])
-			return combined.grow(AIM_BOX_MARGIN)
-	# furniture hiding spots (bed, wardrobe): the placed prop's footprint and height
-	var height := maxf(hide_size.y, .5)
-	return AABB(Vector3(-hide_size.x * .5, 0.0, -hide_size.z * .5), Vector3(hide_size.x, height, hide_size.z)).grow(AIM_BOX_MARGIN)
+			var small := kind in [Kind.BATTERY, Kind.COIN, Kind.TOOL_PICKUP] or combined.size.length() < .6
+			return combined.grow(SMALL_AIM_MARGIN if small else AIM_BOX_MARGIN)
+	if kind == Kind.HIDING_SPOT:
+		# furniture hiding spots (bed, wardrobe): the placed prop's footprint and height
+		var height := maxf(hide_size.y, .5)
+		return AABB(Vector3(-hide_size.x * .5, 0.0, -hide_size.z * .5), Vector3(hide_size.x, height, hide_size.z)).grow(AIM_BOX_MARGIN)
+	return AABB()
 
 
 ## Distance along the ray (world origin, unit direction) to where it enters the aim box, or -1 for a miss.
