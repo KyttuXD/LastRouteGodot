@@ -175,6 +175,20 @@ func accounts_available() -> bool:
 	)
 
 
+const OFFLINE_JOIN_MESSAGE := "OFFLINE MODE // GO ONLINE TO JOIN ROOMS"
+
+
+## Leaves offline mode without a restart (the menu's GO ONLINE): clears the flag, re-runs the health check and, when a login is
+## stored, the account session check. The caller re-runs UpdateManager.check() and whatever lookup it was waiting on.
+func go_online() -> void:
+	offline_mode = false
+	check_health()
+	if not account_session_token.is_empty() and accounts_available() and not account_busy:
+		_send_account("session", "/api/account/session", {
+			"sessionToken": account_session_token,
+		})
+
+
 func enable_offline_mode() -> void:
 	offline_mode = true
 	_heartbeat.stop()
@@ -935,6 +949,9 @@ func unregister_room() -> void:
 
 func resolve_room(code: String) -> void:
 	var clean := code.strip_edges().to_upper()
+	if offline_mode:
+		room_resolved.emit(clean, {}, OFFLINE_JOIN_MESSAGE)
+		return
 	if not configured():
 		room_resolved.emit(clean, {}, "ROOM DIRECTORY IS NOT CONFIGURED")
 		return

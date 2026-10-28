@@ -60,7 +60,64 @@ func _check_guest_leaves_to_menu(host: Node) -> void:
 	_expect(state_source.count("_close_failed_connection(HOST_LEFT_NOTICE, true)") == 2, "a lost or timed-out host does not send guests to the main menu")
 
 
+## Offline mode: a clear join message, GO ONLINE (menu + join dialog) without a restart, an OFFLINE badge, and a boot that retries the
+## server a few times before it gives up and starts offline.
+func _check_offline_mode(host: Node) -> void:
+	Backend.suppress_requests_for_tests()
+	var offline_before := Backend.offline_mode
+	var update_offline_before := UpdateManager.offline_mode
+	Backend.offline_mode = true
+	var result := []
+	var capture := func(_code: String, _endpoint: Dictionary, error: String) -> void: result.append(error)
+	Backend.room_resolved.connect(capture)
+	Backend.resolve_room("abc12")
+	Backend.room_resolved.disconnect(capture)
+	_expect(result == ["OFFLINE MODE // GO ONLINE TO JOIN ROOMS"], "an offline join lookup says %s" % [result])
+
+	var menu := (load("res://scenes/main_menu.tscn") as PackedScene).instantiate()
+	host.add_child(menu)
+	await host.get_tree().process_frame
+	var badge := menu.find_child("OfflineBadge", true, false) as Label
+	var go_button := menu.find_child("GoOnlineButton", true, false) as Button
+	_expect(badge != null and badge.visible and badge.text == "OFFLINE", "the main menu shows no OFFLINE badge while offline")
+	_expect(go_button != null and go_button.visible, "the main menu shows no GO ONLINE button while offline")
+	menu.call("_on_join_pressed")
+	await host.get_tree().process_frame
+	(menu.find_child("RoomCodeInput", true, false) as LineEdit).text = RoomState._make_code()
+	menu.call("_submit_join")
+	var status := menu.find_child("JoinStatus", true, false) as Label
+	var dialog_go := menu.find_child("JoinGoOnline", true, false) as Button
+	_expect(status != null and status.text == Backend.OFFLINE_JOIN_MESSAGE, "the join dialog does not explain offline mode")
+	_expect(dialog_go != null and dialog_go.visible, "the join dialog has no GO ONLINE button while offline")
+	dialog_go.pressed.emit()
+	await host.get_tree().process_frame
+	_expect(not Backend.offline_mode and not UpdateManager.offline_mode, "GO ONLINE did not leave offline mode")
+	_expect(not go_button.visible and not badge.visible, "the offline badge and GO ONLINE stay up after going online")
+	menu.queue_free()
+	await host.get_tree().process_frame
+
+	# the boot sequence retries the server before falling back
+	var boot := (load("res://scenes/boot_loading.tscn") as PackedScene).instantiate()
+	boot.set("auto_start", false)
+	host.add_child(boot)
+	await host.get_tree().process_frame
+	for attempt in 3:
+		boot.call("_on_update_check_finished", false, false)
+		_expect(not UpdateManager.offline_mode and not bool(boot.get("_may_open_menu")),
+			"the boot went offline after only %d failed check(s)" % (attempt + 1))
+		_expect(String((boot.get("_status") as Label).text).contains("RETRYING (%d/3)" % (attempt + 1)),
+			"the boot does not say it is retrying (%s)" % (boot.get("_status") as Label).text)
+	boot.call("_on_update_check_finished", false, false)
+	_expect(UpdateManager.offline_mode and Backend.offline_mode and bool(boot.get("_may_open_menu")),
+		"the boot did not fall back to offline mode after its retries")
+	boot.queue_free()
+	await host.get_tree().process_frame
+	Backend.offline_mode = offline_before
+	UpdateManager.offline_mode = update_offline_before
+
+
 func run(host: Node) -> int:
+	await _check_offline_mode(host)
 	await _check_guest_leaves_to_menu(host)
 	_expect(Backend.PRIMARY_BASE_URL == "http://lastroute.kyttuslab.org:8105",
 		"the built-in room directory is %s" % Backend.PRIMARY_BASE_URL)

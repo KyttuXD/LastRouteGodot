@@ -249,6 +249,14 @@ func check() -> void:
 		_finish_check(false, false, "UPDATE CHECK UNAVAILABLE")
 
 
+## Back online after GO ONLINE: clear the flag, restart the periodic re-check (if the run never had one) and check now.
+func go_online() -> void:
+	offline_mode = false
+	if _recheck_timer != null:
+		_recheck_timer.start()
+	check()
+
+
 func enable_offline_mode() -> void:
 	offline_mode = true
 	if _recheck_timer != null:

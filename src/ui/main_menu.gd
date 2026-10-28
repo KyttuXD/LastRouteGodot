@@ -45,6 +45,7 @@ func _ready() -> void:
 	_build_hint()
 	TestServerBadge.attach(self)
 	_build_public_button()
+	_build_offline_ui()
 	_build_continue_button()
 	if not RunSaves.changed.is_connected(_build_continue_button):
 		RunSaves.changed.connect(_build_continue_button)
@@ -267,12 +268,80 @@ func _on_create_health_checked(ok: bool, _message: String) -> void:
 	XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 
 
+## OFFLINE badge and GO ONLINE button while Backend.offline_mode is set (boot fell back, or PLAY OFFLINE / --offline).
+func _build_offline_ui() -> void:
+	var box := get_node_or_null("ButtonPanel/ButtonBox") as Container
+	if box == null or box.has_node("GoOnlineButton"):
+		return
+	var button := Button.new()
+	button.name = "GoOnlineButton"
+	button.text = "GO ONLINE"
+	button.focus_mode = Control.FOCUS_ALL
+	button.add_theme_font_size_override("font_size", 6)
+	Palette.style_button(button, true, true)
+	button.pressed.connect(go_online)
+	box.add_child(button)
+	box.move_child(button, mini(2, box.get_child_count() - 1))
+	var badge := Label.new()
+	badge.name = "OfflineBadge"
+	badge.text = "OFFLINE"
+	badge.add_theme_font_size_override("font_size", 7)
+	badge.add_theme_color_override("font_color", Palette.ON_AMBER)
+	var box_style := StyleBoxFlat.new()
+	box_style.bg_color = Palette.ALERT
+	box_style.content_margin_left = 4
+	box_style.content_margin_right = 4
+	badge.add_theme_stylebox_override("normal", box_style)
+	badge.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	badge.offset_left = 8.0
+	badge.offset_top = 8.0
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(badge)
+	_refresh_offline_ui()
+
+
+func _refresh_offline_ui() -> void:
+	var offline := Backend.offline_mode
+	var button := find_child("GoOnlineButton", true, false) as Button
+	var badge := find_child("OfflineBadge", true, false) as Label
+	if button != null:
+		button.visible = offline
+	if badge != null:
+		badge.visible = offline
+	if _public_button_ref() != null:
+		_public_button_ref().disabled = offline or not Backend.configured()
+
+
+func _public_button_ref() -> Button:
+	return find_child("PublicButton", true, false) as Button
+
+
+## No restart: leave offline mode, re-run the server, update and account checks, and retry a join lookup that was waiting.
+func go_online() -> void:
+	Backend.go_online()
+	UpdateManager.go_online()
+	_refresh_offline_ui()
+	_refresh_account_button()
+	RunSaves.cloud_sync()
+	var status: Label = null
+	if _modal != null:
+		status = _modal.find_child("JoinStatus", true, false) as Label
+	if status != null:
+		status.text = "GOING ONLINE..."
+		var go_button := _modal.find_child("JoinGoOnline", true, false) as Button
+		if go_button != null:
+			go_button.visible = false
+		if _join_input != null and RoomState.valid_room_code(_join_input.text.strip_edges().to_upper()):
+			_submit_join()
+
+
 func _on_offline_pressed() -> void:
 	# Explicitly bypasses health, directory, account, and periodic update traffic.
 	# It remains available when the online update gate is waiting so a local test
 	# does not depend on the Pterodactyl deployment matching the worktree.
 	Backend.enable_offline_mode()
 	UpdateManager.enable_offline_mode()
+	_refresh_offline_ui()
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	RoomState.status_message = "OFFLINE SOLO ROOM"
 	XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
@@ -307,6 +376,11 @@ func _on_join_pressed() -> void:
 	actions.alignment = BoxContainer.ALIGNMENT_END
 	actions.add_theme_constant_override("separation", 5)
 	content.add_child(actions)
+	var go_online_button := _modal_button("GO ONLINE", true)
+	go_online_button.name = "JoinGoOnline"
+	go_online_button.visible = Backend.offline_mode
+	go_online_button.pressed.connect(go_online)
+	actions.add_child(go_online_button)
 	var cancel := _modal_button("CANCEL", false)
 	cancel.pressed.connect(_close_modal)
 	actions.add_child(cancel)
@@ -328,6 +402,12 @@ func _submit_join() -> void:
 	if not RoomState.valid_room_code(code):
 		status.text = "ENTER A VALID FIVE-CHARACTER ROOM CODE"
 		return
+	if Backend.offline_mode:
+		status.text = Backend.OFFLINE_JOIN_MESSAGE
+		var go_button := _modal.find_child("JoinGoOnline", true, false) as Button
+		if go_button != null:
+			go_button.visible = true
+		return
 	status.text = "LOOKING UP ROOM %s..." % code
 	Backend.resolve_room(code)
 
@@ -336,6 +416,12 @@ func _on_room_resolved(code: String, endpoint: Dictionary, error: String) -> voi
 	if _modal == null or _join_input == null:
 		return
 	var status := _modal.find_child("JoinStatus", true, false) as Label
+	if error == Backend.OFFLINE_JOIN_MESSAGE:
+		status.text = error
+		var go_button := _modal.find_child("JoinGoOnline", true, false) as Button
+		if go_button != null:
+			go_button.visible = true
+		return
 	if not error.is_empty():
 		# a code that is well formed but not active: say why it may be missing
 		status.text = "ROOM %s NOT FOUND // IT MAY HAVE ENDED OR NOT STARTED YET" % code \
