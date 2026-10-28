@@ -1,0 +1,25 @@
+plugins {
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'org.kyttuslab.installer'
+    compileSdk 36
+    defaultConfig {
+        minSdk 24
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    // Godot's own Android library from the build template (-PgodotLib=<path to godot-lib.template_*.aar>).
+    compileOnly files(project.property('godotLib'))
+    implementation 'androidx.core:core:1.8.0'
+}

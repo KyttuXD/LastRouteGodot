@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Lets the game hand a downloaded update to Android's package installer; the user still confirms every install. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <application>
+        <!-- The APK is shared through Godot's own FileProvider (<package>.fileprovider, which covers the app's files). -->
+        <meta-data
+            android:name="org.godotengine.plugin.v2.KyttuInstaller"
+            android:value="org.kyttuslab.installer.KyttuInstaller" />
+    </application>
+</manifest>
