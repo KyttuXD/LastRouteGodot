@@ -123,12 +123,24 @@ func _ready() -> void:
 			_guest.visible = true
 			_guest.global_position = held_at + Vector3.UP * float(_packet[2])
 			_guest.global_basis = Basis.from_euler(Vector3(float(_packet[3]), yaw, 0.0)) * Basis.from_scale(_guest.scale)
-			var middle := (view.global_position + held_at) * .5
+			# from the front three-quarters of the runner's face (KT), past the hunter's side, clear of the walls
+			var front := Vector3(-sin(yaw), 0.0, -cos(yaw))
+			for _i in 2:
+				await get_tree().process_frame
+			var chest := _guest.find_child("Chest", true, false) as Node3D
+			var runner_head := chest.global_position + Vector3.UP * .25 if chest != null else held_at + Vector3.UP * 1.2
+			var across := front.cross(Vector3.UP).normalized()
+			# about 65 degrees off the runner's face: she stands right in front of them, so any closer to their front and her
+			# back hides their face; far enough out that she is beside the line of sight, not in it; the
+			# hallway has no room to the side, so from high up the corridor over her shoulder instead
+			var spot := runner_head + (front * .45 + across).normalized() * 2.4 + Vector3.UP * .45
 			if where == "hallway":
-				camera.global_position = middle + facing * 3.4 + side * .7 + Vector3.UP * 2.1
-			else:
-				camera.global_position = middle + side * 3.2 - facing * .8 + Vector3.UP * 1.5
-			camera.look_at(middle + Vector3.UP * 1.0, Vector3.UP)
+				spot = runner_head + front * 2.4 + across * .6 + Vector3.UP * .95
+			if where == "hallway":
+				spot.x = clampf(spot.x, ARENA.BASE.x - .75, ARENA.BASE.x + .75)
+			camera.global_position = spot
+			camera.look_at(runner_head + front * .4, Vector3.UP)
+			var middle := (view.global_position + held_at) * .5
 			camera.current = true
 			light.global_position = middle + side * .6 + Vector3.UP * 2.4
 			for _i in 6:

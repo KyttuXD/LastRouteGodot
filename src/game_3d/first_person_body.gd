@@ -9,6 +9,9 @@ extends Node3D
 var model: Node3D
 var animation: AnimationPlayer
 var _clip := ""
+## The arm bones' rest transforms: put back before each frame's IK, so a clip that does not key the arms (idle) never leaves
+## last frame's bend (or its rounding) to build on.
+var _arm_rest := {}
 
 
 func _init() -> void:
@@ -30,6 +33,11 @@ func build(skin: Texture2D, slim: bool, hue: float) -> void:
 	PlayerSkin.apply(model, skin)
 	animation = ModelSlot.find_animation_player(model)
 	_clip = ""
+	_arm_rest.clear()
+	for bone_name in ["L-Arm", "L-Forearm", "L-Hand", "R-Arm", "R-Forearm", "R-Hand"]:
+		var bone := model.find_child(bone_name, true, false) as Node3D
+		if bone != null:
+			_arm_rest[bone] = bone.transform
 	# the head (and the skin's outer head layer) would sit around the camera: never drawn in first person
 	var head := model.find_child("Head", true, false)
 	if head != null:
@@ -45,9 +53,12 @@ func build(skin: Texture2D, slim: bool, hue: float) -> void:
 func pose(feet: Vector3, basis: Basis, clip: String) -> void:
 	visible = true
 	global_transform = Transform3D(basis.orthonormalized(), feet)
-	if clip != _clip:
+	if clip != _clip or (animation != null and not animation.is_playing()):
 		_clip = clip
 		ModelSlot.play_if_available(animation, clip)
+	for bone in _arm_rest:
+		if is_instance_valid(bone):
+			(bone as Node3D).transform = _arm_rest[bone]
 
 
 ## Where this body's eyes are: the camera goes exactly here.

@@ -112,7 +112,7 @@ const ARENA := preload("res://scripts/grab_arena.gd")
 ## once it has turned over); no snapping; the FOV never changes; the hunter's face framed at the hold; the runner's own hands
 ## on screen and not huge where they hold something; every grip within 3 cm.
 const CAMERA_CLEARANCE := .06
-const MAX_TURN_RATE := 2.6
+const MAX_TURN_RATE := 3.0
 const MAX_MOVE_RATE := 5.2
 const FACE_MIN := .9
 const CONTACT := .03
@@ -153,15 +153,14 @@ func _hand_share(player: PlayerController3D) -> Vector2:
 	return Vector2(seen, tallest)
 
 
+## Angle between where her face points and `target` (the runner's camera), in 3D.
 func _facing_angle(view: Node3D, target: Vector3) -> float:
 	var head := view.find_child("Head", true, false) as Node3D
-	var l := head.find_child("L-Eye-Attachment", true, false) as Node3D if head else null
-	var r := head.find_child("R-Eye-Attachment", true, false) as Node3D if head else null
-	if l == null or r == null:
+	if head == null:
 		return 0.0
-	var facing := (l.global_position + r.global_position) * .5 - head.global_position
-	return Vector3(facing.x, 0.0, facing.z).angle_to(Vector3(target.x - head.global_position.x, 0.0, target.z - head.global_position.z))
-
+	var id := String(view.call("shown_id")) if view.has_method("shown_id") else ""
+	var facing := HunterGrab.face_forward(head, GrabStyles.look_for(id), Vector3.FORWARD)
+	return facing.angle_to(target - head.global_position)
 
 func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, style: String, place: Dictionary, where: String) -> void:
 	var id := String(STYLE_HUNTER[style])
@@ -252,7 +251,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		previous = camera
 		if waited > GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS and not (grab.current["arms"] as Array).is_empty():
 			max_gap = maxf(max_gap, grab.contact_gap)
-		if GrabStyles.SHY.has(id) and waited > GrabStyles.REACH_SECONDS and waited < GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS:
+		if float(GrabStyles.look_for(id)["delay"]) > 0.0 and waited > GrabStyles.REACH_SECONDS and waited < GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS:
 			away_seen = away_seen or _facing_angle(view, camera.origin) > deg_to_rad(40.0)
 	_expect(worst.is_empty(), "%s: %s" % [label, worst])
 	_expect(drift_frames <= eye_frames / 10, "%s: the camera left the body's eyes on %d of %d clear frames" % [label, drift_frames, eye_frames])
@@ -265,16 +264,15 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	if head != null:
 		# pinned to a wall by a hunter half again your size, her face is closer: still framed, never inside
 		# pinned to a wall, or hugged, by a hunter half again your size: her face is close (framed, never inside)
-		var face_min := .45 if style == GrabStyles.WALL_PIN else FACE_MIN
+		var face_min := .8 if style == GrabStyles.WALL_PIN else FACE_MIN
 		_expect(camera.origin.distance_to(head.global_position) >= face_min, "%s: the camera is %.2f m from her face" % [label, camera.origin.distance_to(head.global_position)])
 		var screen := player.first_person_camera.unproject_position(head.global_position)
 		var size := player.get_viewport().get_visible_rect().size
 		_expect(not player.first_person_camera.is_position_behind(head.global_position) and Rect2(size * .1, size * .8).has_point(screen),
 			"%s: her face is not framed (%s)" % [label, screen])
 		var angle := _facing_angle(view, camera.origin)
-		_expect(angle < HunterGrab.NECK_YAW * .5 or angle < deg_to_rad(25.0) or style in [GrabStyles.LEG_GRAB, GrabStyles.COLLAR_DRAG],
-			"%s: she looks %.0f deg away from the runner at the hold" % [label, rad_to_deg(angle)])
-	if GrabStyles.SHY.has(id):
+		_expect(angle < deg_to_rad(15.0), "%s: she looks %.0f deg away from the runner at the hold" % [label, rad_to_deg(angle)])
+	if float(GrabStyles.look_for(id)["delay"]) > 0.0:
 		_expect(away_seen, "%s: shy %s never looked away" % [label, id])
 	# the runner's own body: the same model and scale as the third-person player (KT: not doll-sized), skinned, no head
 	var own := player.first_person_body()
@@ -351,6 +349,33 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	await route.get_tree().process_frame
 
 
+## Every hunter, in her main grab, in the open room: at the hold her face points at the runner's camera within 15 degrees
+## (Aki after her look-away delay). Catches a rig whose face axis or neck would leave her staring past the runner.
+func _expect_every_hunter_looks(route: Node, player: PlayerController3D, grab: HunterGrab, place: Dictionary) -> void:
+	var stand: Vector3 = place["stand"]
+	var facing: Vector3 = place["facing"]
+	for id in HunterRoster.A_Z_IDS + HunterRoster.VOID_IDS + SecretCreatures.IDS:
+		var style := GrabStyles.main_style(String(id))
+		player.global_position = stand
+		player._yaw = atan2(-facing.x, -facing.z)
+		player._apply_look_rotation()
+		var view := _hunter(route, String(id), stand + facing * .8, -facing)
+		await route.get_tree().process_frame
+		if view.find_child("Head", true, false) == null:
+			view.queue_free()
+			continue
+		grab.play(player, view, String(id), .5, style)
+		var waited := 0.0
+		while waited < GrabStyles.TOTAL_SECONDS + .6:
+			await route.get_tree().process_frame
+			waited += route.get_process_delta_time()
+		var angle := _facing_angle(view, player.first_person_camera.global_position)
+		_expect(angle < deg_to_rad(15.0), "%s (%s): she looks %.0f deg away from the runner at the hold" % [id, style, rad_to_deg(angle)])
+		grab.release()
+		view.queue_free()
+		await route.get_tree().process_frame
+
+
 func run(host: Node) -> int:
 	_expect_pools()
 	_expect_picks()
@@ -368,6 +393,8 @@ func run(host: Node) -> int:
 			var place := ARENA.build(route, kind)
 			for style in GrabStyles.STYLES:
 				await _expect_style(route, player, grab, String(style), place, kind)
+			if kind == "open" and OS.get_environment("GRABS_QUICK").is_empty():   # GRABS_QUICK=1 skips the 40-hunter sweep
+				await _expect_every_hunter_looks(route, player, grab, place)
 			(place["root"] as Node).queue_free()
 			await host.get_tree().process_frame
 		player.global_position = home

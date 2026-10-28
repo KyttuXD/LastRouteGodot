@@ -4,5 +4,8 @@
 	"pool": {
 		"wrist_yank": 6,
 		"collar_drag": 2
+	},
+	"look": {
+		"delay": 1.2
 	}
 }

@@ -265,7 +265,7 @@ static func runner_hand_targets(body: Node3D, view: Node3D, pose: Dictionary, al
 			# hanging head down: the arms hang towards the floor, out to the sides, clear of the face
 			for side in [["L", -1.0], ["R", 1.0]]:
 				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0)
-				out.append([side[0], shoulder + Vector3.DOWN * .25 + right * (.3 * float(side[1]))])
+				out.append([side[0], shoulder + Vector3.DOWN * .38 + right * (.25 * float(side[1]))])
 		"claw":
 			# reaching ahead along the floor in turn, as if digging in
 			var ahead := body.global_position + basis * Vector3(0.0, 1.3, -.2)
@@ -283,48 +283,65 @@ static func pose_runner_arms(body: Node3D, view: Node3D, pose: Dictionary, along
 			* (.5 if entry[0] == "R" else -.5) + body.global_basis.orthonormalized().z * .4)
 
 
-## The hunter turns her head (and so her eyes) towards `target`, within a neck's reach (about 66 degrees either way, 30 down,
-## 35 up), eased; `away` > 0 looks away to the side instead (Aki's shyness). State lives on the view, so it carries across frames.
-const NECK_YAW := 1.15
-const NECK_DOWN := .52
-const NECK_UP := .6
-
-
+## The hunter turns her head (and so her eyes) towards `target`: the chest takes a share of the turn and the head the rest,
+## within her neck limits (GrabStyles.look_for: by default 100 degrees either way in all, 55 down, 60 up), eased. Applied
+## after her clips and the view's own head look every frame, and from the pose underneath them: if nothing rewrote a bone
+## since last frame, last frame's turn is taken off first, so the turn never compounds or fades. `away` > 0 looks away to
+## the side instead (Aki's shyness). The face's forward axis is where the eyes are, or the per-hunter one in the data.
 static func head_look(view: Node3D, target: Vector3, delta: float, along: Vector3, away: float = 0.0) -> void:
 	var head := view.find_child("Head", true, false) as Node3D
 	if head == null:
 		return
+	var chest := view.find_child("Chest", true, false) as Node3D
+	var id := String(view.call("shown_id")) if view.has_method("shown_id") else ""
+	var look := GrabStyles.look_for(id)
+	for bone in [chest, head]:
+		if bone != null and bone.has_meta("grab_written") and bone.basis.is_equal_approx(bone.get_meta("grab_written")):
+			bone.basis = bone.get_meta("grab_base")   # untouched since our turn: start again from the pose underneath
+	var aim := target
+	if away > 0.0:
+		# looking off to the side and down, away from the runner
+		var side := along.cross(Vector3.UP).normalized()
+		var off := head.global_position + (side * 1.5 + Vector3.DOWN * .8 - along * .3)
+		aim = target.lerp(off, away)
+	var k := 1.0 - exp(-7.0 * delta)
+	var share := float(look["chest"]) if chest != null else 0.0
+	var limit := float(look["yaw"])
+	for part in [[chest, share, "grab_chest_turn"], [head, 1.0, "grab_head_turn"]]:
+		var bone := part[0] as Node3D
+		if bone == null or float(part[1]) <= 0.0:
+			continue
+		# the turn from where her face points now to the aim, limited by the neck, a share of it for the chest, eased
+		var facing := face_forward(head, look, along).normalized()
+		var wanted := (aim - head.global_position).normalized()
+		var full := Quaternion(facing, wanted) if facing.angle_to(wanted) > .001 else Quaternion.IDENTITY
+		var angle := full.get_angle()
+		if angle > limit:
+			full = Quaternion.IDENTITY.slerp(full, limit / angle)
+		var turn := Quaternion.IDENTITY.slerp(full, float(part[1]))
+		var eased: Quaternion = view.get_meta(String(part[2]), Quaternion.IDENTITY)
+		eased = eased.slerp(turn, k)
+		view.set_meta(String(part[2]), eased)
+		bone.set_meta("grab_base", bone.basis)
+		var scale := bone.global_basis.get_scale()
+		bone.global_basis = (Basis(eased) * bone.global_basis.orthonormalized()) * Basis.from_scale(scale)
+		bone.set_meta("grab_written", bone.basis)
+	if "_head_written_q" in view:
+		view.set("_head_written_q", head.quaternion)   # the view's own head look starts from the rest pose next frame
+
+
+## Where her face points: from the head to between the eyes, or the data's forward axis in the head's own frame.
+static func face_forward(head: Node3D, look: Dictionary, along: Vector3) -> Vector3:
+	if look.has("forward"):
+		return head.global_basis.orthonormalized() * (look["forward"] as Vector3)
 	var eyes := []
 	for eye_name in ["L-Eye-Attachment", "R-Eye-Attachment"]:
 		var eye := head.find_child(eye_name, true, false) as Node3D
 		if eye != null:
 			eyes.append(eye.global_position)
-	var facing := along
 	if eyes.size() == 2:
-		facing = ((eyes[0] as Vector3) + (eyes[1] as Vector3)) * .5 - head.global_position
-	var flat_facing := Vector3(facing.x, 0.0, facing.z).normalized()
-	if flat_facing.length_squared() < .5:
-		flat_facing = along
-	var to := target - head.global_position
-	var flat_to := Vector3(to.x, 0.0, to.z)
-	var yaw := flat_facing.signed_angle_to(flat_to.normalized(), Vector3.UP) if flat_to.length() > .01 else 0.0
-	var pitch := atan2(to.y, flat_to.length()) - asin(clampf(facing.normalized().y, -1.0, 1.0))
-	if away > 0.0:
-		yaw = lerpf(yaw, (-1.0 if yaw > 0.0 else 1.0) * NECK_YAW * .9, away)
-		pitch = lerpf(pitch, -.35, away)
-	yaw = clampf(yaw, -NECK_YAW, NECK_YAW)
-	pitch = clampf(pitch, -NECK_DOWN, NECK_UP)
-	var eased: Vector2 = view.get_meta("grab_head", Vector2.ZERO)
-	var k := 1.0 - exp(-6.0 * delta)
-	eased = eased.lerp(Vector2(yaw, pitch), k)
-	view.set_meta("grab_head", eased)
-	var turned := flat_facing.rotated(Vector3.UP, eased.x)
-	var pitch_axis := turned.cross(Vector3.UP).normalized()
-	var turn := Basis(pitch_axis, eased.y) * Basis(Vector3.UP, eased.x)
-	var scale := head.global_basis.get_scale()
-	head.global_basis = (turn * head.global_basis.orthonormalized()) * Basis.from_scale(scale)
-	if "_head_written_q" in view:
-		view.set("_head_written_q", head.quaternion)   # the view's own head look starts from the rest pose next frame
+		return ((eyes[0] as Vector3) + (eyes[1] as Vector3)) * .5 - head.global_position
+	return along
 
 
 ## A guest's (or the host's) copy of a held runner: the nearest hunter takes the grab pose the runner's state describes.
@@ -353,11 +370,12 @@ static func pose_nearest_hunter(from: Node, body: Node3D, packet: Array) -> void
 	pose_hunter_body(best, along, [packet[4], packet[5], packet[6]])
 	var basis := body.global_basis.orthonormalized()
 	var points := contacts(body.global_position, basis, pose["arms"])
-	pose_arms_on(best, along, points, bool(pose.get("wide", false)))
-	pose_runner_arms(body, best, pose, along, float(packet[1]))
+	# her head (and the chest share of the turn) first: the arms hang from the chest, so they are bent onto the body after it
 	var id := String(best.call("shown_id")) if best.has_method("shown_id") else ""
 	head_look(best, body.global_position + basis * (GrabStyles.BODY_POINTS["neck"] + Vector3(0.0, .3, 0.0)),
 		best.get_process_delta_time(), along, GrabStyles.look_away(id, float(packet[1])))
+	pose_arms_on(best, along, points, bool(pose.get("wide", false)))
+	pose_runner_arms(body, best, pose, along, float(packet[1]))
 
 
 ## The first-person camera while held (KT: the views must never look horrific). It starts at the eyes of the runner's own body
@@ -602,7 +620,7 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 				if free > room:
 					room = free
 					best = dir
-			wanted += best * clampf(room - WALL_MARGIN, 0.0, .55)
+			wanted += best * clampf(room - WALL_MARGIN, 0.0, .7)
 	wanted = _clear(wanted, CLEARANCE)
 	# eased from where the camera was last frame (the first frame: the view the runner had when caught)
 	var previous := _last_camera
@@ -655,7 +673,8 @@ func play(player: PlayerController3D, view: Node3D, hunter_id: String, roll: flo
 	last_room = room
 	_ctx = context(view, player.global_position, _along, player._standing_camera_height, room)
 	_start = player.global_position
-	view.remove_meta("grab_head")
+	for key in ["grab_head_turn", "grab_chest_turn"]:
+		view.remove_meta(key)
 	print("[grab] hunter=%s style=%s roll=%.3f room=%s" % [hunter_id, style, roll, room])
 	playing = true
 	elapsed = 0.0
@@ -697,6 +716,8 @@ func _apply(t: float, delta: float) -> void:
 		offsets[0] = float(offsets[0]) + fix.x
 		offsets[1] = float(offsets[1]) + fix.y
 		pose_hunter_body(_view, _along, offsets)
+	# her eyes go to the camera (last frame's: close enough); the chest takes a share of that turn, so it comes before the arms
+	head_look(_view, _last_camera.origin, delta, _along, GrabStyles.look_away(_hunter_id, t))
 	contact_gap = pose_arms_on(_view, _along, points, bool(current.get("wide", false)))
 	# the runner's own body, drawn from inside: posed like everyone else sees it, its hands on what they hold
 	var body := _player.first_person_body()
@@ -713,8 +734,6 @@ func _apply(t: float, delta: float) -> void:
 		roll = PI * flip + clampf(roll - PI * flip, -FLIP_SWAY, FLIP_SWAY)
 	else:
 		roll = clampf(roll, -MAX_ROLL, MAX_ROLL)
-	# her eyes go to the camera (last frame's: close enough), before the camera is fitted around her final pose
-	head_look(_view, _last_camera.origin, delta, _along, GrabStyles.look_away(_hunter_id, t))
 	var camera := _solve_camera(head, roll, delta)
 	_last_camera = camera
 	_player.set_grab_camera(camera, _body_yaw(face), String(current["clip"]))
@@ -741,6 +760,15 @@ func release() -> void:
 	playing = false
 	current = {}
 	state = []
+	var restore: Array = []
+	if _view != null and is_instance_valid(_view):
+		restore.append_array(_view.find_children("*", "MeshInstance3D", true, false))
+	if _player != null and is_instance_valid(_player) and _player.first_person_body().model != null:
+		restore.append_array(_player.first_person_body().model.find_children("*", "MeshInstance3D", true, false))
+	for node in restore:
+		if node.has_meta("grab_layers"):
+			(node as MeshInstance3D).layers = int(node.get_meta("grab_layers"))
+			node.remove_meta("grab_layers")
 	if _view != null and is_instance_valid(_view):
 		for node in _view.find_children("*", "MeshInstance3D", true, false):
 			if node.has_meta("grab_layers"):
@@ -748,7 +776,8 @@ func release() -> void:
 				node.remove_meta("grab_layers")
 		culled.clear()
 		pose_hunter_body(_view, _along, [0.0, 0.0, 0.0])
-		_view.remove_meta("grab_head")
+		for key in ["grab_head_turn", "grab_chest_turn"]:
+			_view.remove_meta(key)
 		if "grab_until_msec" in _view:
 			_view.set("grab_until_msec", 0)
 	if _player != null and is_instance_valid(_player):

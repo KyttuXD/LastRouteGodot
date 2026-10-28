@@ -35,8 +35,8 @@ const STYLES := {
 	WRIST_YANK: {"short": "WY"},
 	WRAP: {"short": "WR"},
 	LEG_GRAB: {"short": "LG", "back": 1.8},
-	UPSIDE_DOWN: {"short": "UD", "ceiling": 2.4, "side": 1.4},
-	BEAR_HUG: {"short": "BH", "ceiling": 2.3},
+	UPSIDE_DOWN: {"short": "UD", "ceiling": 2.4},
+	BEAR_HUG: {"short": "BH", "ceiling": 2.75},
 	COLLAR_DRAG: {"short": "CD", "hunter_back": 1.6},
 	WALL_PIN: {"short": "WP", "wall": 1.3},
 	POUNCE_PIN: {"short": "PP", "back": 1.7, "creature": true},
@@ -63,13 +63,12 @@ const BODY_POINTS := {
 }
 ## The 1.60 m mannequin's joints these points were measured from (scale .9): neck pivot 1.18, shoulders 1.08 (arm tops ~1.2),
 ## arms .44 long, torso .2 deep, head .4. Contacts sit just off the surface so a hunter's (much bigger) hand closes on it.
-## Hunters that look away first and meet the runner's eyes only for the last beat (Aki's shyness).
-const SHY := ["aki"]
 
 ## Standing eye height of the runner the poses assume when no real camera is involved (the other players' view of a body).
 const BODY_EYE := 1.36
 
 static var _pools := {}
+static var _looks := {}
 static var _errors := PackedStringArray()
 static var _loaded := false
 
@@ -86,6 +85,7 @@ static func ensure_loaded() -> void:
 			_errors.append_array(parsed["errors"])
 			if not parsed["def"].is_empty():
 				_pools[String(parsed["def"]["id"])] = parsed["def"]["pool"]
+				_looks[String(parsed["def"]["id"])] = parsed["def"]["look"]
 	for message in _errors:
 		push_error("GrabStyles: " + message)
 
@@ -111,7 +111,7 @@ static func parse_def(data: Dictionary, where: String) -> Dictionary:
 	var out := {"def": {}, "errors": PackedStringArray()}
 	var errors: PackedStringArray = out["errors"]
 	for key in data:
-		if not key in ["schema", "id", "pool"]:
+		if not key in ["schema", "id", "pool", "look"]:
 			errors.append("%s: unknown key \"%s\"" % [where, key])
 	if String(data.get("schema", "")) != SCHEMA:
 		errors.append("%s: schema must be %s" % [where, SCHEMA])
@@ -132,8 +132,27 @@ static func parse_def(data: Dictionary, where: String) -> Dictionary:
 			errors.append("%s: weight of %s must be a positive number" % [where, style])
 			continue
 		clean[String(style)] = float(weight)
+	var look := {}
+	var raw = data.get("look", {})
+	if not raw is Dictionary:
+		errors.append("%s: look must be an object" % where)
+	else:
+		for key in raw:
+			if key in ["yaw", "up", "down", "chest", "delay"]:
+				if not (typeof(raw[key]) in [TYPE_INT, TYPE_FLOAT]):
+					errors.append("%s: look.%s must be a number" % [where, key])
+				else:
+					look[key] = deg_to_rad(float(raw[key])) if key in ["yaw", "up", "down"] else float(raw[key])
+			elif key == "forward":
+				var axis = raw[key]
+				if not axis is Array or (axis as Array).size() != 3:
+					errors.append("%s: look.forward must be [x, y, z]" % where)
+				else:
+					look["forward"] = Vector3(float(axis[0]), float(axis[1]), float(axis[2])).normalized()
+			else:
+				errors.append("%s: unknown look key \"%s\"" % [where, key])
 	if errors.is_empty():
-		out["def"] = {"id": id, "pool": clean}
+		out["def"] = {"id": id, "pool": clean, "look": look}
 	return out
 
 
@@ -142,6 +161,19 @@ static func apply_defs(defs: Array) -> void:
 	ensure_loaded()
 	for def in defs:
 		_pools[String(def["id"])] = (def["pool"] as Dictionary).duplicate()
+		_looks[String(def["id"])] = (def.get("look", {}) as Dictionary).duplicate()
+
+
+## How a hunter's head follows the runner during a grab (radians, chest share 0..1, Aki's look-away seconds): the data's
+## "look" over these defaults.
+const LOOK_DEFAULTS := {"yaw": 1.75, "up": 1.05, "down": .96, "chest": .3, "delay": 0.0}
+
+
+static func look_for(hunter_id: String) -> Dictionary:
+	ensure_loaded()
+	var out := LOOK_DEFAULTS.duplicate()
+	out.merge(_looks.get(hunter_id, {}), true)
+	return out
 
 
 static func pool_for(hunter_id: String) -> Dictionary:
@@ -208,9 +240,10 @@ static func pick(hunter_id: String, roll: float, room: Dictionary) -> String:
 
 ## 1 while a shy hunter is still looking away from the runner, easing to 0 for the final beat of the hold.
 static func look_away(hunter_id: String, t: float) -> float:
-	if not SHY.has(hunter_id):
+	var delay := float(look_for(hunter_id)["delay"])
+	if delay <= 0.0:
 		return 0.0
-	return 1.0 - smooth((t - REACH_SECONDS - ACT_SECONDS - HOLD_SECONDS * .3) / (HOLD_SECONDS * .5))
+	return 1.0 - smooth((t - delay) / .4)
 
 
 static func smooth(k: float) -> float:
@@ -286,7 +319,8 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["arms"] = [["R", "back_l", r], ["L", "back_r", r]]
 			out["wide"] = true   # elbows out wide, so the arms come round the runner instead of through them
 		BEAR_HUG:
-			out["at"] = Vector3(0.0, .45 * a, .95)
+			# crushed against her: lifted until the runner's chest is at hers, feet well off the floor
+			out["at"] = Vector3(0.0, .7 * a, .95)
 			out["view_pitch"] = .15 * a
 			out["view_roll"] = sway * .05
 			out["hands"] = "pinned"
@@ -313,10 +347,8 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			# 1.5 s), then only sways a little
 			var hoist := smooth((t - REACH_SECONDS) / (ACT_SECONDS + .65))
 			var flip := smooth((t - REACH_SECONDS) / 1.5)
-			# held straight out to her side, so hanging there you look up under her arm at her face, not into the arm
-			var out_side := shoulder_side + signf(shoulder_side) * arm * .85
-			out["at"] = Vector3(lerpf(shoulder_side * .6, out_side, hoist), lerpf(0.0, shoulder_y - .15, hoist),
-				lerpf(.85, shoulder_fwd + .2, hoist))
+			# held out in front of her by the ankle at arm's length, the runner's back to her: hanging there you look up at her
+			out["at"] = Vector3(shoulder_side, lerpf(0.0, shoulder_y - .15, hoist), lerpf(.85, shoulder_fwd + arm * .95, hoist))
 			out["tilt"] = PI * hoist   # the head swings down as the feet go up, evenly (no fast swing through)
 			out["flip"] = flip
 			out["view_roll"] = PI * flip + sway * .05
