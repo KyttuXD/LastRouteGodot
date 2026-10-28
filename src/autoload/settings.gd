@@ -410,6 +410,9 @@ func _percent_to_db(percent: float) -> float:
 func _load() -> void:
 	var config := ConfigFile.new()
 	if config.load(SETTINGS_PATH) != OK:
+		# First run: a phone starts with the pixel post effect off (PlatformProfile; desktop keeps the default).
+		if PlatformProfile.default_pixel_effect_percent >= 0.0:
+			pixel_effect_percent = PlatformProfile.default_pixel_effect_percent
 		_apply_volume()
 		return
 

@@ -746,6 +746,10 @@ func _ready() -> void:
 	# becomes airborne and reaches the fall-stun path below.
 	floor_snap_length = 0.28
 	first_person_camera.fov = Settings.field_of_view
+	if PlatformProfile.camera_far > 0.0:
+		# phones and headsets draw less far (desktop keeps the scene's far plane)
+		first_person_camera.far = PlatformProfile.camera_far
+		xr_camera.far = PlatformProfile.camera_far
 	Settings.visual_changed.connect(_apply_visual_settings)
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:

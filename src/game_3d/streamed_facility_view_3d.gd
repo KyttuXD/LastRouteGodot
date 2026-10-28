@@ -558,6 +558,8 @@ func _linked_levels(center: Vector3i) -> Array[int]:
 
 func _vertical_ready_set(center: Vector3i) -> Dictionary:
 	var out := {}
+	if not PlatformProfile.prebuild_linked_levels:
+		return out   # low-memory phones and Quest: a ladder trip rebuilds the other storey instead of parking it (~30 MB)
 	for level in _linked_levels(center):
 		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):

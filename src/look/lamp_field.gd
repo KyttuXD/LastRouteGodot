@@ -17,7 +17,8 @@ extends Node3D
 ##  * every other real OmniLight3D in the world (interactable glows, the checkpoint light, braziers)
 ##    is registered with make_budgeted() and only the BUDGET_COUNT nearest ones within reach stay on.
 
-const POOL_SIZE := 8
+## Real lights in the pool: 8 on desktop, fewer on phones and headsets (PlatformProfile.lamp_pool).
+var POOL_SIZE := 8
 const RANGE := 17.0
 const LIGHT_RANGE := 9.0 * RefLook.LAMP_RANGE_SCALE
 const BASE_ENERGY := 3.0 * RefLook.LAMP_ENERGY_SCALE
@@ -44,6 +45,7 @@ var _enabled := true
 
 func _ready() -> void:
 	name = "LampField"
+	POOL_SIZE = PlatformProfile.lamp_pool
 	for i in POOL_SIZE:
 		var light := OmniLight3D.new()
 		light.omni_range = LIGHT_RANGE
