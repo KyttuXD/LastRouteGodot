@@ -213,11 +213,86 @@ func _expect_xr_hands(controller: PlayerController3D) -> void:
 	_expect_skinned_climb_hands(controller)
 	controller.ladder_climb = {}
 	controller._show_climb_hands(false)
+	_expect_climb_body(controller, saved_position, saved_rotation.y)
+	controller.ladder_climb = {}
+	controller._show_climb_hands(false)
 	controller.global_position = saved_position
 	controller.rotation = saved_rotation
 	controller.collision_layer = saved_layer
 	controller.collision_mask = saved_mask
 	controller.first_person_items.visible = items_visible
+
+
+## True first person on a ladder (KT): the runner sees their own player model (the one others see) climb, from its eyes, head
+## hidden; each gripping hand is on its rung within 3 cm (the sewer ladder's layout: rungs every .3 m from .28 m, .4 m in
+## front of the climbing line), the hands move with the climb and stay put when it stops, no floating hands beside it, and
+## the dismount gives back the normal first-person view.
+func _expect_climb_body(controller: PlayerController3D, foot: Vector3, yaw: float) -> void:
+	var forward := Vector3(-sin(yaw), 0.0, -cos(yaw))
+	var rungs := Node3D.new()
+	controller.get_parent().add_child(rungs)
+	for i in 14:
+		var rung := Node3D.new()
+		rung.name = "Rung%02d" % i
+		rungs.add_child(rung)
+		rung.global_position = foot + forward * .4 + Vector3.UP * (.28 + i * .3)
+		rung.look_at(rung.global_position + forward, Vector3.UP)
+	controller.begin_ladder_climb(foot, 3.0, 1.0, yaw, foot + Vector3(0, 3, -1), foot + Vector3(0, 0, 1), 0, 0)
+	controller.ladder_climb["phase"] = "climb"
+	controller._update_ladder_climb(1.0 / 60.0)
+	var body := controller.first_person_body()
+	body._process(0.0)
+	if not body.visible or body.model != controller._body_model:
+		_fail("climbing does not show the runner's own player model in first person")
+	else:
+		for mesh in [body.model.find_child("Head", true, false)] + body.model.find_child("Head", true, false).find_children("*", "MeshInstance3D", true, false):
+			if mesh is MeshInstance3D and (mesh as MeshInstance3D).visible:
+				_fail("the climbing model draws its head in front of the camera")
+		if controller.first_person_camera.global_position.distance_to(body.eye()) > .02:
+			_fail("the climbing camera is %.2f m from the model's eyes" % controller.first_person_camera.global_position.distance_to(body.eye()))
+		var gripped := 0
+		var before := {}
+		for step in 4:
+			controller.ladder_climb["height"] = 1.0 + step * .17
+			controller._update_ladder_climb(1.0 / 60.0)
+			body._process(0.0)
+			var targets := controller.climb_hand_targets(float(controller.ladder_climb["height"]))
+			for key in ["L", "R"]:
+				var grip := HunterGrab.grip_point(HunterGrab.arm_chain(body.model, key))
+				if step == 0:
+					before[key] = grip
+				if bool(targets.get("grip_" + key, false)):
+					gripped += 1
+					if grip.distance_to(targets[key]) > .03:
+						_fail("the climbing %s hand is %.1f cm off its rung" % [key, grip.distance_to(targets[key]) * 100.0])
+		if gripped == 0:
+			_fail("no climbing hand ever gripped a rung")
+		var moved := false
+		for key in ["L", "R"]:
+			moved = moved or HunterGrab.grip_point(HunterGrab.arm_chain(body.model, key)).distance_to(before[key]) > .05
+		if not moved:
+			_fail("the climbing hands did not move with the climb")
+		var held := HunterGrab.grip_point(HunterGrab.arm_chain(body.model, "L"))
+		controller._update_ladder_climb(1.0 / 60.0)
+		body._process(0.0)
+		if HunterGrab.grip_point(HunterGrab.arm_chain(body.model, "L")).distance_to(held) > .01:
+			_fail("the climbing hands moved while the climb was stopped")
+		if controller._climb_hands != null and controller._climb_hands.visible:
+			_fail("the floating ladder hands still show beside the climbing model")
+	controller._ladder_dismount("top")
+	for _i in 120:
+		controller._update_ladder_climb(1.0 / 60.0)
+		if controller.ladder_climb.is_empty():
+			break
+	if controller.ladder_climb.is_empty():
+		if body.visible or controller.body_visual.visible:
+			_fail("the player model stays drawn in first person after the dismount")
+		for mesh in body.model.find_child("Head", true, false).find_children("*", "MeshInstance3D", true, false) + [body.model.find_child("Head", true, false)]:
+			if mesh is MeshInstance3D and not (mesh as MeshInstance3D).visible:
+				_fail("the model's head stays hidden after the dismount (others would see a headless runner)")
+		if not is_equal_approx(controller.first_person_camera.near, PlayerController3D.FIRST_PERSON_NEAR):
+			_fail("the near plane stays small after the dismount")
+	rungs.queue_free()
 
 
 ## XR head follow (XRComfort.follow_head): a headset 0.6 m beside the body pulls the body after it in open space and

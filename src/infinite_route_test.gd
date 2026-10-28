@@ -2902,7 +2902,9 @@ func _update_player_ladder(level: int) -> void:
 	var wall: Vector2i = link.get("wall", Vector2i.ZERO)
 	var rise := StreamedFacilityView3D.LEVEL_HEIGHT
 	var sewer_y := float(StreamedRouteGenerator.SEWER_LEVEL) * rise + .04
-	var foot := Vector3(point.x + wall.x * .12, sewer_y, point.y + wall.y * .12)
+	# just behind the cell centre: the sewer ladder's rungs (.38 in from the centre) sit .4 in front, at arm's reach of the
+	# player model's own hands, with its eyes (true first person, docs/HUNTER_GRABS.md) a hand's width off them
+	var foot := Vector3(point.x - wall.x * .02, sewer_y, point.y - wall.y * .02)
 	var front := Vector3(point.x - wall.x * .9, 0.0, point.y - wall.y * .9)
 	player.begin_ladder_climb(foot, rise, rise if going_down else 0.0, _ladder_yaw(link),
 		front + Vector3(0, .04, 0), front + Vector3(0, sewer_y, 0), 0, StreamedRouteGenerator.SEWER_LEVEL)

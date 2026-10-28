@@ -30,9 +30,10 @@ One grab plays (about 1.9 s), then the death line and game over as before.
 - **File format:** strict, like `ContentRegistry`. Unknown keys, unknown styles and non-positive weights are errors.
 - **Content packs:** packs can replace a pool with `GrabStyles.apply_defs` once the pack loader lists `grabs/<id>` overrides, following the `lr.pack/1` manifest pattern.
 
-## The runner's own body in first person (`FirstPersonBody`)
+## True first person (`FirstPersonBody`)
 
-- **Which body:** the held runner sees their own skinned body: the same mannequin, skin, arm style and scale as the third-person player model (PlayerModels.SCALE). The grabs suite checks it is within 2% of that model, for the first-person body and for a guest's copy.
+- **Which body:** while held (and while climbing a ladder) the runner sees their own third-person player model, the very model others see (`PlayerController3D._body_model`), from its eyes. The camera sits at the model's eye attachments with a 0.02 m near plane.
+- **Ladders:** the model plays the climb clip and its hands are bent onto the rungs after the clip (`climb_hand_targets_for`, also used on other players' copies of a climber). The hands are within 3 cm when gripping, alternate rung by rung and stay still when stopped (`player` suite). The head is tipped back 0.95 rad (looking up the ladder), so the eyes sit a hand's width off the rungs. The climb line is 0.4 m from the rungs: the sewer ladder's rungs sit 0.38 m in from the cell centre, so the foot is 0.02 m behind it. A headset keeps its tracked hands.
 - **Head:** it is hidden, so it never blocks the camera.
 - **Pose:** it is posed exactly like the body other players see: same feet, lean and clip.
 - **Arms:** they hold what they hold (`HunterGrab.runner_hand_targets`):

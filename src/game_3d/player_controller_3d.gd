@@ -312,6 +312,9 @@ const LADDER_CLIMB_SPEED := 1.7
 const LADDER_LET_GO_HEIGHT := 1.3 * PlayerModels.SCALE
 const LADDER_MOUNT_SECONDS := .3
 const LADDER_DISMOUNT_SECONDS := .45
+## The camera's near plane, and the smaller one used while the camera sits at the player model's own eyes.
+const FIRST_PERSON_NEAR := .06
+const MODEL_EYE_NEAR := .02
 var resting_pose := ""
 ## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
 ## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
@@ -850,8 +853,6 @@ func _apply_visual_settings() -> void:
 		_climb_hands = null
 		if climbing_now:
 			_show_climb_hands(true)
-	if _first_person_body != null:
-		_first_person_body.build(PlayerSkin.active_texture(), Settings.effective_slim(), Settings.player_hue_degrees)
 	if first_person_items != null:
 		for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
 			if bool(hand.get_meta("slim", false)) != Settings.effective_slim():
@@ -1144,7 +1145,9 @@ func begin_ladder_climb(foot: Vector3, rise: float, height: float, yaw: float,
 	collision_mask = 0
 	if first_person_items != null:
 		first_person_items.visible = false
-	_show_climb_hands(true)
+	_ladder_rungs = find_ladder_rungs(get_tree() if is_inside_tree() else null, foot, yaw, rise)
+	# a headset keeps its tracked hands; everywhere else the runner sees their own player model climb, hands on the rungs
+	_show_climb_hands(xr_active)
 
 
 ## How far up the ladder the runner is, 0 (bottom) .. 1 (top).
@@ -1213,12 +1216,15 @@ func _update_ladder_climb(delta: float) -> void:
 	if _animation_player != null:
 		_animation_player.speed_scale = 1.0 if moving else 0.0
 	_animate_climb_hands(float(ladder_climb["height"]))
+	_pose_climb_body(moving)
 	if String(ladder_climb["phase"]) == "dismount" and float(ladder_climb["t"]) >= 1.0:
 		var to_level := int(ladder_climb["to_level"])
 		ladder_climb = {}
 		collision_layer = 1
 		collision_mask = 1
 		_show_climb_hands(false)
+		if not grab_active:
+			_end_first_person_body()   # back to the normal first-person view at the top or the bottom
 		if first_person_items != null:
 			first_person_items.visible = not xr_active   # the flat viewmodel never shows in a headset
 		if _animation_player != null:
@@ -1242,13 +1248,23 @@ static func _smooth(t: float) -> float:
 
 
 ## Two blocky fists gripping rungs in front of the camera, hand over hand.
-## The runner's own skinned body for first-person views (grabs; same model, skin, arms and scale as the third-person body).
+## True first person: this runner's own third-person model, seen from its eyes (grabs, ladder climbs). See FirstPersonBody.
 func first_person_body() -> FirstPersonBody:
 	if _first_person_body == null:
 		_first_person_body = FirstPersonBody.new()
 		add_child(_first_person_body)
-		_first_person_body.build(PlayerSkin.active_texture(), Settings.effective_slim(), Settings.player_hue_degrees)
+		_first_person_body.attach(_body_model, body_visual, _animation_player)
 	return _first_person_body
+
+
+## Turns the true first-person model view off again (a grab released, a climb finished); a no-op when it is not on.
+func _end_first_person_body() -> void:
+	if _first_person_body != null and _first_person_body.visible:
+		_first_person_body.set_active(false)
+		first_person_camera.near = FIRST_PERSON_NEAR
+		first_person_pivot.position = Vector3(0.0, first_person_pivot.position.y, 0.0)
+		if not xr_active:
+			body_visual.visible = false   # first person never draws the body otherwise
 
 
 func begin_grab_view() -> void:
@@ -1286,8 +1302,7 @@ func end_grab_view() -> void:
 	_apply_look_rotation()
 	if first_person_items != null:
 		first_person_items.visible = true
-	if _first_person_body != null:
-		_first_person_body.visible = false
+	_end_first_person_body()
 
 
 func _show_climb_hands(on: bool) -> void:
@@ -1328,6 +1343,90 @@ static func climb_hand_pose(height: float, side: float) -> Dictionary:
 		var k := (t - .5) * 2.0
 		y = lerpf(-CLIMB_REACH, CLIMB_REACH, k * k * (3.0 - 2.0 * k))
 	return {"y": y, "pull": pull, "grip": grip}
+
+
+## The rungs of the ladder being climbed, lowest first: [{"center", "axis"}] in world space, from rung nodes near the foot
+## (LadderRung_* on the service ladder, Rung## on the sewer ladder) or, when the ladder is drawn without them (batched props),
+## the sewer ladder's own layout: rungs every .3 m from .28 m up, LADDER_RUNG_REACH in front of the climbing line.
+var _ladder_rungs: Array = []
+const LADDER_RUNG_REACH := .4
+const LADDER_FIRST_RUNG := .28
+const CLIMB_GRIP_HALF := .22
+## The climber looks up the ladder: the head tipped back this far keeps the eyes a hand's width off the rungs.
+const CLIMB_HEAD_TILT := .95
+
+
+static func find_ladder_rungs(tree: SceneTree, foot: Vector3, yaw: float, rise: float) -> Array:
+	var out := []
+	if tree != null:
+		for node in tree.root.find_children("LadderRung_*", "", true, false) + tree.root.find_children("Rung??", "", true, false):
+			var rung := node as Node3D
+			if rung == null:
+				continue
+			var at := rung.global_position
+			if Vector2(at.x - foot.x, at.z - foot.z).length() < 1.2 and at.y > foot.y - .5 and at.y < foot.y + rise + 2.5:
+				out.append({"center": at, "axis": rung.global_basis.x.normalized()})
+	if out.is_empty():
+		var forward := Vector3(-sin(yaw), 0.0, -cos(yaw))
+		for i in int(ceil((rise + 2.4) / CLIMB_RUNG_SPACING)):
+			out.append({"center": foot + forward * LADDER_RUNG_REACH + Vector3.UP * (LADDER_FIRST_RUNG + i * CLIMB_RUNG_SPACING),
+				"axis": forward.cross(Vector3.UP).normalized()})
+	out.sort_custom(func(a, b): return (a["center"] as Vector3).y < (b["center"] as Vector3).y)
+	return out
+
+
+## Where each hand of a climbing body (feet at `feet`) goes: a gripping hand is on its rung (the rung nearest where the climb
+## cycle puts it, around shoulder height), a reaching hand travels between rungs just off the ladder. Shared by the local
+## runner and other players' copies of a climbing runner. {"L": point, "R": point, "grip_L": bool, "grip_R": bool}.
+static func climb_hand_targets_for(rungs: Array, feet: Vector3, height: float) -> Dictionary:
+	var out := {}
+	if rungs.is_empty():
+		return out
+	var shoulder_y := feet.y + 1.08 * PlayerModels.SCALE / .9
+	for side in [-1.0, 1.0]:
+		var key := "L" if side < 0.0 else "R"
+		var pose := climb_hand_pose(height, side)
+		var wanted_y := shoulder_y + .08 + float(pose["y"]) * 1.2
+		var best: Dictionary = rungs[0]
+		for rung in rungs:
+			if absf((rung["center"] as Vector3).y - wanted_y) < absf((best["center"] as Vector3).y - wanted_y):
+				best = rung
+		var grip: Vector3 = (best["center"] as Vector3) + (best["axis"] as Vector3) * (CLIMB_GRIP_HALF * side)
+		if bool(pose["grip"]):
+			out[key] = grip
+		else:
+			var toward := Vector3(grip.x - feet.x, 0.0, grip.z - feet.z).normalized()
+			out[key] = Vector3(grip.x, wanted_y, grip.z) - toward * .06   # off the rungs while it moves up or down
+		out["grip_" + key] = bool(pose["grip"])
+	return out
+
+
+func climb_hand_targets(height: float) -> Dictionary:
+	return climb_hand_targets_for(_ladder_rungs, global_position, height)
+
+
+## Ladder climbing in true first person: the player model on the ladder playing the climb (still when stopped), each hand on
+## its rung, the camera at the model's own eyes (head hidden, near plane small). A headset keeps its tracked hands instead.
+func _pose_climb_body(moving: bool) -> void:
+	if xr_active or ladder_climb.is_empty() or grab_active:
+		return
+	var body := first_person_body()
+	body.pose(global_position, Basis(Vector3.UP, rotation.y), "climb")
+	if body.animation != null:
+		body.animation.speed_scale = 1.0 if moving else 0.0
+	first_person_camera.near = MODEL_EYE_NEAR
+	if String(ladder_climb["phase"]) == "dismount":
+		body.hand_targets = {}
+	else:
+		var targets := climb_hand_targets(float(ladder_climb["height"]))
+		var back := Vector3(sin(rotation.y), 0.0, cos(rotation.y))
+		var right := Vector3(cos(rotation.y), 0.0, -sin(rotation.y))
+		for key in ["L", "R"]:
+			if targets.has(key):
+				targets["pole_" + key] = Vector3.DOWN + back * .6 + right * (-.5 if key == "L" else .5)
+		body.hand_targets = targets   # bent onto the rungs after the climb clip has run (FirstPersonBody._process)
+	body.head_tilt = CLIMB_HEAD_TILT
+	body.drive_camera = first_person_pivot
 
 
 func _animate_climb_hands(height: float, _up: bool = true) -> void:

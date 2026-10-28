@@ -611,6 +611,32 @@ func _interpolate_bodies(delta: float) -> void:
 		if not grab.is_empty():
 			# after every hunter view has run its clips and head look this frame
 			(func(): if is_instance_valid(body): HunterGrab.pose_nearest_hunter(self, body, grab)).call_deferred()
+		_pose_remote_climb(body)
+
+
+## Another runner on a ladder: their copy's hands on the rungs, the same way their own first-person model holds them
+## (PlayerController3D.climb_hand_targets_for), after the climb clip has run this frame.
+func _pose_remote_climb(body: Node3D) -> void:
+	if String(body.get_meta("movement_clip", "")) != "climb":
+		if body.has_meta("climb_rungs"):
+			body.remove_meta("climb_rungs")
+			body.remove_meta("climb_foot")
+		return
+	if not body.has_meta("climb_rungs"):
+		body.set_meta("climb_foot", body.global_position)
+		body.set_meta("climb_rungs", PlayerController3D.find_ladder_rungs(get_tree(), body.global_position, body.rotation.y, 6.0))
+	var rungs: Array = body.get_meta("climb_rungs")
+	var height := body.global_position.y - (body.get_meta("climb_foot") as Vector3).y
+	var targets := PlayerController3D.climb_hand_targets_for(rungs, body.global_position, height)
+	var back := Vector3(sin(body.rotation.y), 0.0, cos(body.rotation.y))
+	(func():
+		if not is_instance_valid(body):
+			return
+		for key in ["L", "R"]:
+			if targets.has(key):
+				var right := Vector3(cos(body.rotation.y), 0.0, -sin(body.rotation.y))
+				HunterGrab.solve_arm(body, key, targets[key], 1.0, Vector3.DOWN + back * .6 + right * (-.5 if key == "L" else .5))
+	).call_deferred()
 
 
 ## A held runner's grab entry ([style, t, lift, body pitch, hunter forward, drop, lean], HunterGrab), checked; [] when free.

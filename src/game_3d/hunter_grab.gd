@@ -731,8 +731,9 @@ func _apply(t: float, delta: float) -> void:
 	contact_gap = pose_arms_on(_view, _along, points, bool(current.get("wide", false)))
 	# the runner's own body, drawn from inside: posed like everyone else sees it, its hands on what they hold
 	var body := _player.first_person_body()
-	body.visible = not _player.xr_active
-	body.pose(body_feet, basis, String(current["clip"]))
+	if not _player.xr_active:
+		body.pose(body_feet, basis, String(current["clip"]))
+		_player.first_person_camera.near = PlayerController3D.MODEL_EYE_NEAR
 	if body.model != null:
 		pose_runner_arms(body.model, _view, current, _along, t)
 	# the camera sits at that body's real eyes (no drift from the head), clear of her and the walls, eased
