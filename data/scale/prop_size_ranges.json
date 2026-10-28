@@ -45,7 +45,8 @@
 				"magmaCrystal",
 				"saguaro",
 				"cactusCluster",
-				"sandCastle"
+				"sandCastle",
+				"stageLightRig"
 			]
 		},
 		{
@@ -55,7 +56,9 @@
 				"Carpet",
 				"Rug",
 				"Mat",
-				"beachMat"
+				"beachMat",
+				"cableCoil",
+				"cableRun"
 			]
 		},
 		{
@@ -212,7 +215,11 @@
 				"tableLamp",
 				"bedsideLamp",
 				"Candelabra",
-				"Centerpiece"
+				"Centerpiece",
+				"deskMic",
+				"studioMonitors",
+				"stageMonitor",
+				"comboAmp"
 			],
 			"height": [
 				0.1,
@@ -233,7 +240,8 @@
 				"reception",
 				"TeaCart",
 				"PartyTable",
-				"Coffee"
+				"Coffee",
+				"mixingDesk"
 			],
 			"height": [
 				0.68,
@@ -476,7 +484,13 @@
 				"Fireplace",
 				"stageSpeaker",
 				"displayCase",
-				"mansionDisplayCabinet"
+				"mansionDisplayCabinet",
+				"drumKit",
+				"uprightPianoMusic",
+				"ampStack",
+				"mixingDesk",
+				"paSpeakerPole",
+				"rackGear"
 			],
 			"height": [
 				0.8,
@@ -511,7 +525,12 @@
 				"maintenance",
 				"Kiosk",
 				"PartyTable",
-				"barberStation"
+				"barberStation",
+				"micStand",
+				"podiumMic",
+				"musicStand",
+				"GuitarStand",
+				"keyboardStand"
 			],
 			"height": [
 				0.3,
@@ -567,7 +586,8 @@
 				"Chest",
 				"Hamper",
 				"compostBins",
-				"officeFileBoxes"
+				"officeFileBoxes",
+				"instrumentCases"
 			],
 			"height": [
 				0.3,
@@ -616,7 +636,9 @@
 				"HandDryer",
 				"Dispenser",
 				"BabyChange",
-				"trashBin"
+				"trashBin",
+				"acousticPanel",
+				"guitarWallHanger"
 			],
 			"height": [
 				0.1,

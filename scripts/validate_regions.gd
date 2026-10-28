@@ -17,6 +17,9 @@ const SEEDS := ["BIOME-A", "BIOME-B", "BIOME-C", "BIOME-D", "KYTTU-LAB", "ENDLES
 const RADIUS := 7
 const FACILITY_REGIONS := ["hospital", "lab", "greenhouse", "mall"]
 const MIN_CHUNKS := 6
+## Hunter-scale bodies (0.7 m margin) cannot enter a strip under ~1.4 m, so a room may keep a corner pocket or two beside its
+## furniture rows; pickups there are moved to reachable floor (_ensure_pickups_reachable). More than this is a layout fault.
+const MAX_POCKET_CELLS := 2
 ## The props a room must show to read as that room.
 const KEY_PROPS := {
 	"ward": ["hospitalBed", "hospitalCurtain"], "nurses_station": ["nursesStation"],
@@ -121,7 +124,7 @@ func run(_host: Node) -> int:
 						if blocked.has(doorway) or blocked.has(inside):
 							blocked_doors.append(where)
 						var stranded := _stranded(data, room, doorway, blocked)
-						if stranded > 0:
+						if stranded > MAX_POCKET_CELLS:
 							pockets.append("%s: %d cells" % [where, stranded])
 							pocket_types[room_type] = int(pocket_types.get(room_type, 0)) + 1
 	for region in regions:
