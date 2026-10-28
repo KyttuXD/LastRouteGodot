@@ -298,8 +298,8 @@ func _on_chat_message(peer_id: int, display_name: String, payload: Dictionary) -
 		show_subtitle(peer_id, display_name, text, system)
 	if not system:
 		_show_bubble(peer_id, text)
-		if not own:
-			_speak(text, peer_id, volume)
+		if speaks_line(Settings.tts_mode, own):
+			_speak(text, peer_id, volume, own)
 	if bool(payload.get("ping", false)):
 		var target = payload.get("target")
 		ping_posted.emit(peer_id, target if target is Vector2 else payload.get("at", Vector2.ZERO), int(payload.get("depth", 0)),
@@ -352,12 +352,25 @@ static func voice_for(peer_id: int, voices: Array) -> Dictionary:
 	return {"id": id, "pitch": 0.85 + 0.08 * float(posmod(peer_id * 13, 5)), "rate": 0.95 + 0.05 * float(posmod(peer_id * 7, 3))}
 
 
-func _speak(text: String, peer_id: int, volume: float) -> void:
+## Whether a line is read aloud: never when TTS is "off", only the player's own lines for "own", other players' for "everyone".
+static func speaks_line(mode: String, own: bool) -> bool:
+	match mode:
+		"off":
+			return false
+		"own":
+			return own
+	return not own
+
+
+func _speak(text: String, peer_id: int, volume: float, own: bool = false) -> void:
 	if not Settings.voice_enabled:
 		last_spoken = {"text": text, "volume": 0, "blip": false, "voice": ""}
 		return   # subtitles only
 	var voices: Array = DisplayServer.tts_get_voices() if DisplayServer.has_feature(DisplayServer.FEATURE_TEXT_TO_SPEECH) else []
 	var voice := voice_for(peer_id, voices)
+	voice["rate"] = clampf(float(voice["rate"]) * Settings.tts_rate, 0.5, 2.0)
+	if not Settings.tts_voice_id.is_empty() and voices.any(func(v: Dictionary) -> bool: return String(v.get("id", "")) == Settings.tts_voice_id):
+		voice["id"] = Settings.tts_voice_id
 	var loudness := int(round(clampf(volume, 0.0, 1.0) * Settings.voice_volume))
 	if String(voice["id"]).is_empty():
 		Sound.menu_blip()   # no TTS voice on this device: subtitle + a soft blip

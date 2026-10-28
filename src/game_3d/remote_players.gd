@@ -107,6 +107,8 @@ const PEER_LOOKUP_SECONDS := 30.0
 var _lookup_elapsed := PEER_LOOKUP_SECONDS - 2.0
 var _flag_noticed := {}
 var _send_seq := 0
+## Proximity voice chat (created with the online room; null offline).
+var voice: VoiceChat
 
 
 func _ready() -> void:
@@ -118,6 +120,9 @@ func _ready() -> void:
 		multiplayer.peer_disconnected.connect(_drop)
 	if not multiplayer.peer_connected.is_connected(_greet):
 		multiplayer.peer_connected.connect(_greet)
+	voice = VoiceChat.new()
+	voice.remotes = self
+	add_child(voice)
 	if RoomState.is_host:
 		Backend.moderation.peers_looked_up.connect(_on_peers_looked_up)
 	else:
@@ -318,6 +323,8 @@ func set_room_muted(peer_id: int, muted: bool) -> void:
 		room_muted[peer_id] = true
 	else:
 		room_muted.erase(peer_id)
+	if voice != null:
+		voice.notify_muted(peer_id, muted)
 
 
 func _process(delta: float) -> void:
@@ -857,6 +864,8 @@ func _drop(id: int) -> void:
 	PlayerSkin.forget_peer(id)
 	if not gone.is_empty():
 		PlayerSkin.release_peer(gone, _peer_skin.values())
+	if voice != null:
+		voice.forget_peer(id)
 	_bodies.erase(id)
 	_vr_targets.erase(id)
 	_vr_current.erase(id)
