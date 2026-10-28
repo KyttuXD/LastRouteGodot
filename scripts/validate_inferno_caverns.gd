@@ -69,8 +69,9 @@ func _check_seed(seed_text: String) -> void:
 			caverns_total += caverns.size()
 			_expect(JSON.stringify(_digest(caverns)) == JSON.stringify(_digest(other.inferno_caverns_at(coord))),
 				"%s %s: caverns differ between two generators" % [seed_text, coord])
-			for cavern in caverns:
-				_check_cavern(seed_text, coord, data, cavern)
+			for chamber_index in caverns.size():
+				var cavern: Dictionary = caverns[chamber_index]
+				_check_cavern(seed_text, coord, data, cavern, chamber_index == 0)
 				if not (cavern.get("pit", {}) as Dictionary).is_empty():
 					_pits_seen += 1
 					_check_pit(seed_text, coord, data, cavern["pit"])
@@ -140,19 +141,24 @@ func _check_wide_enough(seed_text: String, coord: Vector3i, data: Dictionary) ->
 	_expect(narrow <= 2, "%s %s: %d open cells are in passages narrower than three (two stray cells beside a pillar or cage are allowed), e.g. %s" % [seed_text, coord, narrow, where])
 
 
-func _check_cavern(seed_text: String, coord: Vector3i, data: Dictionary, cavern: Dictionary) -> void:
+func _check_cavern(seed_text: String, coord: Vector3i, data: Dictionary, cavern: Dictionary, is_main: bool) -> void:
 	var tag := "%s %s" % [seed_text, coord]
 	var rect: Rect2i = cavern["rect"]
-	_expect(rect.size.x >= InfernoCaverns.MIN_SPAN and rect.size.x <= InfernoCaverns.MAX_SPAN
-		and rect.size.y >= InfernoCaverns.MIN_SPAN and rect.size.y <= InfernoCaverns.MAX_SPAN,
-		"%s: cavern %s is outside 14-22 cells" % [tag, rect])
+	# the middle chamber is 14-22 across with a clear 7x7; side chambers (the sealed wings) are smaller, 7 and up
+	if is_main:
+		_expect(rect.size.x >= InfernoCaverns.MIN_SPAN and rect.size.x <= InfernoCaverns.MAX_SPAN
+			and rect.size.y >= InfernoCaverns.MIN_SPAN and rect.size.y <= InfernoCaverns.MAX_SPAN,
+			"%s: middle chamber %s is outside 14-22 cells" % [tag, rect])
+	else:
+		_expect(rect.size.x >= 7 and rect.size.y >= 7 and rect.size.x <= InfernoCaverns.MAX_SPAN and rect.size.y <= InfernoCaverns.MAX_SPAN,
+			"%s: side chamber %s is outside 7-22 cells" % [tag, rect])
 	var grid: Array = data["grid"]
 	var open_middle := false
 	for cell in cavern["cells"]:
 		if InfernoCaverns.clearance(grid, cell) >= InfernoCaverns.OPEN_CLEARANCE:
 			open_middle = true
 			break
-	_expect(open_middle, "%s: cavern %s has no clear 7x7" % [tag, rect])
+	_expect(open_middle or not is_main, "%s: middle chamber %s has no clear 7x7" % [tag, rect])
 	for crevice in cavern["crevices"]:
 		var mouth: Vector2i = crevice["mouth"]
 		var cells: Array = crevice["cells"]

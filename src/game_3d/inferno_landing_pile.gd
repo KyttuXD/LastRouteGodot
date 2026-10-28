@@ -24,7 +24,7 @@ static func build(root: Node3D, data: Dictionary) -> void:
 		var height := maxf(0.0, .55 - radius * .5)
 		var size := Vector3(rng.randf_range(.25, .6), rng.randf_range(.15, .4), rng.randf_range(.25, .6))
 		var at := centre + Vector3(cos(angle) * radius, height + size.y * .5, sin(angle) * radius)
-		var tone := [Color("3a2c20"), Color("4a3a2a"), Color("2c2a2c"), Color("1e1a1c"), Color("55483a")][rng.randi() % 5]
+		var tone: Color = [Color("3a2c20"), Color("4a3a2a"), Color("2c2a2c"), Color("1e1a1c"), Color("55483a")][rng.randi() % 5]
 		_box(tool, at, size, rng.randf() * PI, tone)
 	var mesh := MeshInstance3D.new()
 	mesh.name = "LandingPile"
