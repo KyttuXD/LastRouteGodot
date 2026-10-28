@@ -790,6 +790,7 @@ func _ready() -> void:
 		model.scale = Vector3.ONE * PlayerModels.SCALE
 		body_visual.add_child(model)
 		ModelSlot.apply_character_hue(model, Settings.player_hue_degrees)
+		PlayerSkin.apply(model, PlayerSkin.active_texture())
 		_animation_player = ModelSlot.find_animation_player(model)
 		_align_camera_to_model_eyes(model)
 	flashlight.position = FLASHLIGHT_BEAM_LOCAL_POSITION
@@ -806,6 +807,11 @@ func _ready() -> void:
 
 func _apply_visual_settings() -> void:
 	first_person_camera.fov = Settings.field_of_view
+	if _body_model != null:
+		PlayerSkin.apply(_body_model, PlayerSkin.active_texture())
+	if first_person_items != null:
+		for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
+			PlayerSkin.apply(hand, PlayerSkin.active_texture())
 
 
 func _align_camera_to_model_eyes(model: Node3D) -> void:
@@ -1978,6 +1984,7 @@ func _add_first_person_hand(view: Node3D) -> void:
 		mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		hand.add_child(mesh_node)
 	ModelSlot.apply_character_hue(hand, Settings.player_hue_degrees)
+	PlayerSkin.apply(hand, PlayerSkin.active_texture())
 	hand.visible = first_person_hands
 	view.add_child(hand)
 
