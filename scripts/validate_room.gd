@@ -26,7 +26,42 @@ func _expect(condition: bool, message: String) -> void:
 		_fail(message)
 
 
+## A guest leaving a co-op run (their own exit, or the host going away) ends up on the MAIN MENU with the room fully cleared.
+func _check_guest_leaves_to_menu(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.code = "ZZZZZ"
+	RoomState.is_host = false
+	RoomState.session_active = true
+	RoomState.peers = {1: "HOSTNAME", 2: "GUESTNAME"}
+	RoomState.reset_after_leaving("YOU LEFT THE ROOM")
+	_expect(RoomState.code != "ZZZZZ" and RoomState.is_host and not RoomState.online and not RoomState.connecting,
+		"leaving a room kept its code or the guest role")
+	_expect(not RoomState.session_active and not RoomState.reconnect_active, "leaving a room left its session or a reconnect running")
+	_expect(not RoomState.peers.has(1) or RoomState.peers.size() <= 1, "leaving a room kept the host's roster (%s)" % [RoomState.peers])
+	_expect(RoomState.menu_notice == "YOU LEFT THE ROOM", "the leave notice was not queued for the main menu")
+	_expect(RoomState.status_message.is_empty(), "a stale staging status survived the leave")
+	_expect(RoomState.HOST_LEFT_NOTICE.begins_with("HOST LEFT"), "the host-left notice does not say HOST LEFT")
+	# the main menu shows the notice once
+	RoomState.menu_notice = RoomState.HOST_LEFT_NOTICE
+	var menu := (load("res://scenes/main_menu.tscn") as PackedScene).instantiate()
+	host.add_child(menu)
+	await host.get_tree().process_frame
+	var notice := menu.find_child("RoomNotice", true, false) as Label
+	_expect(notice != null and notice.text.begins_with("HOST LEFT"), "the main menu did not show HOST LEFT after the host went away")
+	_expect(RoomState.menu_notice.is_empty(), "the menu notice was not consumed")
+	menu.queue_free()
+	await host.get_tree().process_frame
+	# the three guest exits and the host-gone paths all use it (not the staging screen)
+	var route_source := FileAccess.get_file_as_string("res://src/infinite_route_test.gd")
+	var main_source := FileAccess.get_file_as_string("res://src/main_3d.gd")
+	var state_source := FileAccess.get_file_as_string("res://src/autoload/room_state.gd")
+	_expect(route_source.contains('RoomState.leave_room_to_menu("YOU LEFT THE ROOM")'), "the streamed route's guest leave does not go to the main menu")
+	_expect(main_source.count('RoomState.leave_room_to_menu("YOU LEFT THE ROOM")') == 2, "main_3d guest exits do not all go to the main menu")
+	_expect(state_source.count("_close_failed_connection(HOST_LEFT_NOTICE, true)") == 2, "a lost or timed-out host does not send guests to the main menu")
+
+
 func run(host: Node) -> int:
+	await _check_guest_leaves_to_menu(host)
 	_expect(Backend.PRIMARY_BASE_URL == "http://lastroute.kyttuslab.org:8105",
 		"the built-in room directory is %s" % Backend.PRIMARY_BASE_URL)
 	var backend_url_before := Backend.base_url

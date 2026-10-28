@@ -561,10 +561,10 @@ func _on_server_disconnected() -> void:
 	if session_active and not is_host and not reconnect_active:
 		_start_reconnect_grace()
 		return
-	_close_failed_connection("HOST DISCONNECTED // RETURNED TO STAGING")
+	_close_failed_connection(HOST_LEFT_NOTICE, true)
 
 
-func _close_failed_connection(reason: String) -> void:
+func _close_failed_connection(reason: String, to_menu: bool = false) -> void:
 	var was_public := public_route
 	_close_transport_only(true)
 	_clear_reconnect_state()
@@ -577,6 +577,9 @@ func _close_failed_connection(reason: String) -> void:
 		# may make this client the new authority (see PublicRoute).
 		public_route = true
 		PublicRoute.on_connection_lost()
+		return
+	if to_menu:
+		call_deferred("leave_room_to_menu", reason)
 		return
 	call_deferred("_return_to_staging")
 
@@ -594,7 +597,7 @@ func _start_reconnect_grace() -> void:
 func _tick_reconnect() -> void:
 	var now := Time.get_ticks_msec()
 	if now >= _reconnect_deadline_msec:
-		_close_failed_connection("HOST DISCONNECTED // RETURNED TO STAGING")
+		_close_failed_connection(HOST_LEFT_NOTICE, true)
 		return
 	if connecting or _reconnect_request_in_flight or now < _reconnect_next_lookup_msec:
 		return
@@ -1088,6 +1091,36 @@ func _receive_end(reason: String) -> void:
 		Backend.update_room(peers.size(), session_active)
 	changed.emit()
 	call_deferred("_return_to_staging")
+
+
+const HOST_LEFT_NOTICE := "HOST LEFT THE ROOM // BACK AT THE MAIN MENU"
+## One-shot line the main menu shows after a guest left a room (their own exit, or the host going away).
+var menu_notice := ""
+
+
+## A guest's way out of a co-op room: unregister from the host, close ENet/relay, unload the room's packs, replace the joined room
+## with a fresh local one (no stale code, seed or roster) and land on the main menu with `notice`. The host keeps the staging flow.
+func leave_room_to_menu(notice: String = "") -> void:
+	reset_after_leaving(notice)
+	var tree := get_tree()
+	if tree == null:
+		return
+	XRFade.change_scene(tree, menu_scene_path())
+
+
+## The state half of leave_room_to_menu (no scene change), so it can be checked on its own.
+func reset_after_leaving(notice: String = "") -> void:
+	var for_mode := mode
+	leave_network()
+	create_local(for_mode)
+	menu_notice = notice
+	status_message = ""
+
+
+func consume_menu_notice() -> String:
+	var notice := menu_notice
+	menu_notice = ""
+	return notice
 
 
 func _return_to_staging() -> void:

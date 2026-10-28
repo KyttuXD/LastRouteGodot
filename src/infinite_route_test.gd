@@ -6055,11 +6055,8 @@ func _leave_test() -> void:
 		# staging screen. RoomState owns the authoritative reliable RPC.
 		RoomState.end_session("HOST ENDED THE ROUTE // BACK IN STAGING")
 	elif RoomState.online:
-		# A guest cannot end the host's route. Disconnect only this peer and leave a
-		# local staging room ready rather than dropping all the way to the title.
-		RoomState.status_message = "LEFT THE ROUTE // BACK IN STAGING"
-		RoomState.leave_network()
-		XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
+		# A guest cannot end the host's route: they leave the room completely and land on the main menu.
+		RoomState.leave_room_to_menu("YOU LEFT THE ROOM")
 	else:
 		RoomState.session_active = false
 		RoomState.status_message = "ROUTE SUSPENDED // BACK IN STAGING"

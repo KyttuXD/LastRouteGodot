@@ -85,6 +85,7 @@ func _ready() -> void:
 		_on_update_status(UpdateManager.status_message)
 	if _open_update_progress_if_needed():
 		return
+	_show_room_notice(RoomState.consume_menu_notice())
 	_focus_default_button.call_deferred()
 	# Coming from the hub's shared Account / Settings entries.
 	match GameHub.pending_menu_action:
@@ -93,6 +94,28 @@ func _ready() -> void:
 		"settings":
 			_on_settings_pressed.call_deferred()
 	GameHub.pending_menu_action = ""
+
+
+## One line at the top after leaving a co-op room (YOU LEFT THE ROOM / HOST LEFT THE ROOM), gone after a few seconds.
+func _show_room_notice(text: String) -> void:
+	if text.is_empty():
+		return
+	var label := Label.new()
+	label.name = "RoomNotice"
+	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	label.offset_left = 20.0
+	label.offset_right = -20.0
+	label.offset_top = 8.0
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_size_override("font_size", 7)
+	label.add_theme_color_override("font_color", Palette.AMBER)
+	add_child(label)
+	get_tree().create_timer(6.0).timeout.connect(func() -> void:
+		if is_instance_valid(label):
+			label.queue_free())
 
 
 ## Mutes the version label (the keyboard hint under the menu was removed).
