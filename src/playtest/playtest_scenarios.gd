@@ -899,7 +899,7 @@ static func _soak_music_box(scene: Node, wound: Dictionary) -> RouteInteractable
 
 
 # ------------------------------------------------------------------------------------------------ coop_check
-## coop_bot --coop-check: a scripted live co-op test. Every peer plays with the bot and, on the same timeline (seconds since it entered the
+## coop_bot --coop-check: a scripted live co-op test. No runner is a target until its scripted catch, so nothing ends early. Every peer plays with the bot and, on the same timeline (seconds since it entered the
 ## route), does its part; every peer writes a state sample each wall-clock second (epoch ms) to <out>/coop_samples.jsonl and screenshots
 ## at the key moments, so tools/playtest/coop_compare.py can line the peers up afterwards.
 ##   guests are ordered by peer id: A (first), B (second or A), C (third or A)
@@ -930,6 +930,9 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	var frame_ms: Array = []
 	var frames := 0
 	var obs := {}
+	# hunters leave every runner alone until its scripted catch (A from t 235, the host from t 470): a windowed debug build only
+	# honours no-target with admin rights, so the harness takes the screenshot rig's debug-only stand-in for them
+	Build.capture_rig = true
 	while true:
 		await tree.physics_frame
 		frames += 1
@@ -944,6 +947,7 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		var b := int(guests[1]) if guests.size() > 1 else a
 		var c := int(guests[2]) if guests.size() > 2 else a
 		var player: PlayerController3D = scene.get("player")
+		player.admin_no_target = not ((me == a and t >= 235.0) or (role == "host" and t >= 470.0))
 		# the timeline, each step once
 		var step := ""
 		if role == "host" and t >= 50.0 and not done.has("glyra"):
@@ -1000,6 +1004,7 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		bridge.input.apply(adapter.decide(obs, 1.0 / hz))
 	bridge.input.release_all()
 	samples.close()
+	Build.capture_rig = false
 	report["coop_check"] = {"done": done, "steps": steps, "me": me, "guests": _coop_guests(tree.current_scene) if _soak_route(tree.current_scene) else []}
 	return {"outcome": "time_limit", "game_seconds": snappedf(float(frames) / hz, .1), "frames": frames,
 		"perf": PlaytestReporter.perf_summary(fps, frame_ms), "deaths": [], "scenario_failure": ""}
