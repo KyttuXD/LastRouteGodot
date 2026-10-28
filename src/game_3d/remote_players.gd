@@ -281,6 +281,7 @@ func _place(state: Dictionary) -> void:
 		if body == null:
 			return
 		body.name = "Peer%d" % id
+		body.scale = Vector3.ONE * PlayerModels.SCALE   # the name tag above her scales down with her
 		add_child(body)
 		body.global_position = at
 		body.rotation.y = float(state.get("facing_y", 0.0))

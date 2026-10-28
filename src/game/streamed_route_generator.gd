@@ -3710,11 +3710,11 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 		var rect: Rect2i = room.get("rect", Rect2i())
 		var suite_child := room.has("suite_id") \
 			and not bool(room.get("suite_parent", false))
-		# Only major rooms (halls, lobbies, greenhouses, very large rooms) and a suite's own entrance
-		# get wide doors; small rooms always get a single door.
+		# Doors are sized for the hunters (docs/DOORWAY_CLEARANCE.md): every room with a side of 4+ cells and a suite's
+		# own entrance get a two-cell double door; only small rooms and the rooms inside a suite keep a single door.
 		var major := _is_major_room(room, rect)
 		var use_double := bool(room.get("suite_parent", false)) \
-			or (not suite_child and major and (rect.size.x >= 7 or rect.size.y >= 7))
+			or (not suite_child and (rect.size.x >= 4 or rect.size.y >= 4))
 		# Roomy major rooms open onto the hall through a three-cell archway instead of
 		# a door; a few keep a door for variety (see RefDecor for the arch itself).
 		var arch := major and not room.has("suite_id") and rect.size.x >= 7 and rect.size.y >= 7 \
