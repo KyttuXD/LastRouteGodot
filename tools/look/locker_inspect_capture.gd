@@ -25,7 +25,7 @@ func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	var hunter_id := "dovelle"
 	for arg in args:
-		if arg != "side":
+		if arg not in ["side", "front"]:
 			hunter_id = arg
 	var env := WorldEnvironment.new()
 	env.environment = Environment.new()
@@ -34,12 +34,19 @@ func _ready() -> void:
 	env.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.environment.ambient_light_color = Color(.32, .32, .38)
 	add_child(env)
+	# faint hallway light behind her (on the far wall's side), so at the slats she is a silhouette with a lit edge
 	var lamp := OmniLight3D.new()
-	lamp.position = Vector3(13.2, 2.5, 10.5)
-	lamp.omni_range = 5.0
-	lamp.light_energy = 1.3
+	lamp.position = Vector3(13.9, 2.4, 10.5)
+	lamp.omni_range = 4.5
+	lamp.light_energy = .9
 	lamp.light_color = Color("#ffcf9a")
 	add_child(lamp)
+	var hall := OmniLight3D.new()
+	hall.position = Vector3(13.6, 2.6, 4.0)
+	hall.omni_range = 7.0
+	hall.light_energy = .5
+	hall.light_color = Color("#ffd9b0")
+	add_child(hall)
 	_box(Vector3(4, -.2, 1), Vector3(12, .2, 19), Color(.3, .29, .3))
 	_box(Vector3(14.2, 0, 1), Vector3(.3, 3, 19), Color(.48, .46, .43))     # the hall's far wall
 	_box(Vector3(9.1, 0, 1), Vector3(.3, 3, 19), Color(.36, .34, .33))      # the wall the lockers stand in
@@ -63,12 +70,20 @@ func _ready() -> void:
 	camera.fov = 62.0
 	camera.near = .03
 	add_child(camera)
+	# the hider's real eye: right behind the vent band, at its height, with the hider's own view of the locker
+	locker.set_local_hiding_view(true)
 	var inside := locker.hiding_inside_position()
-	camera.global_position = Vector3(inside.x, inside.y + PlayerController3D.CAMERA_HEIGHT, inside.z)   # the hider's real eye
-	camera.look_at(camera.global_position + Vector3(1, -.03, 0), Vector3.UP)
-	if "side" in OS.get_cmdline_user_args():   # a side view of the lean, for checking the pose against the locker
+	camera.global_position = inside + Vector3(0, locker.hiding_eye_height(), 0)
+	camera.look_at(camera.global_position + Vector3(1, 0, 0), Vector3.UP)
+	camera.fov = 75.0
+	if "side" in OS.get_cmdline_user_args():   # a side view of the lean (and the outside of the locker, as others see it)
+		locker.set_local_hiding_view(false)
 		camera.global_position = Vector3(11.6, 1.3, 13.6)
 		camera.look_at(Vector3(11.4, 1.1, 10.5), Vector3.UP)
+	if "front" in OS.get_cmdline_user_args():   # the locker's door as everyone else sees it
+		locker.set_local_hiding_view(false)
+		camera.global_position = Vector3(12.0, 1.6, 10.9)
+		camera.look_at(Vector3(10.6, 1.4, 10.5), Vector3.UP)
 	camera.current = true
 
 

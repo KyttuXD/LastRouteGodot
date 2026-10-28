@@ -130,15 +130,15 @@ add(t, "R-Thigh", hold((-4, 0, 6), L))
 pose("peek_left", L, True, .35, t, note="lean left, head only past the corner")
 mirrored("peek_right", "peek_left")
 
-# route locker inspection (HunterInspect): the trailer's "locker breath" lean -- feet planted, she leans in from the
-# waist and tips her chin up so her eyes stay level with the slats of a locker a (smaller) player hides in (seen from
-# inside with tools/look/locker_inspect_capture.tscn: her eyes fill the slit).
+# route locker inspection (HunterInspect): the trailer's "locker breath" bow (its waist [-40, -22]) -- feet planted, she
+# folds forward from the waist until her eyes are level with the locker's vent band and tips her chin up (positive Head
+# x) to look straight in; seen from inside with tools/look/locker_inspect_capture.tscn her face fills the slats.
 L = 3.0
 t = {}
 add_pos(t, "Pelvis", sample(L, lambda p: (0, -0.02 + .005 * math.sin(p * math.tau), 0)))
-add(t, "Belly", wave_keys(L, (-12, 0, 0), (1.5, 0, 0)))
-add(t, "Chest", wave_keys(L, (-8, 0, 0), (2.0, 0, 0), phase=.15))
-add(t, "Head", wave_keys(L, (15, 0, 0), (1.5, 3, 0), phase=.3))
+add(t, "Belly", wave_keys(L, (-40, 0, 0), (1.5, 0, 0)))
+add(t, "Chest", wave_keys(L, (-22, 0, 0), (2.0, 0, 0), phase=.15))
+add(t, "Head", wave_keys(L, (46, 0, 0), (1.5, 3, 0), phase=.3))
 add(t, "L-Arm", hold((24, 0, -4), L))
 add(t, "R-Arm", hold((24, 0, 4), L))
 pose("locker_lean", L, True, .6, t, note="route locker inspection: bent in at the slats from the waist, face looking straight in")

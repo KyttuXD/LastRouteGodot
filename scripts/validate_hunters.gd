@@ -569,8 +569,11 @@ func _hiding_spots_and_javelle(host: Node) -> void:
 		return
 	var inside := fixture.hiding_inside_position()
 	var inside_local := fixture.to_local(inside)
-	_expect(absf(inside_local.z - .18) < .01,
-		"the locker camera is not recessed behind its door sight slats")
+	# the hider's eye sits LOCKER_EYE_BEHIND behind the door's vent band, centred on it (the trailer's "locker breath" view)
+	_expect(absf(inside_local.z - (RouteInteractable3D.LOCKER_DOOR_Z + RouteInteractable3D.LOCKER_EYE_BEHIND)) < .01,
+		"the locker camera is not right behind its vent slats")
+	_expect(absf(fixture.hiding_eye_height() + .02 - (RouteInteractable3D.LOCKER_VENT_LO + RouteInteractable3D.LOCKER_VENT_HI) * .5) < .01,
+		"the locker camera is not centred on its vent band")
 	var approach := fixture.global_position + Vector3(0.0, 0.0, -.65)
 	scene.player.global_position = approach
 	scene.player.enter_hiding(cell, inside, approach, fixture)

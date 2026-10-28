@@ -12,8 +12,8 @@ extends RefCounted
 ## carries it to guests.
 
 const REACH := 3.0                 # she has to be passing this close to the spot
-const STAND_OUT := 1.95            # where she stops, from the spot centre out through its door: leaning in, her eyes fill the slats
-const STAND_MIN := 1.3             # a tighter hall: the nearest stand that still clears her lean of the locker
+const STAND_OUT := 1.8            # where she stops, from the spot centre out through its door: bowed in, her face is a hand off the slats
+const STAND_MIN := 1.6            # a tighter hall: the nearest stand that still keeps her bow off the locker
 const TURN_SECONDS := .6
 const LEAN_SECONDS := 1.6
 const RISE_SECONDS := 1.2
@@ -26,7 +26,7 @@ const LEAVE_DISTANCE := 4.0
 ## them and so cannot stop for it (EXCLUDED, see the locker_inspect validator); Nyxie's is the rare trailer easter egg:
 ## stand (closer), linger_scale and breaths.
 const DEFAULT := {"chance": 0.3, "stand": STAND_OUT, "linger_scale": 1.0, "breaths": 1}
-const TUNING := {"nyxie": {"chance": 0.12, "stand": 1.8, "linger_scale": 2.0, "breaths": 2}}
+const TUNING := {"nyxie": {"chance": 0.12, "stand": 1.7, "linger_scale": 2.0, "breaths": 2}}
 ## Never inspect: the locker_inspect validator's 100% run (every hunter x 4 facings x 2 approach sides) fails for these,
 ## because their own rules drive them: Wynelle and Gray Void are dormant until their trigger, Ilyra and Zellia keep their
 ## posts, Verrine lives in the vents, Ferryn stalks from a fixed origin, and Javelle's gimmick re-aims her every frame.
