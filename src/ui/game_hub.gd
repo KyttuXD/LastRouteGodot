@@ -47,6 +47,8 @@ var _dragging := false
 var _toast: Label
 var _signed_in: Label
 var _quit_dialog: Control
+## Draw order of the QUIT question, above every carousel card (card.z_index tops out at 10).
+const QUIT_DIALOG_Z := 50
 
 
 func _ready() -> void:
@@ -562,6 +564,8 @@ func _ask_quit() -> void:
 		return
 	_quit_dialog = Control.new()
 	_quit_dialog.name = "QuitDialog"
+	# Above the carousel: the cards raise themselves with z_index (up to 10) and used to cover the YES / NO box.
+	_quit_dialog.z_index = QUIT_DIALOG_Z
 	_quit_dialog.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_quit_dialog.mouse_filter = Control.MOUSE_FILTER_STOP
 	_quit_dialog.gui_input.connect(func(event: InputEvent) -> void:
