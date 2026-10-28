@@ -38,6 +38,10 @@ RoomState="*res://src/autoload/room_state.gd"
 PublicRoute="*res://src/autoload/public_route.gd"
 Playtest="*res://src/playtest/playtest_bridge.gd"
 
+[audio]
+
+driver/enable_input=true
+
 [display]
 
 window/size/viewport_width=480
