@@ -15,7 +15,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func run(host: Node) -> int:
 	# 0. every playtest script must compile (a parse error in the scenarios file once made every run exit without playing)
-	for path in ["res://src/playtest/playtest_scenarios.gd", "res://src/playtest/playtest_runner.gd", "res://src/playtest/playtest_reporter.gd",
+	for path in ["res://src/playtest/playtest_scenarios.gd", "res://src/playtest/playtest_runner.gd", "res://src/playtest/playtest_reporter.gd", "res://src/playtest/playtest_flythrough.gd",
 			"res://src/playtest/bots/last_route_bot.gd", "res://src/playtest/bots/night_watch_bot.gd"]:
 		var script := load(path) as GDScript
 		_expect(script != null and script.can_instantiate(), "%s must compile" % path)
@@ -24,6 +24,23 @@ func run(host: Node) -> int:
 		scenario_methods.append(String(method["name"]))
 	for wanted in ["play", "run_loop", "menu_tour", "death_tour", "coop_bot", "probe"]:
 		_expect(scenario_methods.has(wanted), "PlaytestScenarios must define %s()" % wanted)
+
+	# 0b. the flythrough planner builds a camera track for every default area (or says the build has none), no scene needed
+	var generator := StreamedRouteGenerator.new("FLYTHROUGH")
+	for area in PlaytestFlythrough.DEFAULT_SET:
+		var planned: Dictionary = PlaytestFlythrough.plan(generator, String(area), 30, 0.0)
+		if bool(planned.get("unavailable", false)):
+			print("  note  flythrough area %s unavailable on this build: %s" % [area, planned.get("error", "")])
+			continue
+		_expect(bool(planned.get("ok", false)), "flythrough plan for %s must succeed (%s)" % [area, planned.get("error", "")])
+		if bool(planned.get("ok", false)):
+			var track: PlaytestFlythrough.Track = planned["track"]
+			_expect(track.size() > 30 * 15 and track.size() < 30 * 60, "flythrough %s should last 15-60 s, got %.1f s" % [area, float(track.size()) / 30.0])
+			var biggest_jump := 0.0
+			for i in range(2, track.size()):
+				# a jump is a sudden change of the per-frame step, not the (fast) crane move itself
+				biggest_jump = maxf(biggest_jump, absf(track.pos[i].distance_to(track.pos[i - 1]) - track.pos[i - 1].distance_to(track.pos[i - 2])))
+			_expect(biggest_jump < .12, "flythrough %s camera speed jumps by %.2f m/frame" % [area, biggest_jump])
 
 	# 1. off by default; no cost when off
 	_expect(not Playtest.enabled, "the playtest bridge must be disabled without --playtest")

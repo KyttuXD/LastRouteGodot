@@ -9,7 +9,7 @@ extends Node
 ## Scenarios: survive, explore_coverage (--target=chunks), collect_relays (--target=n), reach_depth (--target=n), menu_tour,
 ##   death_scene_tour (--hunters=a,b). Exit code 0 = pass, 1 = failed thresholds, 2 = could not run (skipped / error).
 
-const SCENARIOS := ["survive", "explore_coverage", "collect_relays", "reach_depth", "menu_tour", "death_scene_tour", "probe", "coop_bot", "goto_check", "door_audit"]
+const SCENARIOS := ["survive", "explore_coverage", "collect_relays", "reach_depth", "menu_tour", "death_scene_tour", "probe", "coop_bot", "goto_check", "door_audit", "flythrough"]
 
 var _driver := false
 var _opts := {}
@@ -46,6 +46,8 @@ func _start_watchdog() -> void:
 				seconds = 300.0
 			"death_scene_tour":
 				seconds = 2700.0
+			"flythrough":
+				seconds = 1200.0
 			_:
 				seconds = float(_opts["minutes"]) * 60.0 * 3.0 + 120.0
 	_watchdog = Thread.new()
@@ -69,7 +71,7 @@ func _watch(seconds: float) -> void:
 
 static func parse_args(args: PackedStringArray) -> Dictionary:
 	var out := {"game": "last_route", "scenario": "survive", "seed": "PLAYTEST", "difficulty": "standard", "minutes": 2.0,
-		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_y": -9999.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "goal_x": 0, "goal_z": 0, "goal_kind": "relay", "deadline": 0.0, "screenshots": false, "keep_alive": false}
+		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_y": -9999.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "goal_x": 0, "goal_z": 0, "goal_kind": "relay", "deadline": 0.0, "screenshots": false, "keep_alive": false, "area": "", "fps": 30, "seconds": 0.0}
 	out.merge(PlaytestReporter.DEFAULT_LIMITS, true)
 	for arg in args:
 		var text := String(arg)
@@ -119,6 +121,8 @@ func _run() -> void:
 			result = await PlaytestScenarios.goto_check(bridge, adapter, _opts, report)
 		"door_audit":
 			result = await PlaytestScenarios.door_audit(bridge, adapter, _opts, report)
+		"flythrough":
+			result = await PlaytestFlythrough.run(bridge, adapter, _opts, report)
 		"death_scene_tour":
 			result = await PlaytestScenarios.death_tour(bridge, adapter, _opts, report)
 		_:
