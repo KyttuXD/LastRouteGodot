@@ -63,6 +63,13 @@ and checks what the shot file asks for:
 * a flat-colour mask render that counts visible leg, hip, torso and head pixels (rays can disagree with the drawn wall faces);
 * root motion, and that every reposition happens in the dark.
 
+Gameplay shots (`"gameplay": true`, `gp_*.json`) keep the HUD and hands on and drive the real player through `inputs`. A `summon`
+event brings in a real hunter; with `"pin": true` she holds her spot facing the player. A `grab` event then plays the game's own
+catch on the runner (`admin_force_grab`; the run never ends). `open_spot` finds open floor near the route with the room a style
+needs (`side`, `ahead`, `back`, `back_max` for a wall behind). The `grab` check confirms the style is playing and that the hunter's
+hands are on the runner. It also checks that the spot passes the game's own room rule, which forced styles otherwise skip.
+`gp_grab_<style>.json` has one clip per style.
+
 A shot that fails is not rendered (`--force` overrides). `tools/playtest/trailer.py tools/playtest/trailers/hunters.json --clips <dir>`
 cuts the trailer: title cards, lower-third name overlays, and `"fade_out": 0` for a hard cut.
 

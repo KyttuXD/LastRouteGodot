@@ -193,6 +193,15 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			return {"scenario_failure": "no node found", "outcome": "error", "game_seconds": 0.0, "frames": frames}
 		origin_eye = near_stage["eye"]
 		info["near_node"] = near_stage["at"]
+	var open_stage := {}
+	if shot.has("open_spot"):
+		# open floor with room for a grab (see _open_spot); forced grab styles skip the game's own room rule
+		open_stage = _open_spot(player.get_world_3d().direct_space_state, player, origin_eye, shot["open_spot"])
+		if open_stage.is_empty():
+			report["flythrough"] = {"area": shot_name, "available": false, "reason": "no open floor %s near the %s route" % [shot["open_spot"], area]}
+			return {"scenario_failure": "no open spot found", "outcome": "error", "game_seconds": 0.0, "frames": frames}
+		origin_eye = open_stage["eye"]
+		info["open_spot"] = [snappedf(origin_eye.x, .01), snappedf(origin_eye.z, .01)]
 	var pickup: RouteInteractable3D = null
 	if shot.has("pickup"):
 		pickup = _find_pickup(scene, space, player, shot["pickup"])
@@ -217,6 +226,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		forward = near_stage["f"]
 	if not world_stage.is_empty():
 		forward = world_stage["f"]
+	if not open_stage.is_empty():
+		forward = open_stage["f"]
 	if locker != null:
 		forward = locker_out
 	if pickup != null:
@@ -369,6 +380,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	_glance = {}
 	var turns: Array = []          # {t0, dur, yaw, pitch, done}: quick mouse-style turns (the mouse handler's own math)
 	var summoned: Array = []
+	var pinned := {}               # entity -> spot: summoned with "pin" (stands there facing the player; a grab poses her from there)
+	var grabbing := false
 	if gameplay:
 		PlaytestFlythrough._clear_hunters(scene, false)
 		var start_at := _pt(stage, shot.get("start", [0.0, 0.0]), 0.0)
@@ -451,6 +464,19 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 				var sid := _summon(scene, str(ev["summon"]), _pt(stage, ev.get("at", [6.0, 0.0]), 0.0))
 				if not sid.is_empty():
 					summoned.append(sid)
+					if bool(ev.get("pin", false)):
+						pinned[sid] = _pt(stage, ev.get("at", [6.0, 0.0]), 0.0)
+			if ev.has("grab"):
+				# the game's own catch presentation on the local runner (admin_force_grab: the run never ends), by the last summoned
+				# hunter; it runs on its own from here and holds until "release" or the end of the clip
+				var gview := (scene.get("_hunter_views") as Dictionary).get(str(summoned.back()) if not summoned.is_empty() else "") as HunterView3D
+				if gview != null and scene.has_method("admin_force_grab"):
+					scene.call("admin_force_grab", gview, str(ev["grab"]))
+					grabbing = true
+				info["grab"] = {"style": str(ev["grab"]), "started": grabbing, "hook": scene.has_method("admin_force_grab")}
+			if ev.has("release") and grabbing:
+				(scene.get("grab") as Object).call("release")
+				grabbing = false
 			if ev.has("fill"):
 				dark = float(ev["fill"])   # the camera-side fill (also cut by every blackout)
 			if ev.has("blackout"):
@@ -499,6 +525,19 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 				hud.set("_message_time_left", 0.0)
 			for turn in turns:
 				_apply_turn(player, turn, t)
+			for pid in pinned:
+				var spot: Vector3 = pinned[pid]
+				var pstate: Dictionary = ((scene.get("world_state") as Object).get("hunters") as Dictionary).get(pid, {})
+				var pview := (scene.get("_hunter_views") as Dictionary).get(pid) as HunterView3D
+				if pstate.is_empty() or pview == null or pview.brain == null:
+					continue
+				pstate["position"] = Vector2(spot.x, spot.z)
+				pview.brain.position = Vector2(spot.x, spot.z)
+				pview.global_position = Vector3(spot.x, pview.global_position.y, spot.z)
+				if not grabbing:
+					var to_player := Vector3(player.global_position.x, pview.global_position.y, player.global_position.z)
+					if to_player.distance_to(pview.global_position) > .1:
+						pview.look_at(to_player, Vector3.UP)
 			if not _glance.is_empty():
 				if _glance.has("back_at") and t >= float(_glance["back_at"]):
 					_glance["target"] = 0.0
@@ -584,6 +623,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		input.begin_frame()
 		frames += 1
 	input.release_all()
+	if grabbing:
+		(scene.get("grab") as Object).call("release")
 	if glance_hook.is_valid() and RenderingServer.frame_pre_draw.is_connected(glance_hook):
 		RenderingServer.frame_pre_draw.disconnect(glance_hook)
 	camera.rotation.y = 0.0
@@ -2009,6 +2050,21 @@ static func _gameplay_check(expect: Dictionary, camera: Camera3D, player: Player
 				detail += " (closer than %s m)" % want["min_gap"]
 			seen_any = seen_any or visible
 		rows.append({"name": "%s really on screen" % want.get("id", ""), "pass": seen_any == bool(want.get("visible", true)), "detail": detail})
+	if expect.has("grab"):
+		var grab: Object = _scene.get("grab")
+		var held := grab != null and not (grab.get("current") as Dictionary).is_empty()
+		var got := str(grab.get("style")) if grab != null else "-"
+		rows.append({"name": "grab %s playing" % expect["grab"], "pass": held and got == str(expect["grab"]),
+			"detail": "style %s, t %.2f, hand gap %s" % [got, float(grab.get("elapsed")) if grab != null else 0.0, grab.get("contact_gap") if grab != null else "-"]})
+		# forced styles skip the game's room rule: the spot must still pass it (the same probe a real catch makes)
+		var room: Dictionary = grab.get("last_room") if grab != null and grab.get("last_room") is Dictionary else {}
+		# loaded by path: the grab styles are not on every branch this sequencer runs on
+		var fits := not room.is_empty() and ResourceLoader.exists("res://src/config/grab_styles.gd") \
+			and bool(load("res://src/config/grab_styles.gd").call("fits", str(expect["grab"]), room))
+		rows.append({"name": "spot has room for %s" % expect["grab"], "pass": fits, "detail": str(room)})
+		var gap_max := float(expect.get("hand_gap_max", .05))
+		var hand_gap := float(grab.get("contact_gap")) if grab != null and grab.get("contact_gap") != null else 9.0
+		rows.append({"name": "hands on the runner", "pass": hand_gap <= gap_max, "detail": "%.3f m (max %s)" % [hand_gap, gap_max]})
 	if expect.has("pickup_taken"):
 		var gone := _pickup == null or not is_instance_valid(_pickup) or not _pickup.is_visible_in_tree()
 		var in_view := false
@@ -2057,6 +2113,56 @@ static func _find_pickup(scene: Node, space: PhysicsDirectSpaceState3D, player: 
 				best = it
 				it.set_meta("trailer_approach_dir", dir)
 			break
+	return best
+
+
+## The nearest open floor around `center` for a grab: a line `ahead` m long (walk-in plus the hunter and the room behind her) with
+## `side` m clear to both sides along it at chest and knee height, `back` m clear behind the start, and optionally a wall within
+## `back_max` (wall pin). Grid search out to `radius`, eight headings; returns {eye, f} or {}.
+static func _open_spot(space: PhysicsDirectSpaceState3D, player: Node, center: Vector3, cfg: Dictionary) -> Dictionary:
+	var exclude := [(player as CollisionObject3D).get_rid()]
+	var clear := func(from: Vector3, dir: Vector3, length: float) -> float:
+		var ray := PhysicsRayQueryParameters3D.create(from, from + dir * length)
+		ray.exclude = exclude
+		var hit := space.intersect_ray(ray)
+		return length if hit.is_empty() else from.distance_to(hit["position"] as Vector3)
+	var side := float(cfg.get("side", 1.0))
+	var ahead := float(cfg.get("ahead", 5.0))
+	var back := float(cfg.get("back", 1.0))
+	var back_max := float(cfg.get("back_max", 99.0))
+	var radius := int(cfg.get("radius", 30))
+	var best := {}
+	var best_d := 1e9
+	for gx in range(-radius, radius + 1):
+		for gz in range(-radius, radius + 1):
+			var d2 := float(gx * gx + gz * gz)
+			if d2 > float(radius * radius) or d2 >= best_d:
+				continue
+			var feet := _floor_at(space, Vector3(center.x + gx, center.y + .3, center.z + gz), player, -999.0)
+			if feet.y < center.y - EYE - .6 or feet.y > center.y - EYE + .6:
+				continue   # another storey, a hole, or no floor at all
+			for k in 8:
+				var a := TAU * float(k) / 8.0
+				var f := Vector3(sin(a), 0.0, -cos(a))
+				var r := f.cross(Vector3.UP)
+				var ok := true
+				for h in [1.0, .35]:
+					var start: Vector3 = feet + Vector3.UP * float(h)
+					var behind: float = clear.call(start, -f, back_max + .5 if back_max < 99.0 else back + .1)
+					if clear.call(start, f, ahead) < ahead - .01 or behind < back or behind > back_max:
+						ok = false
+						break
+					for s in 4:
+						var p: Vector3 = start + f * (ahead * float(s) / 3.0 * .8)
+						if clear.call(p, r, side) < side - .01 or clear.call(p, -r, side) < side - .01:
+							ok = false
+							break
+					if not ok:
+						break
+				if ok:
+					best = {"eye": feet + Vector3.UP * EYE, "f": f}
+					best_d = d2
+					break
 	return best
 
 
