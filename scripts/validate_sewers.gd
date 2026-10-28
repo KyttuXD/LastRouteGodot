@@ -33,6 +33,7 @@ func run(host: Node) -> int:
 	_check_hunter_paths()
 	await _check_deep_levels(host)
 	await _check_falls(host)
+	await _check_stairwells(host)
 	await _check_streaming(host)
 	_expect(total_links >= 6, "sewer windows hold %d links (want at least 6)" % total_links)
 	_expect(valves_checked >= 10, "only %d valve wheels checked for a wall behind them" % valves_checked)
@@ -315,10 +316,18 @@ func _check_traffic() -> void:
 ## follows down and back up.
 func _check_hunter_paths() -> void:
 	var generator := StreamedRouteGenerator.new("SEWER-PATHS")
+	# a 3 x 3 with at least three ladders: stairwells, ramps and falls take
+	# quadrants a ladder could use, so the window slides east until it has them
 	var coords := []
-	for z in range(-1, 2):
-		for x in range(-1, 2):
-			coords.append(Vector3i(x, SewerRouteGenerator.LEVEL, z))
+	for cx in 6:
+		coords = []
+		var count := 0
+		for z in range(-1, 2):
+			for x in range(cx - 1, cx + 2):
+				coords.append(Vector3i(x, SewerRouteGenerator.LEVEL, z))
+				count += generator.sewer().links_for(Vector3i(x, SewerRouteGenerator.LEVEL, z)).size()
+		if count >= 3:
+			break
 	var below := StreamedHunterNavigation.new(generator, SewerRouteGenerator.LEVEL)
 	below.refresh(SewerRouteGenerator.LEVEL, coords)
 	var maze_coords := []
@@ -333,12 +342,16 @@ func _check_hunter_paths() -> void:
 	_expect(feet.size() >= 3, "only %d ladders around the origin to path between" % feet.size())
 	var routed := 0
 	var lids := 0
+	var missed := []
+	var missed_lids := []
 	for i in range(1, feet.size()):
 		var a := LadderTraffic.ladder_point(feet[0], SewerRouteGenerator.LEVEL)
 		var b := LadderTraffic.ladder_point(feet[i], SewerRouteGenerator.LEVEL)
 		var route: Array = below.find_path(Vector2i(floori(a.x), floori(a.y)), Vector2i(floori(b.x), floori(b.y)))
 		if not route.is_empty():
 			routed += 1
+		else:
+			missed.append(feet[i]["id"])
 		for step in route:
 			var cell: Vector2i = step
 			var size := StreamedRouteGenerator.CHUNK_SIZE
@@ -352,8 +365,11 @@ func _check_hunter_paths() -> void:
 		var start := Vector2i(floori(first.x), floori(first.y))
 		if not above.find_path(start, Vector2i(floori(lid.x), floori(lid.y))).is_empty():
 			lids += 1
-	_expect(routed == feet.size() - 1, "hunter A* reached %d of %d ladders through the sewer" % [routed, feet.size() - 1])
-	_expect(lids == feet.size(), "hunter A* reached %d of %d ladder lids on the maze" % [lids, feet.size()])
+		else:
+			missed_lids.append(feet[i]["id"])
+	_expect(routed == feet.size() - 1, "hunter A* reached %d of %d ladders through the sewer (missed %s from %s)" % [
+		routed, feet.size() - 1, missed, feet[0]["id"]])
+	_expect(lids == feet.size(), "hunter A* reached %d of %d ladder lids on the maze (missed %s)" % [lids, feet.size(), missed_lids])
 	print("  ok    sewer hunter paths: %d ladders, all reachable above and below" % feet.size())
 
 
@@ -407,11 +423,10 @@ static func _shape_top(shape: Shape3D, cell_origin: Vector3, local: Transform3D)
 ## Deep channels with real crossings, per chunk: the water lies well below the
 ## walkways over a bed a metre down; along both arms of the cross no stretch of
 ## open water runs longer than MAX_OPEN_WATER cells between decks; every 3 x 3
-## deck carries its authored prop (a bridge on the tunnels, grate tiles on the
-## junction plaza); and the overflow basin is open water too. Crossings come
-## about every 24 m: within a chunk the longest open stretch is 9 cells (two such
-## stretches meet across a seam).
-const MAX_OPEN_WATER := 10
+## deck carries its authored bridge; and the overflow basin is open water too.
+## Crossings come about every 24 m: the longest open stretch is the 21 cells
+## through the junction's open confluence between an arm's two bridges.
+const MAX_OPEN_WATER := 21
 
 
 func _check_channels(seed_text: String, coord: Vector3i, data: Dictionary) -> void:
@@ -717,6 +732,13 @@ func _check_lamps_over_floor(view: StreamedFacilityView3D) -> void:
 		var sewer_grid: Array = view.generator.chunk(coord)["sewer_grid"]
 		for lamp_value in view._lamp_field._chunks[key_value]:
 			var at: Vector3 = (lamp_value as Array)[0]
+			# wall lamps only (they sit on a cell boundary, on the face they are fixed
+			# to); a pendant hangs from the vault at a cell centre, anchored overhead
+			# even over an overflow basin
+			var fx := absf(at.x - roundf(at.x))
+			var fz := absf(at.z - roundf(at.z))
+			if fx > .15 and fz > .15:
+				continue
 			checked += 1
 			# a wall lamp sits on the line between its wall and the floor: sample just
 			# around it; brick or floor is fine, water / a drop / a ramp is not
@@ -742,3 +764,114 @@ func _check_lamps_over_floor(view: StreamedFacilityView3D) -> void:
 				floating.append("%s caged lamp %s" % [coord, cell])
 	_expect(checked > 10, "only %d sewer lamps found to check" % checked)
 	_expect(floating.is_empty(), "%d sewer lamps hang out over water, a drop or a ramp: %s" % [floating.size(), floating.slice(0, 5)])
+
+
+## Stairwells (Stairwells, kinds "stairs" and "spiral"): sparse between the maze
+## and the sewer, planned for +1..+3 inside one quadrant clear of the spine and
+## the duct lines, always one at chunk (0, 0) going up; both ends of every
+## 0 <-> -1 well agree on its cells and their landings join each level; and a
+## runner walks a switchback and a spiral up and back down along the stairs
+## without popping, snagging or leaving the storey bands.
+func _check_stairwells(host: Node) -> void:
+	var generator := StreamedRouteGenerator.new("SEWER-STAIRS")
+	var counts := {0: 0, 1: 0, 2: 0, 3: 0}
+	var kinds := {}
+	var walk := {}
+	for z in range(-4, 5):
+		for x in range(-4, 5):
+			for upper in counts:
+				var well: Dictionary = generator.stairwell_between(x, z, upper)
+				if well.is_empty():
+					continue
+				counts[upper] = int(counts[upper]) + 1
+				kinds[well["kind"]] = true
+				var box: Rect2i = well["box"]
+				var clear := box.position.x >= 2 and box.position.y >= 2 and box.end.x <= 42 and box.end.y <= 42
+				for line in [6, 38, 21, 22, 23]:
+					if (box.position.x <= line and line < box.end.x) or (box.position.y <= line and line < box.end.y):
+						clear = false
+				if upper == 0:
+					# the maze's own areas: outer room bands, clear of the main halls and the spine
+					clear = Stairwells.MAZE_AREAS.any(func(area: Rect2i) -> bool: return area.encloses(box))
+				_expect(clear, "stairwell %s breaks the placement rules (box %s)" % [well["link"]["id"], box])
+				if upper == 0:
+					_check_stairwell_ends(generator, x, z, well)
+					if not walk.has(well["kind"]):
+						walk[well["kind"]] = well.merged({"x": x, "z": z})
+	for upper in [1, 2, 3]:
+		_expect(not generator.stairwell_between(0, 0, upper).is_empty(), "no guaranteed stairwell up to +%d at chunk (0, 0)" % upper)
+	_expect(int(counts[0]) >= 3 and int(counts[0]) <= 30, "%d maze <-> sewer stairwells in 81 chunks (want sparse)" % counts[0])
+	_expect(kinds.has("stairs") and kinds.has("spiral"), "only %s stairwell kinds generated" % [kinds.keys()])
+	for kind in walk:
+		await _walk_stairwell(host, walk[kind])
+	print("  ok    stairwells: %s per level pair in 81 chunks, kinds %s, walked %s both ways" % [counts, kinds.keys(), walk.keys()])
+
+
+func _check_stairwell_ends(generator: StreamedRouteGenerator, x: int, z: int, well: Dictionary) -> void:
+	var top: Dictionary = generator.chunk(Vector3i(x, 0, z))
+	var bottom: Dictionary = generator.chunk(Vector3i(x, SewerRouteGenerator.LEVEL, z))
+	var cells: Dictionary = well["shaft"]
+	var agree := true
+	for cell in cells:
+		if not (top["shaft_cells"] as Dictionary).has(cell) or not (bottom["shaft_cells"] as Dictionary).has(cell):
+			agree = false
+	_expect(agree, "stairwell %s: the maze and the sewer disagree about its well" % well["link"]["id"])
+	var landing: Vector2i = well["landing"]
+	for data in [top, bottom]:
+		var grid: Array = data["grid"]
+		_expect(int(grid[landing.y][landing.x]) == 0, "stairwell %s: a landing is not open floor" % well["link"]["id"])
+		_expect(_flood_grid(grid, landing).size() > 200, "stairwell %s: a landing is cut off from its level" % well["link"]["id"])
+
+
+## Follows the stair path with the movement keys, up then down.
+func _walk_stairwell(host: Node, well: Dictionary) -> void:
+	var view := StreamedFacilityView3D.new()
+	host.add_child(view)
+	var player := (load("res://scenes/night_watch_player.tscn") as PackedScene).instantiate() as PlayerController3D
+	host.add_child(player)
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var origin := Vector3(int(well["x"]) * size, float(well["upper"] - 1) * StreamedFacilityView3D.LEVEL_HEIGHT,
+		int(well["z"]) * size)
+	var path: Array = well["link"]["path"]
+	var start: Vector3 = path[0]
+	player.global_position = origin + start + Vector3(0, .05, 0)
+	view.begin("SEWER-STAIRS", player)
+	for _frame in 20:
+		await host.get_tree().physics_frame
+	for leg in ["up", "down"]:
+		var points: Array = path.duplicate()
+		if leg == "down":
+			points.reverse()
+		var worst_pop := 0.0
+		var stalled := false
+		var last_y := player.global_position.y
+		Input.action_press("move_up")
+		for i in range(1, points.size()):
+			var target: Vector3 = origin + (points[i] as Vector3)
+			var frames := 0
+			while Vector2(player.global_position.x - target.x, player.global_position.z - target.z).length() > .35:
+				var heading := Vector2(target.x - player.global_position.x, target.z - player.global_position.z)
+				player.rotation.y = atan2(-heading.x, -heading.y)
+				await host.get_tree().physics_frame
+				view._process(1.0 / 60.0)
+				worst_pop = maxf(worst_pop, absf(player.global_position.y - last_y))
+				last_y = player.global_position.y
+				frames += 1
+				if frames > 400:
+					stalled = true
+					break
+			if stalled:
+				break
+		Input.action_release("move_up")
+		for _frame in 10:
+			await host.get_tree().physics_frame
+		var end: Vector3 = origin + (points[points.size() - 1] as Vector3)
+		_expect(not stalled, "%s stairwell: the runner got stuck going %s (at %s)" % [well["kind"], leg, player.global_position])
+		_expect(absf(player.global_position.y - end.y) < .3, "%s stairwell: going %s ended at y %.2f, not %.2f" % [
+			well["kind"], leg, player.global_position.y, end.y])
+		_expect(worst_pop < .12, "%s stairwell: the runner popped %.2f m in one frame going %s (snag or step)" % [
+			well["kind"], worst_pop, leg])
+	_check_colliders_below_maze(view)
+	view.clear()
+	view.queue_free()
+	player.queue_free()

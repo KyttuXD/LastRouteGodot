@@ -432,6 +432,7 @@ var _chunk_cache_order: Array[Vector3i] = []
 
 
 var _sewer: SewerRouteGenerator
+var _stairwell_cache := {}
 
 
 func _init(seed_text: String = "ENDLESS-ROUTE") -> void:
@@ -462,6 +463,105 @@ func adopt_chunk(coord: Vector3i, data: Dictionary) -> void:
 		_chunk_cache.erase(_chunk_cache_order.pop_front())
 
 
+## The stairwell from `upper_level` down one storey in column (x, z), or {} (Stairwells).
+## 0 <-> -1 is decided by the maze chunk, which keeps it clear of the sewer's
+## ramp and falls quadrants and of its own suites (it is read from that chunk,
+## as the sewer's ladders are); +1..+3 are pure seed maths, planned here for the
+## upper-levels lane, which builds around them.
+func stairwell_between(x: int, z: int, upper_level: int) -> Dictionary:
+	if upper_level == 0:
+		for well in chunk(Vector3i(x, 0, z)).get("stairwells", []):
+			if int(well["upper"]) == 0:
+				return well
+		return {}
+	var key := Vector3i(x, upper_level, z)
+	if not _stairwell_cache.has(key):
+		_stairwell_cache[key] = Stairwells.plan(world_seed, x, z, upper_level)
+	return _stairwell_cache[key]
+
+
+const MAX_STAIRWELL_DROPPED_ROOM_CELLS := 100
+
+
+## The maze <-> sewer stairwell for a maze chunk being built: clear of the
+## sewer's ramp and falls quadrants, and only where it fits the maze as built
+## (_maze_stairwell_fits), so no suite or hall loses anything to it.
+func _plan_maze_stairwell(x: int, z: int, grid: Array, layout: Dictionary, circulation: Dictionary) -> Dictionary:
+	var avoid := []
+	var ramp: Dictionary = sewer().ramp_between(x, z, SEWER_LEVEL)
+	if not ramp.is_empty():
+		avoid.append(int(ramp["quadrant"]))
+	var falls: Dictionary = sewer().falls_between(x, z)
+	if not falls.is_empty():
+		avoid.append(int(falls["quadrant"]))
+	return Stairwells.plan(world_seed, x, z, 0, avoid,
+		func(well: Dictionary) -> bool: return _maze_stairwell_fits(grid, layout, circulation, well),
+		Stairwells.MAZE_AREAS)
+
+
+## True when a stairwell's box (and a cell round it) touches no suite or main
+## hall, it drops at most MAX_STAIRWELL_DROPPED_ROOM_CELLS of plain rooms, and a
+## trial carve cuts no open area in two.
+static func _maze_stairwell_fits(grid: Array, layout: Dictionary, circulation: Dictionary, well: Dictionary) -> bool:
+	var reach: Rect2i = (well["box"] as Rect2i).grow(1)
+	for suite_value in layout.get("suites", []):
+		if ((suite_value as Dictionary).get("rect", Rect2i()) as Rect2i).intersects(reach):
+			return false
+	for corridor_value in layout.get("corridors", []):
+		var corridor: Dictionary = corridor_value
+		if String(corridor.get("id", "")).contains(":HALL:") and corridor.has("rect") \
+				and (corridor["rect"] as Rect2i).intersects(well["box"]):
+			return false
+	var trial_grid := grid.duplicate(true)
+	var trial_layout := {"rooms": (layout["rooms"] as Array).duplicate(), "suites": layout.get("suites", [])}
+	_carve_stairwell(trial_grid, trial_layout, circulation.duplicate(), well, 0, {})
+	# a plain room or two may give way (they go back to solid), not a whole bank of them
+	var dropped := 0
+	for room_value in layout["rooms"]:
+		if not (trial_layout["rooms"] as Array).has(room_value):
+			if not String((room_value as Dictionary).get("suite_id", "")).is_empty():
+				return false
+			dropped += ((room_value as Dictionary).get("rect", Rect2i()) as Rect2i).get_area()
+	if dropped > MAX_STAIRWELL_DROPPED_ROOM_CELLS:
+		return false
+	# the seams are carved later, so pockets may exist already: the carve must not add one
+	return _open_components(trial_grid) <= _open_components(grid)
+
+
+static func _open_components(grid: Array) -> int:
+	var seen := {}
+	var count := 0
+	for z in CHUNK_SIZE:
+		for x in CHUNK_SIZE:
+			if int(grid[z][x]) != 0 or seen.has(Vector2i(x, z)):
+				continue
+			count += 1
+			seen[Vector2i(x, z)] = true
+			var queue: Array[Vector2i] = [Vector2i(x, z)]
+			while not queue.is_empty():
+				var cell: Vector2i = queue.pop_back()
+				for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+					var n: Vector2i = cell + step
+					if n.x < 0 or n.y < 0 or n.x >= CHUNK_SIZE or n.y >= CHUNK_SIZE or seen.has(n) or int(grid[n.y][n.x]) != 0:
+						continue
+					seen[n] = true
+					queue.append(n)
+	return count
+
+
+## Every stairwell touching `level` in column (x, z) whose other end is on a
+## level this world has (+1..+3 appear once the upper-levels lane allows them).
+func stairwells_at(x: int, z: int, level: int) -> Array:
+	var out := []
+	for upper in [level, level + 1]:
+		if not is_chunk_allowed(Vector3i(x, upper, z)) or not is_chunk_allowed(Vector3i(x, upper - 1, z)):
+			continue
+		var well := stairwell_between(x, z, upper)
+		if not well.is_empty():
+			out.append(well)
+	return out
+
+
 ## Every ladder and ramp touching the chunk's level: ladders between the maze
 ## and the first sewer, ramps between the sewers and down into the Inferno.
 ## With `cached_only` the ladders are left out until the sewer chunk holding
@@ -475,6 +575,11 @@ func vertical_links(coord: Vector3i, cached_only: bool = false) -> Array:
 			out.append_array(sewer().links_for(coord))
 	for ramp in sewer().ramps_at(coord.x, coord.z, coord.y):
 		out.append(ramp["link"])
+	# a maze <-> sewer stairwell is read from the maze chunk, like the ladders
+	var maze_coord := Vector3i(coord.x, 0, coord.z)
+	if coord.y not in [0, SEWER_LEVEL] or not cached_only or _chunk_cache.has(maze_coord):
+		for well in stairwells_at(coord.x, coord.z, coord.y):
+			out.append(well["link"])
 	return out
 
 
@@ -704,6 +809,18 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	var ramps: Array = sewer().ramps_at(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else []
 	for ramp in ramps:
 		_carve_ramp_bottom(grid, layout, circulation, ramp)
+	var wells := []
+	if coord.y == 0:
+		var down := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation)
+		if not down.is_empty():
+			wells.append(down)
+		if is_chunk_allowed(Vector3i(coord.x, 1, coord.z)):
+			var up := stairwell_between(coord.x, coord.z, 1)
+			if not up.is_empty():
+				wells.append(up)
+	var shaft_cells := {}
+	for well in wells:
+		_carve_stairwell(grid, layout, circulation, well, coord.y, shaft_cells)
 	# Perimeter seams and stair approaches are carved after the room banks. They
 	# must never punch a second opening through a room which already owns one
 	# canonical branch doorway. Rebuild each ordinary room's boundary now that
@@ -761,7 +878,66 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"structural_voids": structural_voids,
 		"ramps": ramps,
 		"ramp_cells": sewer().ramp_cells(coord.x, coord.z, coord.y) if coord.y == INFERNO_LEVEL else {},
+		"stairwells": wells,
+		"shaft_cells": shaft_cells,
 	}
+
+
+## A stairwell in a maze chunk: rooms its footprint or corridor would cut are
+## dropped, the walled box goes back to solid, then its landing, doorway and a
+## three-wide corridor to the central hall open. The well itself stays off the
+## walk grid (the stairs are walked as a link); `shaft_cells` tells the view.
+static func _carve_stairwell(grid: Array, layout: Dictionary, circulation: Dictionary, well: Dictionary,
+		level: int, shaft_cells: Dictionary) -> void:
+	var box: Rect2i = well["box"]
+	# the corridor starts at the doorway and runs on below until it meets floor
+	var door_row: int = (well["door"] as Rect2i).position.y
+	var lane := Stairwells.corridor(well, door_row + 1 if bool(well["north"]) else door_row - 1)
+	var kept := []
+	for room_value in layout["rooms"]:
+		var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+		if rect.grow(1).intersects(box) or rect.intersects(lane):
+			for z in range(rect.position.y, rect.end.y):
+				for x in range(rect.position.x, rect.end.x):
+					grid[z][x] = 1
+		else:
+			kept.append(room_value)
+	layout["rooms"] = kept
+	for z in range(box.position.y, box.end.y):
+		for x in range(box.position.x, box.end.x):
+			grid[z][x] = 1
+	var cells := Stairwells.cells_for(well, level)
+	for cell in cells["walk"]:
+		grid[cell.y][cell.x] = 0
+	# Carry the corridor on, a row at a time, until it opens onto floor that was
+	# already there (normally the main hall right outside the doorway). A room in the way is dropped
+	# like the ones under the box, so none gets a second doorway.
+	var outward := 1 if bool(well["north"]) else -1
+	var row := lane.end.y if outward > 0 else lane.position.y - 1
+	while row > 0 and row < CHUNK_SIZE - 1:
+		var step := Rect2i(lane.position.x, row, lane.size.x, 1)
+		var still := []
+		for room_value in layout["rooms"]:
+			var rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+			if rect.grow(1).intersects(step):
+				for z in range(rect.position.y, rect.end.y):
+					for x in range(rect.position.x, rect.end.x):
+						grid[z][x] = 1
+			else:
+				still.append(room_value)
+		layout["rooms"] = still
+		var open := false
+		for x in range(step.position.x, step.end.x):
+			if int(grid[row][x]) == 0:
+				open = true
+		if open:
+			break
+		lane = lane.merge(step)
+		row += outward
+	_carve_rect(grid, lane)
+	_mark_rect_cells(circulation, lane)
+	for cell in cells["shaft"]:
+		shaft_cells[cell] = {"upper": level == int(well["upper"]), "well": well}
 
 
 ## The bottom of a ramp down from the collector sewer into an Inferno chunk: the

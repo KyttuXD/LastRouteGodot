@@ -36,6 +36,8 @@ const RAMP := 4
 ## An open drop on the first sewer: the floor is gone and the spur channel pours
 ## over the edge as a waterfall into the collector's cistern below (blocked to walk).
 const FALL := 5
+## A stairwell's open well on the sewer side (the stairs themselves, off the walk grid).
+const SHAFT := 6
 ## About one chunk in four has falls from the sewer into the collector.
 const FALLS_CHANCE := .28
 
@@ -51,9 +53,9 @@ const JUNCTION_HALF := 6         # 13 x 13 chamber
 ## One bridge on each tunnel arm either side of the junction (plus the junction's
 ## grate plaza): a crossing about every 24 m along the channel.
 const BRIDGE_OFFSETS := [10, 34]
-## Centres (along each arm, from the junction centre) of the 3 x 3 grate tiles
-## that deck the confluence: cells -4..+4 of both arms are walkable grating.
-const PLAZA_TILES := [-3, 0, 3]
+## The junction's confluence is open water (KT): no grate plaza over it. The
+## two bridges on every arm are the way across, and they join all four walkway
+## quadrants around the junction.
 const QUADRANT_CENTERS := [Vector2i(9, 9), Vector2i(35, 9), Vector2i(9, 35), Vector2i(35, 35)]
 const ROOM_HALF := 3             # 7 x 7 utility rooms
 const SHAFT_HALF := 1            # 3 x 3 dry shaft chamber under a manhole
@@ -255,6 +257,17 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 			# the spur crosses the tunnel walkway on a bridge like the channels do
 			var deck: Rect2i = falls["spur_deck"]
 			features.append({"type": "sewerBridge", "cell": deck.position + Vector2i(1, 1), "yaw": PI / 2.0})
+	# a stairwell up to the maze takes its quadrant too, and so does one from the
+	# maze up a storey: its foot box covers that quadrant of the maze, so no
+	# ladder lid may come up there
+	var wells: Array = surface.stairwells_at(coord.x, coord.z, coord.y) if coord.y == LEVEL else []
+	var shaft_cells := {}
+	for well in wells:
+		order.erase(int(well["quadrant"]))
+		_carve_stairwell(grid, well, coord.y, shaft_cells)
+	if coord.y == LEVEL:
+		for well in surface.stairwells_at(coord.x, coord.z, SURFACE_LEVEL):
+			order.erase(int(well["quadrant"]))
 	var surface_data: Dictionary = surface.chunk(Vector3i(coord.x, SURFACE_LEVEL, coord.z))
 	var blocked := _surface_blocked_cells(surface_data)
 	var covers := ["manhole", "grate"]
@@ -295,7 +308,24 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	features.append_array(_tunnel_features())
 	features.append_array(_crossing_features())
 	features = _mount_on_walls(grid, features)
-	return _streamed_schema(coord, grid, rooms, links, features, ramps)
+	var schema := _streamed_schema(coord, grid, rooms, links, features, ramps)
+	schema["stairwells"] = wells
+	schema["shaft_cells"] = shaft_cells
+	return schema
+
+
+## A stairwell's sewer end: the walled box, its landing and doorway, and a
+## three-wide branch to the tunnel's walkway; the well cells stay SHAFT.
+static func _carve_stairwell(grid: Array, well: Dictionary, level: int, shaft_cells: Dictionary) -> void:
+	_carve_rect(grid, well["box"], SOLID)
+	var hall_edge := CENTER - TUNNEL_HALF if bool(well["north"]) else CENTER + TUNNEL_HALF
+	_carve_rect(grid, Stairwells.corridor(well, hall_edge), DRY)
+	var cells := Stairwells.cells_for(well, level)
+	for cell in cells["walk"]:
+		grid[cell.y][cell.x] = DRY
+	for cell in cells["shaft"]:
+		grid[cell.y][cell.x] = SHAFT
+		shaft_cells[cell] = {"upper": level == int(well["upper"]), "well": well}
 
 
 ## The falls' cells on this level. On the first sewer: the drop, the spur
@@ -374,15 +404,11 @@ func _carve_main_cross(grid: Array) -> void:
 	var c_w := CHANNEL_HALF * 2 + 1
 	_carve_rect(grid, Rect2i(0, c_lo, CHUNK_SIZE, c_w), WATER)
 	_carve_rect(grid, Rect2i(c_lo, 0, c_w, CHUNK_SIZE), WATER)
-	# Three-cell bridge decks over each channel along the tunnels, and a
-	# cross-shaped grated plaza over the junction's confluence: the water keeps
-	# flowing under every deck.
+	# Three-cell bridge decks over each channel along the tunnels: the water
+	# keeps flowing under every deck, and meets in the open at the junction.
 	for offset in BRIDGE_OFFSETS:
 		_carve_rect(grid, Rect2i(offset - 1, c_lo, 3, c_w), BRIDGE)
 		_carve_rect(grid, Rect2i(c_lo, offset - 1, c_w, 3), BRIDGE)
-	for k in PLAZA_TILES:
-		_carve_rect(grid, Rect2i(CENTER + k - 1, c_lo, 3, c_w), BRIDGE)
-		_carve_rect(grid, Rect2i(c_lo, CENTER + k - 1, c_w, 3), BRIDGE)
 
 
 ## A three-wide dry branch from a room/shaft centre straight to the nearer
@@ -615,10 +641,6 @@ static func _crossing_features() -> Array:
 	for offset in BRIDGE_OFFSETS:
 		out.append({"type": "sewerBridge", "cell": Vector2i(offset, CENTER), "yaw": 0.0})
 		out.append({"type": "sewerBridge", "cell": Vector2i(CENTER, offset), "yaw": PI / 2.0})
-	for k in PLAZA_TILES:
-		out.append({"type": "sewerGrateDeck", "cell": Vector2i(CENTER + k, CENTER), "yaw": 0.0})
-		if k != 0:
-			out.append({"type": "sewerGrateDeck", "cell": Vector2i(CENTER, CENTER + k), "yaw": PI / 2.0})
 	return out
 
 

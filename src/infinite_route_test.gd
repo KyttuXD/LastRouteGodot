@@ -2628,7 +2628,17 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 			if not bool(climb.get("done", false)) else (_ladder_plans.get(entity_id, {}) as Dictionary).get("link", {})
 		var lower_y := float(mini(int(link.get("from_level", 0)), int(link.get("to_level", 0)))) \
 			* StreamedFacilityView3D.LEVEL_HEIGHT
-		if String(link.get("kind", "")) == "ramp":
+		if link.has("path"):
+			# a stairwell: round its landings and up (or down) its flights or helix
+			var going_up := int(climb.get("to_level", level)) > int(climb.get("from_level", level))
+			var p := LadderTraffic.path_point(link, float(climb.get("progress", 0.0)), going_up)
+			var origin := Vector2((link["chunk"] as Vector3i).x, (link["chunk"] as Vector3i).z) * StreamedRouteGenerator.CHUNK_SIZE
+			var ahead := LadderTraffic.path_point(link, minf(1.0, float(climb.get("progress", 0.0)) + .02), going_up)
+			brain.position = origin + Vector2(p.x, p.z)
+			var heading := Vector2(ahead.x - p.x, ahead.z - p.z)
+			view.set_climbing(true, lower_y + p.y, atan2(-heading.x, -heading.y) if heading.length() > .001 else view.rotation.y,
+				"walk")
+		elif String(link.get("kind", "")) == "ramp":
 			# a ramp is walked, not climbed: down the slope from one landing to the other
 			var start := LadderTraffic.ladder_point(link, int(climb.get("from_level", level)))
 			var finish := LadderTraffic.ladder_point(link, int(climb.get("to_level", level)))
@@ -2693,8 +2703,11 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 	var arrived := brain.head_to(point, delta, navigation, depth, GameState.relays_collected)
 	if arrived and String(plan["mode"]) != "wait":
 		# One at a time on a ladder (and a ramp): she waits at it while it is taken.
-		var seconds := LadderTraffic.ramp_seconds_for_speed(brain.base_speed) if String(link["kind"]) == "ramp" \
-			else LadderTraffic.climb_seconds_for_speed(brain.base_speed)
+		var seconds := LadderTraffic.climb_seconds_for_speed(brain.base_speed)
+		if link.has("path"):
+			seconds = LadderTraffic.path_seconds(link, brain.base_speed)
+		elif String(link["kind"]) == "ramp":
+			seconds = LadderTraffic.ramp_seconds_for_speed(brain.base_speed)
 		_ladders.begin(entity_id, link, level, seconds)
 	return true
 

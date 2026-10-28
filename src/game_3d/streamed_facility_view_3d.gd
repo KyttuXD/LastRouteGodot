@@ -133,6 +133,10 @@ var _dormant_data := {}
 ## the current window and parked at once (a level change is then a visibility/physics swap, not a build); levels two
 ## away keep generated data only. Parked chunks are bounded to those sets (at most 2 x 9 here).
 const PREBUILD_LEVEL_RANGE := 1
+## A parked chunk in the runner's column is kept up to this many levels away. With ramps on -1 and -2 the level
+## beyond a link is pre-built too (on -1 the ready set is 0 and -2): freeing it on the way back up would rebuild
+## those nine chunks on every round trip, so parking reaches one level past the pre-build range (at most 3 x 9).
+const PARK_LEVEL_RANGE := PREBUILD_LEVEL_RANGE + 1
 const PREDATA_LEVEL_RANGE := 2
 var _ready_set := {}
 var _wanted_now := {}
@@ -519,7 +523,7 @@ func _prestream_ladder_destination() -> void:
 			tracked_player.global_position.z - global_position.z)
 		for link_value in generator.vertical_links(center):
 			var link: Dictionary = link_value
-			if String(link["kind"]) == "ramp" \
+			if String(link["kind"]) in ["ramp", "stairs", "spiral"] \
 					and LadderTraffic.ladder_point(link, center.y).distance_to(here) <= RAMP_PRESTREAM_CELLS:
 				target_y = int(LevelLink.other_end(link, center.y)["level"])
 				# the runner arrives at the far landing: stream what is near it too
@@ -554,7 +558,7 @@ func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 		var coord: Vector3i = coord_value
 		if wanted.has(coord):
 			_revive(coord)
-		elif not _ready_set.has(coord) and not (_near_column(coord, center) and absi(coord.y - center.y) <= PREBUILD_LEVEL_RANGE):
+		elif not _ready_set.has(coord) and not (_near_column(coord, center) and absi(coord.y - center.y) <= PARK_LEVEL_RANGE):
 			_free_dormant(coord)
 	_pending_prebuild.clear()
 	for coord_value in _ready_set:
@@ -953,6 +957,11 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 			for x in range(drop.position.x, drop.end.x):
 				open_above[Vector2i(x, z)] = true
 				heights[Vector2i(x, z)] = LEVEL_HEIGHT
+	var shaft_cells: Dictionary = data.get("shaft_cells", {})
+	for cell_value in shaft_cells:
+		# a stairwell's lower level opens straight up the well: full-storey walls
+		if not bool((shaft_cells[cell_value] as Dictionary)["upper"]):
+			heights[cell_value] = LEVEL_HEIGHT
 	var ramp_cells: Dictionary = data.get("ramp_cells", {})
 	for cell_value in ramp_cells:
 		# the lower end of a ramp tunnel has no ceiling of its own: it opens up to
@@ -1057,6 +1066,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					return false
 			3:
 				_spawn_streamed_ceiling_lights(root, data)
+				_spawn_stairwells(root, data, (build["coord"] as Vector3i).y)
 				_spawn_shop_signs(root, data)
 				if not (build["sewer_grid"] as Array).is_empty():
 					_spawn_sewer_water(root, build["sewer_grid"])
@@ -1163,6 +1173,18 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	if ramp_cells.has(cell):
 		_build_ramp_cell(build, cell, ramp_cells[cell])
 		return
+	var shaft_cells: Dictionary = data.get("shaft_cells", {})
+	if shaft_cells.has(cell):
+		# a stairwell's well: the stairs (built per stairwell) fill it; the upper
+		# level keeps its vault overhead, the lower one opens up to it over a
+		# solid floor (the spiral's helix leaves a quarter of the well's floor bare)
+		if bool((shaft_cells[cell] as Dictionary)["upper"]):
+			surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
+				RefTextures.params("ceiling", ceiling_kind))
+		else:
+			grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
+			surface.add_floor(x, z, RefTextures.layer("floor", "concrete1"), RefTextures.params("floor", "concrete1"))
+		return
 	if int(grid_data[z][x]) == 0:
 		var height := _height_in(build, cell)
 		var kind := _ref_floor_kind(build, x, z)
@@ -1263,6 +1285,7 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 				# ramp tunnels, channels and the falls' drop are open space too, though the
 				# grid keeps them off the walk graph
 				var open_space := (data.get("ramp_cells", {}) as Dictionary).has(Vector2i(nx, nz)) \
+					or (data.get("shaft_cells", {}) as Dictionary).has(Vector2i(nx, nz)) \
 					or _sewer_code(build, nx, nz) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL]
 				if int(grid_data[nz][nx]) != 0 and not open_space:
 					continue
@@ -1302,6 +1325,302 @@ static func _ramp_surface_y(ramp: Dictionary, x: float) -> float:
 	var bottom_x := float(ramp["bottom_x"])
 	var t := clampf((x - top_x) / (bottom_x - top_x), 0.0, 1.0)
 	return -LEVEL_HEIGHT * t
+
+
+## Every stairwell whose upper end is this chunk's level (the upper chunk owns the
+## stairs, as with ramps, so its colliders stay inside its own storey band):
+## the switchback's flights, mid landing and divider, or the spiral's helix and
+## post; handrails, guard rails round the top landing's opening, level signs and
+## a landing light. Walkable surfaces are smooth slopes whose colliders are the
+## visible surfaces themselves (no snagging steps).
+func _spawn_stairwells(root: Node3D, data: Dictionary, level: int) -> void:
+	for well_value in data.get("stairwells", []):
+		var well: Dictionary = well_value
+		if int(well["upper"]) != level:
+			continue
+		var holder := Node3D.new()
+		holder.name = "Stairwell_%s" % well["kind"]
+		root.add_child(holder)
+		var body := StaticBody3D.new()
+		body.name = "StairCollision"
+		body.collision_layer = 1
+		body.collision_mask = 0
+		holder.add_child(body)
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var floor_y := -LEVEL_HEIGHT
+		if String(well["kind"]) == "stairs":
+			for flight_value in well["flights"]:
+				var f: Dictionary = flight_value
+				_add_stair_wedge(surface, body, float(f["x0"]), float(f["x1"]), float(f["z_low"]), float(f["z_high"]),
+					floor_y, floor_y + float(f["y_low"]), floor_y + float(f["y_high"]))
+			var interior: Rect2i = well["interior"]
+			var north := bool(well["north"])
+			var mid_z0 := float(interior.position.y) if north else float(interior.end.y - 2)
+			_add_stair_box(surface, body, Vector3(interior.position.x, floor_y, mid_z0),
+				Vector3(interior.end.x, floor_y + RISE_HALF, mid_z0 + 2.0))
+			# the divider between the flights, floor to the upper floor
+			var div_x := float(interior.position.x + 2)
+			var div_z0 := float(interior.position.y + 2) if north else float(interior.position.y + 2)
+			_add_stair_box(surface, body, Vector3(div_x, floor_y, div_z0), Vector3(div_x + 1.0, 0.0, float(interior.end.y - 2)))
+			_add_handrails_switchback(holder, well)
+		else:
+			_add_spiral(surface, body, holder, well, floor_y)
+		_add_landing_guards(body, holder, well)
+		surface.generate_normals()
+		var mesh := MeshInstance3D.new()
+		mesh.name = "Stairs"
+		mesh.mesh = surface.commit()
+		var material := StandardMaterial3D.new()
+		material.albedo_texture = RefTextures.texture("floor", "concrete1")
+		material.uv1_triplanar = true
+		material.uv1_world_triplanar = true
+		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+		MaterialLook.tame(material)
+		mesh.material_override = material
+		holder.add_child(mesh)
+		_add_stairwell_signs_and_light(holder, well)
+
+
+const RISE_HALF := 2.0
+const STAIR_RAIL_HEIGHT := 0.95
+
+
+## A solid wedge under a straight flight: its top is the walking slope from
+## (z_low, y_low) to (z_high, y_high) across x0..x1, its bottom the floor.
+func _add_stair_wedge(surface: SurfaceTool, body: StaticBody3D, x0: float, x1: float, z_low: float, z_high: float,
+		floor_y: float, y_low: float, y_high: float) -> void:
+	var points := PackedVector3Array([Vector3(x0, floor_y, z_low), Vector3(x1, floor_y, z_low),
+		Vector3(x0, floor_y, z_high), Vector3(x1, floor_y, z_high),
+		Vector3(x0, y_low, z_low), Vector3(x1, y_low, z_low), Vector3(x0, y_high, z_high), Vector3(x1, y_high, z_high)])
+	var shape := ConvexPolygonShape3D.new()
+	shape.points = points
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	body.add_child(collider)
+	_quad_up(surface, points[4], points[5], points[7], points[6])
+	_quad_up(surface, points[0], points[1], points[5], points[4])
+	_quad_up(surface, points[2], points[6], points[7], points[3])
+
+
+func _add_stair_box(surface: SurfaceTool, body: StaticBody3D, lo: Vector3, hi: Vector3) -> void:
+	var shape := BoxShape3D.new()
+	shape.size = hi - lo
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	collider.position = (lo + hi) * .5
+	body.add_child(collider)
+	_quad_up(surface, Vector3(lo.x, hi.y, lo.z), Vector3(hi.x, hi.y, lo.z), Vector3(hi.x, hi.y, hi.z), Vector3(lo.x, hi.y, hi.z))
+	_quad_up(surface, Vector3(lo.x, lo.y, hi.z), Vector3(hi.x, lo.y, hi.z), Vector3(hi.x, hi.y, hi.z), Vector3(lo.x, hi.y, hi.z))
+	_quad_up(surface, Vector3(hi.x, lo.y, lo.z), Vector3(lo.x, lo.y, lo.z), Vector3(lo.x, hi.y, lo.z), Vector3(hi.x, hi.y, lo.z))
+	_quad_up(surface, Vector3(lo.x, lo.y, lo.z), Vector3(lo.x, lo.y, hi.z), Vector3(lo.x, hi.y, hi.z), Vector3(lo.x, hi.y, lo.z))
+	_quad_up(surface, Vector3(hi.x, lo.y, hi.z), Vector3(hi.x, lo.y, lo.z), Vector3(hi.x, hi.y, lo.z), Vector3(hi.x, hi.y, hi.z))
+
+
+## Two triangles of a quad, wound both ways so it shows from either side.
+static func _quad_up(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
+	for tri in [[a, b, c], [a, c, d], [a, c, b], [a, d, c]]:
+		for p in tri:
+			surface.add_vertex(p)
+
+
+## The spiral: a smooth helicoid from the post out to the shaft's square walls,
+## 270 degrees from the landing round to the landing one storey up, its
+## collider the same triangles; the post, and a handrail spiralling round it.
+func _add_spiral(surface: SurfaceTool, body: StaticBody3D, holder: Node3D, well: Dictionary, floor_y: float) -> void:
+	var center: Vector2 = well["spiral_center"]
+	var start := float(well["spiral_start"])
+	var steps := 54
+	var faces := PackedVector3Array()
+	var inner := 0.55
+	for i in steps:
+		var a0 := deg_to_rad(start + 270.0 * float(i) / steps)
+		var a1 := deg_to_rad(start + 270.0 * float(i + 1) / steps)
+		var y0 := floor_y + LEVEL_HEIGHT * float(i) / steps
+		var y1 := floor_y + LEVEL_HEIGHT * float(i + 1) / steps
+		var d0 := Vector2(sin(a0), cos(a0))
+		var d1 := Vector2(sin(a1), cos(a1))
+		# Each triangle's slope is set by the arc at its inner edge (atan(rise per radian / r)), so the
+		# helix is cut into rings: only the one hugging the post is steeper than a walkable floor, and
+		# the walking line (r ~1.6) stays near the true 28 degree pitch instead of snagging on a
+		# 57 degree sliver spanning post to wall.
+		var radii := [inner, .95, 1.4, 1.9]
+		radii.append(2.48 / maxf(absf(d0.x), absf(d0.y)))
+		var radii1 := radii.duplicate()
+		radii1[radii1.size() - 1] = 2.48 / maxf(absf(d1.x), absf(d1.y))
+		for ring in radii.size() - 1:
+			var a := float(radii[ring])
+			var b0 := float(radii[ring + 1])
+			var b1 := float(radii1[ring + 1])
+			var p0 := Vector3(center.x + d0.x * a, y0, center.y + d0.y * a)
+			var p1 := Vector3(center.x + d0.x * b0, y0, center.y + d0.y * b0)
+			var p2 := Vector3(center.x + d1.x * b1, y1, center.y + d1.y * b1)
+			var p3 := Vector3(center.x + d1.x * a, y1, center.y + d1.y * a)
+			faces.append_array(PackedVector3Array([p0, p1, p2, p0, p2, p3]))
+			_quad_up(surface, p0, p1, p2, p3)
+	# The top end: the wedge between the helix's last radial and the landing row
+	# is open well at the upper floor, so a slab fills it (the helix's end and the
+	# landing then meet along an edge, not at one corner); a rail runs along the
+	# start radial, where the helix begins a storey below.
+	var outward := float(well["outward"])
+	var interior: Rect2i = well["interior"]
+	var landing_z := float(interior.end.y - 1) if outward > 0 else float(interior.position.y + 1)
+	var corners: Array[Vector3] = [Vector3(center.x, 0.0, center.y)]
+	for angle in [start + 270.0, start]:
+		var dir := Vector2(sin(deg_to_rad(angle)), cos(deg_to_rad(angle)))
+		var t := (landing_z - center.y) / dir.y
+		corners.append(Vector3(center.x + dir.x * t, 0.0, landing_z))
+	var slab := ConvexPolygonShape3D.new()
+	var slab_points := PackedVector3Array()
+	for corner in corners:
+		slab_points.append(corner)
+		slab_points.append(corner + Vector3(0, -.2, 0))
+	slab.points = slab_points
+	var slab_collider := CollisionShape3D.new()
+	slab_collider.shape = slab
+	body.add_child(slab_collider)
+	for tri in [[corners[0], corners[1], corners[2]], [corners[0], corners[2], corners[1]]]:
+		for p in tri:
+			surface.add_vertex(p)
+	var rail_dir := (corners[2] - corners[0]).normalized()
+	var rail_from: Vector3 = corners[0] + rail_dir * .4
+	var rail_len := rail_from.distance_to(corners[2])
+	var rail_shape := BoxShape3D.new()
+	rail_shape.size = Vector3(.06, 1.1, rail_len)
+	var rail := CollisionShape3D.new()
+	rail.shape = rail_shape
+	body.add_child(rail)
+	rail.position = (rail_from + corners[2]) * .5 + Vector3(0, .55, 0)
+	rail.rotation.y = atan2(rail_dir.x, rail_dir.z)
+	_add_rail_polyline(holder, [rail_from + Vector3(0, STAIR_RAIL_HEIGHT, 0), corners[2] + Vector3(0, STAIR_RAIL_HEIGHT, 0)])
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(faces)
+	shape.backface_collision = true
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	body.add_child(collider)
+	var post_shape := CylinderShape3D.new()
+	post_shape.radius = .4
+	post_shape.height = LEVEL_HEIGHT
+	var post := CollisionShape3D.new()
+	post.shape = post_shape
+	post.position = Vector3(center.x, floor_y + LEVEL_HEIGHT * .5, center.y)
+	body.add_child(post)
+	var post_mesh := MeshInstance3D.new()
+	var cylinder := CylinderMesh.new()
+	cylinder.top_radius = .4
+	cylinder.bottom_radius = .4
+	cylinder.height = LEVEL_HEIGHT
+	post_mesh.mesh = cylinder
+	post_mesh.position = post.position
+	post_mesh.material_override = _stair_iron()
+	holder.add_child(post_mesh)
+	var rail_points: Array[Vector3] = []
+	for i in 28:
+		var a := deg_to_rad(start + 270.0 * float(i) / 27.0)
+		rail_points.append(Vector3(center.x + sin(a) * (inner + .12), floor_y + LEVEL_HEIGHT * float(i) / 27.0 + STAIR_RAIL_HEIGHT,
+			center.y + cos(a) * (inner + .12)))
+	_add_rail_polyline(holder, rail_points)
+
+
+## Handrails along both walls of each flight of a switchback.
+func _add_handrails_switchback(holder: Node3D, well: Dictionary) -> void:
+	for flight_value in well["flights"]:
+		var f: Dictionary = flight_value
+		for x in [float(f["x0"]) + .06, float(f["x1"]) - .06]:
+			_add_rail_polyline(holder, [Vector3(x, -LEVEL_HEIGHT + float(f["y_low"]) + STAIR_RAIL_HEIGHT, float(f["z_low"])),
+				Vector3(x, -LEVEL_HEIGHT + float(f["y_high"]) + STAIR_RAIL_HEIGHT, float(f["z_high"]))])
+
+
+func _add_rail_polyline(holder: Node3D, points: Array) -> void:
+	var iron := _stair_iron()
+	for i in points.size() - 1:
+		var a: Vector3 = points[i]
+		var b: Vector3 = points[i + 1]
+		var segment := MeshInstance3D.new()
+		var bar := BoxMesh.new()
+		bar.size = Vector3(.05, .05, a.distance_to(b) + .02)
+		segment.mesh = bar
+		segment.material_override = iron
+		segment.position = (a + b) * .5
+		holder.add_child(segment)
+		segment.look_at_from_position(segment.position, b, Vector3.UP if absf((b - a).normalized().y) < .99 else Vector3.RIGHT)
+
+
+## Guard rails round the top landing where it meets the open well, with a gap
+## where the stairs arrive: a solid 1.1 m rail (collider) and its iron bars.
+func _add_landing_guards(body: StaticBody3D, holder: Node3D, well: Dictionary) -> void:
+	var interior: Rect2i = well["interior"]
+	var north := bool(well["north"])
+	var landing_cells: Dictionary = well["upper_landing"]
+	var shaft: Dictionary = well["shaft"]
+	# the well cell the stairs arrive from: just back along the path from its top
+	var path: Array = well["link"]["path"]
+	var top_point: Vector3 = path[path.size() - 2]
+	var before: Vector3 = path[path.size() - 3]
+	var back := top_point + (before - top_point).normalized() * .3
+	var arrival := Vector2i(floori(back.x), floori(back.z))
+	for cell_value in landing_cells:
+		var cell: Vector2i = cell_value
+		for step_value in RefDecor.DIRS:
+			var step: Vector2i = step_value
+			var n: Vector2i = cell + step
+			if not shaft.has(n) or n == arrival:
+				continue
+			# a spiral's landing row opens onto its top slab; the slab's own rail guards the drop
+			if String(well["kind"]) == "spiral" and step == Vector2i(0, -int(well["outward"])):
+				continue
+			# the arriving flight of a switchback is two cells wide
+			if String(well["kind"]) == "stairs" and absi(n.x - arrival.x) <= 1 and n.y == arrival.y:
+				continue
+			var mid := Vector3(cell.x + .5 + step.x * .48, .55, cell.y + .5 + step.y * .48)
+			var shape := BoxShape3D.new()
+			shape.size = Vector3(1.0 if step.y != 0 else .06, 1.1, .06 if step.y != 0 else 1.0)
+			var collider := CollisionShape3D.new()
+			collider.shape = shape
+			collider.position = mid
+			body.add_child(collider)
+			var bar := MeshInstance3D.new()
+			var box := BoxMesh.new()
+			box.size = Vector3(shape.size.x, .05, shape.size.z)
+			bar.mesh = box
+			bar.material_override = _stair_iron()
+			bar.position = Vector3(mid.x, STAIR_RAIL_HEIGHT, mid.z)
+			holder.add_child(bar)
+
+
+## A level sign on each landing ("LEVEL n") and a budgeted light over the well.
+func _add_stairwell_signs_and_light(holder: Node3D, well: Dictionary) -> void:
+	var interior: Rect2i = well["interior"]
+	var north := bool(well["north"])
+	var mid_x := float(interior.position.x) + 2.5
+	# on the side wall beside the landing (the doorway end is open), facing into the well
+	var landing: Vector2i = well["landing"]
+	for level_value in [int(well["upper"]), int(well["upper"]) - 1]:
+		var level := int(level_value)
+		var sign := Label3D.new()
+		sign.text = "LEVEL %+d" % level if level != 0 else "LEVEL 0"
+		sign.font_size = 48
+		sign.pixel_size = .006
+		sign.modulate = Color("e8c25a")
+		sign.position = Vector3(float(interior.position.x) + .04, float(level - int(well["upper"])) * LEVEL_HEIGHT + 2.1,
+			float(landing.y) + .5)
+		sign.rotation.y = PI / 2.0
+		holder.add_child(sign)
+	var light := OmniLight3D.new()
+	light.light_color = Color("ffd29a")
+	light.light_energy = .7
+	light.omni_range = 7.0
+	light.position = Vector3(mid_x, -LEVEL_HEIGHT * .5 + 1.4, float(interior.position.y) + float(interior.size.y) * .5)
+	holder.add_child(light)
+	LampField.make_budgeted(light)
+
+
+func _stair_iron() -> StandardMaterial3D:
+	var iron := StandardMaterial3D.new()
+	iron.albedo_color = Color("3b3f42")
+	MaterialLook.tame(iron, true)
+	return iron
 
 
 ## The waterfall in a chunk with falls: on the first sewer the sheet of water

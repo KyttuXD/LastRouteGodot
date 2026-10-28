@@ -407,8 +407,8 @@ func _draw_streamed() -> void:
 			if world_bounds.has_point(chunk_world_origin + ladder_cell):
 				var icon_at := local_origin + (Vector2(ladder_cell) + Vector2(.5, .5)) * cell
 				var up := String(ladder.get("direction", "")) == "up"
-				# ramp tunnels between the sewers and down to the Inferno: a stair icon
-				if String(ladder.get("kind", "ladder")) == "ramp":
+				# ramps, switchback stairwells and spiral stairs: the stair icon (up or down)
+				if String(ladder.get("kind", "ladder")) in ["ramp", "stairs", "spiral"]:
 					_draw_stair_icon(icon_at, cell, up)
 				else:
 					_draw_ladder_icon(icon_at, cell, up)

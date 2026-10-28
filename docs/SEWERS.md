@@ -50,12 +50,11 @@ quadrant no ramp uses:
   every edge where a walkway, room floor or deck meets open water. The channel cells carry a collider from the bed to
   1.2 m above the walkways, so runners and hunters stay out of the water. Channel cells are blocked in the grid, so
   hunter A* never routes through the water (validated).
-* **Crossings.** Sparse on purpose. Each tunnel arm has one bridge either side of the junction (`BRIDGE_OFFSETS`,
-  about one every 24 m). There, a 3 x 3 m riveted bridge deck (`sewerBridge`) spans the
-  channel on two girders that bear on the walkways. In the junction, a cross-shaped grate plaza (`sewerGrateDeck`
-  tiles, `PLAZA_TILES`) decks over the confluence, cells -4..+4 of both arms. The water keeps flowing under every deck,
-  visible through the grating. Within a chunk no stretch of open water runs longer than 9 cells between decks
-  (validated).
+* **Crossings.** Sparse on purpose: one 3 x 3 m riveted bridge deck (`sewerBridge`) on each tunnel arm either side of
+  the junction (`BRIDGE_OFFSETS`, about one every 24 m), spanning the channel on two girders that bear on the walkways.
+  The junction's confluence is open water: the channels meet with no deck over them, and the arm bridges join all
+  four walkway quadrants around it. The water keeps flowing under every bridge, visible through the grating
+  (validated: every dry cell reachable, hunters never route through water).
 * **Utility rooms.** One or two quadrants of each chunk hold a pump room, a valve room or an overflow chamber
   (9 x 9, with a central basin and a barred weir). Each sits on a three-wide dry branch to the tunnel. Each has one
   hiding spot.
@@ -120,10 +119,33 @@ dragged aside) or `grate` (a floor grate swung up).
 | avoid | Kathy, Ferryn, Solyth, Porcelle | follow the runner to the ladder and wait at the top (30 s) to ambush them coming back up; never climb |
 | follow (everyone else, Void included) | the rest | follow a runner down or up, never climb on their own |
 
+## Stairwells (`src/game/stairwells.gd`)
+
+Enclosed stairwells, `LevelLink` kinds `stairs` (a switchback: two 2 m half-flights about a 180 degree mid landing,
+in a 7 x 9 box) and `spiral` (a helix round a central post, 270 degrees per storey, in a 7 x 7 box). Both enter and
+leave by the same doorway on both levels; the bottom and top landings are the same cell one storey apart. Each link
+carries a `path` that hunters walk (`LadderTraffic.path_point`) and the validator walks with the movement keys.
+
+* **0 <-> -1 (sparse, 12%).** Placed by the maze chunk itself, which is the source of truth: the sewer and
+  `vertical_links` read it from there, as they read ladders. Every maze biome runs main halls along rows 9-11 and
+  33-35 and the sewer's cross tunnel fills 18-26, so the box goes in an outer room band (`Stairwells.MAZE_AREAS`,
+  rows 0-8 / 36-44, inside one room column, clear of the sewer walkways) with its doorway opening onto a main hall.
+  A candidate must fit the maze as built: no suite or main hall touched, at most 100 cells of plain rooms dropped, and
+  a trial carve that cuts no open area in two. The sewer keeps ladders, rooms, ramps and falls out of its quadrant.
+* **+1..+3 (for the upper-levels lane).** Pure seed maths (`Stairwells.plan`): chance 0.55 / 0.45 / 0.35, always one
+  at chunk (0, 0), one quadrant (`QUADRANT_AREAS`), clear of the spine x/z 21..23 and the duct lines 6 and 38, inside
+  2..41. A level-0 chunk carves its foot only once `is_chunk_allowed` admits the level above.
+* **Geometry.** The upper chunk owns the stairs (collider band rule). Switchback flights are solid wedges whose tops
+  are the walking slope; the spiral is a helicoid cut into radial rings, so only the ring hugging the post is steeper
+  than a walkable floor, with a slab filling the wedge between the helix's top end and the landing. Guard rails close
+  the top landing except where the stairs arrive. The lower level keeps a floor under the whole well.
+
 ## Streaming
 
-`StreamedFacilityView3D` loads the 3 x 3 window on the runner's level. When the runner's chunk has a ladder, it also
-loads the chunk at the other end of it, so a shaft never opens onto nothing.
+`StreamedFacilityView3D` loads the 3 x 3 window on the runner's level. When the runner's chunk has a ladder, ramp or
+stairwell, it also loads the chunk at the other end of it, so a shaft never opens onto nothing. Levels a link in the
+3 x 3 reaches are pre-built and parked; a parked chunk in the runner's column is kept up to `PARK_LEVEL_RANGE` (2)
+levels away, so the level beyond a ramp is not freed and rebuilt on every round trip.
 
 `snapped_level_for_world_y` puts the runner in the sewer once their feet are more than half a storey below the maze
 floor. The minimap only shows the level you are on: in the sewer it draws the sewer, its water, and ladder icons
