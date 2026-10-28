@@ -24,19 +24,22 @@ signal interaction_message(message: String)
 ## Fallback only. At runtime the standing camera is aligned to the player
 ## model's authored eye attachments, keeping the first-person POV and visible
 ## co-op mannequin at the same height when the model is revised.
-const CAMERA_HEIGHT := 1.6
-const CAMERA_HEIGHT_MIN := 1.35
-const CAMERA_HEIGHT_MAX := 1.78
+const CAMERA_HEIGHT := 1.6 * PlayerModels.SCALE
+const CAMERA_HEIGHT_MIN := 1.35 * PlayerModels.SCALE
+const CAMERA_HEIGHT_MAX := 1.78 * PlayerModels.SCALE
 const CONTROLLER_LOOK_RADIANS_PER_SECOND := 2.8
-const STANDING_COLLISION_HEIGHT := 1.7
-const CROUCH_COLLISION_HEIGHT := 1.08
-const STANDING_COLLISION_CENTER_Y := .85
-const CROUCH_COLLISION_CENTER_Y := .54
+## Capsule, eye, crouch and step all follow the runner's size (PlayerModels.SCALE); the radius stays as it is.
+const STANDING_COLLISION_HEIGHT := 1.7 * PlayerModels.SCALE
+const CROUCH_COLLISION_HEIGHT := 1.08 * PlayerModels.SCALE
+const STANDING_COLLISION_CENTER_Y := STANDING_COLLISION_HEIGHT * .5
+const CROUCH_COLLISION_CENTER_Y := CROUCH_COLLISION_HEIGHT * .5
+## How far the floor snap reaches (keeps her on stair ramps going down), scaled with her.
+const FLOOR_SNAP := .28 * PlayerModels.SCALE
 const CROUCH_EYE_RATIO := .69
 const CROUCH_EYE_TOP_CLEARANCE := .08
-const CAMERA_BOB_WALK_AMPLITUDE := .024
-const CAMERA_BOB_SPRINT_AMPLITUDE := .038
-const CAMERA_BOB_CROUCH_AMPLITUDE := .012
+const CAMERA_BOB_WALK_AMPLITUDE := .024 * PlayerModels.SCALE
+const CAMERA_BOB_SPRINT_AMPLITUDE := .038 * PlayerModels.SCALE
+const CAMERA_BOB_CROUCH_AMPLITUDE := .012 * PlayerModels.SCALE
 const FLASHLIGHT_MAX_RANGE := 16.0
 const FLASHLIGHT_MIN_RANGE := .8
 ## Camera-local position of the flashlight's physical lens. The old light
@@ -272,7 +275,7 @@ var _climb_hands: Node3D
 ## Ladder handling: climb speed (m/s), the height under which jump lets go, and
 ## the smooth mount / dismount times.
 const LADDER_CLIMB_SPEED := 1.7
-const LADDER_LET_GO_HEIGHT := 1.3
+const LADDER_LET_GO_HEIGHT := 1.3 * PlayerModels.SCALE
 const LADDER_MOUNT_SECONDS := .3
 const LADDER_DISMOUNT_SECONDS := .45
 var resting_pose := ""
@@ -755,7 +758,7 @@ func _ready() -> void:
 	# Keeps a grounded body attached to the stair ramp while walking down it.
 	# The snap is shorter than a real fall, so stepping off the mezzanine still
 	# becomes airborne and reaches the fall-stun path below.
-	floor_snap_length = 0.28
+	floor_snap_length = FLOOR_SNAP
 	first_person_camera.fov = Settings.field_of_view
 	if PlatformProfile.camera_far > 0.0:
 		# phones and headsets draw less far (desktop keeps the scene's far plane)
@@ -765,6 +768,7 @@ func _ready() -> void:
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
 		_body_model = model
+		model.scale = Vector3.ONE * PlayerModels.SCALE
 		body_visual.add_child(model)
 		ModelSlot.apply_character_hue(model, Settings.player_hue_degrees)
 		_animation_player = ModelSlot.find_animation_player(model)
@@ -775,6 +779,7 @@ func _ready() -> void:
 	# The starter flashlight is owned and visible in slot one, but begins off so
 	# entering a route never spends charge before the player chooses to use it.
 	_set_flashlight(false)
+	_update_crouch_hitbox(false)
 	_connect_xr_buttons()
 	if not _try_enter_xr():
 		_enter_first_person()
@@ -808,7 +813,7 @@ func _can_stand_up() -> bool:
 	# an obstruction.
 	var standing_shape := BoxShape3D.new()
 	var clearance_height := STANDING_COLLISION_HEIGHT - CROUCH_COLLISION_HEIGHT
-	standing_shape.size = Vector3(.48, clearance_height - .02, .48)
+	standing_shape.size = Vector3(.48, maxf(clearance_height - .02, .05), .48)
 	var query := PhysicsShapeQueryParameters3D.new()
 	query.shape = standing_shape
 	query.transform = Transform3D(global_basis,
@@ -1409,7 +1414,7 @@ func _physics_process(delta: float) -> void:
 		velocity.x = (guide.x - global_position.x) * 5.0
 		velocity.z = (guide.z - global_position.z) * 5.0
 	else:
-		floor_snap_length = .28
+		floor_snap_length = FLOOR_SNAP
 		_update_vertical_motion(delta, movement_mode != "crouch")
 	_move_and_resolve_landing()
 	_update_camera_pose(delta, is_moving and is_on_floor(), is_sprinting,
@@ -1728,6 +1733,8 @@ func _update_flashlight_occlusion() -> void:
 func _build_first_person_items() -> void:
 	first_person_items = Node3D.new()
 	first_person_items.name = "FirstPersonItems"
+	# smaller hands: the held items shrink with her
+	first_person_items.scale = Vector3.ONE * PlayerModels.SCALE
 	first_person_camera.add_child(first_person_items)
 
 	flashlight_view = Node3D.new()
@@ -2642,7 +2649,7 @@ func _nearest_interactable() -> RouteInteractable3D:
 	var aim := interaction_aim()
 	var origin := aim.origin
 	var look := -aim.basis.z.normalized()
-	var maximum_distance := GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE
+	var maximum_distance := GameConfig.INTERACTION_RANGE / GameConfig.TILE_SIZE * PlayerModels.SCALE
 	for candidate in get_tree().get_nodes_in_group("interactable"):
 		if not candidate is RouteInteractable3D:
 			continue

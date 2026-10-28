@@ -1378,7 +1378,7 @@ static func door_headers(region_props: Array, heights: Dictionary, corridor_h: f
 		else:
 			cells = [Vector2i(centre.floor())]
 		for door_cell in cells:
-			out[door_cell] = {"normal": normal,
+			out[door_cell] = {"normal": normal, "header_y": DoorwayFrames.header_y(String(prop.get("type", ""))),
 				"front_h": float(heights.get(door_cell + normal, corridor_h)),
 				"back_h": float(heights.get(door_cell - normal, corridor_h))}
 	return out
@@ -1391,9 +1391,10 @@ static func add_door_header(surface: RefSurfaceMesh, cell: Vector2i, header: Dic
 	for side in [across, -across]:
 		var look: Array = front if side == across else back
 		var top := float(header["front_h"] if side == across else header["back_h"])
-		if top > DoorwayFrames.HEADER_Y:
-			surface.add_wall(cell.x, cell.y, side, float(look[0]), look[1], top, DoorwayFrames.HEADER_Y, top)
-	surface.add_ceiling(cell.x, cell.y, DoorwayFrames.HEADER_Y, float(front[0]), front[1])
+		var soffit := float(header.get("header_y", DoorwayFrames.HEADER_Y))
+		if top > soffit:
+			surface.add_wall(cell.x, cell.y, side, float(look[0]), look[1], top, soffit, top)
+	surface.add_ceiling(cell.x, cell.y, float(header.get("header_y", DoorwayFrames.HEADER_Y)), float(front[0]), front[1])
 
 
 static func _is_wall_at(grid: Array, x: int, z: int) -> bool:
