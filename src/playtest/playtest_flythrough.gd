@@ -1016,6 +1016,9 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var overlap_frames := 0
 	var worst_floor_jump := 0.0
 	var hold_yaw_offset := NAN
+	var opened_doors := {}
+	var doors_opened := 0
+	var door_clip_frames := 0
 	var footprint := CapsuleShape3D.new()
 	footprint.radius = .28
 	footprint.height = 1.2
@@ -1030,6 +1033,12 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		var p := track.pos[i]
 		var eye_y := p.y
 		var mode := int(track.ground[i])
+		if mode == 1 and bool(opts.get("doors", true)) and i % 3 == 0:
+			var door := _closed_door_ahead(scene, player.active_camera(), opened_doors)
+			if door != null:
+				opened_doors[door.get_instance_id()] = true
+				played += await _door_beat(tree, player, door, track.yaw[i], track.pitch[i])
+				doors_opened += 1
 		if mode == 2:
 			if is_nan(hold_yaw_offset):
 				hold_yaw_offset = player._yaw - track.yaw[i]
@@ -1093,7 +1102,18 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			overlap.shape = footprint
 			overlap.transform = Transform3D(Basis.IDENTITY, Vector3(p.x, ground_y + .85, p.z))
 			overlap.exclude = [player.get_rid()]
-			if not space.intersect_shape(overlap, 1).is_empty():
+			var inside_door := false
+			var inside_other := false
+			for inside in space.intersect_shape(overlap, 6):
+				var body := inside["collider"] as Node
+				var owner_item := body.get_parent() as RouteInteractable3D if body != null else null
+				if owner_item != null and owner_item.kind == RouteInteractable3D.Kind.ROOM_DOOR:
+					inside_door = true
+				else:
+					inside_other = true
+			if inside_door:
+				door_clip_frames += 1
+			if inside_other:
 				overlap_frames += 1
 		# a camera that does not move "for real" counts as idle: keep the anti-idle clocks (they send hunters) at zero
 		scene.set("_relay_inactivity_seconds", 0.0)
@@ -1109,6 +1129,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	info["prop_overlap_s"] = snappedf(float(overlap_frames) / float(fps), .2)
 	info["max_floor_step_m"] = snappedf(worst_floor_jump, .01)
 	info["ladder_frames"] = played
+	info["doors_opened"] = doors_opened
+	info["door_clip_s"] = snappedf(float(door_clip_frames) / float(fps), .2)
 	info["clip_frames_actual"] = Engine.get_frames_drawn() - clip_start_frame
 	info["fps"] = fps
 	info["clip_start_frame"] = clip_start_frame
@@ -1123,6 +1145,59 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 
 static func floor_y_of(info: Dictionary) -> float:
 	return float(int(info.get("level", 0))) * LEVEL_HEIGHT
+
+
+## A closed, unbroken room door 1.6-3.0 m ahead of the camera (inside a 55 degree cone) that has not been opened by this clip yet.
+static func _closed_door_ahead(scene: Node, camera: Camera3D, done: Dictionary) -> RouteInteractable3D:
+	var forward := -camera.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	for node in scene.get_tree().get_nodes_in_group("room_door"):
+		var door := node as RouteInteractable3D
+		if door == null or not is_instance_valid(door) or door.kind != RouteInteractable3D.Kind.ROOM_DOOR:
+			continue
+		if door.room_door_open or door.room_door_broken or done.has(door.get_instance_id()):
+			continue
+		var to_door := door.interaction_focus() - camera.global_position
+		if absf(to_door.y) > 1.6:
+			continue
+		to_door.y = 0.0
+		var d := to_door.length()
+		if d < 1.6 or d > 3.0:
+			continue
+		if forward.angle_to(to_door / d) < deg_to_rad(55.0):
+			return door
+	return null
+
+
+## The camera stops, turns to the door and opens it through the game's own door interaction (activate(): the hinged leaf swings, Sound.door plays).
+## Returns the frames used.
+static func _door_beat(tree: SceneTree, player: PlayerController3D, door: RouteInteractable3D, resume_yaw: float, resume_pitch: float) -> int:
+	var count := 0
+	var to_door := door.interaction_focus() - player.global_position
+	var aim_yaw := yaw_for(to_door.x, to_door.z)
+	var start_yaw := player._yaw
+	for k in 24:
+		var e := float(k + 1) / 24.0
+		e = e * e * (3.0 - 2.0 * e)
+		player._yaw = lerp_angle(start_yaw, aim_yaw, e)
+		player._pitch = lerpf(player._pitch, 0.0, .1)
+		player._apply_look_rotation()
+		await tree.process_frame
+		count += 1
+	door.activate(player)
+	for _k in 40:
+		await tree.process_frame
+		count += 1
+	var from_yaw := player._yaw
+	for k in 14:
+		var e := float(k + 1) / 14.0
+		player._yaw = lerp_angle(from_yaw, resume_yaw, e)
+		player._pitch = lerpf(player._pitch, resume_pitch, e)
+		player._apply_look_rotation()
+		await tree.process_frame
+		count += 1
+	return count
 
 
 ## Play a REAL ladder climb: the player becomes a normal, collidable runner again, stands on the ladder cell and holds up (or down); the game's own
