@@ -160,6 +160,7 @@ func _everyone_has_a_dossier_entry() -> void:
 	for id in HunterRoster.PROFILES:
 		var shown := HunterDossier.entry(id)
 		_expect(not shown.has("ability") and not shown.has("gimmick_title"), "%s dossier shows a role title" % id)
+		_expect(HunterDossier.portrait(id) != null, "%s has no dossier portrait" % id)
 	print("  dossier  %d entries" % HunterDossier.ENTRIES.size())
 
 

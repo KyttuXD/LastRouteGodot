@@ -194,6 +194,9 @@ func _hall_arch(grid: Array, x: int, z: int, d: Vector2i, base: Vector3, n: Vect
 	var far := Vector2i(x + d.x * (width + 1), z + d.y * (width + 1))
 	if width < 2 or width >= 12 or _open(grid, far.x, far.y) or not _open_run(grid, far.x, far.y, -d):
 		return
+	if _region == "sewer":
+		_sewer_haunch(x, z, base, n, float(width), hall_top, wall_key)
+		return
 	var half := float(width) * .5 - PILASTER_DEPTH
 	var rise := clampf(half * .55, .45, 1.1)
 	var spring := hall_top - rise - .18
@@ -213,6 +216,34 @@ func _hall_arch(grid: Array, x: int, z: int, d: Vector2i, base: Vector3, n: Vect
 		"between": float(width) - PILASTER_DEPTH * 2.0, "spring": spring, "top": spring + rise + .15,
 		"ceiling": hall_top + .1, "wall_key": wall_key})
 
+
+
+## The sewers' rib (KT: "half a C, not a full C"): the open span stops at the channel's edge, so a full arch over
+## the walkway dropped its far leg into the air above the water. Instead a quarter ellipse springs from the pilaster
+## face and curves up to meet the vault ceiling, with its keystone pressed flush against the ceiling: nothing hangs
+## below the spring line or stands in the walkway.
+func _sewer_haunch(x: int, z: int, base: Vector3, n: Vector3, width: float, hall_top: float, wall_key: String) -> void:
+	var reach := clampf(width * .5 - PILASTER_DEPTH, .55, 1.2)
+	var rise := clampf(reach * .8, .45, .9)
+	var ceiling := hall_top + .1
+	var spring := ceiling - rise
+	var centre := base + n * (PILASTER_DEPTH + reach) + Vector3.UP * spring
+	var along := n.cross(Vector3.UP).normalized()
+	var segments := 6
+	var previous := centre - n * reach
+	var lowest := INF
+	for i in range(1, segments + 1):
+		var theta := PI - PI * .5 * float(i) / float(segments)
+		var point := centre + n * (reach * cos(theta)) + Vector3.UP * (rise * sin(theta))
+		var tangent := point - previous
+		var radial := along.cross(tangent.normalized())
+		_add(wall_key, Transform3D(Basis(tangent * 1.06, radial * .3, along * .5), (point + previous) * .5))
+		lowest = minf(lowest, minf(point.y, previous.y) - .16)
+		previous = point
+	_add(_trim_key(), _box_t(centre + Vector3.UP * (rise - .21), Vector3(.3, .42, .3) + along.abs() * .26))
+	arch_log.append({"kind": "haunch", "centre": centre, "spring": spring, "lowest": lowest, "top": ceiling,
+		"ceiling": ceiling, "reach": PILASTER_DEPTH + reach, "width": width, "wall_key": wall_key,
+		"cell": Vector2i(x, z)})
 
 static var _arch_materials := {}
 const PLANE_UV_SHADER := preload("res://src/look/ref_plane_uv.gdshader")
@@ -538,7 +569,18 @@ static func _facing_basis(normal: Vector3) -> Basis:
 
 
 func _style() -> Dictionary:
-	return STYLE.get(_region, STYLE["maze"])
+	var style: Dictionary = STYLE.get(_region, STYLE["maze"])
+	var density := PlatformProfile.decor_density
+	if density >= 1.0:
+		return style
+	# Lower quality tiers (the Quest): pipes, cables, frames and teal trims are "one in N" draws; N grows so fewer spawn.
+	# Lamps keep their spacing (they light the way).
+	var thinned := style.duplicate()
+	for key in ["teal", "pipe", "cable", "frame"]:
+		var every := int(thinned.get(key, 0))
+		if every > 0 and every < 90:
+			thinned[key] = mini(89, ceili(every / maxf(density, .05)))
+	return thinned
 
 
 ## Per-region fixture recipe: which lamp family, how dense, which wall extras.

@@ -124,6 +124,8 @@ var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
 var skin_hash := ""
 ## Whether other players may COPY your skin in co-op (SKIN tab). Honoured by their game; the skin itself is visible either way.
 var skin_copyable := true
+## In-world ads (flavour, TrollAds): "off" (default), "gentle" or "annoying". Troll mode overrides it for cheaters.
+var ads_mode := "off"
 ## The arm style of the skin: skin_slim is what the skin's own pixels said when it was picked (Alex = transparent 4th arm column, or the
 ## Minecraft profile's model); skin_arms is the player's choice: "auto" follows the skin, "classic" (Steve) / "slim" (Alex) force it.
 var skin_slim := false
@@ -346,6 +348,11 @@ func set_skin_arms(mode: String) -> void:
 	visual_changed.emit()
 
 
+func set_ads_mode(value: String) -> void:
+	ads_mode = value if value in TrollAds.MODES else "off"
+	_save()
+
+
 func set_skin_copyable(value: bool) -> void:
 	skin_copyable = value
 	_save()
@@ -559,6 +566,9 @@ func _load() -> void:
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	skin_hash = String(config.get_value("player", "skin_hash", ""))
 	skin_copyable = bool(config.get_value("player", "skin_copyable", true))
+	ads_mode = String(config.get_value("gameplay", "ads_mode", "off"))
+	if ads_mode not in TrollAds.MODES:
+		ads_mode = "off"
 	skin_slim = bool(config.get_value("player", "skin_slim", false))
 	skin_arms = String(config.get_value("player", "skin_arms", "auto"))
 	if not ["auto", "classic", "slim"].has(skin_arms):
@@ -667,6 +677,7 @@ func _save() -> void:
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("player", "skin_hash", skin_hash)
 	config.set_value("player", "skin_copyable", skin_copyable)
+	config.set_value("gameplay", "ads_mode", ads_mode)
 	config.set_value("player", "skin_slim", skin_slim)
 	config.set_value("player", "skin_arms", skin_arms)
 	config.set_value("accessibility", "reduced_motion", reduced_motion)

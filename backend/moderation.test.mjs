@@ -186,7 +186,12 @@ test("peers and report require the room's host token; troll and flags come only 
     await kick(app.url, room, { deviceId: "dev-x" });
     const result = await post(app.url, "/api/moderation/peers", { ...room, usernames: ["pranker", "KYTTU"], deviceIds: ["dev-x", "dev-y"] });
     assert.equal(result.status, 200);
-    assert.deepEqual(result.body.players.PRANKER, { flagged: false, permanent: false, troll: true, reason: "" });
+    assert.deepEqual(result.body.players.PRANKER, { flagged: false, permanent: false, troll: true, ads: true, reason: "" });
+    await post(app.url, "/api/admin/flags/set", { sessionToken: owner, username: "PRANKER", action: "ads_off" });
+    const quiet = await post(app.url, "/api/moderation/peers", { ...room, usernames: ["PRANKER"] });
+    assert.equal(quiet.body.players.PRANKER.ads, false, "owners can turn troll ads off per player");
+    assert.equal(quiet.body.players.PRANKER.troll, true);
+    await post(app.url, "/api/admin/flags/set", { sessionToken: owner, username: "PRANKER", action: "ads_on" });
     assert.equal(result.body.players.KYTTU.troll, false);
     assert.deepEqual(result.body.devices, { "dev-x": { cooldown: false, troll: false }, "dev-y": { cooldown: false, troll: false } },
       "a kicked device is never trolled or cooled down by the server");

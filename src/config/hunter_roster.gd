@@ -28,11 +28,13 @@ const DEFAULT_ID := "dovelle"
 
 ## Every hunter, from HUNTER_PROFILES. `spawn_distance` is carried for
 ## completeness; place_hunter_spawn() does not read it yet.
-const PROFILES := {
+## Read PROFILES, not this: entries marked ContentRegistry.DATA live in res://data/hunters/<id>.json
+## (docs/DATA_DRIVEN_CONTENT.md) and PROFILES is this table with them filled in, in this order.
+const _CODE_PROFILES := {
 	"aki":      {"name": "Aki",      "tier": "easy",         "speed": 0.82, "chase": 3.55,  "prog": 0.20, "sight": 8.20, "hearing": 1.00, "spawn": 11},
 	"briselle": {"name": "Briselle", "tier": "easy",         "speed": 0.84, "chase": 3.62,  "prog": 0.18, "sight": 7.70, "hearing": 1.00, "spawn": 12},
 	"ceryth":   {"name": "Ceryth",   "tier": "intermediate", "speed": 0.78, "chase": 3.45,  "prog": 0.17, "sight": 8.60, "hearing": 0.88, "spawn": 12},
-	"dovelle":  {"name": "Dovelle",  "tier": "easy",         "speed": 0.80, "chase": 3.55,  "prog": 0.18, "sight": 8.00, "hearing": 1.00, "spawn": 12},
+	"dovelle":  ContentRegistry.DATA,
 	"elise":    {"name": "Elise",    "tier": "difficult",    "speed": 0.82, "chase": 3.58,  "prog": 0.18, "sight": 8.10, "hearing": 1.05, "spawn": 12},
 	"ferryn":   {"name": "Ferryn",   "tier": "intermediate", "speed": 0.80, "chase": 2.75,  "prog": 0.17, "sight": 8.30, "hearing": 0.92, "spawn": 12},
 	"glyra":    {"name": "Glyra",    "tier": "easy",         "speed": 0.81, "chase": 3.52,  "prog": 0.18, "sight": 7.90, "hearing": 1.12, "spawn": 12},
@@ -72,6 +74,8 @@ const PROFILES := {
 	"void_white":  {"name": "White",  "tier": "void", "category": "void", "speed": 0.90, "chase": 4.45, "prog": 0.24, "sight": 8.8, "hearing": 1.38, "spawn": 17, "model": "res://art/props-3d/characters/void_white.tscn"},
 	"void_yellow": {"name": "Yellow", "tier": "void", "category": "void", "speed": 0.99, "chase": 4.78, "prog": 0.27, "sight": 9.8, "hearing": 1.20, "spawn": 15, "model": "res://art/props-3d/characters/void_yellow.tscn"},
 }
+
+static var PROFILES: Dictionary = ContentRegistry.resolve(_CODE_PROFILES, "hunters")
 
 ## The hunters the game actually draws. Grows as gimmicks are ported; a hunter
 ## with a profile and a model but no gimmick is NOT in here, because shipping

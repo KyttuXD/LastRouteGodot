@@ -534,6 +534,16 @@ func _refresh_stream(force: bool) -> void:
 	_prof("chunk_changed", t_refresh)
 
 
+## Lower quality tiers (the Quest) skip a deterministic share of pure dressing: props with no collider, no interaction
+## and no door. Gameplay, navigation and every peer's world are unchanged (the props only exist as visuals).
+func _thinned_out(prop: Dictionary, type: String) -> bool:
+	var density := PlatformProfile.prop_density
+	if density >= 1.0 or bool(prop.get("solid", true)) or PropModelCatalog.is_room_door(type) \
+			or not PropModelCatalog.interaction_for(type).is_empty():
+		return false
+	return absi(hash(String(prop.get("id", "")) + ":thin")) % 100 >= int(density * 100.0)
+
+
 ## While the runner is on a ladder (between the two storeys), the destination storey's chunks near the shaft join the
 ## stream queue, so they are built during the climb and the level change has nothing left to build synchronously.
 var _prestreamed_for := Vector3i(999999, 999999, 999999)
@@ -2419,6 +2429,8 @@ func _spawn_region_props(parent: Node3D, data: Dictionary) -> void:
 func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finish: String = "") -> void:
 	var type := String(prop.get("type", ""))
 	if not PropModelCatalog.has_model(type):
+		return
+	if _thinned_out(prop, type):
 		return
 	if PropModelCatalog.is_room_door(type):
 		_spawn_room_door(parent, coord, prop, type)

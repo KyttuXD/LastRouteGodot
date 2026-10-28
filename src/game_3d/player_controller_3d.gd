@@ -186,13 +186,10 @@ var stamina := GameConfig.MAX_STAMINA
 var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
 var stamina_recovery_delay := 0.0
-## Set when sprinting stops above GameConfig.STAMINA_QUICK_THRESHOLD: stamina ramps back to full in a blink.
-var stamina_quick_refill := false
 ## Troll mode (docs/ANTI_CHEAT.md): the host caught this client cheating, or the server flagged the account. Faster
 ## stamina drain, a flickering flashlight and fake hunter footsteps; the host side (hunters, pickups) does the rest.
 var troll_active := false
 var _troll_step_in := 0.0
-var _was_sprinting_stamina := false
 var movement_mode := "walk"
 ## Noise emitted this frame by movement, consumed by hunter hearing
 ## (hunter_brain.gd) — matches the original's per-frame emittedNoise.
@@ -798,6 +795,7 @@ func _ready() -> void:
 		first_person_camera.far = PlatformProfile.camera_far
 		xr_camera.far = PlatformProfile.camera_far
 	Settings.visual_changed.connect(_apply_visual_settings)
+	_warm_flashlight.call_deferred()
 	var model := ModelSlot.instantiate(BODY_MODEL_SCENE)
 	if model:
 		_body_model = model
@@ -1752,6 +1750,8 @@ func _xr_smoke_log() -> void:
 		xr_right.tracker, xr_right.pose, xr_right.get_has_tracking_data(), head, Vector2(head.x, head.z).length(),
 		xr_origin.world_scale, xr_comfort != null and xr_comfort.wrist != null and xr_comfort.wrist.is_visible_in_tree(),
 		get_tree().root.find_children("XRRoutePanel", "", true, false).size()])
+	for panel in get_tree().root.find_children("XRRoutePanel", "", true, false):
+		print("XR_SMOKE_PANEL canvas=%s root=%s" % [(panel as XRRoutePanel).canvas_size(), get_viewport().get_visible_rect().size])
 	var cell := Vector2(fposmod(global_position.x, GameConfig.TILE_SIZE), fposmod(global_position.z, GameConfig.TILE_SIZE))
 	var blocked := spot_blocked(global_position)
 	print("XR_SMOKE_SEED %s yaw=%.3f origin_current=%s" % [RoomState.seed_text, rotation.y, xr_origin.current])
@@ -1907,20 +1907,8 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 		stamina_recovery_delay = GameConfig.STAMINA_RECOVERY_DELAY
 		if stamina <= 0.0:
 			exhausted = true
-		stamina_quick_refill = false
-		_was_sprinting_stamina = true
 		return
 
-	if _was_sprinting_stamina:
-		_was_sprinting_stamina = false
-		stamina_quick_refill = not exhausted and stamina > GameConfig.STAMINA_QUICK_THRESHOLD
-	if stamina_quick_refill:
-		stamina = minf(GameConfig.MAX_STAMINA,
-			stamina + GameConfig.MAX_STAMINA / GameConfig.STAMINA_QUICK_REFILL_TIME * delta)
-		stamina_recovery_delay = 0.0
-		if stamina >= GameConfig.MAX_STAMINA:
-			stamina_quick_refill = false
-		return
 	stamina_recovery_delay = maxf(0.0, stamina_recovery_delay - delta)
 	if stamina_recovery_delay <= 0.0:
 		stamina = minf(GameConfig.MAX_STAMINA, stamina + GameConfig.STAMINA_RECOVERY * delta)
@@ -2195,6 +2183,27 @@ func _update_first_person_item_lights() -> void:
 	var lit := flashlight != null and flashlight.visible
 	_flashlight_lens_material.emission_enabled = lit
 	_flashlight_lens_material.albedo_color = Color("eee3ad") if lit else Color("3c3b35")
+
+
+## The first time the shadowed SpotLight becomes visible the renderer compiles its shader variants and allocates the
+## positional shadow atlas, a long frame. Do that once right after spawning, at zero energy, so the player's first
+## toggle (and every later one) only flips visibility.
+func _warm_flashlight() -> void:
+	if flashlight == null:
+		return
+	for _i in 2:
+		await get_tree().process_frame
+	if flashlight == null or flashlight.visible:
+		return
+	var energy := flashlight.light_energy
+	flashlight.light_energy = 0.0
+	flashlight.visible = true
+	for _i in 3:
+		await get_tree().process_frame
+	if flashlight == null:
+		return
+	flashlight.light_energy = energy
+	flashlight.visible = _flashlight_beam_should_be_visible()
 
 
 func _flashlight_beam_should_be_visible() -> bool:

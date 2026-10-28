@@ -295,12 +295,8 @@ func _check_share_copy() -> void:
 	menu.call("_set_section", "statistics")
 	_expect(menu.copy_route_share() == copied,
 		"a guest lost the read-only route-share copy")
-	_expect(menu.save_new_request.is_valid() == false
-			and menu.save_load_request.is_valid() == false,
-		"the share-copy path wired guest save/load authority")
-	var save_new := menu.find_child("SaveNew", true, false)
-	_expect(save_new != null,
-		"pause archives vanished after a guest opened the share block")
+	_expect(not menu.save_status_source.is_valid(),
+		"the share-copy path wired a guest save line")
 	menu.close()
 	menu.queue_free()
 	await _frame()

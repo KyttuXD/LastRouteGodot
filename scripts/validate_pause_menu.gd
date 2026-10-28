@@ -39,17 +39,12 @@ func run(host: Node) -> int:
 				rows["STAT ROW %02d" % i] = str(i * 7)
 			rows["CURRENT FLOOR"] = "-3"
 			return rows
-		menu.save_slots_source = func() -> Array:
-			var slots := []
-			for i in 9:
-				slots.append({"slot_id": "slot_%d" % i, "name": "ROUTE %d" % i, "level": -i, "difficulty": "STANDARD",
-					"elapsed_seconds": 60.0 * i, "saved_at": 1700000000 + i})
-			return slots
+		menu.save_status_source = func() -> String: return "RUN SAVED AT LEVEL -3, 14:05"
 		holder.add_child(menu)
 		await host.get_tree().process_frame
 		menu.open()
 		await host.get_tree().process_frame
-		for page in ["statistics", "saves", "pause"]:
+		for page in ["statistics", "pause"]:
 			menu._set_section(page)
 			await host.get_tree().process_frame
 			for id in menu._tabs:
@@ -66,31 +61,16 @@ func run(host: Node) -> int:
 		var view := scroll.get_global_rect().grow(1.0)
 		_expect(last != null and view.encloses(last.get_global_rect()), "%s: the last statistic cannot be scrolled into view (%s in %s)" % [key, last.get_global_rect() if last != null else Rect2(), view])
 		_expect(Rect2(Vector2.ZERO, units).grow(1.0).encloses(scroll.get_global_rect()), "%s: the statistics scroller leaves the window" % key)
-		# SAVES: same header/frame style as STATISTICS and every slot reachable
-		menu._set_section("saves")
-		for _i in 3:
-			await host.get_tree().process_frame
-		var saves_scroll := menu._saves_scroll
-		_expect(saves_scroll != null and saves_scroll.get_v_scroll_bar().visible, "%s: the saves page has no visible scrollbar" % key)
-		var heading := menu.find_child("SavesHeading", true, false) as Label
-		_expect(heading != null and heading.get_theme_color("font_color") == Palette.AMBER and heading.get_theme_font_size("font_size") == 8,
-			"%s: the saves header does not match the statistics header" % key)
-		var frame := menu.find_child("SaveControls", true, false) as PanelContainer
-		var share := menu.find_child("PauseShare", true, false) as PanelContainer
-		_expect(frame != null and share != null and (frame.get_theme_stylebox("panel") as StyleBoxFlat).bg_color == (share.get_theme_stylebox("panel") as StyleBoxFlat).bg_color,
-			"%s: the saves frame does not match the statistics frame" % key)
-		menu.scroll_saves_to_end()
-		for _i in 2:
-			await host.get_tree().process_frame
-		var slots := menu._save_list.get_children().filter(func(n: Node) -> bool: return n is Control and (n as Control).visible)
-		var last_slot := slots[-1] as Control if not slots.is_empty() else null
-		var saves_view := saves_scroll.get_global_rect().grow(1.0)
-		_expect(slots.size() >= 9 and last_slot != null and saves_view.encloses(last_slot.get_global_rect()),
-			"%s: the last save slot cannot be scrolled into view (%d slots)" % [key, slots.size()])
-		_expect(Rect2(Vector2.ZERO, units).grow(1.0).encloses(saves_scroll.get_global_rect()), "%s: the saves scroller leaves the window" % key)
+		# SAVES: no slot page any more, one status line under RETURN
+		menu._set_section("pause")
+		await host.get_tree().process_frame
+		var status := menu.find_child("PauseSaveStatus", true, false) as Label
+		_expect(not menu._tabs.has("saves") and status != null and status.is_visible_in_tree() \
+			and status.text == "RUN SAVED AT LEVEL -3, 14:05", "%s: the pause page lacks the run-saved line (or still has a SAVES tab)" % key)
+		_expect(status != null and Rect2(Vector2.ZERO, units).grow(1.0).encloses(status.get_global_rect()), "%s: the run-saved line leaves the window" % key)
 		menu.close()
 		holder.queue_free()
 		await host.get_tree().process_frame
 	if _failures == 0:
-		print("  pausemenu only the open tab is lit; statistics and saves (matching style) scroll to their last row at 480x270, 1024x768, phone, XR panel")
+		print("  pausemenu only the open tab is lit; statistics scrolls to its last row, the run-saved line shows at 480x270, 1024x768, phone, XR panel")
 	return _failures

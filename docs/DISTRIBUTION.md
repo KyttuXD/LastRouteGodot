@@ -1,7 +1,7 @@
 # Build, export and distribution
 
 ## Exports
-`export_presets.cfg` carries debug-tools presets for Linux, Windows (64 and legacy 32-bit), macOS (Universal 2), Web (solo only) and Quest/iOS (see
+`export_presets.cfg` carries debug-tools presets for Linux, Windows (64 and legacy 32-bit), macOS (exported universal, then thinned to Apple Silicon by `tools/macos/thin_app.sh` unless `MAC_UNIVERSAL=1`), Web (solo only) and Quest/iOS (see
 [../XR.md](../XR.md), [../IOS.md](../IOS.md)). `scripts/export_test_builds.sh` exports every current artifact into `builds/`, writes the updater ZIPs and
 manifest. It looks for `godot4`, then `godot` on `PATH`; on the dev Mac put `/Applications/Godot.app/Contents/MacOS` on `PATH` or symlink it. Export
 templates for the installed Godot version must be present. `builds/`, `dist/` and `build_revision.json` are never committed.

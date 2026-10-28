@@ -75,12 +75,9 @@ const GREENHOUSE_ROOMS := ["glasshouse", "potting_shed", "palm_house", "cactus_r
 	"overgrown_room"]
 ## Shopping arcade: every shop is a 20x9 shopfront on a five-wide main hall (_dense_linear_layout), named over its
 ## door in lit letters (StreamedFacilityView3D). The City's shop list, ported as Last Route rooms.
-const MALL_ROOMS := ["donut_shop", "cinema", "corner_store", "food_court", "bakery", "laundromat", "electronics",
-	"night_diner", "drugstore", "florist", "barber", "pawn_shop", "stationery"]
-const SHOP_NAMES := {"donut_shop": "KYTTU DONUTS", "cinema": "CINEMA", "corner_store": "24/7 CORNER",
-	"food_court": "FOOD COURT", "bakery": "BAKERY", "laundromat": "LAUNDROMAT", "electronics": "ARCADE & ELECTRONICS",
-	"night_diner": "NIGHT DINER", "drugstore": "PHARMACY", "florist": "FLORIST", "barber": "BARBER",
-	"pawn_shop": "PAWN & LOAN", "stationery": "STATIONERY & READING"}
+## The Mall's shops and their lit names live in res://data/regions/mall.json (docs/DATA_DRIVEN_CONTENT.md).
+static var MALL_ROOMS: Array = ContentRegistry.get_def("regions", "mall").get("room_roles", [])
+static var SHOP_NAMES: Dictionary = ContentRegistry.get_def("regions", "mall").get("shop_names", {})
 const MALL_SHOP_WIDTH := 20
 ## Biome recipes laid twice (at sides -5 and +5) across a 21-wide hall room; the rest size themselves to the room.
 const BIOME_REPEAT_TEMPLATES := ["operating_theatre", "icu", "morgue", "pharmacy", "imaging", "supply_closet",
@@ -106,7 +103,8 @@ const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(
 ## Every runner starts with a flashlight, so it is not a world pickup (batteries recharge it).
 const PICKUP_TYPES := ["taser", "lockpick", "crowbar", "rescue_axe"]
 const BACKPACK_TYPES := ["backpack_small", "backpack_medium", "backpack_large"]
-const REGION_PROP_SETS := {
+## Read REGION_PROP_SETS, not this: ContentRegistry.DATA regions take their prop_set from res://data/regions.
+const _CODE_REGION_PROP_SETS := {
 	"maze": [
 		{"type": "arcadeCabinet", "size": Vector3(.75, 1.85, .7)},
 		{"type": "arcadeCabinetCyanMagenta", "size": Vector3(.75, 1.85, .7)},
@@ -201,13 +199,7 @@ const REGION_PROP_SETS := {
 		{"type": "privacyCurtain", "size": Vector3(.9, 2.4, .5)},
 		{"type": "floorLamp", "size": Vector3(.55, 1.9, .55)},
 	],
-	"mall": [
-		{"type": "mallBench", "size": Vector3(1.8, .5, .6)},
-		{"type": "mallPlanter", "size": Vector3(1.3, 2.4, 1.3)},
-		{"type": "shopShelf", "size": Vector3(1.2, 1.9, .5)},
-		{"type": "vendingMachine", "size": Vector3(.85, 1.9, .6)},
-		{"type": "menuBoard", "size": Vector3(1.5, .9, .08), "solid": false},
-	],
+	"mall": ContentRegistry.DATA,
 	"hospital": [
 		{"type": "hospitalBed", "size": Vector3(.95, 1.05, 2.1)},
 		{"type": "wheelchair", "size": Vector3(.65, .95, .95)},
@@ -235,22 +227,26 @@ const REGION_PROP_SETS := {
 		{"type": "overgrowthPatch", "size": Vector3(1.6, .35, 1.3), "solid": false},
 	],
 }
-const REGION_ROOM_DOORS := {
+const _CODE_REGION_ROOM_DOORS := {
 	"maze": "normalRoomDoor",
 	"apartment": "normalRoomDoor",
 	"hotel": "luxuryRoomDoor",
 	"mansion": "luxuryRoomDoor",
 	"gothic": "gothicRoomDoor",
-	"mall": "normalRoomDoor",
+	"mall": ContentRegistry.DATA,
 }
-const REGION_DOUBLE_ROOM_DOORS := {
+const _CODE_REGION_DOUBLE_ROOM_DOORS := {
 	"maze": "normalDoubleRoomDoor",
 	"apartment": "normalDoubleRoomDoor",
 	"hotel": "luxuryDoubleRoomDoor",
 	"mansion": "luxuryDoubleRoomDoor",
 	"gothic": "gothicDoubleRoomDoor",
-	"mall": "normalDoubleRoomDoor",
+	"mall": ContentRegistry.DATA,
 }
+static var REGION_PROP_SETS: Dictionary = ContentRegistry.resolve(_CODE_REGION_PROP_SETS, "regions", "prop_set")
+static var REGION_ROOM_DOORS: Dictionary = ContentRegistry.resolve(_CODE_REGION_ROOM_DOORS, "regions", "room_door")
+static var REGION_DOUBLE_ROOM_DOORS: Dictionary = ContentRegistry.resolve(_CODE_REGION_DOUBLE_ROOM_DOORS, "regions",
+	"double_room_door")
 ## Collision envelopes for deterministic furnished-room recipes. These follow
 ## the authored GLB footprints rather than the old one-cell placeholder rule.
 ## Local X runs across a prop's front and local Z runs from its back into the
@@ -2640,12 +2636,13 @@ static func seat_in_front_of_screens(props: Array, grid: Array) -> void:
 		for other_value in props:
 			var other: Dictionary = other_value
 			if other != seat and other != screen and bool(other.get("solid", true)) \
-					and prop_point(other).distance_to(spot) < .6:
+					and (prop_point(other).distance_to(spot) < .6 or (other.get("occupied_cells", []) as Array).has(cell)):
 				taken = true
 				break
 		if taken:
 			continue
 		seat["cell"] = cell
+		seat["occupied_cells"] = [cell]    # the seat's collider moved with it; reservations and reachability follow
 		seat["placement_offset"] = spot - (Vector2(cell) + Vector2(.5, .5))
 		seat["yaw"] = snappedf(atan2(front.x, front.y), PI * .25)    # facing back at the screen
 		seat["oriented"] = true

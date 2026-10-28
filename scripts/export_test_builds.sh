@@ -20,6 +20,10 @@ else
 	printf 'Godot 4 was not found.\n' >&2
 	exit 1
 fi
+# Templates only ship universal binaries; ship Apple Silicon only unless MAC_UNIVERSAL=1.
+if [[ "${MAC_UNIVERSAL:-0}" != 1 ]]; then
+	"${project_dir}/tools/macos/thin_app.sh" "${build_dir}/KyttusLab-macOS-Debug.zip" arm64
+fi
 
 mkdir -p "${build_dir}/KyttusLab-Web-Debug"
 # Desktop presets embed their PCK in the executable. Remove artifacts from

@@ -172,6 +172,8 @@ func run(host: Node) -> int:
 	Backend.moderation._on_status_reply({"status": {}})
 	_expect(Backend.moderation.device_id().length() == 32, "the device id is not a 32-hex id")
 
+	await _troll_ad_checks(host)
+
 	# Interaction rate limit.
 	var remotes := RemotePlayers.new()
 	var allowed := 0
@@ -275,3 +277,117 @@ func _lag_checks() -> void:
 	_expect(bool(guard.check(1, _state(Vector3(50, 0, 0), {"seq": 6}), .06).get("drop", false)), "a duplicate was judged")
 	_expect(bool(guard.check(1, _state(Vector3(50, 0, 0), {"seq": 3}), .07).get("drop", false)), "a stale sample was judged")
 	_expect(guard.strikes(1) == 0, "dropped samples struck")
+
+
+## Troll-mode "ads": in-universe text only, capped, never for normal players, never over a capture or death screen.
+func _troll_ad_checks(host: Node) -> void:
+	var ads: Array = TrollAds.all()
+	_expect(ads.size() >= 20, "only %d troll ads in the data" % ads.size())
+	for ad_value in ads:
+		var ad := TrollAds.render(ad_value)
+		var text := ("%s %s %s" % [ad["title"], ad["body"], ad["footer"]]).to_lower()
+		for banned in ["http", "www.", ".com", "$", "€", "£", "{"]:
+			_expect(not text.contains(banned), "ad %s has '%s' (real links/prices/placeholders are not allowed)" % [ad["id"], banned])
+		# KT / LORE rulings: no Kyttu tie, no private company canon (testers, stability, dimensions), hunters are "she".
+		for banned in ["kyttu", "dimensional", "dimension", "tester", "route is stable", "makes it look", "make it go away",
+				"come to the vents", "sorry about earlier"]:
+			_expect(not text.contains(banned), "ad %s still has the banned phrase '%s'" % [ad["id"], banned])
+		_expect(String(ad["source"]) in ["mall", "company", "safety", "hunter", "lore"], "ad %s has source %s" % [ad["id"], ad["source"]])
+	# The schedule: first delay, minimum gap, cap per window, nothing while blocked or off.
+	var schedule := TrollAds.new(7)
+	_expect(not schedule.due(100.0, false), "ads were due before troll ads turned on")
+	schedule.set_enabled(true, 0.0)
+	_expect(not schedule.due(TrollAds.FIRST_DELAY_SECONDS - 1.0, false), "the first ad did not wait")
+	var shown: Array[float] = []
+	var t := 0.0
+	while t < 1800.0:
+		if schedule.due(t, fmod(t, 97.0) < 20.0):   # blocked a fifth of the time (caught / menus)
+			_expect(fmod(t, 97.0) >= 20.0, "an ad was due while blocked")
+			schedule.mark_shown(t)
+			shown.append(t)
+		t += 1.0
+	for i in shown.size():
+		if i > 0:
+			_expect(shown[i] - shown[i - 1] >= TrollAds.MIN_GAP_SECONDS, "two ads %.0f s apart" % (shown[i] - shown[i - 1]))
+		var in_window := shown.filter(func(at: float) -> bool: return at <= shown[i] and shown[i] - at < TrollAds.WINDOW_SECONDS).size()
+		_expect(in_window <= TrollAds.MAX_PER_WINDOW, "%d ads within one window" % in_window)
+	_expect(shown.size() > 0, "no ad ever showed for a trolled player")
+	schedule.set_enabled(false, 0.0)
+	_expect(not schedule.due(5000.0, false), "ads still due after troll ads turned off")
+
+	# Settings: OFF by default; the gentle profile is rarer, skips at once and its Skip never moves.
+	var fresh: Node = (load("res://src/autoload/settings.gd") as GDScript).new()
+	_expect(String(fresh.ads_mode) == "off", "in-world ads are not OFF by default")
+	fresh.free()
+	var gentle: Dictionary = TrollAds.PROFILES["gentle"]
+	var annoying: Dictionary = TrollAds.PROFILES["annoying"]
+	_expect(float(gentle["gap"]) > float(annoying["gap"]) and int(gentle["max"]) < int(annoying["max"]) \
+		and float(gentle["countdown"]) == 0.0 and int(gentle["dodges"]) == 0, "the gentle profile is not gentle")
+
+	# The live route.
+	var saved_mode := Settings.ads_mode
+	Settings.ads_mode = "off"
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	var route: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
+	host.get_tree().root.add_child(route)
+	for _i in 3:
+		await host.get_tree().process_frame
+	var force_due := func() -> void:
+		route._apply_ads_mode()
+		route.troll_ads._enabled_at -= 1000.0
+		route.troll_ads._shown_at.clear()
+		route._update_troll_ads(1.0)
+	var showing := func() -> bool: return route.troll_ad_overlay != null and route.troll_ad_overlay.showing()
+	force_due.call()
+	_expect(not showing.call(), "a player with ads OFF (the default) saw an ad")
+	# GENTLE: a pop-up with a plain Skip that works straight away.
+	Settings.ads_mode = "gentle"
+	force_due.call()
+	_expect(route.ads_mode() == "gentle" and showing.call(), "an opted-in GENTLE player got no ad")
+	if showing.call():
+		var skip: Button = route.troll_ad_overlay._skip
+		_expect(not skip.disabled and skip.text == "SKIP", "the gentle Skip is not a plain, working Skip")
+		var index := skip.get_index()
+		route.troll_ad_overlay._on_skip()
+		_expect(not showing.call() and skip.get_index() == index, "the gentle Skip moved or did not close the ad")
+	# Never during a chase or in VR, in any mode.
+	for blocker in ["chase", "vr"]:
+		for mode in ["gentle", "annoying"]:
+			Settings.ads_mode = mode
+			route._was_chased = blocker == "chase"
+			route.player.xr_active = blocker == "vr"
+			force_due.call()
+			_expect(not showing.call(), "a %s ad opened during %s" % [mode, blocker])
+			route._was_chased = false
+			route.player.xr_active = false
+			if route.troll_ad_overlay != null:
+				route.troll_ad_overlay.dismiss()
+	# ANNOYING by choice: the countdown and the sneaky skip.
+	Settings.ads_mode = "annoying"
+	force_due.call()
+	_expect(showing.call() and (route.troll_ad_overlay._skip as Button).disabled, "ANNOYING has no countdown")
+	route.troll_ad_overlay.dismiss()
+	# Troll mode forces ANNOYING whatever the setting; an owner's ads-off mutes it.
+	Settings.ads_mode = "off"
+	route._apply_player_event({"what": "troll", "on": true, "ads": false})
+	force_due.call()
+	_expect(not showing.call(), "ads showed with the owner's ads toggle off")
+	route._apply_player_event({"what": "troll", "on": true, "ads": true})
+	Settings.ads_mode = "gentle"
+	force_due.call()
+	_expect(route.ads_mode() == "annoying" and showing.call(), "troll mode did not force ANNOYING ads (got %s)" % route.ads_mode())
+	_expect(showing.call() and route.troll_ad_overlay.remaining > 0.0 \
+		and (route.troll_ad_overlay._skip as Button).disabled, "the troll ad can be skipped before its countdown")
+	route._death_screen_open = true
+	route._update_troll_ads(1.0)
+	_expect(not showing.call(), "an ad stayed over the death screen")
+	force_due.call()
+	_expect(not showing.call(), "an ad opened over the death screen")
+	route._death_screen_open = false
+	Settings.ads_mode = "off"
+	route._apply_player_event({"what": "troll", "on": false})
+	route._update_troll_ads(1.0)
+	_expect(not showing.call() and not route.troll_ads.enabled(), "ads kept running after troll mode ended")
+	Settings.ads_mode = saved_mode
+	route.queue_free()
+	await host.get_tree().process_frame

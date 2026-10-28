@@ -586,8 +586,8 @@ func run(host: Node) -> int:
 		"retired finite scale buttons still appear in staging")
 	_expect(infinite_button == null and default_mode_button == null,
 		"redundant mode/scale controls still occupy the staging screen")
-	_expect(lobby.find_child("LobbyLoadSaveButton", true, false) != null,
-		"staging did not replace mode/scale controls with the local archive action")
+	_expect(lobby.find_child("LobbyContinueButton", true, false) != null,
+		"staging lost the CONTINUE RUN action")
 	_expect(lobby.find_child("DebugCustomHostLabel", true, false) == null,
 		"the removed custom-host label is still visible")
 	_expect(lobby.find_child("DebugCustomHostRow", true, false) == null,

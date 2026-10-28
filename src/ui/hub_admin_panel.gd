@@ -242,8 +242,9 @@ func remove_skin() -> void:
 ## username, and adding / removing a blocked build hash. Owners only (the server answers 403 ADMIN_OWNER_REQUIRED otherwise).
 ## Bans and flags are manual only (KT): the server only queues REVIEWS (a kick, kicks from 2+ hosts in 7 days, an unknown
 ## build); every action below closes the account's open reviews; DISMISS closes them without restricting anything.
-const MODERATION_ACTIONS := [["FLAG 24H", "extend"], ["BAN", "ban"], ["TROLL ON", "troll_on"], ["DISMISS", "dismiss"],
-	["CLEAR", "clear"], ["UNBAN", "unban"], ["TROLL OFF", "troll_off"]]
+## ADS ON / OFF: the troll mode's in-universe "ads" per player (default on), next to the troll toggles.
+const MODERATION_ACTIONS := [["FLAG 24H", "extend"], ["BAN", "ban"], ["TROLL ON", "troll_on"], ["TROLL OFF", "troll_off"],
+	["ADS ON", "ads_on"], ["ADS OFF", "ads_off"], ["DISMISS", "dismiss"], ["CLEAR", "clear"], ["UNBAN", "unban"]]
 var _moderation_user: LineEdit
 var _moderation_build: LineEdit
 var _moderation_status: Label
@@ -327,7 +328,7 @@ static func format_account(record: Dictionary) -> Array:
 	elif bool(record.get("flagged", false)):
 		state.append("FLAGGED UNTIL %s" % str(record.get("flaggedUntil", "?")))
 	if bool(record.get("troll", false)):
-		state.append("TROLL")
+		state.append("TROLL (ADS %s)" % ("ON" if bool(record.get("ads", true)) else "OFF"))
 	var open := int(record.get("reviewOpen", 0))
 	var lines := ["%s%s: %s%s" % ["[REVIEW] " if open > 0 else "", String(record.get("username", "?")).to_upper(),
 		" + ".join(state) if not state.is_empty() else "CLEAR",
