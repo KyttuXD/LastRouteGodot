@@ -1083,7 +1083,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				_spawn_stairwells(root, data, (build["coord"] as Vector3i).y)
 				_spawn_shop_signs(root, data)
 				if not (build["sewer_grid"] as Array).is_empty():
-					_spawn_sewer_water(root, build["sewer_grid"])
+					_spawn_sewer_water(root, build["sewer_grid"], _jump_cell(data))
 				_spawn_ramps(root, data, (build["coord"] as Vector3i).y)
 				_spawn_falls(root, data, (build["coord"] as Vector3i).y)
 				build["decor"] = RefDecor.new(root, data, build["room_map"], build["heights"], build["corridor_h"])
@@ -1274,7 +1274,9 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	elif _sewer_code(build, x, z) == SewerRouteGenerator.FALL:
 		# The drop to the collector: blocked to walk like the channels, the vault
 		# overhead, and rough stone cliffs from the floor's edge down a full storey.
-		grid.set_cell_item(Vector3i(x, 0, z), _col_channel_item)
+		# The one jump cell behind the railing gap is open: stepping into it is the plunge.
+		if cell != _jump_cell(data):
+			grid.set_cell_item(Vector3i(x, 0, z), _col_channel_item)
 		surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
 			RefTextures.params("ceiling", ceiling_kind))
 		for step_value in RefDecor.DIRS:
@@ -1787,7 +1789,7 @@ func _add_shaft_lining(build: Dictionary, cell: Vector2i) -> void:
 ## One mesh of flowing water over every channel cell of a sewer chunk. The
 ## vertex colour's red/blue channels carry the flow direction for the shader:
 ## the east-west channel flows along x, the north-south one along z.
-func _spawn_sewer_water(root: Node3D, sewer_grid: Array) -> void:
+func _spawn_sewer_water(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1)) -> void:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var y := SewerRouteGenerator.WATER_SURFACE
@@ -1815,13 +1817,20 @@ func _spawn_sewer_water(root: Node3D, sewer_grid: Array) -> void:
 	material.shader = SEWER_WATER_SHADER
 	water.material_override = material
 	root.add_child(water)
-	_spawn_channel_railings(root, sewer_grid)
+	_spawn_channel_railings(root, sewer_grid, gap)
+
+
+## The falls' jump cell of a chunk, or (-1, -1): the railing gap and the open collider sit on it.
+static func _jump_cell(data: Dictionary) -> Vector2i:
+	var falls: Dictionary = data.get("falls", {})
+	return (falls["jump"] as Dictionary)["cell"] if falls.has("jump") and int(data.get("level", 0)) == StreamedRouteGenerator.SEWER_LEVEL \
+		else Vector2i(-1, -1)
 
 
 ## Iron railings along every edge where a walkway, room floor or deck meets open
 ## water: a post at each metre and a top and mid rail, as two MultiMeshes per
 ## chunk. They are the visible reason the channel collider stops you.
-func _spawn_channel_railings(root: Node3D, sewer_grid: Array) -> void:
+func _spawn_channel_railings(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1)) -> void:
 	var segments: Array[Transform3D] = []
 	var size := sewer_grid.size()
 	for z in size:
@@ -1834,6 +1843,8 @@ func _spawn_channel_railings(root: Node3D, sewer_grid: Array) -> void:
 				if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
 						or not int(sewer_grid[n.y][n.x]) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL]:
 					continue
+				if n == gap:
+					continue            # the deliberate jump: no rail where the ledge meets the open drop cell
 				# on the walkway side of the edge, running along it
 				var mid := Vector3(x + .5 + step.x * (.5 - RAIL_INSET), 0.0, z + .5 + step.y * (.5 - RAIL_INSET))
 				var basis := Basis(Vector3.UP, PI / 2.0) if step.x != 0 else Basis.IDENTITY
