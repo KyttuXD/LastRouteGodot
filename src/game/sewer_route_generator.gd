@@ -90,7 +90,8 @@ func chunk_id(coord: Vector3i) -> String:
 func chunk(coord: Vector3i) -> Dictionary:
 	var key := chunk_id(coord)
 	if not _cache.has(key):
-		_cache[key] = _build_chunk(coord)
+		# a copy the view's worker generated and the surface adopted
+		_cache[key] = surface._chunk_cache[coord] if surface._chunk_cache.has(coord) else _build_chunk(coord)
 	return _cache[key]
 
 
@@ -140,6 +141,10 @@ func ramp_between(x: int, z: int, upper_level: int) -> Dictionary:
 	var top_cell := Vector2i(top_x0 + 1, qc.y)
 	var bottom_cell := Vector2i(bottom_x0 + 1, qc.y)
 	var link := LevelLink.make("ramp", chunk, upper_level, top_cell, upper_level - 1, bottom_cell)
+	# where the slope starts and ends (chunk-local x): bodies walking the link
+	# follow the same surface the collider has, flat over the landings
+	link["top_x"] = float(top_x0) if west else float(top_x0 + 3)
+	link["bottom_x"] = float(ramp_x0) if west else float(ramp_x0 + RAMP_RUN)
 	return {"quadrant": quadrant, "upper": upper_level, "row": qc.y,
 		"top": Rect2i(top_x0, row0, 3, 3), "ramp": Rect2i(ramp_x0, row0, RAMP_RUN, 3),
 		"bottom": Rect2i(bottom_x0, row0, 3, 3),

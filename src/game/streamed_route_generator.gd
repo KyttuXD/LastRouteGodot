@@ -538,7 +538,13 @@ static func _ensure_pickups_reachable(data: Dictionary) -> void:
 
 func chunk(coord: Vector3i) -> Dictionary:
 	if (coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL) and is_chunk_allowed(coord):
-		return sewer().chunk(coord)
+		# one cache for every level, so a sewer chunk the view's worker thread built
+		# (adopt_chunk) is reused here instead of being generated again
+		if _chunk_cache.has(coord):
+			return _chunk_cache[coord]
+		var sewer_data := sewer().chunk(coord)
+		adopt_chunk(coord, sewer_data)
+		return sewer_data
 	if _chunk_cache.has(coord):
 		_chunk_cache_order.erase(coord)
 		_chunk_cache_order.append(coord)

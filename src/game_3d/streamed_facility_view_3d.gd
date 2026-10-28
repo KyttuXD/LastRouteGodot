@@ -57,6 +57,8 @@ const CHANNEL_BLOCK_TOP := 1.2
 ## Ramp tunnels: the slope's collider thickness and its painted floor.
 const RAMP_THICKNESS := 0.3
 const RAMP_FLOOR_KIND := "concrete1"
+## A runner this close (cells) to a ramp landing pre-streams the ramp's other end.
+const RAMP_PRESTREAM_CELLS := 6.0
 ## The falls: rough stone on the drop's cliffs, and how far the roar carries.
 const CLIFF_WALL_KIND := "stone1"
 const FALLS_SOUND_RANGE := 28.0
@@ -145,6 +147,8 @@ static var _scene_keep := {}
 ## Chunk generation (~30 ms a chunk) runs on a WorkerThreadPool task with a same-seed generator copy; the main thread
 ## only adopts finished dictionaries. Builds wait for their chunk and its seam neighbours to be ready.
 var _gen_worker: StreamedRouteGenerator
+## Chunks other systems asked the worker for (request_generation), beyond the view's own queue.
+var _extra_generation := {}
 var _gen_task := -1
 var _gen_task_coords: Array[Vector3i] = []
 var _gen_task_results := {}
@@ -390,6 +394,16 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 	return wanted
 
 
+## Horizontal distance from a point (view-local x/z) to a chunk's footprint; INF for Vector2.INF.
+static func _distance_from_point_to_chunk(point: Vector2, coord: Vector3i) -> float:
+	if point == Vector2.INF:
+		return INF
+	var size := float(StreamedRouteGenerator.CHUNK_SIZE)
+	var dx := maxf(maxf(coord.x * size - point.x, point.x - (coord.x + 1) * size), 0.0)
+	var dz := maxf(maxf(coord.z * size - point.y, point.y - (coord.z + 1) * size), 0.0)
+	return Vector2(dx, dz).length()
+
+
 ## Horizontal distance from the runner to a chunk's footprint (0 inside it).
 func _distance_to_chunk(coord: Vector3i) -> float:
 	if tracked_player == null:
@@ -441,8 +455,11 @@ func _refresh_stream(force: bool) -> void:
 		# IMMEDIATE_MARGIN); the rest of the window streams in over the next frames instead of freezing the game.
 		var urgent: Array[Vector3i] = []
 		for coord in _pending_loads:
-			# the floor above/below the runner (a ladder's other end) counts as under them
-			if coord.x == center.x and coord.z == center.z or previous.x == 999999 and coord.y == center.y \
+			# the floor above/below the runner (a ladder's other end) counts as under them; another link's
+			# far end in the same column (a ramp down to the Inferno from the collector) streams in normally
+			var column := coord.x == center.x and coord.z == center.z \
+				and (coord.y == center.y or coord.y == previous.y or previous.x == 999999)
+			if column or previous.x == 999999 and coord.y == center.y \
 					or coord.y == center.y and _distance_to_chunk(coord) < IMMEDIATE_MARGIN:
 				urgent.append(coord)
 		if not urgent.is_empty():
@@ -468,18 +485,39 @@ func _refresh_stream(force: bool) -> void:
 ## stream queue, so they are built during the climb and the level change has nothing left to build synchronously.
 var _prestreamed_for := Vector3i(999999, 999999, 999999)
 func _prestream_ladder_destination() -> void:
-	var y := tracked_player.global_position.y - global_position.y
-	var on_ladder := y < -.6 and y > -LEVEL_HEIGHT + .6
 	var center := _last_player_chunk
-	if not on_ladder or center == _prestreamed_for or center.x == 999999:
+	if center.x == 999999:
 		return
-	_prestreamed_for = center
-	var target_y := StreamedRouteGenerator.SEWER_LEVEL if center.y == 0 else 0
+	# Between storeys on a ladder: the storey being climbed toward. Walking a ramp
+	# has no pause at the boundary, so a runner near a ramp landing pre-streams
+	# the other end before setting foot on the slope.
+	var dy := tracked_player.global_position.y - global_position.y - float(center.y) * LEVEL_HEIGHT
+	var target_y := center.y
+	var far_landing := Vector2.INF
+	if dy < -.6:
+		target_y = center.y - 1
+	elif dy > .6:
+		target_y = center.y + 1
+	else:
+		var here := Vector2(tracked_player.global_position.x - global_position.x,
+			tracked_player.global_position.z - global_position.z)
+		for link_value in generator.vertical_links(center):
+			var link: Dictionary = link_value
+			if String(link["kind"]) == "ramp" \
+					and LadderTraffic.ladder_point(link, center.y).distance_to(here) <= RAMP_PRESTREAM_CELLS:
+				target_y = int(LevelLink.other_end(link, center.y)["level"])
+				# the runner arrives at the far landing: stream what is near it too
+				far_landing = LadderTraffic.ladder_point(link, target_y)
+	var key := Vector3i(center.x, target_y, center.z)
+	if target_y == center.y or key == _prestreamed_for or not generator.is_chunk_allowed(key):
+		return
+	_prestreamed_for = key
 	for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
 			var coord := Vector3i(x, target_y, z)
 			if _loaded.has(coord) or _pending_loads.has(coord) or not generator.is_chunk_allowed(coord) \
-					or _distance_to_chunk(coord) >= IMMEDIATE_MARGIN:
+					or _distance_to_chunk(coord) >= IMMEDIATE_MARGIN \
+					and _distance_from_point_to_chunk(far_landing, coord) >= IMMEDIATE_MARGIN:
 				continue
 			if _dormant.has(coord):
 				_revive(coord)
@@ -567,12 +605,25 @@ func _prefetch_chunk(coord: Vector3i) -> void:
 			_prefetching[path] = true
 
 
-## The chunk itself plus the neighbours its edge cells read for seams (they look at level 0; see _build_structure_cell).
+## The chunk itself plus the neighbours its edge cells read for seams (on its own level; see _build_structure_cell).
 static func _generation_needs(coord: Vector3i) -> Array[Vector3i]:
 	var out: Array[Vector3i] = [coord]
 	for step in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
-		out.append(Vector3i(coord.x + step.x, 0, coord.z + step.y))
+		out.append(Vector3i(coord.x + step.x, coord.y, coord.z + step.y))
 	return out
+
+
+## True when `coord` (and the seam neighbours it reads) is generated, so asking
+## the generator for it costs nothing on this thread. Hunters' navigation on
+## the levels next to the runner's waits for this instead of generating there.
+func chunk_ready(coord: Vector3i) -> bool:
+	return _chunk_generated(coord)
+
+
+## Asks the background worker to generate `coord` ahead of need.
+func request_generation(coord: Vector3i) -> void:
+	if _gen_worker != null and not _chunk_generated(coord):
+		_extra_generation[coord] = true
 
 
 func _chunk_generated(coord: Vector3i) -> bool:
@@ -588,17 +639,22 @@ func _chunk_generated(coord: Vector3i) -> bool:
 func _generate_parallel(coords: Array[Vector3i]) -> void:
 	if _gen_worker == null:
 		return
+	# Only block on the background task when these chunks actually need generating:
+	# it may be busy with chunks nobody is waiting for (another level's hunters).
+	var needs: Array[Vector3i] = []
+	for coord in coords:
+		for need in _generation_needs(coord):
+			if not generator.has_chunk_cached(need) and not needs.has(need):
+				needs.append(need)
+	if needs.is_empty():
+		return
 	if _gen_task != -1:
 		WorkerThreadPool.wait_for_task_completion(_gen_task)
 		_gen_task = -1
 		for coord in _gen_task_results:
 			generator.adopt_chunk(coord, _gen_task_results[coord])
 		_gen_task_results = {}
-	var needs: Array[Vector3i] = []
-	for coord in coords:
-		for need in _generation_needs(coord):
-			if not generator.has_chunk_cached(need) and not needs.has(need):
-				needs.append(need)
+		needs = needs.filter(func(need: Vector3i) -> bool: return not generator.has_chunk_cached(need))
 	if needs.size() < 2:
 		return
 	var results := []
@@ -626,10 +682,13 @@ func _queue_generation() -> void:
 				_prefetch_chunk(coord)
 		_gen_task_results = {}
 	var coords: Array[Vector3i] = []
-	for coord in _pending_loads:
+	for coord in _pending_loads + _extra_generation.keys():
 		for need in _generation_needs(coord):
 			if not generator.has_chunk_cached(need) and not coords.has(need):
 				coords.append(need)
+	for coord in _extra_generation.keys():
+		if _chunk_generated(coord):
+			_extra_generation.erase(coord)
 	if coords.is_empty():
 		return
 	_gen_task_coords = coords
@@ -677,7 +736,7 @@ func _cell_batch_done(index: int, started: int, immediate: bool) -> bool:
 func _drain_stream_queue() -> void:
 	if not _prefetching.is_empty():
 		_poll_prefetch()
-	if not _pending_loads.is_empty() or _gen_task != -1:
+	if not _pending_loads.is_empty() or _gen_task != -1 or not _extra_generation.is_empty():
 		_queue_generation()
 	if _pending_loads.is_empty() and _pending_unloads.is_empty() \
 			and _active_build.is_empty():

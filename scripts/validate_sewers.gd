@@ -218,6 +218,7 @@ func _check_streaming(host: Node) -> void:
 	_expect(root != null and root.get_node_or_null("SewerWater") != null, "the sewer chunk has no flowing water")
 	_check_colliders_below_maze(view)
 	_check_live_channel(view, Vector3i(0, SewerRouteGenerator.LEVEL, 0))
+	_check_lamps_over_floor(view)
 	# Walk east one chunk along the tunnel: the window streams incrementally.
 	player.global_position = under + Vector3(SewerRouteGenerator.CHUNK_SIZE, 0, 0)
 	var worst_frame_ms := 0.0
@@ -699,3 +700,45 @@ func _check_falls(host: Node) -> void:
 		view.queue_free()
 		player.queue_free()
 	print("  ok    falls: %d sites feed the collector, drops over the cisterns, collector walkable" % sites)
+
+
+## Every light fixture in a loaded sewer chunk (the decor's wall and ceiling lamps
+## as registered with the LampField, and the authored caged lamps) hangs over
+## walkable floor or a deck, never out over a channel, the falls' drop or a ramp
+## tunnel (KT: lamps on the channel's edge floated over the water).
+func _check_lamps_over_floor(view: StreamedFacilityView3D) -> void:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var checked := 0
+	var floating := []
+	for key_value in view._lamp_field._chunks:
+		var coord: Vector3i = key_value
+		if coord.y != SewerRouteGenerator.LEVEL and coord.y != SewerRouteGenerator.LOWER_LEVEL:
+			continue
+		var sewer_grid: Array = view.generator.chunk(coord)["sewer_grid"]
+		for lamp_value in view._lamp_field._chunks[key_value]:
+			var at: Vector3 = (lamp_value as Array)[0]
+			checked += 1
+			# a wall lamp sits on the line between its wall and the floor: sample just
+			# around it; brick or floor is fine, water / a drop / a ramp is not
+			for offset in [Vector2(.26, 0), Vector2(-.26, 0), Vector2(0, .26), Vector2(0, -.26)]:
+				var cell := Vector2i(floori(at.x + offset.x) - coord.x * size, floori(at.z + offset.y) - coord.z * size)
+				if cell.x < 0 or cell.y < 0 or cell.x >= size or cell.y >= size:
+					continue
+				var code := int(sewer_grid[cell.y][cell.x])
+				if code in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL, SewerRouteGenerator.RAMP]:
+					floating.append("%s %s" % [coord, cell])
+					break
+	for coord_value in view._loaded:
+		var coord: Vector3i = coord_value
+		if coord.y != SewerRouteGenerator.LEVEL and coord.y != SewerRouteGenerator.LOWER_LEVEL:
+			continue
+		var data: Dictionary = view.generator.chunk(coord)
+		for prop in data["region_props"]:
+			if String(prop["type"]) != "sewerLamp":
+				continue
+			checked += 1
+			var cell: Vector2i = prop["cell"]
+			if not SewerRouteGenerator.is_walkable(int(data["sewer_grid"][cell.y][cell.x])):
+				floating.append("%s caged lamp %s" % [coord, cell])
+	_expect(checked > 10, "only %d sewer lamps found to check" % checked)
+	_expect(floating.is_empty(), "%d sewer lamps hang out over water, a drop or a ramp: %s" % [floating.size(), floating.slice(0, 5)])

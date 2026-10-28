@@ -389,6 +389,12 @@ func _cell(grid: Array, x: int, z: int) -> void:
 
 
 func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
+	# In the sewers the walk grid marks channels, the falls' drop and ramp tunnels
+	# as blocked too: only real brick carries wall lamps, pipes and cables (a
+	# lamp on a channel's edge hung in the air over the water).
+	var sewer_grid: Array = _data.get("sewer_grid", [])
+	if not sewer_grid.is_empty() and int(sewer_grid[z][x]) != SewerRouteGenerator.SOLID:
+		return
 	for dir_value in DIRS:
 		var d: Vector2i = dir_value
 		if not _open(grid, x + d.x, z + d.y):

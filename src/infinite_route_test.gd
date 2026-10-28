@@ -69,6 +69,8 @@ var _hunter_activation_announced := false
 var _hunter_simulation_accumulator := 0.0
 var _hunter_broadcast_elapsed := HUNTER_BROADCAST_SECONDS
 var _hunter_stream_signature := ""
+## A neighbouring level's chunks are still being generated: refresh again until they all joined.
+var _hunter_stream_waiting := false
 ## Compact copies of only the chunks the local runner has discovered. Keeping
 ## this separate from the renderer means unloaded history remains map-visible
 ## without retaining any 3D scene nodes.
@@ -2205,6 +2207,22 @@ func _spawn_anti_idle_hunter() -> bool:
 	return true
 
 
+## The levels a hunter window around `center` covers: its own, and each level
+## one step up or down that a ladder or ramp in the surrounding 3x3 actually
+## leads to. Keeping every neighbouring level generated whether or not anything
+## connects to it built a whole Inferno window the moment a runner reached the
+## collector (a 110-180 ms frame on the level change).
+func _hunter_window_levels(center: Vector3i) -> Array:
+	var levels := [center.y]
+	for z in range(center.z - 1, center.z + 2):
+		for x in range(center.x - 1, center.x + 2):
+			for link_value in facility.generator.vertical_links(Vector3i(x, center.y, z)):
+				var far := int(LevelLink.other_end(link_value, center.y)["level"])
+				if absi(far - center.y) <= HUNTER_VERTICAL_STREAM_RADIUS and not levels.has(far):
+					levels.append(far)
+	return levels
+
+
 func _refresh_hunter_stream() -> void:
 	if _remotes == null or not _remotes.simulates() or facility.generator == null:
 		return
@@ -2218,9 +2236,10 @@ func _refresh_hunter_stream() -> void:
 		return a.y < b.y or (a.y == b.y and (a.x < b.x \
 			or (a.x == b.x and a.z < b.z))))
 	var stream_signature := _build_hunter_stream_signature(centers)
-	if stream_signature == _hunter_stream_signature:
+	if stream_signature == _hunter_stream_signature and not _hunter_stream_waiting:
 		return
 	_hunter_stream_signature = stream_signature
+	_hunter_stream_waiting = false
 	var active_coords := {}
 	var coords_by_level := {}
 	var navigation_centers: Array[Vector3i] = centers.duplicate()
@@ -2245,9 +2264,7 @@ func _refresh_hunter_stream() -> void:
 	# hunter resident across successive stair transfers instead of unloading
 	# immediately when the player climbs twice.
 	for center in navigation_centers:
-		for level_offset in range(-HUNTER_VERTICAL_STREAM_RADIUS,
-				HUNTER_VERTICAL_STREAM_RADIUS + 1):
-			var level := center.y + level_offset
+		for level in _hunter_window_levels(center):
 			if not coords_by_level.has(level):
 				coords_by_level[level] = []
 			var level_coords: Array = coords_by_level[level]
@@ -2255,6 +2272,12 @@ func _refresh_hunter_stream() -> void:
 				for x in range(center.x - 1, center.x + 2):
 					var coord := Vector3i(x, level, z)
 					if not facility.generator.is_chunk_allowed(coord):
+						continue
+					# another level's chunks join once the view's worker has generated them,
+					# so reaching a level never generates a whole window on this thread
+					if level != center.y and not facility.chunk_ready(coord):
+						facility.request_generation(coord)
+						_hunter_stream_waiting = true
 						continue
 					active_coords[coord] = true
 					if not level_coords.has(coord):
@@ -2600,7 +2623,11 @@ func _hunter_ladder_step(entity_id: String, view: HunterView3D, level: int,
 			var finish := LadderTraffic.ladder_point(link, int(climb.get("to_level", level)))
 			brain.position = start.lerp(finish, float(climb.get("progress", 0.0)))
 			var heading := finish - start
-			view.set_climbing(true, lower_y + float(climb.get("height", 0.0)), atan2(-heading.x, -heading.y), "walk")
+			# on the ramp's own surface: flat over the landings, the slope between them
+			var upper_y := float(int(link["from_level"])) * StreamedFacilityView3D.LEVEL_HEIGHT
+			var local_x := brain.position.x - float((link["chunk"] as Vector3i).x * StreamedRouteGenerator.CHUNK_SIZE)
+			view.set_climbing(true, upper_y + StreamedFacilityView3D._ramp_surface_y(link, local_x),
+				atan2(-heading.x, -heading.y), "walk")
 		else:
 			view.set_climbing(true, lower_y + float(climb.get("height", 0.0)), _ladder_yaw(link))
 		if bool(climb.get("done", false)):
