@@ -118,7 +118,7 @@ func _build_public_button() -> void:
 		PublicRoute.join())
 	PublicRoute.status_changed.connect(func(message: String) -> void:
 		if is_instance_valid(button) and not message.is_empty():
-			button.text = message.substr(0, 38)
+			button.text = ServerPrivacy.scrub(message).substr(0, 38)
 			button.disabled = not message.begins_with("PUBLIC ROUTE UNAVAILABLE") \
 				and not message.begins_with("PUBLIC ROUTE NEEDS"))
 	box.add_child(button)

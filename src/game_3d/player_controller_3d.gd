@@ -186,6 +186,9 @@ var stamina := GameConfig.MAX_STAMINA
 var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
 var stamina_recovery_delay := 0.0
+## Set when sprinting stops above GameConfig.STAMINA_QUICK_THRESHOLD: stamina ramps back to full in a blink.
+var stamina_quick_refill := false
+var _was_sprinting_stamina := false
 var movement_mode := "walk"
 ## Noise emitted this frame by movement, consumed by hunter hearing
 ## (hunter_brain.gd) — matches the original's per-frame emittedNoise.
@@ -790,6 +793,7 @@ func _ready() -> void:
 		model.scale = Vector3.ONE * PlayerModels.SCALE
 		body_visual.add_child(model)
 		ModelSlot.apply_character_hue(model, Settings.player_hue_degrees)
+		PlayerSkin.set_arms(model, Settings.effective_slim())
 		PlayerSkin.apply(model, PlayerSkin.active_texture())
 		_animation_player = ModelSlot.find_animation_player(model)
 		_align_camera_to_model_eyes(model)
@@ -808,9 +812,15 @@ func _ready() -> void:
 func _apply_visual_settings() -> void:
 	first_person_camera.fov = Settings.field_of_view
 	if _body_model != null:
+		PlayerSkin.set_arms(_body_model, Settings.effective_slim())
 		PlayerSkin.apply(_body_model, PlayerSkin.active_texture())
 	if first_person_items != null:
 		for hand in first_person_items.find_children("FirstPersonHand", "Node3D", true, false):
+			if bool(hand.get_meta("slim", false)) != Settings.effective_slim():
+				var view := hand.get_parent()
+				hand.free()   # the arm style changed: rebuild the hand from the other mannequin's parts
+				_add_first_person_hand(view)
+				continue
 			PlayerSkin.apply(hand, PlayerSkin.active_texture())
 
 
@@ -1829,8 +1839,20 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 		stamina_recovery_delay = GameConfig.STAMINA_RECOVERY_DELAY
 		if stamina <= 0.0:
 			exhausted = true
+		stamina_quick_refill = false
+		_was_sprinting_stamina = true
 		return
 
+	if _was_sprinting_stamina:
+		_was_sprinting_stamina = false
+		stamina_quick_refill = not exhausted and stamina > GameConfig.STAMINA_QUICK_THRESHOLD
+	if stamina_quick_refill:
+		stamina = minf(GameConfig.MAX_STAMINA,
+			stamina + GameConfig.MAX_STAMINA / GameConfig.STAMINA_QUICK_REFILL_TIME * delta)
+		stamina_recovery_delay = 0.0
+		if stamina >= GameConfig.MAX_STAMINA:
+			stamina_quick_refill = false
+		return
 	stamina_recovery_delay = maxf(0.0, stamina_recovery_delay - delta)
 	if stamina_recovery_delay <= 0.0:
 		stamina = minf(GameConfig.MAX_STAMINA, stamina + GameConfig.STAMINA_RECOVERY * delta)
@@ -1957,13 +1979,15 @@ func _build_first_person_items() -> void:
 static var first_person_hands := true
 const FP_HAND_SCALE := .37          # mannequin units -> camera space, matched to the held items' scale
 const FP_ARM_TILT := 118.0          # degrees: the forearm comes up from below-behind into the grip
-static var _fp_hand_parts: Array = []   # [[mesh, material_override or null, transform relative to R-HandProp], ...]
+static var _fp_hand_parts: Array = []   # classic arms: [[mesh, material_override or null, transform relative to R-HandProp], ...]
+static var _fp_hand_parts_slim: Array = []   # the same from the slim (Alex) mannequin
 
 
-static func _mannequin_hand_parts() -> Array:
-	if not _fp_hand_parts.is_empty():
-		return _fp_hand_parts
-	var scene := load(PlayerModels.BLOCKY.replace(".tscn", ".glb")) as PackedScene
+static func _mannequin_hand_parts(slim: bool = false) -> Array:
+	var cache: Array = _fp_hand_parts_slim if slim else _fp_hand_parts
+	if not cache.is_empty():
+		return cache
+	var scene := load((PlayerModels.BLOCKY_SLIM if slim else PlayerModels.BLOCKY).replace(".tscn", ".glb")) as PackedScene
 	if scene == null:
 		return []
 	var root := scene.instantiate()
@@ -1973,9 +1997,9 @@ static func _mannequin_hand_parts() -> Array:
 		for part_name in ["R-Forearm", "R-Hand"]:
 			var part := root.find_child(part_name, true, false) as MeshInstance3D
 			if part != null:
-				_fp_hand_parts.append([part.mesh, part.material_override, prop_xf.affine_inverse() * _local_to(root, part)])
+				cache.append([part.mesh, part.material_override, prop_xf.affine_inverse() * _local_to(root, part)])
 	root.free()
-	return _fp_hand_parts
+	return cache
 
 
 static func _local_to(root: Node, node: Node3D) -> Transform3D:
@@ -1989,11 +2013,12 @@ static func _local_to(root: Node, node: Node3D) -> Transform3D:
 
 
 func _add_first_person_hand(view: Node3D) -> void:
-	var parts := _mannequin_hand_parts()
+	var parts := _mannequin_hand_parts(Settings.effective_slim())
 	if parts.is_empty():
 		return
 	var hand := Node3D.new()
 	hand.name = "FirstPersonHand"
+	hand.set_meta("slim", Settings.effective_slim())
 	hand.basis = Basis(Vector3.RIGHT, deg_to_rad(FP_ARM_TILT)).scaled(Vector3.ONE * FP_HAND_SCALE)
 	for part_value in parts:
 		var part: Array = part_value

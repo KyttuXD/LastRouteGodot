@@ -551,7 +551,7 @@ func _admin_status() -> String:
 	var afk_remaining := maxi(0, ceili(
 		GameConfig.anti_afk_hunter_seconds(RoomState.difficulty_id()) \
 		- _party_afk_seconds))
-	var result := "ROUTE DEBUG\nCHUNK %d:%d:%d  %s\nLOADED %d  DISCOVERED %d  HUNTERS %d\nSAFE %s  CHECKPOINT %s\nPRESSURE %ds  SURGES %d\nMAP REVEAL %s" % [
+	var result := ServerPrivacy.debug_line() + "\nROUTE DEBUG\nCHUNK %d:%d:%d  %s\nLOADED %d  DISCOVERED %d  HUNTERS %d\nSAFE %s  CHECKPOINT %s\nPRESSURE %ds  SURGES %d\nMAP REVEAL %s" % [
 		coord.x, coord.y, coord.z, String(data.get("region", "maze")).to_upper(),
 		facility.loaded_chunk_count(), _discovered_chunks.size(), _hunter_views.size(), safe_text,
 		world_state.active_checkpoint if not world_state.active_checkpoint.is_empty()

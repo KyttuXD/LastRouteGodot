@@ -408,7 +408,7 @@ func _build_settings_tabs() -> void:
 	add_child(_settings_tabs)
 	_skin_panel = SkinPanel.new()
 	_skin_panel.position = Vector2(20, 66)
-	_skin_panel.size = Vector2(400, 160)
+	_skin_panel.size = Vector2(400, 176)
 	add_child(_skin_panel)
 	_show_settings_category(0)
 

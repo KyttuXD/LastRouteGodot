@@ -42,9 +42,10 @@ func run(host: Node) -> int:
 	for i in range(40, mini(corrupted.size(), 80)):
 		corrupted[i] = 0xFF
 	_expect(not PlayerSkin.validate(corrupted)["ok"], "a PNG with a corrupted body was accepted")
-	for size in [Vector2i(32, 32), Vector2i(64, 32), Vector2i(128, 128), Vector2i(63, 64), Vector2i(64, 65), Vector2i(1, 1)]:
+	for size in [Vector2i(32, 32), Vector2i(128, 128), Vector2i(63, 64), Vector2i(64, 65), Vector2i(1, 1), Vector2i(64, 33)]:
 		var refusal := PlayerSkin.validate(_png(size.x, size.y))
-		_expect(not refusal["ok"] and String(refusal["reason"]).contains("exactly"), "a %dx%d image was accepted" % [size.x, size.y])
+		_expect(not refusal["ok"] and String(refusal["reason"]).contains("a skin is"), "a %dx%d image was accepted" % [size.x, size.y])
+	_expect(PlayerSkin.validate(_png(64, 32))["ok"], "the old 64x32 format was refused")
 	# the file itself is never trusted by name or text: a PNG signature followed by script text is just a bad PNG
 	var script := PackedByteArray(PlayerSkin.PNG_MAGIC)
 	script.append_array("extends Node\nfunc _ready(): OS.execute('x', [])".to_utf8_buffer())
@@ -202,7 +203,7 @@ func run(host: Node) -> int:
 			f.close()
 			var before := Settings.skin_hash
 			section.pick_path(bad_path)
-			_expect(Settings.skin_hash == before and section.status_label.text.contains("exactly"), "a bad pick was not refused with its reason (%s)" % section.status_label.text)
+			_expect(Settings.skin_hash == before and section.status_label.text.contains("a skin is"), "a bad pick was not refused with its reason (%s)" % section.status_label.text)
 			var good_path := temp_dir + "/good.png"
 			f = FileAccess.open(good_path, FileAccess.WRITE)
 			f.store_buffer(_png(64, 64, Color(.2, .3, .9, 1.0)))

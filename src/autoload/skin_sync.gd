@@ -142,3 +142,88 @@ func clear_cache() -> void:
 	PlayerSkin.clear_peer_cache()
 	_fetch_queue.clear()
 	_failed.clear()
+
+
+# --------------------------------------------------------------------------------------- other sources: a URL, a Minecraft name
+
+const URL_TIMEOUT_SECONDS := 5.0
+const MAX_REDIRECTS := 3
+
+## Downloads `url` (https only, no redirect to anything else, 5 s, at most `limit` bytes). Returns {"ok", "body", "reason"}.
+## Nothing downloaded is ever executed: callers decode it as an image or as JSON data.
+func download_https(url: String, limit: int = PlayerSkin.MAX_BYTES + 1, allowed_hosts: Array = []) -> Dictionary:
+	var current := url.strip_edges()
+	for hop in MAX_REDIRECTS + 1:
+		var refusal := PlayerSkin.check_url(current, allowed_hosts)
+		if not refusal.is_empty():
+			return {"ok": false, "body": PackedByteArray(), "reason": refusal}
+		var request := HTTPRequest.new()
+		request.max_redirects = 0
+		request.timeout = URL_TIMEOUT_SECONDS
+		request.body_size_limit = limit
+		add_child(request)
+		if request.request(current, PackedStringArray(["accept: */*"])) != OK:
+			request.queue_free()
+			return {"ok": false, "body": PackedByteArray(), "reason": "the request could not be started"}
+		var done: Array = await request.request_completed
+		request.queue_free()
+		var result := int(done[0])
+		var code := int(done[1])
+		if result == HTTPRequest.RESULT_BODY_SIZE_LIMIT_EXCEEDED:
+			return {"ok": false, "body": PackedByteArray(), "reason": "the file is too big"}
+		if result == HTTPRequest.RESULT_TIMEOUT:
+			return {"ok": false, "body": PackedByteArray(), "reason": "the server took too long (over %d s)" % int(URL_TIMEOUT_SECONDS)}
+		if result != HTTPRequest.RESULT_SUCCESS:
+			return {"ok": false, "body": PackedByteArray(), "reason": "the download failed"}
+		if code in [301, 302, 303, 307, 308]:
+			var location := ""
+			for header in done[2]:
+				if String(header).to_lower().begins_with("location:"):
+					location = String(header).substr(9).strip_edges()
+			if location.begins_with("/"):
+				var origin := current.substr(0, current.find("/", 8)) if current.find("/", 8) >= 0 else current
+				location = origin + location
+			current = location   # re-checked at the top: a redirect to http or a local address is refused
+			continue
+		if code != 200:
+			return {"ok": false, "body": PackedByteArray(), "reason": "the server answered %d" % code}
+		return {"ok": true, "body": done[3], "reason": ""}
+	return {"ok": false, "body": PackedByteArray(), "reason": "too many redirects"}
+
+
+## A skin from an https URL: the same validation as a picked file. Returns PlayerSkin.validate's result (or a refusal).
+func skin_from_url(url: String) -> Dictionary:
+	var got: Dictionary = await download_https(url)
+	if not bool(got["ok"]):
+		return {"ok": false, "reason": String(got["reason"]), "image": null, "png": PackedByteArray(), "hash": ""}
+	return PlayerSkin.validate(got["body"])
+
+
+## A skin by Minecraft username through Mojang's official APIs (name -> uuid -> profile textures -> textures.minecraft.net),
+## converted to the template (PlayerSkin.from_minecraft).
+func skin_from_minecraft(name: String) -> Dictionary:
+	var bad := {"ok": false, "image": null, "png": PackedByteArray(), "hash": ""}
+	name = name.strip_edges()
+	if not PlayerSkin.valid_minecraft_name(name):
+		return bad.merged({"reason": "a Minecraft name is 1-16 letters, numbers or underscores"})
+	var lookup: Dictionary = await download_https("https://api.mojang.com/users/profiles/minecraft/%s" % name, 4096, ["api.mojang.com"])
+	if not bool(lookup["ok"]):
+		return bad.merged({"reason": "no Minecraft player was found (%s)" % String(lookup["reason"])})
+	var found: Variant = JSON.parse_string(PackedByteArray(lookup["body"]).get_string_from_utf8())
+	var uuid := String(found.get("id", "")) if found is Dictionary else ""
+	if uuid.length() != 32 or not uuid.is_valid_hex_number():
+		return bad.merged({"reason": "no Minecraft player was found"})
+	var profile_response: Dictionary = await download_https("https://sessionserver.mojang.com/session/minecraft/profile/%s" % uuid, 16384, ["sessionserver.mojang.com"])
+	if not bool(profile_response["ok"]):
+		return bad.merged({"reason": "the profile could not be read (%s)" % String(profile_response["reason"])})
+	var profile: Variant = JSON.parse_string(PackedByteArray(profile_response["body"]).get_string_from_utf8())
+	var textures: Dictionary = PlayerSkin.parse_textures(profile) if profile is Dictionary else {}
+	if textures.is_empty():
+		return bad.merged({"reason": "that player has no skin"})
+	var file: Dictionary = await download_https(String(textures["url"]), PlayerSkin.MAX_BYTES + 1, ["textures.minecraft.net"])
+	if not bool(file["ok"]):
+		return bad.merged({"reason": "the skin could not be downloaded (%s)" % String(file["reason"])})
+	var image := Image.new()
+	if image.load_png_from_buffer(file["body"]) != OK:
+		return bad.merged({"reason": "the skin file could not be read"})
+	return PlayerSkin.from_minecraft(image, bool(textures["slim"]))

@@ -53,11 +53,15 @@ static func validate(bytes: PackedByteArray) -> Dictionary:
 	var image := Image.new()
 	if image.load_png_from_buffer(bytes) != OK:
 		return _refuse("the PNG could not be read")
-	if image.get_width() != SIZE or image.get_height() != SIZE:
-		return _refuse("the image is %dx%d; a skin is exactly %dx%d" % [image.get_width(), image.get_height(), SIZE, SIZE])
+	var legacy := image.get_width() == SIZE and image.get_height() == SIZE / 2
+	if image.get_width() != SIZE or (image.get_height() != SIZE and not legacy):
+		return _refuse("the image is %dx%d; a skin is %dx%d (or the old %dx%d)" % [image.get_width(), image.get_height(), SIZE, SIZE, SIZE, SIZE / 2])
 	if image.is_compressed():
 		return _refuse("the PNG could not be read")
 	image.convert(Image.FORMAT_RGBA8)
+	if legacy:
+		image = upgrade_legacy(image)
+	var slim := not legacy and is_slim_layout(image)   # read BEFORE the base layer is forced opaque
 	for y in SIZE:
 		for x in SIZE:
 			if is_overlay_pixel(x, y):
@@ -67,11 +71,11 @@ static func validate(bytes: PackedByteArray) -> Dictionary:
 				pixel.a = 1.0
 				image.set_pixel(x, y, pixel)
 	var png := image.save_png_to_buffer()
-	return {"ok": true, "reason": "", "image": image, "png": png, "hash": hash_of(png)}
+	return {"ok": true, "reason": "", "image": image, "png": png, "hash": hash_of(png), "slim": slim}
 
 
 static func _refuse(reason: String) -> Dictionary:
-	return {"ok": false, "reason": reason, "image": null, "png": PackedByteArray(), "hash": ""}
+	return {"ok": false, "reason": reason, "image": null, "png": PackedByteArray(), "hash": "", "slim": false}
 
 
 static func hash_of(bytes: PackedByteArray) -> String:
@@ -96,6 +100,174 @@ static func read_file(path: String) -> PackedByteArray:
 	if file == null:
 		return PackedByteArray()
 	return file.get_buffer(mini(int(file.get_length()), MAX_BYTES + 1))
+
+
+# ------------------------------------------------------------------------------------------------ URLs, Minecraft skins, copying
+
+const MC_HOSTS := ["api.mojang.com", "sessionserver.mojang.com", "textures.minecraft.net"]
+const MAX_URL_LENGTH := 512
+
+
+## "" when the URL may be fetched, else why not. https only, a real public host, no credentials, no loopback / LAN / IP literals.
+static func check_url(url: String, allowed_hosts: Array = []) -> String:
+	var text := url.strip_edges()
+	if text.is_empty() or text.length() > MAX_URL_LENGTH:
+		return "that is not a usable address"
+	if not text.to_lower().begins_with("https://"):
+		return "only https:// addresses are allowed"
+	var rest := text.substr(8)
+	var host_end := rest.length()
+	for stop in ["/", "?", "#"]:
+		var at := rest.find(stop)
+		if at >= 0:
+			host_end = mini(host_end, at)
+	var authority := rest.substr(0, host_end)
+	if authority.contains("@"):
+		return "addresses with a login are not allowed"
+	var host := authority.to_lower()
+	if host.contains(":"):
+		if host.begins_with("["):
+			return "numeric addresses are not allowed"
+		var parts := host.split(":")
+		if parts.size() != 2 or parts[1] != "443":
+			return "only the standard https port is allowed"
+		host = parts[0]
+	if host.is_empty() or not host.contains(".") or host.ends_with(".") or host.begins_with("."):
+		return "that is not a usable address"
+	for i in host.length():
+		if not "abcdefghijklmnopqrstuvwxyz0123456789-.".contains(host[i]):
+			return "that is not a usable address"
+	if host == "localhost" or host.ends_with(".localhost") or host.ends_with(".local") or host.ends_with(".internal") or host.ends_with(".lan"):
+		return "local addresses are not allowed"
+	var numeric := true
+	for part in host.split("."):
+		numeric = numeric and part.is_valid_int()
+	if numeric:
+		return "numeric addresses are not allowed"
+	if not allowed_hosts.is_empty() and not allowed_hosts.has(host):
+		return "that host is not allowed here"
+	return ""
+
+
+## The skin URL and arm model out of a Mojang profile (the decoded "textures" JSON). {} when it has none or it points anywhere
+## but textures.minecraft.net.
+static func parse_textures(profile: Dictionary) -> Dictionary:
+	for property in profile.get("properties", []):
+		if not property is Dictionary or String(property.get("name", "")) != "textures":
+			continue
+		var decoded: Variant = JSON.parse_string(Marshalls.base64_to_raw(String(property.get("value", ""))).get_string_from_utf8())
+		if not decoded is Dictionary:
+			return {}
+		var skin: Variant = (decoded.get("textures", {}) as Dictionary).get("SKIN", null)
+		if not skin is Dictionary:
+			return {}
+		var url := String(skin.get("url", ""))
+		if not check_url(url, ["textures.minecraft.net"]).is_empty():
+			return {}
+		var metadata: Variant = skin.get("metadata", {})
+		var slim: bool = metadata is Dictionary and String(metadata.get("model", "")) == "slim"
+		return {"url": url, "slim": slim}
+	return {}
+
+
+static func valid_minecraft_name(name: String) -> bool:
+	if name.is_empty() or name.length() > 16:
+		return false
+	for i in name.length():
+		if not "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_".contains(name[i]):
+			return false
+	return true
+
+
+## A Minecraft skin: the template IS the Minecraft 64x64 layout, so nothing is converted except the old 64x32 format (validate upgrades
+## it). `slim` is the Mojang profile's model field (Alex); it wins over the pixel detection. Returns the validation result with
+## "slim" set -- the mannequin then wears its slim (3 px arm) variant, so nothing is stretched or lost.
+static func from_minecraft(source: Image, slim: bool = false) -> Dictionary:
+	if source == null or source.get_width() != SIZE or (source.get_height() != SIZE and source.get_height() != SIZE / 2):
+		return _refuse("a Minecraft skin is 64x64 (or the old 64x32)")
+	var result := validate(source.save_png_to_buffer())
+	if bool(result["ok"]):
+		result["slim"] = slim or bool(result["slim"])
+		if source.get_height() == SIZE / 2:
+			result["slim"] = false   # the old format has only classic arms
+	return result
+
+
+## An old 64x32 skin as 64x64: the left arm and leg regions mirror the right ones (the second layer stays empty).
+static func upgrade_legacy(source: Image) -> Image:
+	var image := Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
+	image.blit_rect(source, Rect2i(0, 0, SIZE, SIZE / 2), Vector2i.ZERO)
+	_mirror_box(image, Vector2i(0, 16), Vector2i(16, 48))    # left leg from the right
+	_mirror_box(image, Vector2i(40, 16), Vector2i(32, 48))   # left arm from the right
+	return image
+
+
+## Alex (slim) skins leave the arms' 4th texture column transparent in the base layer; classic skins paint it.
+static func is_slim_layout(image: Image) -> bool:
+	for rect in [Rect2i(50, 16, 2, 4), Rect2i(54, 20, 2, 12), Rect2i(42, 48, 2, 4), Rect2i(46, 52, 2, 12)]:
+		for y in (rect as Rect2i).size.y:
+			for x in (rect as Rect2i).size.x:
+				if image.get_pixel(rect.position.x + x, rect.position.y + y).a > 0.0:
+					return false
+	return true
+
+
+## Copies a limb box (4 wide, 4 deep, 12 tall) mirrored left-right: top, bottom, front and back flip; the two side faces swap.
+static func _mirror_box(image: Image, from: Vector2i, to: Vector2i) -> void:
+	var source := image.duplicate() as Image
+	var pairs := [  # [source rect, destination rect, flip]
+		[Rect2i(from.x + 4, from.y, 4, 4), Rect2i(to.x + 4, to.y, 4, 4)],
+		[Rect2i(from.x + 8, from.y, 4, 4), Rect2i(to.x + 8, to.y, 4, 4)],
+		[Rect2i(from.x, from.y + 4, 4, 12), Rect2i(to.x + 8, to.y + 4, 4, 12)],
+		[Rect2i(from.x + 4, from.y + 4, 4, 12), Rect2i(to.x + 4, to.y + 4, 4, 12)],
+		[Rect2i(from.x + 8, from.y + 4, 4, 12), Rect2i(to.x, to.y + 4, 4, 12)],
+		[Rect2i(from.x + 12, from.y + 4, 4, 12), Rect2i(to.x + 12, to.y + 4, 4, 12)],
+	]
+	for pair in pairs:
+		var src: Rect2i = pair[0]
+		var dst: Rect2i = pair[1]
+		for y in src.size.y:
+			for x in src.size.x:
+				image.set_pixel(dst.position.x + (src.size.x - 1 - x), dst.position.y + y, source.get_pixel(src.position.x + x, src.position.y + y))
+
+
+## Copies a peer's skin (from the memory cache) as your own: same validation, stored as your file, active. Returns the result.
+static func copy_peer(hash: String, slim: bool = false) -> Dictionary:
+	var texture := peer_texture(hash)
+	if texture == null:
+		return _refuse("that skin is not loaded")
+	var image := texture.get_image()
+	if image == null:
+		return _refuse("that skin is not loaded")
+	var png := image.save_png_to_buffer()
+	var result := validate(png)
+	if not bool(result["ok"]):
+		return result
+	result["slim"] = slim
+	return apply_result(result)
+
+
+# ------------------------------------------------------------------------------------------------ the roster of co-op skins (memory only)
+
+static var _roster := {}   # peer id -> {"name", "hash", "copyable"}
+
+
+static func note_peer(id: int, display_name: String, hash: String, copyable: bool, slim: bool = false) -> void:
+	_roster[id] = {"name": display_name, "hash": hash, "copyable": copyable, "slim": slim}
+
+
+static func forget_peer(id: int) -> void:
+	_roster.erase(id)
+
+
+## Peers wearing a skin you can copy right now (their skin is downloaded and they allow it).
+static func copyable_peers() -> Array:
+	var found: Array = []
+	for id in _roster:
+		var entry: Dictionary = _roster[id]
+		if bool(entry["copyable"]) and not String(entry["hash"]).is_empty() and peer_texture(String(entry["hash"])) != null:
+			found.append({"id": id, "name": String(entry["name"]), "hash": String(entry["hash"]), "slim": bool(entry.get("slim", false))})
+	return found
 
 
 # ------------------------------------------------------------------------------------------------ default + template
@@ -227,6 +399,7 @@ static func peer_cache_size() -> int:
 
 static func clear_peer_cache() -> void:
 	_peer.clear()
+	_roster.clear()
 
 
 ## Validate + store as your own + make it active. Returns the validation result.
@@ -234,8 +407,14 @@ static func import_bytes(bytes: PackedByteArray) -> Dictionary:
 	var result := validate(bytes)
 	if not bool(result["ok"]):
 		return result
+	return apply_result(result)
+
+
+## Makes an already validated skin (a result of validate / from_minecraft) your own: kept as your file, active, arm style recorded.
+static func apply_result(result: Dictionary) -> Dictionary:
 	if store(result).is_empty():
 		return _refuse("the skin could not be saved")
+	Settings.skin_slim = bool(result.get("slim", false))
 	Settings.set_skin_hash(String(result["hash"]))
 	return result
 
@@ -244,6 +423,7 @@ static func reset_active() -> void:
 	if FileAccess.file_exists(OWN_PATH):
 		DirAccess.remove_absolute(OWN_PATH)
 	_textures.erase("own")
+	Settings.skin_slim = false
 	Settings.set_skin_hash("")
 
 
@@ -271,3 +451,43 @@ static func apply(root: Node, texture: Texture2D) -> void:
 					mesh_node.set_surface_override_material(surface, material)
 	for child in root.get_children():
 		apply(child, texture)
+
+
+# ------------------------------------------------------------------------------------------------ arm style (Steve / Alex)
+
+const ARM_BONES := ["R-Arm", "R-Forearm", "R-Hand", "L-Arm", "L-Forearm", "L-Hand"]
+static var _arm_meshes := {}   # "classic" / "slim" -> {bone -> Mesh}
+
+
+static func _arm_set(slim: bool) -> Dictionary:
+	var key := "slim" if slim else "classic"
+	if _arm_meshes.has(key):
+		return _arm_meshes[key]
+	var found := {}
+	var scene := load((PlayerModels.BLOCKY_SLIM if slim else PlayerModels.BLOCKY).replace(".tscn", ".glb")) as PackedScene
+	if scene != null:
+		var root := scene.instantiate()
+		for bone in ARM_BONES:
+			var mesh_node := root.find_child(bone, true, false) as MeshInstance3D
+			if mesh_node != null and mesh_node.mesh != null:
+				found[bone] = mesh_node.mesh
+		root.free()
+	_arm_meshes[key] = found
+	return found
+
+
+## Puts the Steve (classic, 4 px) or Alex (slim, 3 px) arms on a mannequin: the six arm meshes are swapped in place (same bones and
+## pivots, so every clip, the ladder, the swing and the hand poses keep working). Call PlayerSkin.apply afterwards to re-skin them.
+static func set_arms(root: Node, slim: bool) -> bool:
+	var meshes := _arm_set(slim)
+	if meshes.size() != ARM_BONES.size() or root == null:
+		return false
+	for bone in ARM_BONES:
+		var mesh_node := root.find_child(bone, true, false) as MeshInstance3D
+		if mesh_node == null:
+			return false
+		if mesh_node.mesh != meshes[bone]:
+			mesh_node.mesh = meshes[bone]
+			for surface in mesh_node.mesh.get_surface_count():
+				mesh_node.set_surface_override_material(surface, null)
+	return true
