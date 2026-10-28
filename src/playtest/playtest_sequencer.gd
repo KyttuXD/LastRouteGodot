@@ -28,6 +28,7 @@ const EYE := 1.6
 static var _keys: Array = []
 static var _stage: Dictionary = {}
 static var _actors: Dictionary = {}
+static var _scene: Node
 
 
 class Actor:
@@ -171,8 +172,15 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var total := int(round(seconds * fps))
 	var preview := bool(opts.get("preview", false))
 	var expect: Dictionary = shot.get("expect", {})
-	if preview:
-		total = int(ceil(float(expect.get("t", seconds)) * fps)) + 1
+	var beats: Array = shot.get("expects", [expect] if not expect.is_empty() else [])
+	beats.sort_custom(func(a, b): return float(a["t"]) < float(b["t"]))
+	var beat_index := 0
+	var beat_reports: Array = []
+	if preview and not beats.is_empty():
+		total = int(ceil(float((beats[beats.size() - 1] as Dictionary)["t"]) * fps)) + 2
+	var world_dim := float(shot.get("world_dim", 1.0))
+	var steps: Array = []
+	_scene = scene
 	var inside_frames := 0
 	var overlap_frames := 0
 	var depth_min := 99.0
@@ -195,6 +203,15 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 				flicker_left = float(ev["flicker"])
 			if ev.has("flash"):
 				flash_left = float(ev["flash"])
+			if ev.has("game_torch"):
+				# the game's own flashlight (same SpotLight and viewmodel-less beam as gameplay) with its click
+				player.call("_set_flashlight", bool(ev["game_torch"]))
+				Sound.light_switch(0.0, 1.0)
+			if ev.has("steps"):
+				var sp: Dictionary = ev["steps"]
+				for n in int(sp.get("count", 10)):
+					var fade := 1.0 - float(n) / float(maxi(int(sp.get("count", 10)), 1)) if bool(sp.get("fade", true)) else 1.0
+					steps.append({"t": t + float(n) * float(sp.get("interval", .25)), "vol": float(sp.get("volume", .12)) * fade, "pan": float(sp.get("pan", 0.0))})
 			if ev.has("actor") and actors.has(str(ev["actor"])):
 				_apply_event(actors[str(ev["actor"])] as Actor, ev, stage, actors, camera)
 		# camera
@@ -211,6 +228,12 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		# actors
 		for key in actors:
 			_step_actor(actors[key] as Actor, dt, space, player, camera)
+		# footsteps (the game's own hunter footstep sound), fading with distance
+		while not steps.is_empty() and float((steps[0] as Dictionary)["t"]) <= t:
+			var st: Dictionary = steps.pop_front()
+			Sound.hunter_footstep(float(st["pan"]), float(st["vol"]), "")
+		if world_dim < .999 and i % 20 == 0:
+			_dim_world(scene, player, camera, [lamp, torch], world_dim)
 		# lights
 		var flick := 1.0
 		if flicker_left > 0.0:
@@ -239,11 +262,39 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 		depth_min = minf(depth_min, 12.0 if seen.is_empty() else camera.global_position.distance_to(seen["position"] as Vector3))
 		scene.set("_relay_inactivity_seconds", 0.0)
 		scene.set("_party_afk_seconds", 0.0)
+		if preview and beat_index < beats.size() and t >= float((beats[beat_index] as Dictionary)["t"]):
+			await RenderingServer.frame_post_draw
+			var beat: Dictionary = beats[beat_index]
+			var snap := scene.get_viewport().get_texture().get_image()
+			var snap_dir := ProjectSettings.globalize_path("res://.playtest/preview")
+			DirAccess.make_dir_recursive_absolute(snap_dir)
+			var label := str(beat.get("label", str(beat_index)))
+			snap.save_png("%s/%s_%s.png" % [snap_dir, shot_name, label])
+			var one := _check(beat, actors, camera, player, space, stage, snap)
+			one["label"] = label
+			beat_reports.append(one)
+			beat_index += 1
 		await tree.process_frame
 		frames += 1
+	if preview and not beat_reports.is_empty():
+		var rows_all: Array = []
+		var all_ok := true
+		for one in beat_reports:
+			all_ok = all_ok and bool(one["pass"])
+			for row in one["rows"]:
+				var r2: Dictionary = (row as Dictionary).duplicate()
+				r2["name"] = "[%s] %s" % [one["label"], r2["name"]]
+				rows_all.append(r2)
+		info["checks"] = {"pass": all_ok, "rows": rows_all}
+		info["available"] = true
+		info["preview"] = true
+		info["shot"] = shot_name
+		info["seconds"] = 0.0
+		report["flythrough"] = info
+		return {"outcome": "recorded", "game_seconds": 0.0, "frames": frames, "scenario_failure": ""}
 	if preview:
 		await RenderingServer.frame_post_draw
-		var result := _check(expect, actors, camera, player, space, stage)
+		var result := _check(expect, actors, camera, player, space, stage, null)
 		var dir_path := ProjectSettings.globalize_path("res://.playtest/preview")
 		DirAccess.make_dir_recursive_absolute(dir_path)
 		var image := scene.get_viewport().get_texture().get_image()
@@ -611,7 +662,7 @@ static func _on_screen(camera: Camera3D, point: Vector3) -> bool:
 	return p.x >= 0.0 and p.x <= size.x and p.y >= 0.0 and p.y <= size.y
 
 
-static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, player: Node, space: PhysicsDirectSpaceState3D, stage: Dictionary) -> Dictionary:
+static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, player: Node, space: PhysicsDirectSpaceState3D, stage: Dictionary, image: Image) -> Dictionary:
 	var actor := actors.get(str(expect.get("actor", ""))) as Actor
 	var rows: Array = []
 	if actor == null:
@@ -650,7 +701,7 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 		var any := false
 		for bone in parts[part]:
 			var point := _bone_pos(actor, str(bone))
-			if _seen(space, camera, player, point) and _on_screen(camera, point):
+			if actor.root.visible and _seen(space, camera, player, point) and _on_screen(camera, point):
 				any = true
 		vis[part] = any
 	for part in want:
@@ -670,7 +721,7 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 		var range_: Array = expect["torso_visible"]
 		rows.append({"name": "torso visible", "pass": fraction >= float(range_[0]) and fraction <= float(range_[1]), "detail": "%.0f%% (wanted %d-%d%%)" % [fraction * 100.0, int(float(range_[0]) * 100), int(float(range_[1]) * 100)]})
 	# 4. no hunter mesh inside walls (body points, small spheres)
-	if bool(expect.get("no_wall_intersection", false)):
+	if bool(expect.get("no_wall_intersection", false)) and actor.root.visible:
 		var sphere := SphereShape3D.new()
 		sphere.radius = .1
 		var hand_sphere := SphereShape3D.new()
@@ -696,6 +747,34 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 		var frac := (low - top) / camera.get_viewport().get_visible_rect().size.y
 		var limits: Array = expect["screen_fraction"]
 		rows.append({"name": "screen size", "pass": frac >= float(limits[0]) and frac <= float(limits[1]), "detail": "%.0f%% of frame height (wanted %d-%d%%)" % [frac * 100.0, int(float(limits[0]) * 100), int(float(limits[1]) * 100)]})
+	if bool(expect.get("no_labels", false)):
+		var shown: Array = []
+		for node in _scene.find_children("*", "Label3D", true, false):
+			var label := node as Label3D
+			# floating tags on or near any hunter in the shot (the level signage the world itself carries is not a hunter tag)
+			var near_hunter := false
+			for key in _actors:
+				var other := _actors[key] as Actor
+				if other.root.visible and (other.root.is_ancestor_of(label) or label.global_position.distance_to(other.pos + Vector3.UP * other.height) < 2.5):
+					near_hunter = true
+			if near_hunter and label.is_visible_in_tree() and label.modulate.a > .02:
+				shown.append(str(label.text))
+		rows.append({"name": "no name tags / Label3D on hunters", "pass": shown.is_empty(), "detail": "visible labels: %s" % [shown]})
+	if expect.has("face_luma_min") and image != null and actor.root.visible:
+		var hp := camera.unproject_position(_bone_pos(actor, "Head"))
+		var vp := camera.get_viewport().get_visible_rect().size
+		var sx := image.get_width() / vp.x
+		var sy := image.get_height() / vp.y
+		var total_luma := 0.0
+		var count := 0
+		for dx in range(-6, 7, 3):
+			for dy in range(-6, 7, 3):
+				var px := clampi(int((hp.x + dx) * sx), 0, image.get_width() - 1)
+				var py := clampi(int((hp.y + dy) * sy), 0, image.get_height() - 1)
+				total_luma += image.get_pixel(px, py).get_luminance()
+				count += 1
+		var luma := total_luma / float(count)
+		rows.append({"name": "face readable (lit)", "pass": luma >= float(expect["face_luma_min"]), "detail": "luminance %.2f (min %s)" % [luma, expect["face_luma_min"]]})
 	var ok := true
 	for row in rows:
 		ok = ok and bool(row["pass"])
@@ -703,3 +782,18 @@ static func _check(expect: Dictionary, actors: Dictionary, camera: Camera3D, pla
 	for bone in ["Head", "Pelvis", "Chest", "L-Hand", "L-Foot"]:
 		names.append("%s=%s" % [bone, actor.model.find_child(bone, true, false) != null])
 	return {"pass": ok, "rows": rows, "bones": names}
+
+
+## Dims the streamed world once per light (the capture rig's own lights are exempt) and the ambient: a dark shot, not a lit stage.
+static func _dim_world(scene: Node, player: Node, camera: Camera3D, own: Array, factor: float) -> void:
+	for node in scene.find_children("*", "Light3D", true, false):
+		var light := node as Light3D
+		if own.has(light) or player.is_ancestor_of(light) or light.has_meta("trailer_dimmed"):
+			continue
+		light.set_meta("trailer_dimmed", true)
+		light.light_energy *= factor
+	for node in scene.find_children("*", "WorldEnvironment", true, false):
+		var env := (node as WorldEnvironment).environment
+		if env != null and not env.has_meta("trailer_dimmed"):
+			env.set_meta("trailer_dimmed", true)
+			env.ambient_light_energy *= factor

@@ -1,20 +1,20 @@
 {
  "name": "nyxie_peek",
  "area": "hospital",
- "seconds": 11,
- "dark": 1.0,
+ "seconds": 13,
+ "dark": 0.12,
  "torch_energy": 0,
  "actors": {
   "nyxie": {
    "id": "nyxie",
    "at": [
     "c",
-    0.9,
-    1.3
+    1.0,
+    1.9
    ],
    "face": "shot_camera",
    "pose": "peek_right",
-   "hidden": false,
+   "hidden": true,
    "lean_deg": 26.0,
    "head": {
     "max_yaw": 60,
@@ -41,9 +41,9 @@
    "fov": 50
   },
   {
-   "t": 11,
+   "t": 5.0,
    "at": [
-    1.5,
+    1.2,
     0,
     1.5
    ],
@@ -53,72 +53,161 @@
     0.6,
     1.3
    ],
+   "fov": 50
+  },
+  {
+   "t": 5.4,
+   "at": [
+    1.25,
+    0,
+    1.5
+   ],
+   "look": [
+    "c",
+    0.5,
+    -1.6,
+    1.1
+   ],
+   "fov": 50
+  },
+  {
+   "t": 6.5,
+   "at": [
+    1.35,
+    0,
+    1.5
+   ],
+   "look": [
+    "c",
+    0.5,
+    0.6,
+    1.3
+   ],
+   "fov": 48
+  },
+  {
+   "t": 13,
+   "at": [
+    1.9,
+    0,
+    1.5
+   ],
+   "look": [
+    "c",
+    0.5,
+    0.9,
+    1.3
+   ],
    "fov": 46
   }
  ],
- "flashlight": [
-  {
-   "t": 0,
-   "on": false
-  }
- ],
+ "flashlight": [],
  "events": [
   {
-   "t": 2.0,
+   "t": 1.0,
    "flicker": 0.5
   },
   {
-   "t": 3.2,
+   "t": 2.0,
    "actor": "nyxie",
+   "show": true,
    "move": [
     "c",
     1.0,
     1.3
    ],
-   "speed": 0.5,
+   "speed": 0.45,
    "pose": "peek_right",
    "face": "shot_camera"
   },
   {
-   "t": 8.0,
+   "t": 5.4,
+   "game_torch": true
+  },
+  {
+   "t": 6.3,
+   "actor": "nyxie",
+   "pose": "flinch",
+   "pose_speed": 1.4
+  },
+  {
+   "t": 6.8,
    "actor": "nyxie",
    "move": [
     "c",
-    0.9,
-    1.5
+    1.0,
+    2.3
    ],
-   "speed": 1.0,
-   "pose": "peek_right",
-   "face": "shot_camera"
+   "speed": 3.0,
+   "pose": "retreat"
   },
   {
-   "t": 9.6,
+   "t": 6.9,
+   "steps": {
+    "count": 18,
+    "interval": 0.22,
+    "volume": 0.18,
+    "pan": 0.35,
+    "fade": true
+   }
+  },
+  {
+   "t": 7.7,
    "actor": "nyxie",
    "hide": true
   }
  ],
  "corner": true,
- "expect": {
-  "t": 6.0,
-  "actor": "nyxie",
-  "face_camera_deg": 25,
-  "head_faces_camera_deg": 20,
-  "body_authored": 1.0,
-  "lean_open_side": true,
-  "visible_parts": {
-   "head": true,
-   "chest": true,
-   "hips": false,
-   "legs": false
+ "world_dim": 0.12,
+ "expects": [
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_wall_intersection": true,
+   "t": 4.6,
+   "label": "peek",
+   "face_camera_deg": 25,
+   "head_faces_camera_deg": 20,
+   "body_authored": 1.0,
+   "lean_open_side": true,
+   "visible_parts": {
+    "head": true,
+    "chest": true,
+    "hips": false,
+    "legs": false
+   },
+   "torso_visible": [
+    0.4,
+    0.95
+   ],
+   "screen_fraction": [
+    0.08,
+    0.45
+   ]
   },
-  "torso_visible": [
-   0.4,
-   0.95
-  ],
-  "no_wall_intersection": true,
-  "screen_fraction": [
-   0.08,
-   0.45
-  ]
- }
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_wall_intersection": true,
+   "t": 6.35,
+   "label": "lit",
+   "visible_parts": {
+    "head": true
+   },
+   "face_luma_min": 0.12
+  },
+  {
+   "actor": "nyxie",
+   "no_labels": true,
+   "no_wall_intersection": true,
+   "t": 9.5,
+   "label": "gone",
+   "visible_parts": {
+    "head": false,
+    "chest": false,
+    "hips": false,
+    "legs": false
+   }
+  }
+ ]
 }

@@ -178,6 +178,21 @@ def make_card(lines, path):
     img.save(path)
 
 
+def make_lower_third(name, line, path):
+    """Transparent 1280x720 overlay: a stylised name and one short line, bottom-left."""
+    img = Image.new("RGBA", (1280, 720), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    font_path = next((f for f in FONTS if Path(f).exists()), None)
+    big = ImageFont.truetype(font_path, 44) if font_path else ImageFont.load_default()
+    small = ImageFont.truetype(font_path, 22) if font_path else ImageFont.load_default()
+    width = max(draw.textlength(name, font=big), draw.textlength(line, font=small)) + 40
+    draw.rectangle((60, 560, 60 + width, 650), fill=(0, 0, 0, 150))
+    draw.rectangle((60, 560, 66, 650), fill=(120, 190, 255, 255))
+    draw.text((84, 566), name, fill=(235, 235, 235, 255), font=big)
+    draw.text((86, 618), line, fill=(170, 190, 210, 255), font=small)
+    img.save(path)
+
+
 def run(cmd):
     out = subprocess.run(cmd, capture_output=True, text=True)
     if out.returncode != 0:
@@ -214,7 +229,16 @@ def main():
             if not src.exists():
                 sys.exit("missing clip %s (render it with tools/playtest/flythrough.py --areas %s)" % (src, shot["clip"]))
             af = "volume=%.2f,afade=t=in:st=0:d=%.2f,afade=t=out:st=%.2f:d=%.2f" % (float(shot.get("game_audio", .45)), fade, dur - fade, fade)
-            run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(shot.get("ss", 0)), "-t", str(dur), "-i", str(src), "-vf", "scale=1280:720," + vf_fade, "-af", af, *common, str(seg)])
+            if "lower" in shot:
+                low = shot["lower"]
+                png = tmp / ("lower%02d.png" % index)
+                make_lower_third(low["name"], low.get("line", ""), png)
+                a, b = float(low.get("from", 0.8)), float(low.get("to", dur - 0.8))
+                fc = ("[1:v]format=rgba,fade=t=in:st=%.2f:d=0.4:alpha=1,fade=t=out:st=%.2f:d=0.4:alpha=1[ov];[0:v]scale=1280:720[b];[b][ov]overlay=0:0:shortest=0,%s" % (a, b - 0.4, vf_fade))
+                run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(shot.get("ss", 0)), "-t", str(dur), "-i", str(src), "-loop", "1", "-t", str(dur), "-i", str(png),
+                     "-filter_complex", fc, "-af", af, *common, str(seg)])
+            else:
+                run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(shot.get("ss", 0)), "-t", str(dur), "-i", str(src), "-vf", "scale=1280:720," + vf_fade, "-af", af, *common, str(seg)])
         segments.append(seg)
         total += dur
     listing = tmp / "list.txt"

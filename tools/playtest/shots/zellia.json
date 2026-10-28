@@ -11,8 +11,7 @@
     0.2
    ],
    "face": "heading",
-   "clip": "walk",
-   "tag": "ZELLIA"
+   "clip": "walk"
   }
  },
  "camera": [
@@ -71,6 +70,7 @@
   "screen_fraction": [
    0.25,
    1.2
-  ]
+  ],
+  "no_labels": true
  }
 }

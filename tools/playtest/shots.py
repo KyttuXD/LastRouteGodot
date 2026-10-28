@@ -44,19 +44,20 @@ def preview_checks(name, args, src, lane, out_dir, tmp):
     if args.local:
         local_scene(base, 300)
         report_file = LOCAL_LANE / (".playtest/pre_%s/report.json" % name)
-        still = LOCAL_LANE / (".playtest/preview/%s.png" % name)
+        still = LOCAL_LANE / (".playtest/preview")
     else:
         fl.mini(src, lane, "--scene", base, timeout=400)
         local = tmp / ("pre_" + name)
         fl.mini(src, lane, "--pull", ".playtest/pre_%s/report.json" % name, str(local))
-        fl.mini(src, lane, "--pull", ".playtest/preview/%s.png" % name, str(local))
-        report_file, still = local / "report.json", local / (name + ".png")
+        fl.mini(src, lane, "--pull", ".playtest/preview/", str(local))
+        report_file, still = local / "report.json", local
     report = json.loads(report_file.read_text()) if report_file.exists() else {}
     checks = report.get("flythrough", {}).get("checks", {})
     saved = None
     if still.exists():
-        saved = out_dir / (name + "_preview.png")
-        shutil.copy(still, saved)
+        for png in sorted(still.glob(name + "*.png")):
+            shutil.copy(png, out_dir / png.name.replace(name, name + "_preview", 1))
+            saved = out_dir / png.name.replace(name, name + "_preview", 1)
     return bool(checks.get("pass", not checks)) and bool(checks), checks, saved
 
 
@@ -100,7 +101,7 @@ def main():
             sys.exit("sync to the mini failed:\n" + (prep.stdout + prep.stderr)[-800:])
         for name in names:
             spec = json.loads((shot_dir / (name + ".json")).read_text())
-            if spec.get("expect"):
+            if spec.get("expect") or spec.get("expects"):
                 passed, checks, still = preview_checks(name, args, src, lane, out_dir, tmp)
                 print("  %-16s self-check %s   preview: %s" % (name, "PASS" if passed else "FAIL", still))
                 for row in checks.get("rows", []):

@@ -12,27 +12,51 @@
   {
    "clip": "nyxie_peek",
    "ss": 0,
-   "t": 11
+   "t": 13
   },
   {
    "clip": "quenelle",
    "ss": 0,
-   "t": 5.5
+   "t": 5.5,
+   "lower": {
+    "name": "QUENELLE",
+    "line": "she hums when she hunts",
+    "from": 0.8,
+    "to": 4.6
+   }
   },
   {
    "clip": "javelle",
    "ss": 0,
-   "t": 5.5
+   "t": 5.5,
+   "lower": {
+    "name": "JAVELLE",
+    "line": "never in a hurry",
+    "from": 0.8,
+    "to": 4.6
+   }
   },
   {
    "clip": "zellia",
    "ss": 0,
-   "t": 5.5
+   "t": 5.5,
+   "lower": {
+    "name": "ZELLIA",
+    "line": "listens before she looks",
+    "from": 0.8,
+    "to": 4.6
+   }
   },
   {
    "clip": "elise_sprint",
    "ss": 0,
-   "t": 6
+   "t": 6,
+   "lower": {
+    "name": "ELISE",
+    "line": "you will not outrun her",
+    "from": 0.8,
+    "to": 5.1
+   }
   },
   {
    "card": [
