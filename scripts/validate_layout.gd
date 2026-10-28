@@ -526,11 +526,12 @@ func _check_main_menu_contract(scene: Node) -> int:
 		if scene.find_child(heading, true, false) == null:
 			failures += _fail("Settings is missing its %s category" % heading)
 	var settings_tabs := scene.find_child("SettingsCategoryTabs", true, false) as TabBar
-	if settings_tabs == null or settings_tabs.tab_count != 4 \
+	if settings_tabs == null or settings_tabs.tab_count != 5 \
 			or settings_tabs.get_tab_title(0) != "AUDIO" \
 			or settings_tabs.get_tab_title(1) != "DISPLAY" \
 			or settings_tabs.get_tab_title(2) != "CONTROLS" \
-			or settings_tabs.get_tab_title(3) != "SKIN":
+			or settings_tabs.get_tab_title(3) != "SKIN" \
+			or settings_tabs.get_tab_title(4) != "VOICE":
 		failures += _fail("Settings categories do not use the shared tab treatment")
 	if scene.find_child("PixelEffectSlider", true, false) == null \
 			or scene.find_child("PixelEffectValueLabel", true, false) == null:

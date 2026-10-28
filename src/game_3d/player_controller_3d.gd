@@ -1827,6 +1827,16 @@ func _connect_xr_buttons() -> void:
 	xr_left.button_released.connect(_on_xr_left_released)
 
 
+## Push to talk in a headset: hold both thumbstick clicks (every single button is taken). VoiceChat opens its gate while held.
+var _xr_stick_left := false
+var _xr_stick_right := false
+
+
+func _xr_talk(held: bool) -> void:
+	for node in get_tree().get_nodes_in_group("voice_chat"):
+		(node as VoiceChat).set_xr_push_to_talk(held)
+
+
 func _on_xr_right_pressed(action: StringName) -> void:
 	match String(action):
 		"trigger_click":
@@ -1836,7 +1846,10 @@ func _on_xr_right_pressed(action: StringName) -> void:
 		"by_button":
 			request_jump()
 		"primary_click":
-			if not xr_left.get_has_tracking_data():
+			_xr_stick_right = true
+			if _xr_stick_left:
+				_xr_talk(true)   # both stick clicks held: push to talk (voice chat), not pause
+			elif not xr_left.get_has_tracking_data():
 				_emit_xr_action_event("pause", true)   # right hand only: the stick click opens the menu
 				_emit_xr_action_event("pause", false)
 		"grip_click":
@@ -1845,6 +1858,9 @@ func _on_xr_right_pressed(action: StringName) -> void:
 
 func _on_xr_right_released(action: StringName) -> void:
 	match String(action):
+		"primary_click":
+			_xr_stick_right = false
+			_xr_talk(false)
 		"trigger_click":
 			Input.action_release("interact")
 		"ax_button":
@@ -1861,7 +1877,11 @@ func _on_xr_left_pressed(action: StringName) -> void:
 		"trigger_click":
 			Input.action_press("taser")
 		"primary_click":
-			Input.action_press("crouch")
+			_xr_stick_left = true
+			if _xr_stick_right:
+				_xr_talk(true)
+			else:
+				Input.action_press("crouch")
 		"by_button":
 			Input.action_press("toggle_map")
 		"grip_click":
@@ -1878,6 +1898,8 @@ func _on_xr_left_released(action: StringName) -> void:
 		"trigger_click":
 			Input.action_release("taser")
 		"primary_click":
+			_xr_stick_left = false
+			_xr_talk(false)
 			Input.action_release("crouch")
 		"by_button":
 			Input.action_release("toggle_map")

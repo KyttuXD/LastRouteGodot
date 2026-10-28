@@ -69,6 +69,7 @@ static func ensure_actions() -> void:
 
 func _ready() -> void:
 	name = "VoiceChat"
+	add_to_group("voice_chat")
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	ensure_actions()
 	_build_pill()

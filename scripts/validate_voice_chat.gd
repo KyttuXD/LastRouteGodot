@@ -298,6 +298,37 @@ func _check_settings() -> void:
 	_expect(Settings.voice_mode in ["vad", "ptt"] and Settings.tts_mode in ["off", "own", "everyone"], "settings restore left a bad value")
 
 
+func _check_panel(host: Node) -> void:
+	var was_on := Settings.voice_chat_on
+	var was_mode := Settings.voice_mode
+	RoomState.peers[77] = "Mirelle"
+	var panel := VoicePanel.new()
+	host.add_child(panel)
+	for control in ["VoiceChatOnButton", "VoiceModeButton", "VoiceDeviceList", "VoiceGainSlider", "VoiceSensitivitySlider",
+			"VoiceLevelMeter", "VoiceVolumeOthersSlider", "TtsModeButton", "TtsVoiceList", "TtsRateSlider", "VoicePlayer_MIRELLE"]:
+		_expect(panel.find_child(control, true, false) != null, "the VOICE tab is missing %s" % control)
+	var toggle := panel.find_child("VoiceChatOnButton", true, false) as Button
+	toggle.pressed.emit()
+	_expect(Settings.voice_chat_on == not was_on, "the VOICE CHAT button did not toggle")
+	var mode := panel.find_child("VoiceModeButton", true, false) as Button
+	mode.pressed.emit()
+	_expect(Settings.voice_mode != was_mode, "the mode button did not switch voice activation / push to talk")
+	var mirelle := panel.find_child("VoicePlayer_MIRELLE", true, false)
+	if mirelle != null:
+		(mirelle.get_child(0) as CheckBox).button_pressed = true
+		_expect(Settings.is_player_muted("Mirelle"), "the player row's MUTE did not mute")
+		(mirelle.get_child(0) as CheckBox).button_pressed = false
+		(mirelle.get_child(1) as HSlider).value = 0.5
+		_expect(is_equal_approx(Settings.player_voice_volume("Mirelle"), 0.5), "the player row's volume did not apply")
+		(mirelle.get_child(1) as HSlider).value = 1.0
+	Settings.set_voice_chat(was_on, was_mode, Settings.voice_mic_gain, Settings.voice_sensitivity, Settings.voice_input_device,
+		Settings.voice_chat_volume)
+	Settings.set_player_muted("Mirelle", false)
+	Settings.set_player_voice_volume("Mirelle", 1.0)
+	RoomState.peers.erase(77)
+	panel.queue_free()
+
+
 func _check_cost(voice: VoiceChat) -> void:
 	var block := _tone(250.0, 0.4)
 	var start := Time.get_ticks_usec()
@@ -329,6 +360,7 @@ func run(host: Node) -> int:
 	_check_playback(voice, remotes, host)
 	_check_tts(host)
 	_check_settings()
+	_check_panel(host)
 	_check_cost(voice)
 	voice.queue_free()
 	remotes.queue_free()
