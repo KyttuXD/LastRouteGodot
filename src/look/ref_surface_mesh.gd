@@ -118,42 +118,49 @@ func add_wall(x: int, z: int, dir: Vector2i, layer: float, params: Color,
 
 ## Maze culling: one mesh per 15 x 15 cell tile (tile index -> ArrayMesh), so tiles no line of sight reaches can be
 ## hidden. Same geometry as build(), split by tile: every quad owns 4 consecutive vertices and 6 indices.
+## Each tile's arrays are filled as locals: a packed array read back out of a Dictionary (`part["v"] as ...`) is a copy,
+## so appending to it left every tile mesh empty (no walls, floors or ceilings at all with culling on).
 func build_tiles(floor_material: Material, wall_material: Material) -> Dictionary:
 	var out := {}
 	var materials := [floor_material, wall_material]
-	var parts := {}   # tile -> [surface] -> {v, n, uv, uv2, col, idx}
+	var quads := {}   # tile -> [floor quad indices, wall quad indices] (plain Arrays: shared, not copied)
 	for surface in 2:
 		for q in _quad_tile[surface].size():
 			var t := _quad_tile[surface][q]
-			if not parts.has(t):
-				parts[t] = [{}, {}]
-			var part: Dictionary = parts[t][surface]
-			if part.is_empty():
-				part.merge({"v": PackedVector3Array(), "n": PackedVector3Array(), "uv": PackedVector2Array(),
-					"uv2": PackedVector2Array(), "col": PackedColorArray(), "idx": PackedInt32Array()})
-			var base: int = (part["v"] as PackedVector3Array).size()
-			var first := q * 4
-			(part["v"] as PackedVector3Array).append_array(_v[surface].slice(first, first + 4))
-			(part["n"] as PackedVector3Array).append_array(_n[surface].slice(first, first + 4))
-			(part["uv"] as PackedVector2Array).append_array(_uv[surface].slice(first, first + 4))
-			(part["uv2"] as PackedVector2Array).append_array(_uv2[surface].slice(first, first + 4))
-			(part["col"] as PackedColorArray).append_array(_col[surface].slice(first, first + 4))
-			for i in _idx[surface].slice(q * 6, q * 6 + 6):
-				(part["idx"] as PackedInt32Array).append(i - first + base)
-	for t in parts:
+			if not quads.has(t):
+				quads[t] = [[], []]
+			((quads[t] as Array)[surface] as Array).append(q)
+	for t in quads:
 		var mesh := ArrayMesh.new()
 		for surface in 2:
-			var part: Dictionary = parts[t][surface]
-			if part.is_empty():
+			var list: Array = (quads[t] as Array)[surface]
+			if list.is_empty():
 				continue
+			var v := PackedVector3Array()
+			var n := PackedVector3Array()
+			var uv := PackedVector2Array()
+			var uv2 := PackedVector2Array()
+			var col := PackedColorArray()
+			var idx := PackedInt32Array()
+			for q_value in list:
+				var q: int = q_value
+				var first := q * 4
+				var base := v.size()
+				v.append_array(_v[surface].slice(first, first + 4))
+				n.append_array(_n[surface].slice(first, first + 4))
+				uv.append_array(_uv[surface].slice(first, first + 4))
+				uv2.append_array(_uv2[surface].slice(first, first + 4))
+				col.append_array(_col[surface].slice(first, first + 4))
+				for i in _idx[surface].slice(q * 6, q * 6 + 6):
+					idx.append(i - first + base)
 			var arrays := []
 			arrays.resize(Mesh.ARRAY_MAX)
-			arrays[Mesh.ARRAY_VERTEX] = part["v"]
-			arrays[Mesh.ARRAY_NORMAL] = part["n"]
-			arrays[Mesh.ARRAY_TEX_UV] = part["uv"]
-			arrays[Mesh.ARRAY_TEX_UV2] = part["uv2"]
-			arrays[Mesh.ARRAY_COLOR] = part["col"]
-			arrays[Mesh.ARRAY_INDEX] = part["idx"]
+			arrays[Mesh.ARRAY_VERTEX] = v
+			arrays[Mesh.ARRAY_NORMAL] = n
+			arrays[Mesh.ARRAY_TEX_UV] = uv
+			arrays[Mesh.ARRAY_TEX_UV2] = uv2
+			arrays[Mesh.ARRAY_COLOR] = col
+			arrays[Mesh.ARRAY_INDEX] = idx
 			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 			mesh.surface_set_material(mesh.get_surface_count() - 1, materials[surface])
 		out[t] = mesh

@@ -220,7 +220,8 @@ func _input(event: InputEvent) -> void:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo \
 				and (key.keycode == KEY_F1 or key.physical_keycode == KEY_F1):
-			set_hud_hidden(not _hud_hidden)
+			if not _death_flow:   # the death moment and the end card own the screen; F1 must not bring the HUD back under them
+				set_hud_hidden(not _hud_hidden)
 			get_viewport().set_input_as_handled()
 			return
 	# Finish even when the pointer is released between slots. Plain gui_input
@@ -297,6 +298,26 @@ func set_hud_hidden(hidden: bool) -> void:
 
 func hud_is_hidden() -> bool:
 	return _hud_hidden
+
+
+## The death flow (the catcher's line, then the end card) owns the screen: the gameplay HUD is faded out for its length and the player's own F1 choice is restored after.
+var _death_flow := false
+var _hidden_before_death := false
+
+
+func set_death_flow(active: bool) -> void:
+	if active == _death_flow:
+		return
+	_death_flow = active
+	if active:
+		_hidden_before_death = _hud_hidden
+		set_hud_hidden(true)
+	else:
+		set_hud_hidden(_hidden_before_death)
+
+
+func death_flow_active() -> bool:
+	return _death_flow
 
 
 func update_objective(depth: int, relays_collected: int, relay_target: int) -> void:
