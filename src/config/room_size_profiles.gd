@@ -8,13 +8,13 @@ extends RefCounted
 
 const PROFILES := {
 	# music wing (src/game/music_wing.gd; MusicWing.SIZE_PROFILES): real sizes x 1.5, kept in step with that table
-	"music_stage": {"min": Vector2i(9, 9), "preferred": Vector2i(13, 9), "max": Vector2i(21, 21), "tables": Vector2i(0, 0),
+	"music_stage": {"min": Vector2i(9, 9), "preferred": Vector2i(15, 13), "max": Vector2i(21, 21), "tables": Vector2i(0, 0),
 		"signature": ["drumKit"], "generated": true},
 	"carnival_stage": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0),
 		"signature": ["drumKit"], "generated": true},
 	"practice_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0),
 		"signature": ["drumKit"], "generated": true},
-	"instrument_storage": {"min": Vector2i(9, 9), "preferred": Vector2i(9, 9), "max": Vector2i(11, 11), "tables": Vector2i(0, 0),
+	"instrument_storage": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(11, 11), "tables": Vector2i(0, 0),
 		"signature": ["instrumentCases"], "generated": true},
 	"recording_booth": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0),
 		"signature": ["mixingDesk"], "generated": true},

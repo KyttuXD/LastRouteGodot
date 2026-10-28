@@ -46,23 +46,26 @@ mount lists, interaction and batching); every playable prop prompts and has an a
 
 Kept in its own file so the BIOMES lane can resize the generator's rooms freely.
 
-- **Rehearsal hall (hotel, mall):** a great-hall slot (`StreamedRouteGenerator.large_plan`, 21 x 21, one door on the
-  vertical hall) of type `rehearsal_hall`, carved by `MusicWing.carve()` into a three-wide wing hall with two nine-deep
-  bands of rooms: a 13 x 9 `music_stage` and a 9 x 9 `instrument_storage`, an 11 x 9 `practice_room` and an 11 x 9
-  `recording_booth` (control room, glass wall with a gap, vocal booth with a mic and the REC sign). A door-in-the-middle
-  21 x 21 slot only holds two nine-deep bands, so the stage is 13 x 9 rather than the 15 x 13 first sketched and there is
-  one practice room. A west-side slot is the mirror of the east-side one.
+- **Rehearsal hall (hotel, mall):** BOTH great-hall slots of one chunk (`StreamedRouteGenerator.large_plan`, 21 x 21
+  each, doors facing each other across the vertical hall) of type `rehearsal_hall`. `MusicWing.carve(grid, slot, door,
+  rng, part)` fills a slot solid and opens its rooms: the west slot (`part_for_side(0)` = `"stage"`) is a 15 x 13
+  `music_stage` entered straight from the vertical hall; the east slot (`"rooms"`) is a three-wide wing hall with two
+  11 x 9 `practice_room`s, an 11 x 9 `instrument_storage` and an 11 x 9 `recording_booth` (control room, glass wall with a
+  gap, vocal booth with a mic and the REC sign). KT: a chunk that cannot give both slots gets no wing; there is no
+  compact fallback, so the wing is rare.
 - **Carnival:** `carnival_stage`, a 21 x 9 bank room (band under the light truss, monitors, mics).
 - **Mall:** `music_store`, a 20 x 9 shopfront of guitar racks, instruments on stands, amps and a counter.
 - **Recipes:** `MusicWing.room_specs()` sizes each room to its rect like the biome recipes; the stage edge sits two rows
   in front of the entrance in a nine-deep room and six rows out in a great hall, where rows of chairs and a mixing desk
   follow. `MusicWing.SIZE_PROFILES` declares this lane's own min / preferred / max sizes.
 - **Generator hooks (BIOMES lane wires them after its room resize):** `rehearsal_hall` in `LARGE_ROOM_TYPES` for hotel
-  and mall at about 5 % per side, calling `MusicWing.carve(grid, big, big_door, rng)` in the merged-sides branch;
-  `carnival_stage` in `BANK_BIG_TYPES["carnival"]`; `music_store` as a mall shop role; and the template dispatch
+  and mall, planned for a chunk's west AND east side together (or neither); in the merged-sides branch
+  `MusicWing.carve(grid, big, big_door, rng, MusicWing.part_for_side(side))`, wrapping its rooms with `_room_entry` and
+  recording its hall as a corridor; `carnival_stage` in `BANK_BIG_TYPES["carnival"]`; `music_store` as a mall shop role
+  (`data/regions/mall.json`, DATA lane); and the template dispatch
   `if template in MusicWing.TEMPLATES: specs.append_array(MusicWing.room_specs(template, half, depth_span, mirror))`.
 
-The `music` suite carves the wing into a stand-alone grid both ways (four rooms of their declared sizes, doorways open,
-every cell reachable from the slot's door) and checks every recipe at its usual sizes (catalogued props, inside the
+The `music` suite carves the wing into a stand-alone chunk-width grid both ways round (the 15 x 13 stage and four rooms of
+their declared sizes, doorways open, every cell of both slots reachable from the vertical hall) and checks every recipe at its usual sizes (catalogued props, inside the
 room, no two solid props on one cell, the entrance kept clear, the defining props present). Once the hooks are in, the
 `biomes`-style room checks (overlaps, doorways, reachability) cover the generated rooms too.
