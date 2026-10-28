@@ -34,6 +34,11 @@ TIMINGS = os.environ.get("VALIDATE_TIMINGS") or os.path.join(ROOT, ".validate_ti
 # beside other work, so they run alone, one after another, after the parallel phase.
 SERIAL = {"stream_perf", "prop_perf", "idle_stability", "quality_tiers", "lods"}
 VERDICT = re.compile(r"^-- suite (\S+) (PASS|FAIL) ([0-9.]+)s")
+# Compile/load errors. A GDScript runtime error does not stop a suite: the failing call just returns its default (0
+# failures), so a broken project could print "PASS". None of these lines appear in a healthy full run (checked against
+# the 2026-10-28 baseline), so any of them turns the suite it appears in -- or, before the first suite, every suite of
+# that process -- into a FAIL. Plain "ERROR:" lines are NOT used: a healthy run prints dozens of them.
+COMPILE_ERROR = re.compile(r"SCRIPT ERROR|Parse Error|Failed to load script|Compile Error|res://\S+:\d+ - ")
 
 
 def all_suites():
@@ -117,6 +122,7 @@ class Worker:
             state = {"last": time.time(), "stalled": False}
             watcher = threading.Thread(target=_stall_watch, args=(proc, state), daemon=True)
             watcher.start()
+            broken, preamble = {}, []
             for line in proc.stdout:
                 state["last"] = time.time()
                 log.write(line)
@@ -127,6 +133,11 @@ class Worker:
                 if m:
                     verdicts[m.group(1)] = (m.group(2), float(m.group(3)))
                     print("[w%d] %s %s %ss" % (self.idx, m.group(2), m.group(1), m.group(3)), flush=True)
+                if COMPILE_ERROR.search(stripped):
+                    if current:
+                        broken.setdefault(current, []).append(stripped)
+                    else:
+                        preamble.append(stripped)
                 if current and ("FAIL" in stripped or "SCRIPT ERROR" in stripped or "ERROR:" in stripped):
                     lines_by.setdefault(current, []).append(stripped)
             rc = proc.wait()
@@ -138,6 +149,14 @@ class Worker:
                 lines_by.setdefault(current, []).append(
                     "  FAIL  STALL: no output for %ds and no CPU use (blocking Godot ALERT?); killed" % STALL)
                 print("[w%d] FAIL %s (stall)" % (self.idx, current), flush=True)
+            # compile/load errors override a PASS: before the first suite they hit every suite this process ran
+            for suite in suites:
+                errors = (preamble + broken.get(suite, [])) if suite in verdicts else broken.get(suite, [])
+                if errors and verdicts.get(suite, ("", 0))[0] == "PASS":
+                    verdicts[suite] = ("FAIL", verdicts[suite][1])
+                    lines_by.setdefault(suite, []).extend(
+                        ["  FAIL  compile/load error while this suite ran (a PASS here would be false):"] + errors[:10])
+                    print("[w%d] FAIL %s (compile/load error)" % (self.idx, suite), flush=True)
         return verdicts, lines_by, rc
 
 

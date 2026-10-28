@@ -44,6 +44,16 @@ func _run() -> void:
 	var wanted := OS.get_cmdline_user_args()
 	if wanted.is_empty():
 		wanted = SUITES
+	# A broken autoload (parse error) does not stop the run: every later call into it just returns a default, so whole
+	# suites printed PASS in 0.00 s on a project that did not compile. Refuse to run on one.
+	var broken := _broken_autoloads()
+	if not broken.is_empty():
+		for line in broken:
+			print("  FAIL  %s" % line)
+		print("  FAIL  the project does not load cleanly; no suite can be trusted, so none ran")
+		push_error("broken autoloads: %s" % ", ".join(broken))
+		get_tree().quit(1)
+		return
 	var failures := 0
 	for name in wanted:
 		# a suite name, or a res:// path (the runner self-test points at a broken fixture this way)
@@ -92,3 +102,21 @@ func _run() -> void:
 	else:
 		print("all checks OK")
 	get_tree().quit(1 if failures > 0 else 0)
+
+
+func _broken_autoloads() -> PackedStringArray:
+	var problems := PackedStringArray()
+	for property in ProjectSettings.get_property_list():
+		var key := String(property.get("name", ""))
+		if not key.begins_with("autoload/"):
+			continue
+		var autoload_name := key.trim_prefix("autoload/")
+		var path := String(ProjectSettings.get_setting(key)).trim_prefix("*")
+		if path.ends_with(".gd"):
+			var script := load(path) as GDScript
+			if script == null or not script.can_instantiate():
+				problems.append("autoload %s (%s) did not compile" % [autoload_name, path])
+				continue
+		if get_tree().root.get_node_or_null(NodePath(autoload_name)) == null:
+			problems.append("autoload %s (%s) is missing from the tree" % [autoload_name, path])
+	return problems
