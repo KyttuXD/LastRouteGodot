@@ -1024,6 +1024,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var hold_yaw_offset := NAN
 	var opened_doors := {}
 	var doors_opened := 0
+	var door_beats: Array = []
 	var door_clip_frames := 0
 	var blocked_frames := 0
 	var inside_frames := 0
@@ -1049,8 +1050,10 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 			var door := _closed_door_ahead(scene, player.active_camera(), opened_doors)
 			if door != null:
 				opened_doors[door.get_instance_id()] = true
-				played += await _door_beat(tree, player, door, track.yaw[i], track.pitch[i])
+				var beat := await _door_beat(tree, player, door, track.yaw[i], track.pitch[i])
+				played += int(beat["frames"])
 				doors_opened += 1
+				door_beats.append({"visible_s": snappedf(float(beat["visible_frames"]) / float(fps), .1), "progress": beat["progress"], "swing_s": snappedf(float(beat["swing_frames"]) / float(fps), .1)})
 		if mode == 2:
 			if is_nan(hold_yaw_offset):
 				hold_yaw_offset = player._yaw - track.yaw[i]
@@ -1068,8 +1071,8 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 					frames += 1
 			var feet := player.global_position
 			var motion := Vector3(p.x - feet.x, 0.0, p.z - feet.z)
-			if motion.length() > .3:
-				motion = motion.normalized() * .3
+			if motion.length() > .12:
+				motion = motion.normalized() * .12
 			var hit := player.move_and_collide(motion)
 			if hit != null:
 				var rest := hit.get_remainder().slide(hit.get_normal())
@@ -1169,6 +1172,7 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	info["inside_geometry_s"] = snappedf(float(inside_frames) / float(fps), .2)
 	info["blocked_s"] = snappedf(float(blocked_frames) / float(fps), .2)
 	info["doors_opened"] = doors_opened
+	info["door_beats"] = door_beats
 	info["door_clip_s"] = snappedf(float(door_clip_frames) / float(fps), .2)
 	info["clip_frames_actual"] = Engine.get_frames_drawn() - clip_start_frame
 	info["fps"] = fps
@@ -1209,25 +1213,75 @@ static func _closed_door_ahead(scene: Node, camera: Camera3D, done: Dictionary) 
 	return null
 
 
-## The camera stops, turns to the door and opens it through the game's own door interaction (activate(): the hinged leaf swings, Sound.door plays).
-## Returns the frames used.
-static func _door_beat(tree: SceneTree, player: PlayerController3D, door: RouteInteractable3D, resume_yaw: float, resume_pitch: float) -> int:
+## The camera walks to a standing point 1.5 m in front of the door, square to the leaf and centred on the opening (on the side it came from), looks at
+## the door at handle height, opens it through the game's own door interaction (activate()), holds until the leaf is ~80% open with the swing in
+## frame, then resumes the tour. Returns {"frames", "visible_frames", "swing_frames", "progress"}.
+static func _door_beat(tree: SceneTree, player: PlayerController3D, door: RouteInteractable3D, resume_yaw: float, resume_pitch: float) -> Dictionary:
 	var count := 0
-	var to_door := door.interaction_focus() - player.global_position
-	var aim_yaw := yaw_for(to_door.x, to_door.z)
+	var camera := player.active_camera()
+	var focus := door.interaction_focus()
+	var normal := door.global_basis.z
+	normal.y = 0.0
+	normal = normal.normalized()
+	if (player.global_position - focus).dot(normal) < 0.0:
+		normal = -normal
+	var stand := Vector3(focus.x + normal.x * 1.5, player.global_position.y, focus.z + normal.z * 1.5)
+	var face_yaw := yaw_for(-normal.x, -normal.z)
 	var start_yaw := player._yaw
-	for k in 24:
-		var e := float(k + 1) / 24.0
+	# 1. walk to the standing point (real collision, slides along the jambs), turning square to the door
+	for k in 60:
+		var feet := player.global_position
+		var motion := Vector3(stand.x - feet.x, 0.0, stand.z - feet.z)
+		if motion.length() > .06:
+			motion = motion.normalized() * .06
+		var hit := player.move_and_collide(motion)
+		if hit != null:
+			var rest := hit.get_remainder().slide(hit.get_normal())
+			rest.y = 0.0
+			player.move_and_collide(rest)
+		var e := minf(float(k + 1) / 30.0, 1.0)
 		e = e * e * (3.0 - 2.0 * e)
-		player._yaw = lerp_angle(start_yaw, aim_yaw, e)
-		player._pitch = lerpf(player._pitch, 0.0, .1)
+		player._yaw = lerp_angle(start_yaw, face_yaw, e)
+		var look_down := atan2(minf(focus.y, 1.4) - camera.global_position.y, 1.5)
+		player._pitch = lerpf(player._pitch, look_down, .12)
 		player._apply_look_rotation()
 		await tree.process_frame
 		count += 1
-	door.activate(player)
-	for _k in 40:
+		if Vector2(stand.x - player.global_position.x, stand.z - player.global_position.z).length() < .08 and k > 30:
+			break
+	for _k in 10:
 		await tree.process_frame
 		count += 1
+	# 2. open it (the player's own interaction) and hold until ~80% open, counting how long the leaf is in frame
+	door.activate(player)
+	var visible_frames := 0
+	var swing_frames := 0
+	var progress := 0.0
+	var viewport := camera.get_viewport().get_visible_rect().size
+	for _k in 100:
+		await tree.process_frame
+		count += 1
+		swing_frames += 1
+		var hinge := door.get("_door_hinge") as Node3D
+		if hinge != null:
+			progress = clampf(1.0 - absf(hinge.rotation.y) / deg_to_rad(68.0), 0.0, 1.0) if door.room_door_open else clampf(absf(hinge.rotation.y) / deg_to_rad(68.0), 0.0, 1.0)
+		var on_screen := true
+		for point in [focus, focus + Vector3(0, .8, 0), focus - Vector3(0, .6, 0)]:
+			if camera.is_position_behind(point):
+				on_screen = false
+				break
+			var projected := camera.unproject_position(point)
+			if projected.x < viewport.x * .08 or projected.x > viewport.x * .92 or projected.y < viewport.y * .05 or projected.y > viewport.y * .95:
+				on_screen = false
+				break
+		if on_screen:
+			visible_frames += 1
+		if progress >= .8 and swing_frames > 8:
+			break
+	for _k in 8:
+		await tree.process_frame
+		count += 1
+	# 3. back to the tour's view
 	var from_yaw := player._yaw
 	for k in 14:
 		var e := float(k + 1) / 14.0
@@ -1236,7 +1290,7 @@ static func _door_beat(tree: SceneTree, player: PlayerController3D, door: RouteI
 		player._apply_look_rotation()
 		await tree.process_frame
 		count += 1
-	return count
+	return {"frames": count, "visible_frames": visible_frames, "swing_frames": swing_frames, "progress": snappedf(progress, .01)}
 
 
 ## Play a REAL ladder climb: the player becomes a normal, collidable runner again, stands on the ladder cell and holds up (or down); the game's own
