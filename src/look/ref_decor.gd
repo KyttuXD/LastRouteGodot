@@ -40,6 +40,12 @@ var _heights := {}
 var _corridor_h := 3.3
 var _room_ids := {}
 var _budget := {}          # room id -> {"lamp": n, "window": n}
+## Rooms whose recipe placed its own ceiling fixture (a fan, a ceiling light, a chandelier prop): the prop owns that
+## ceiling, so the decor adds no chandelier, pendant or strip lamp there -- one fixture family per room.
+var _prop_ceiling_rooms := {}
+var _room_rects := {}        # room id -> interior Rect2i (symmetric sconces)
+## Ceiling points (x, z, ceiling height) of chandeliers that get a mansion ceiling medallion.
+var _medallions: Array = []
 
 
 func _init(root: Node3D, data: Dictionary, room_map: Dictionary,
@@ -54,6 +60,22 @@ func _init(root: Node3D, data: Dictionary, room_map: Dictionary,
 	_room_map = room_map
 	_size = (data["grid"] as Array).size()
 	_salt = hash(String(data.get("chunk_id", "")))
+	for room_value in data.get("rooms", []):
+		_room_rects[String((room_value as Dictionary).get("id", ""))] = (room_value as Dictionary).get("rect", Rect2i())
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if CEILING_FIXTURE_PROPS.has(String(prop.get("type", ""))):
+			var room_id := String(prop.get("room_id", ""))
+			if not room_id.is_empty():
+				_prop_ceiling_rooms[room_id] = true
+			if _region == "mansion":
+				var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+				var offset: Vector2 = prop.get("placement_offset", Vector2.ZERO)
+				_medallions.append(Vector2(cell.x + .5, cell.y + .5) + offset)
+
+
+## Template props that are ceiling fixtures (StreamedRouteGenerator.CEILING_FIXTURE_FAMILY has the families).
+const CEILING_FIXTURE_PROPS := ["ceilingFan", "ceilingLight", "diningChandelier"]
 
 
 ## Builds SLICE_ROWS grid rows; returns true once the whole chunk is done and
@@ -174,42 +196,98 @@ func _room_lamps() -> void:
 	for room_value in _data.get("rooms", []):
 		var room: Dictionary = room_value
 		var rect: Rect2i = room.get("rect", Rect2i())
-		if mini(rect.size.x, rect.size.y) < 4:
-			continue
+		if mini(rect.size.x, rect.size.y) < 4 or bool(room.get("suite_parent", false)):
+			continue    # a suite's parent spans its child rooms; each child lights itself
+		var room_id := String(room.get("id", ""))
 		var cx := rect.position.x + rect.size.x / 2
 		var cz := rect.position.y + rect.size.y / 2
 		var height := _hh(Vector2i(cx, cz))
 		var garden: bool = RefLook.is_glasshouse(_region, String(room.get("room_type", "")))
-		if height > RefLook.TALL_ROOM:
-			_tall_room(rect, height, garden)
-		if garden:
-			_greenery(rect, height, String(room.get("id", "")))
-		if _h(cx, cz, 111, 100) >= _lit_percent(style):
-			continue
-		if not _take(String(room.get("id", "")), "lamp"):
-			continue
-		var world := Vector3(cx + .5, 0, cz + .5)
+		var prop_owned := _prop_ceiling_rooms.has(room_id)
+		var tall := height > RefLook.TALL_ROOM
 		var fancy := _region in ["mansion", "hotel", "apartment", "gothic", "carnival"] \
 			and String(room.get("room_type", "")) not in ["hotel_bathroom", "house_bathroom", "stairwell"]
-		if fancy or (height > RefLook.TALL_ROOM and _region not in ["hospital", "lab"]):
-			_pendant(world, height, cx, cz)
-		else:
-			_ceiling_lamp(world, cx, cz, height)
-		_decal_pool.append(Vector3(world.x, 0, world.z))
+		var pendants := fancy or (tall and _region not in ["hospital", "lab"])
+		# Even fixture layout (docs/LIGHT_SWITCHES.md, KT: "center or even with the room"): a grid centred on the room's
+		# interior, equal margins to every wall, rows along the long axis; one fixture sits at the exact centre.
+		var grid := fixture_grid(rect, PENDANT_SPACING if pendants else STRIP_SPACING)
+		if tall and not prop_owned and not garden:
+			_roof_ribs(rect, height, grid)
+		if garden:
+			_greenery(rect, height, room_id)
+		if prop_owned or not _room_lit(room_id, style):
+			continue
+		for at_value in grid:
+			var at: Vector2 = at_value
+			var world := Vector3(at.x, 0, at.y)
+			var ix := floori(at.x)
+			var iz := floori(at.y)
+			if pendants:
+				# mansion: a lone chandelier in a big room is the grand three-tier one
+				_pendant(world, height, ix, iz, _region == "mansion" and grid.size() == 1 and rect.size.x * rect.size.y >= 150)
+			else:
+				_ceiling_lamp(world, ix, iz, height)
+			_decal_pool.append(Vector3(world.x, 0, world.z))
 
 
-## Iron roof ribs across a tall room, and pendant lights on a lattice.
-func _tall_room(rect: Rect2i, height: float, garden: bool = false) -> void:
-	for z in range(rect.position.y + 2, rect.end.y - 1, 6) if not garden else []:
-		var rib := Transform3D(Basis.IDENTITY.scaled(Vector3(float(rect.size.x), 1.0, 1.0)),
-			Vector3(rect.position.x + rect.size.x * .5, height - .22, z + .5))
-		_add("rib", rib)
-	for z in range(rect.position.y + 3, rect.end.y - 2, 7):
-		for x in range(rect.position.x + 3, rect.end.x - 2, 7):
-			if x == rect.position.x + rect.size.x / 2 and z == rect.position.y + rect.size.y / 2:
-				continue
-			if _h(x, z, 113, 3) != 0:
-				_pendant(Vector3(x + .5, 0, z + .5), height, x, z)
+const PENDANT_SPACING := 7.0
+const STRIP_SPACING := 5.0
+
+
+## Fixture centres for a room: n = round(length / spacing) per axis (at least one), each at the middle of its equal
+## share of the interior, so the layout is symmetric about the room centre with equal margins to opposite walls.
+static func fixture_grid(rect: Rect2i, spacing: float) -> Array:
+	var out := []
+	for z in even_positions(float(rect.position.y), float(rect.size.y), spacing):
+		for x in even_positions(float(rect.position.x), float(rect.size.x), spacing):
+			out.append(Vector2(x, z))
+	return out
+
+
+static func even_positions(start: float, length: float, spacing: float) -> Array:
+	var count := maxi(1, roundi(length / spacing))
+	var out := []
+	for i in count:
+		out.append(start + length * (float(i) + .5) / float(count))
+	return out
+
+
+## The exact along-wall position of a sconce on this wall cell, or NAN: positions are evenly spaced over the room's
+## interior length (even_positions with the region's spacing), shared by both walls of the pair.
+func _sconce_spot(room_id: String, d: Vector2i, along: int, spacing: int) -> float:
+	if not _room_rects.has(room_id):
+		return NAN
+	var rect: Rect2i = _room_rects[room_id]
+	var start := float(rect.position.x if d.y != 0 else rect.position.y)
+	var length := float(rect.size.x if d.y != 0 else rect.size.y)
+	for p_value in even_positions(start, length, float(maxi(spacing, 6))):
+		if floori(float(p_value)) == along:
+			return float(p_value)
+	return NAN
+
+
+## Whether a room's lights are on in this region's lit share (one decision per room, not per cell).
+func _room_lit(room_id: String, style: Dictionary) -> bool:
+	return room_id == "" or absi(hash(room_id + ":lit")) % 100 < _lit_percent(style)
+
+
+## Iron roof ribs across a tall room, on the lines halfway between pendant rows (never through a pendant's chain);
+## with one row, at the thirds.
+func _roof_ribs(rect: Rect2i, height: float, grid: Array) -> void:
+	var rows := {}
+	for at_value in grid:
+		rows[snappedf((at_value as Vector2).y, .01)] = true
+	var zs: Array = rows.keys()
+	zs.sort()
+	var lines := []
+	if zs.size() <= 1:
+		lines = [rect.position.y + rect.size.y / 3.0, rect.position.y + rect.size.y * 2.0 / 3.0]
+	else:
+		for i in range(1, zs.size()):
+			lines.append((float(zs[i - 1]) + float(zs[i])) * .5)
+	for z in lines:
+		_add("rib", Transform3D(Basis.IDENTITY.scaled(Vector3(float(rect.size.x), 1.0, 1.0)),
+			Vector3(rect.position.x + rect.size.x * .5, height - .22, float(z))))
 
 
 ## The greenhouse: a vaulted iron roof (arched ribs and purlins), foliage canopy and hanging
@@ -288,10 +366,10 @@ func _greenery(rect: Rect2i, height: float, room_id: String) -> void:
 
 ## A chandelier hung on a chain. Short chain in ordinary rooms; in tall rooms it
 ## hangs well below the roof so its light actually reaches the floor.
-func _pendant(world: Vector3, height: float, x: int, z: int) -> void:
+func _pendant(world: Vector3, height: float, x: int, z: int, grand: bool = false) -> void:
 	# The mesh hangs from its hook (origin) down about `total` metres; tall rooms get the big
 	# three-tier one on a long chain, ordinary rooms a two-tier one close to the ceiling.
-	var tall := height > RefLook.TALL_ROOM
+	var tall := height > RefLook.TALL_ROOM or grand
 	var total := 1.6 if tall else 1.05
 	var bottom := 3.0 if tall else maxf(2.3, height - 1.35)
 	var hook_y := minf(bottom + total, height)
@@ -301,8 +379,10 @@ func _pendant(world: Vector3, height: float, x: int, z: int) -> void:
 	if chain > .2:
 		_add("chain", Transform3D(Basis.IDENTITY.scaled(Vector3(1, chain, 1)),
 			Vector3(world.x, hook_y + chain * .5, world.z)))
+	if _region == "mansion":
+		_medallions.append(Vector2(world.x, world.z))
 	var pos := Vector3(world.x, hook_y - total * .62, world.z)
-	lamps.append([_root.position + pos, RefLook.AMBER_SOFT,
+	lamps.append([_root.position + pos, _lamp_color(true),
 		2.6 if tall else 1.6, 1, 16.0 if tall else 9.0])
 	_halo.append(pos)
 
@@ -356,7 +436,10 @@ func _style() -> Dictionary:
 ## Per-region fixture recipe: which lamp family, how dense, which wall extras.
 const STYLE := {
 	"maze": {"lamp": "ceiling", "wall_lamp": 11, "teal": 9, "pipe": 3, "cable": 20, "frame": 0, "lit_rooms": .8},
-	"mansion": {"lamp": "sconce", "wall_lamp": 6, "teal": 22, "pipe": 8, "cable": 40, "frame": 7, "lit_rooms": .9},
+	# luxury (docs/MANSION_LUXURY.md): every room lit, sconces at the closest spacing, warm candle-gold light, crown
+	# moulding and coffered ceilings in the rooms
+	"mansion": {"lamp": "sconce", "wall_lamp": 6, "teal": 22, "pipe": 99, "cable": 99, "frame": 7, "lit_rooms": 1.0,
+		"tint": Color("ffc27a"), "stutter": 0, "luxury": true},
 	"hotel": {"lamp": "sconce", "wall_lamp": 5, "teal": 14, "pipe": 8, "cable": 40, "frame": 6, "lit_rooms": .9},
 	"apartment": {"lamp": "sconce", "wall_lamp": 7, "teal": 20, "pipe": 6, "cable": 30, "frame": 8, "lit_rooms": .85},
 	"beach": {"lamp": "lantern", "wall_lamp": 3, "teal": 28, "pipe": 99, "cable": 99, "frame": 0, "lit_rooms": .9},
@@ -402,6 +485,8 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 		var lit_room := rt == "" or _h(x + d.x, z + d.y, 91, 100) < _lit_percent(style)
 		var spacing: int = maxi(int(style["wall_lamp"]), 6)
 		var rid := _room_id_at(Vector2i(x + d.x, z + d.y))
+		if rid != "":
+			lit_room = _room_lit(rid, style)    # one decision per room keeps its sconces symmetric
 		var wants_lamp := false
 		if lit_room and int(style["wall_lamp"]) < 90:
 			if rid == "":
@@ -409,8 +494,14 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 				wants_lamp = (along + _h(0, line, 5, 12)) % 12 == 0 and (along / 12 + line) % 2 == 0 \
 					and _corridor_lit(x + d.x, z + d.y)
 			else:
-				wants_lamp = (along + line * 3 + _h(0, line, 5, spacing)) % spacing == 0 \
-					and _take(rid, "lamp")
+				# rooms: sconces evenly spaced along each wall, at the same places on opposite walls (symmetric pairs)
+				var spot := _sconce_spot(rid, d, along, spacing)
+				if not is_nan(spot):
+					wants_lamp = _room_lit(rid, style)
+					if d.y != 0:
+						base.x = spot
+					else:
+						base.z = spot
 		if wants_lamp:
 			_wall_lamp(base, n, String(style["lamp"]) if String(style["lamp"]) != "ceiling" else "sconce_short", x, z)
 		elif int(style["teal"]) < 90 and _h(x, z, 21 + d.x * 3 + d.y, int(style["teal"]) * 3) == 0:
@@ -421,6 +512,8 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 			_add("frame%d" % frame_variant, Transform3D(_facing_basis(n),
 				base + Vector3(0, 1.75, 0) + n * .03))
 		var face_height := _hh(Vector2i(x + d.x, z + d.y))
+		if bool(style.get("luxury", false)) and rid != "":
+			_add("crown", Transform3D(_facing_basis(n), base + Vector3(0, face_height - .09, 0) + n * .05))
 		var tiers := RefLook.wall_tiers(face_height)
 		var tier_height := face_height / tiers
 		# windows only in a few room kinds, 1-2 per room, never in corridors or the greenhouse (outside is a void)
@@ -496,15 +589,20 @@ func _wants_window(room_type: String) -> bool:
 
 func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 	var rt: String = _room_map.get(Vector2i(x, z), "")
+	if bool(style.get("luxury", false)) and _room_id_at(Vector2i(x, z)) != "":
+		# coffered ceiling: a beam grid every two cells, both ways
+		var ceiling := _hh(Vector2i(x, z))
+		if x % 2 == 0:
+			_add("coffer", Transform3D(Basis(Vector3.UP, PI * .5), Vector3(x, ceiling - .06, z + .5)))
+		if z % 2 == 0:
+			_add("coffer", Transform3D(Basis.IDENTITY, Vector3(x + .5, ceiling - .06, z)))
 	var lit_room := _h(x, z, 77, 100) < _lit_percent(style)
 	var world := Vector3(x + .5, 0, z + .5)
 	if String(style["lamp"]) == "ceiling":
 		var rid := _room_id_at(Vector2i(x, z))
 		# lamps sit on a lattice inside rooms (budgeted) and every ten metres down halls
 		if rid != "":
-			if x % 5 == 2 and z % 5 == 2 and _lit_block(x, z, style) \
-					and _hh(Vector2i(x, z)) <= RefLook.TALL_ROOM and _take(rid, "lamp"):
-				_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)))
+			pass    # rooms: the even grid in _room_lamps
 		elif _is_corridor_mid(grid, x, z) and (x + z) % 12 == 0 and _corridor_lit(x, z):
 			_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)))
 	# (sconce regions light their corridors from the walls only)
@@ -634,6 +732,10 @@ func _lamp_flicker(base: int, x: int, z: int) -> int:
 
 
 func _flush() -> void:
+	for at_value in _medallions:
+		var at: Vector2 = at_value
+		_add("medallion", Transform3D(Basis.IDENTITY, Vector3(at.x, _hh(Vector2i(floori(at.x), floori(at.y))) - .025, at.y)))
+	_medallions.clear()
 	for key in _transforms:
 		var list: Array = _transforms[key]
 		if list.is_empty():
@@ -724,6 +826,16 @@ static func mesh_for(key: String) -> Mesh:
 		"rib": mesh = _merge([["iron", _box(Vector3(1.0, .3, .3)), _t(0, 0, 0)],
 			["brass", _box(Vector3(1.0, .05, .34)), _t(0, -.17, 0)]])
 		"chain": mesh = _build_chain()
+		# mansion ceilings (docs/MANSION_LUXURY.md)
+		"crown": mesh = _merge([["plaster", _box(Vector3(1.0, .18, .1)), Transform3D.IDENTITY],
+			["plaster", _box(Vector3(1.0, .06, .16)), _t(0, .06, .03)],
+			["brass", _box(Vector3(1.0, .03, .12)), _t(0, -.1, .01)]])
+		"coffer": mesh = _merge([["plaster", _box(Vector3(1.0, .12, .12)), Transform3D.IDENTITY],
+			["brass", _box(Vector3(1.0, .02, .14)), _t(0, -.065, 0)]])
+		"medallion": mesh = _merge([["plaster", _box(Vector3(1.1, .05, 1.1)), Transform3D.IDENTITY],
+			["plaster", _box(Vector3(.78, .08, .78)), _t(0, -.03, 0)],
+			["brass", _box(Vector3(.5, .1, .5)), _t(0, -.05, 0)],
+			["brass", _box(Vector3(.2, .14, .2)), _t(0, -.08, 0)]])
 		"pool": mesh = _build_decal(3.4, "pool")
 		"streak": mesh = _build_decal(2.0, "streak")
 		"halo": mesh = _build_halo(1.1)
@@ -771,6 +883,11 @@ static func material(key: String) -> Material:
 			s.emission = Color(1.0, .52, .13)
 			s.emission_energy_multiplier = 1.15 * RefLook.BULB_EMISSION_SCALE
 			s.roughness = .3
+			m = s
+		"plaster":
+			var s := StandardMaterial3D.new()
+			s.albedo_color = Color("b9a88a")
+			s.roughness = 1.0
 			m = s
 		"stone":
 			var s := StandardMaterial3D.new()

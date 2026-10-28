@@ -200,6 +200,7 @@ func _ready() -> void:
 	facility.pickup_claimed.connect(_on_pickup_claimed)
 	facility.pickup_requester = _request_streamed_pickup
 	facility.door_requester = _request_streamed_door
+	facility.room_light_requester = _request_room_light
 	if not pending_payload.is_empty():
 		_loaded_from_save = _adopt_route_save_before_stream(pending_payload)
 	facility.begin(str(RoomState.run_seed()), player, world_state)
@@ -402,6 +403,7 @@ func _process(delta: float) -> void:
 			_collect_hunter_report()
 			_remotes.broadcast_hunters(_hunter_report)
 	_update_hunter_audio(delta, data)
+	_update_player_sleep(delta)
 	hud.set_interaction_prompt(player.get_interaction_prompt())
 	_update_hud()
 
@@ -2585,6 +2587,16 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 				view.brain.has_last_known = true
 				view.brain.last_known = center
 		_operate_hunter_room_door(view, level)
+		# naps (docs/REST_AND_SLEEP.md): a yawning or sleeping hunter is owned by the nap, not the brain
+		if _naps.update(entity_id, view.brain, navigation, target, delta, _nap_rng.randf(), RoomState.difficulty_id()):
+			view.target_peer_id = 0
+			view.set_look_target(null)
+			view.sync_from_brain()
+			var bed := _naps.bed_of(entity_id)
+			view.set_asleep(_naps.is_asleep(entity_id), float(bed.get("yaw", 0.0)), _naps.stage_of(entity_id))
+			_store_hunter(entity_id, view)
+			continue
+		view.set_asleep(false)
 		var captured := false
 		if not target.is_empty():
 			view.target_peer_id = int(target.get("peer_id", 1))
@@ -2618,6 +2630,8 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 			breach_rooms[room_id] = entry
 		if not captured and not target.is_empty():
 			_update_hide_check(entity_id, view, target, navigation, delta)
+		if not captured:
+			_hunter_flips_light(entity_id, view, delta)
 		if captured:
 			_capture_target(view, target)
 	_update_safe_room_breaches(delta, breach_rooms)
@@ -2772,6 +2786,37 @@ static func _ladder_yaw(link: Dictionary) -> float:
 ## hunter logic; the result reaches the hider as a player event and the tell as a stream event.
 var _hide_checks := {}
 var _hide_check_cooldowns := {}
+
+
+var _naps := HunterNaps.new()
+var _nap_rng := RandomNumberGenerator.new()
+var _snore_cooldowns := {}
+
+
+## Runner sleep each frame (docs/REST_AND_SLEEP.md): co-op has no accidental sleep; while asleep the nearest hunter stirs
+## or wakes you; sleeping hunters near you snore (every peer, from the replicated asleep flag).
+func _update_player_sleep(delta: float) -> void:
+	player.accidental_sleep_enabled = not RoomState.online
+	var nearest := INF
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view == null or not is_instance_valid(view) or view.brain == null or not view.brain.active:
+			continue
+		var distance := view.global_position.distance_to(player.global_position)
+		if view.is_asleep():
+			var key := view.get_instance_id()
+			_snore_cooldowns[key] = float(_snore_cooldowns.get(key, 0.0)) - delta
+			if distance < 14.0 and float(_snore_cooldowns[key]) <= 0.0:
+				_snore_cooldowns[key] = 2.6
+				# the wake-meter cues: stirring, then turned over, then the snore stops (she is about to wake)
+				match view.sleep_stage():
+					0: Sound.hunter_snore(0.0, clampf(1.0 - distance / 14.0, .2, 1.0))
+					1, 2: Sound.sleep_stir(0.0, clampf(1.0 - distance / 14.0, .2, 1.0))
+			continue
+		nearest = minf(nearest, distance)
+	var note := player.sleep_disturb(nearest, delta)
+	if not note.is_empty():
+		hud.show_message(note)
 
 
 func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionary,
@@ -3196,12 +3241,17 @@ func _capture_target(view: HunterView3D, target: Dictionary) -> void:
 		or String(identity.get("category", "az")) == "void"
 	var inescapable := is_void or (view.brain.gimmick != null \
 		and view.brain.gimmick.capture_is_inescapable())
+	# a hunter who woke up in your room seconds ago grabs you outright (docs/REST_AND_SLEEP.md)
+	var reason := ""
+	if _naps.instant_catch(String(view.get_meta("streamed_entity_id", ""))):
+		inescapable = true
+		reason = HunterNaps.WOKE_GRAB_REASON
 	view.brain.calm_reset(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 	view.sync_from_brain()
 	_remotes.send_player_event(int(target.get("peer_id", 1)), {
 		"what": "capture", "streamed": true,
 		"entity_id": String(view.get_meta("streamed_entity_id", "")),
-		"hunter_id": hunter_id, "inescapable": inescapable})
+		"hunter_id": hunter_id, "inescapable": inescapable, "reason": reason})
 
 
 func _checkpoint_world_position() -> Vector3:
@@ -3385,6 +3435,43 @@ func _request_streamed_door(_requesting_player: PlayerController3D,
 		event)
 	return ""
 
+## Room light switch (docs/LIGHT_SWITCHES.md): host-authoritative like doors. The host applies and relays; a guest asks.
+func _request_room_light(on: bool, room_id: String) -> String:
+	Sound.light_switch()
+	var event := {"what": "stream_room_light", "room_id": room_id, "on": on}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_publish_stream_event(event)
+	return "ROOM LIGHT %s" % ("ON" if on else "OFF")
+
+
+## Hunters at a switch (host): Nyxie puts the lights out; the others, searching or investigating, put them on.
+var _switch_cooldowns := {}
+
+
+func _hunter_flips_light(entity_id: String, view: HunterView3D, delta: float) -> void:
+	for room_id in _switch_cooldowns.keys():
+		_switch_cooldowns[room_id] = float(_switch_cooldowns[room_id]) - delta
+	var brain := view.brain
+	var nyxie := brain.hunter_id == "nyxie"
+	if not nyxie and brain.state not in [HunterBrain.State.SEARCH, HunterBrain.State.INVESTIGATE]:
+		return
+	for room_id in facility.lit_rooms():
+		var switch := facility.room_light_switch(String(room_id))
+		if switch == null or float(_switch_cooldowns.get(room_id, 0.0)) > 0.0:
+			continue
+		var at := Vector2(switch.global_position.x, switch.global_position.z)
+		if at.distance_to(brain.position) > 1.6 \
+				or absf(switch.global_position.y - (view.global_position.y + StreamedFacilityView3D.SWITCH_HEIGHT)) > 2.5:
+			continue
+		var on := world_state.room_light_on(String(room_id))
+		if nyxie == on:
+			_switch_cooldowns[room_id] = 15.0
+			_publish_stream_event({"what": "stream_room_light", "room_id": String(room_id), "on": not on, "by": entity_id})
+			return
+
+
 func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 	if not _remotes.simulates():
 		return
@@ -3422,6 +3509,9 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_sabotage(peer_id, event)
 		"stream_door":
 			_accept_stream_door(peer_id, event)
+		"stream_room_light":
+			_publish_stream_event({"what": "stream_room_light", "room_id": String(event.get("room_id", "")),
+				"on": bool(event.get("on", true))})
 		"stream_waypoint":
 			_accept_stream_waypoint(peer_id, event)
 		"ravelle_disarm":
@@ -3830,6 +3920,10 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 				if owner_id == _local_peer_id():
 					_waypoint_feedback(not (waypoint as Dictionary).is_empty())
 				_update_streamed_maps()
+		"stream_room_light":
+			var light_room := String(event.get("room_id", ""))
+			if facility.apply_room_light(light_room, bool(event.get("on", true))) and String(event.get("by", "")) != "":
+				Sound.light_switch()
 		"stream_hide_check":
 			var check_cell: Vector2i = event.get("cell", Vector2i(-1, -1))
 			for spot_value in get_tree().get_nodes_in_group("streamed_hiding_spot"):
@@ -4185,6 +4279,9 @@ func _collect_hunter_report() -> void:
 		state["presentation_y"] = view.position.y
 		state["climbing"] = view.climbing
 		state["climb_yaw"] = view.rotation.y
+		state["asleep"] = _naps.is_asleep(entity_id)
+		state["sleep_yaw"] = float(_naps.bed_of(entity_id).get("yaw", 0.0))
+		state["sleep_stage"] = _naps.stage_of(entity_id)
 		state["gimmick"] = view.brain.gimmick.network_state() \
 			if view.brain.gimmick != null else {}
 		state["hard"] = view.brain.hard.network_state() if view.brain.hard != null else {}
@@ -4225,6 +4322,7 @@ func _apply_hunter_report(data: Array) -> void:
 			view.clear_streamed_height_override()
 		view.target_peer_id = int(state.get("target_peer_id", 0))
 		view.set_look_target(state.get("look_target"))
+		view.set_asleep(bool(state.get("asleep", false)), float(state.get("sleep_yaw", 0.0)), int(state.get("sleep_stage", 0)))
 		var gimmick_state = state.get("gimmick", {})
 		if view.brain.gimmick != null and gimmick_state is Dictionary:
 			view.brain.gimmick.apply_network_state(gimmick_state)
@@ -4303,6 +4401,8 @@ func _apply_player_event(event: Dictionary) -> void:
 ## player this chance; void/gimmick-forced grabs skip straight to
 ## _resolve_capture_outcome().
 func _begin_escape_struggle(entity_id: String, hunter_id: String) -> void:
+	if player.asleep:
+		player.wake_from_sleep()
 	_escaping_entity_id = entity_id
 	_escaping_hunter_id = hunter_id
 	Sound.capture()

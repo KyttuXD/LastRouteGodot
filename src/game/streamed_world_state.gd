@@ -20,6 +20,9 @@ var sabotaged_relays := {}
 ## Stable generated door id -> {open, broken}. Closed/unbroken is the
 ## deterministic default and therefore does not need an entry until changed.
 var room_doors := {}
+## Room light switches (docs/LIGHT_SWITCHES.md): room id -> on/off, only rooms someone switched. Others use the seeded
+## default (about one room in four starts dark).
+var room_lights := {}
 ## One waypoint per player (WaypointState); never a shared list.
 var waypoints := WaypointState.new()
 var disabled_hiding := {}
@@ -289,6 +292,23 @@ func hunter_ids_on_level(level: int) -> Array:
 	return result
 
 
+static func default_room_light(room_id: String) -> bool:
+	return absi(hash("%s:ROOM-LIGHT" % room_id)) % 4 != 0
+
+
+func room_light_on(room_id: String) -> bool:
+	return bool(room_lights.get(room_id, default_room_light(room_id)))
+
+
+## Returns true when this changed the state (idempotent for replayed events).
+func set_room_light(room_id: String, on: bool) -> bool:
+	if room_id.is_empty():
+		return false
+	var changed := room_light_on(room_id) != on
+	room_lights[room_id] = on
+	return changed
+
+
 func snapshot() -> Dictionary:
 	return {
 		"schema": SCHEMA,
@@ -303,6 +323,7 @@ func snapshot() -> Dictionary:
 		"waypoints": waypoints.snapshot(),
 		"disabled_hiding": disabled_hiding.duplicate(true),
 		"room_doors": room_doors.duplicate(true),
+		"room_lights": room_lights.duplicate(true),
 	}
 
 
@@ -339,6 +360,8 @@ func adopt(snapshot_data: Dictionary) -> bool:
 		waypoints.adopt_legacy(shared)
 	disabled_hiding = (hiding as Dictionary).duplicate(true)
 	room_doors = (doors as Dictionary).duplicate(true)
+	var lights = snapshot_data.get("room_lights", {})
+	room_lights = (lights as Dictionary).duplicate(true) if lights is Dictionary else {}
 	navigation_revision += 1
 	return true
 
