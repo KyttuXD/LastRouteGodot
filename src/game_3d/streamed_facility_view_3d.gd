@@ -112,6 +112,13 @@ var generator: StreamedRouteGenerator
 var world_state: StreamedWorldState
 var tracked_player: PlayerController3D
 var pickup_requester: Callable
+## Carnival booths (CarnivalBooth3D): requester(player, booth_id, prop_type) -> String starts a game through the host; reporter(event) sends a finished / cancelled game to it.
+var booth_requester: Callable
+var booth_reporter: Callable
+var _booth_nodes := {}
+## the merry-go-round lever: requester(player, ride_id) -> String asks the host to start or stop the ride
+var carousel_requester: Callable
+var _carousel_nodes := {}
 var door_requester: Callable
 
 var _library: MeshLibrary
@@ -133,6 +140,8 @@ var _dormant_data := {}
 ## the current window and parked at once (a level change is then a visibility/physics swap, not a build); levels two
 ## away keep generated data only. Parked chunks are bounded to those sets (at most 2 x 9 here).
 const PREBUILD_LEVEL_RANGE := 1
+## Only links this close to the runner are pre-built (re-checked as the runner moves, see _process).
+const PREBUILD_LINK_RADIUS := 24.0
 ## A parked chunk in the runner's column is kept up to this many levels away. With ramps on -1 and -2 the level
 ## beyond a link is pre-built too (on -1 the ready set is 0 and -2): freeing it on the way back up would rebuild
 ## those nine chunks on every round trip, so parking reaches one level past the pre-build range (at most 3 x 9).
@@ -147,6 +156,7 @@ var _wanted_now := {}
 var _pending_prebuild: Array[Vector3i] = []
 var _pending_data: Array[Vector3i] = []
 var _ready_dirty := false
+var _ready_recheck := 0.0
 var _chunk_data := {}
 var _pickup_nodes := {}
 var _door_nodes := {}
@@ -387,6 +397,13 @@ func _process(_delta: float) -> void:
 		return
 	_refresh_stream(false)
 	_prestream_ladder_destination()
+	_ready_recheck -= _delta
+	if _ready_recheck <= 0.0 and _last_player_chunk.x != 999999:
+		_ready_recheck = .5
+		var ready := _vertical_ready_set(_last_player_chunk)
+		if ready != _ready_set:
+			_ready_set = ready
+			_settle_dormant(_last_player_chunk, _wanted_now)
 	_drain_stream_queue()
 	_collect_taken_pickups()
 	_update_shared_mirror(_delta)
@@ -479,13 +496,14 @@ func _refresh_stream(force: bool) -> void:
 	var t_refresh := Time.get_ticks_usec()
 	_pending_loads.clear()
 	_pending_unloads.clear()
-	if not _active_build.is_empty():
-		var active_coord: Vector3i = _active_build.get("coord", Vector3i.ZERO)
-		if not wanted.has(active_coord):
-			_discard_active_build()
 	_wanted_now = wanted
 	_pending_data.clear()
 	_ready_set = _vertical_ready_set(center)
+	if not _active_build.is_empty():
+		# a chunk still wanted or still to pre-build keeps building (restarting it on every level change wasted the work)
+		var active_coord: Vector3i = _active_build.get("coord", Vector3i.ZERO)
+		if not wanted.has(active_coord) and not _ready_set.has(active_coord):
+			_discard_active_build()
 	_settle_dormant(center, wanted)
 	for coord_value in wanted:
 		var coord: Vector3i = coord_value
@@ -518,6 +536,11 @@ func _refresh_stream(force: bool) -> void:
 					or coord.y == center.y and _distance_to_chunk(coord) < IMMEDIATE_MARGIN:
 				urgent.append(coord)
 		if not urgent.is_empty():
+			if not _active_build.is_empty() and urgent.has(_active_build.get("coord")):
+				while not _advance_chunk_build(_active_build, true):
+					pass
+				_active_build = {}
+				urgent = urgent.filter(func(c: Vector3i) -> bool: return not _loaded.has(c))
 			_discard_active_build()
 			_generate_parallel(urgent)
 			for coord in urgent:
@@ -602,8 +625,10 @@ func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 			_pending_prebuild.append(coord)
 	_pending_prebuild.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 		return _chunk_distance(a, center) < _chunk_distance(b, center))
+	# Data only (no nodes) for the levels around this one: hunter navigation reads them (one level each way), and
+	# without pre-built storeys (phones, the Quest) it used to generate them on the main thread at every chunk crossing.
 	for level in range(center.y - PREDATA_LEVEL_RANGE, center.y + PREDATA_LEVEL_RANGE + 1):
-		if absi(level - center.y) != PREDATA_LEVEL_RANGE:
+		if level == center.y:
 			continue
 		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
@@ -612,10 +637,10 @@ func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 					_pending_data.append(coord)
 
 
-## The other levels a link (ladder, ramp, stairwell ...) in the runner's 3x3 leads to. Generators with
-## vertical_links(coord) (every level) are asked directly; otherwise the sewer's ladders link 0 and -1.
-func _linked_levels(center: Vector3i) -> Array[int]:
-	var out: Array[int] = []
+## Links (ladder, ramp, stairwell ...) in the runner's 3x3. Generators with vertical_links(coord) (every level) are asked
+## directly; otherwise the sewer's ladders link 0 and -1.
+func _nearby_links(center: Vector3i) -> Array:
+	var out := []
 	for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
 		for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
 			var coord := Vector3i(x, center.y, z)
@@ -640,25 +665,54 @@ func _linked_levels(center: Vector3i) -> Array[int]:
 				elif generator.is_chunk_allowed(sewer_coord) and not _pending_data.has(sewer_coord):
 					_pending_data.append(sewer_coord)
 					_ready_dirty = true
+			# The waterfall plunge (-1 -> -2) is a jump, not a LevelLink: pre-build its landing like a link's far end.
+			if center.y in [SewerRouteGenerator.LEVEL, SewerRouteGenerator.LOWER_LEVEL] and generator.has_method("sewer"):
+				var falls: Dictionary = generator.sewer().falls_between(x, z)
+				if not falls.is_empty():
+					var jump: Dictionary = falls["jump"]
+					var land: Vector2 = jump["land"]
+					links = links + [{"from_level": SewerRouteGenerator.LEVEL, "to_level": SewerRouteGenerator.LOWER_LEVEL,
+						"from_cell": jump["cell"], "to_cell": Vector2i(floori(land.x), floori(land.y))}]
 			for link_value in links:
 				var link: Dictionary = link_value
-				for key in ["from_level", "to_level"]:
-					var level := int(link.get(key, center.y))
-					if level != center.y and absi(level - center.y) <= PREBUILD_LEVEL_RANGE and not out.has(level):
-						out.append(level)
+				out.append({"chunk": Vector3i(x, 0, z), "link": link})
 	return out
 
 
+## What gets pre-built on the levels a nearby link reaches: the link's own chunk column plus the chunks within
+## IMMEDIATE_MARGIN of the link cell (what the runner sees on arrival). Pre-building the whole 3x3 kept building
+## the other storey on every chunk crossed while walking (-15 % average FPS in the sewer).
 func _vertical_ready_set(center: Vector3i) -> Dictionary:
 	var out := {}
 	if not PlatformProfile.prebuild_linked_levels:
 		return out   # low-memory phones and Quest: a ladder trip rebuilds the other storey instead of parking it (~30 MB)
-	for level in _linked_levels(center):
-		for z in range(center.z - STREAM_RADIUS, center.z + STREAM_RADIUS + 1):
-			for x in range(center.x - STREAM_RADIUS, center.x + STREAM_RADIUS + 1):
-				var coord := Vector3i(x, level, z)
-				if generator.is_chunk_allowed(coord):
-					out[coord] = true
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	for entry in _nearby_links(center):
+		var link: Dictionary = entry["link"]
+		var column: Vector3i = entry["chunk"]
+		var cell: Vector2i = link.get("from_cell", Vector2i(size / 2, size / 2))
+		var at := Vector2(column.x * size + cell.x + .5, column.z * size + cell.y + .5)
+		if tracked_player != null and Vector2(tracked_player.global_position.x, tracked_player.global_position.z) \
+				.distance_to(at) > PREBUILD_LINK_RADIUS:
+			continue   # a ladder the runner is only passing: walking past it must not build the other storey
+		# both ends: the cell the link leaves from and the cell it lands on (a plunge or drop lands metres away)
+		var landing: Vector2i = link.get("to_cell", cell)
+		var points: Array[Vector2] = [at, Vector2(column.x * size + landing.x + .5, column.z * size + landing.y + .5)]
+		for key in ["from_level", "to_level"]:
+			var level := int(link.get(key, center.y))
+			if level == center.y or absi(level - center.y) > PREBUILD_LEVEL_RANGE:
+				continue
+			for point in points:
+				var home := Vector2i(floori(point.x / size), floori(point.y / size))
+				for dz in range(-1, 2):
+					for dx in range(-1, 2):
+						var coord := Vector3i(home.x + dx, level, home.y + dz)
+						var lo := Vector2(coord.x * size, coord.z * size)
+						var nearest := Vector2(clampf(point.x, lo.x, lo.x + size), clampf(point.y, lo.y, lo.y + size))
+						# inside the runner's 3x3 column only: parked chunks outside it are freed on the next level change
+						if (dx == 0 and dz == 0 or nearest.distance_to(point) < IMMEDIATE_MARGIN) \
+								and _near_column(coord, center) and generator.is_chunk_allowed(coord):
+							out[coord] = true
 	return out
 
 
@@ -885,7 +939,8 @@ func _drain_stream_queue() -> void:
 			and _active_build.is_empty() and _pending_prebuild.is_empty():
 		return
 	# A long queue (after a teleport) gets a little more time per frame so the window fills in seconds, not tens.
-	var budget := minf(STREAM_BUDGET_MS + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(), STREAM_BUDGET_MAX_MS)
+	var budget := minf(PlatformProfile.stream_budget_ms + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(),
+		PlatformProfile.stream_budget_max_ms)
 	_stream_deadline_usec = Time.get_ticks_usec() + int(budget * 1000.0)
 	while true:
 		# Never register new collision and retire an old physics island in the same
@@ -953,7 +1008,10 @@ static func _chunk_distance(a: Vector3i, b: Vector3i) -> int:
 	return absi(a.x - b.x) + absi(a.y - b.y) + absi(a.z - b.z)
 
 
+## Chunks built synchronously in one frame (teleports, the first load, level changes without pre-built chunks).
+var sync_builds := 0
 func _load_chunk(coord: Vector3i) -> void:
+	sync_builds += 1
 	var build := _create_chunk_build(coord)
 	while not _advance_chunk_build(build, true):
 		pass
@@ -1228,6 +1286,8 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	if int(grid_data[z][x]) == 0:
 		var height := _height_in(build, cell)
 		var kind := _ref_floor_kind(build, x, z)
+		if (data.get("crawl_cells", []) as Array).has(cell):
+			kind = "hazard"   # the hazard plate under a sewer crawl-under pipe
 		if bool(build["safe"]):
 			var center := StreamedRouteGenerator.CHUNK_SIZE / 2
 			var edge: int = maxi(abs(x - center), abs(z - center))
@@ -2402,7 +2462,11 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		Vector3(cell.x + .5 + mount_offset.x,
 			prop_y, cell.y + .5 + mount_offset.y),
 		float(prop.get("yaw", 0.0)), prop.get("collider_size", prop.get("blocker_size", Vector3.ONE)),
-		"streamed_region_prop", bool(prop.get("solid", true)), type)
+		"streamed_region_prop", bool(prop.get("solid", true)), type,
+		"%d:%d:%d:%s:%d:%d" % [coord.x, coord.y, coord.z, type, cell.x, cell.y] if CarnivalBooths.is_booth(type) or type == "carouselCenterpiece" else "",
+		float(prop.get("collider_y0", 0.0)))
+	if bool(prop.get("crawl_under", false)) and int(prop.get("crawl_side", 1)) == -1:
+		_add_pipe_drips(parent, Vector3(cell.x + .5, float(prop.get("collider_y0", 1.0)), cell.y + .5), prop)
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:
@@ -2413,6 +2477,34 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		light.omni_range = 4.5
 		parent.add_child(light)
 		LampField.make_budgeted(light)
+
+
+## Water dripping off a sewer crawl-under pipe: a few small blue streaks falling from its underside to the floor.
+func _add_pipe_drips(parent: Node3D, at: Vector3, prop: Dictionary) -> void:
+	var drips := GPUParticles3D.new()
+	drips.name = "PipeDrips"
+	drips.position = at
+	drips.amount = 8
+	drips.lifetime = 0.5
+	drips.visibility_aabb = AABB(Vector3(-2, -1.5, -2), Vector3(4, 2, 4))
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	var step: Vector2i = prop.get("crawl_step", Vector2i(1, 0))
+	process.emission_box_extents = Vector3(0.05, 0.0, 1.4) if step.x != 0 else Vector3(1.4, 0.0, 0.05)
+	process.direction = Vector3.DOWN
+	process.spread = 0.0
+	process.initial_velocity_min = 0.0
+	process.initial_velocity_max = 0.2
+	process.gravity = Vector3(0, -9.8, 0)
+	drips.process_material = process
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.02, 0.07, 0.02)
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.45, 0.65, 0.8)
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mesh.material = material
+	drips.draw_pass_1 = mesh
+	parent.add_child(drips)
 
 
 func _spawn_fixture_light(parent: Node3D, prop_type: String, at: Vector3) -> void:
@@ -2559,10 +2651,102 @@ func room_doors_on_level(level: int) -> Array[RouteInteractable3D]:
 	return result
 
 
+## A playable carnival booth: the animated booth node beside the prop, and the interact prompt and request wired to it.
+func _attach_booth(parent: Node3D, furniture: RouteInteractable3D, booth_id: String, prop_type: String, at: Vector3, yaw: float, blocker_size: Vector3) -> void:
+	var booth := CarnivalBooth3D.new()
+	booth.setup(booth_id, prop_type, blocker_size)
+	booth.position = at
+	booth.rotation.y = yaw
+	booth.reporter = booth_reporter
+	booth.rest_resolver = func() -> float:
+		return world_state.booth_cooldown_left(booth_id, Time.get_unix_time_from_system()) if world_state != null else 0.0
+	parent.add_child(booth)
+	furniture.prompt_resolver = booth.prompt_text
+	if booth_requester.is_valid():
+		furniture.activation_override = booth_requester.bind(booth_id, prop_type)
+	_booth_nodes[booth_id] = booth
+	booth.tree_exited.connect(func() -> void:
+		if _booth_nodes.get(booth_id) == booth:
+			_booth_nodes.erase(booth_id))
+
+
+## The working merry-go-round: the ride node at the prop, its state from the world state, and a lever interactable on its panel.
+func _attach_carousel(parent: Node3D, ride_id: String, at: Vector3) -> CarouselRide3D:
+	var ride := CarouselRide3D.new()
+	ride.state_resolver = func() -> Dictionary:
+		if world_state == null:
+			return {"on": false, "angle": 0.0}
+		var now := Time.get_unix_time_from_system()
+		return {"on": world_state.carousel_on(ride_id), "angle": world_state.carousel_angle(ride_id, now)}
+	ride.setup(ride_id)
+	ride.position = at
+	parent.add_child(ride)
+	if tracked_player != null and not tracked_player.is_in_group("carousel_riders"):
+		tracked_player.add_to_group("carousel_riders")
+	var lever := RouteInteractable3D.new()
+	lever.name = "CarouselLever"
+	lever.kind = RouteInteractable3D.Kind.FURNITURE
+	lever.configure_furniture("play")
+	lever.position = at + ride.lever_point.position + Vector3(0, 0.5, 0)
+	lever.prompt_resolver = ride.prompt_text
+	if carousel_requester.is_valid():
+		lever.activation_override = carousel_requester.bind(ride_id)
+	parent.add_child(lever)
+	_carousel_nodes[ride_id] = ride
+	ride.tree_exited.connect(func() -> void:
+		if _carousel_nodes.get(ride_id) == ride:
+			_carousel_nodes.erase(ride_id))
+	return ride
+
+
+func carousel_node(ride_id: String) -> CarouselRide3D:
+	var node := _carousel_nodes.get(ride_id) as CarouselRide3D
+	return node if node != null and is_instance_valid(node) else null
+
+
+func booth_node(booth_id: String) -> CarnivalBooth3D:
+	var node := _booth_nodes.get(booth_id) as CarnivalBooth3D
+	return node if node != null and is_instance_valid(node) else null
+
+
+## Height of a bed's sleeping surface above the floor: the highest upward face over the middle of the model (the head and
+## foot boards and rails stand at the ends and sides, outside that patch). Cached per model path.
+static var _mattress_tops := {}
+
+
+static func mattress_top(visual: Node3D, path: String) -> float:
+	if _mattress_tops.has(path):
+		return float(_mattress_tops[path])
+	var inverse := visual.global_transform.affine_inverse()
+	var bounds := ModelSlot.combined_local_bounds(visual)
+	var centre := bounds.get_center()
+	var reach := Vector2(bounds.size.x * .2, bounds.size.z * .15)
+	var top := bounds.position.y
+	for mesh_value in visual.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := mesh_value as MeshInstance3D
+		if mesh_node.mesh == null:
+			continue
+		var xf := inverse * mesh_node.global_transform
+		var faces := mesh_node.mesh.get_faces()
+		for i in range(0, faces.size(), 3):
+			var a := xf * faces[i]
+			var b := xf * faces[i + 1]
+			var c := xf * faces[i + 2]
+			var normal := (b - a).cross(c - a)
+			if absf(normal.y) < normal.length() * .9:
+				continue
+			var mid := (a + b + c) / 3.0
+			if absf(mid.x - centre.x) <= reach.x and absf(mid.z - centre.z) <= reach.y:
+				top = maxf(top, mid.y)
+	var height := (top - bounds.position.y) * visual.scale.y
+	_mattress_tops[path] = height
+	return height
+
+
 func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		yaw: float, blocker_size: Vector3,
 		group_name: String = "streamed_prison_prop", solid: bool = true,
-		prop_type: String = "") -> void:
+		prop_type: String = "", booth_id: String = "", collider_y0: float = 0.0) -> void:
 	var visual := ModelSlot.instantiate_prop(path, prop_type)
 	if visual == null:
 		return
@@ -2585,11 +2769,18 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	parent.add_child(visual)
 	if PropModelCatalog.is_empty_frame(prop_type):
 		_add_blank_frame_canvas(visual, prop_type)
+	var carousel_ride: CarouselRide3D = null
 	if prop_type == "carouselCenterpiece":
-		_animated_activity_props.append(visual)
+		if booth_id.is_empty():
+			_animated_activity_props.append(visual)
+		else:
+			visual.visible = false   # the single turning model is replaced by the working ride (CarouselRide3D)
+			carousel_ride = _attach_carousel(parent, booth_id, at)
 	if PropModelCatalog.is_floor_dressing(prop_type):
 		ModelSlot.keep_floor_dressing_visible(visual)
 	var furniture_action := PropModelCatalog.interaction_for(prop_type)
+	if carousel_ride != null:
+		furniture_action = ""   # the lever starts it; nobody sits on a turning ride's centre
 	if furniture_action == "mirror":
 		_spawn_mirror_surface(parent, at, yaw)
 	if not furniture_action.is_empty():
@@ -2598,9 +2789,13 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		furniture.kind = RouteInteractable3D.Kind.FURNITURE
 		furniture.configure_furniture(furniture_action)
 		furniture.set_meta("rest_size", blocker_size)    # PlayerController3D.rest_spot: where the body and eye go
+		if furniture_action == "lay":
+			furniture.set_meta("rest_top", mattress_top(visual, path))
 		furniture.position = at + Vector3.UP * (.48 if furniture_action == "lay" else .03)
 		furniture.rotation.y = yaw
 		parent.add_child(furniture)
+		if furniture_action == "play" and not booth_id.is_empty():
+			_attach_booth(parent, furniture, booth_id, prop_type, at, yaw, blocker_size)
 	if not solid:
 		return
 	var body := StaticBody3D.new()
@@ -2610,6 +2805,9 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 		var collision := CollisionShape3D.new()
 		collision.shape = _shared_box_shape(Vector3(half.x * 2.0, blocker_size.y, half.y * 2.0))
 		collision.position = at + Vector3(local.x, 0.0, local.y).rotated(Vector3.UP, yaw) + Vector3.UP * (blocker_size.y * .5)
+		if collider_y0 > 0.0:
+			# a raised collider (a crawl-under pipe): its underside is collider_y0 above the floor, whatever the visual's origin
+			collision.position.y = collider_y0 + blocker_size.y * .5
 		collision.rotation.y = yaw
 		body.add_child(collision)
 	parent.add_child(body)
@@ -2641,6 +2839,7 @@ func _limit_prop_visibility(visual: Node3D, bounds: AABB, prop_type: String) -> 
 	var range_end := prop_visibility_range(bounds, prop_type) if limit_prop_visibility else 0.0
 	if range_end <= 0.0:
 		return
+	range_end *= PlatformProfile.prop_range_scale   # quality tier: lower tiers stop drawing small props sooner
 	for node in visual.find_children("*", "GeometryInstance3D", true, false):
 		var geometry := node as GeometryInstance3D
 		geometry.visibility_range_end = range_end

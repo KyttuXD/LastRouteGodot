@@ -28,6 +28,16 @@ const MAX_DOTS := 8
 static var pending_menu_action := ""
 ## Tests: called with the game id instead of changing scene.
 static var launch_override := Callable()
+## Tests pin who is signed in: -1 = follow the account, 0 = guest / normal account, 1 = owner or scoped admin.
+static var admin_override := -1
+
+
+## ADMIN is only offered to an owner, a scoped admin or a dev-tools build (Build.tools_enabled); guests, offline players and
+## normal accounts never see the button.
+static func admin_entry_visible() -> bool:
+	if admin_override >= 0:
+		return admin_override == 1
+	return Build.tools_enabled()
 
 var _order: Array = []
 var _cards := {}
@@ -47,9 +57,18 @@ var _dragging := false
 var _toast: Label
 var _signed_in: Label
 var _quit_dialog: Control
+## Draw order of the QUIT question, above every carousel card (card.z_index tops out at 10).
+const QUIT_DIALOG_Z := 50
 
 
 func _ready() -> void:
+	# the update gate: an available update sends the player back to the update screen before the hub is usable
+	if UpdateManager.should_open_progress_screen():
+		UpdateManager.open_update_screen()
+		return
+	UpdateManager.update_available.connect(func(_update: Dictionary) -> void:
+		if is_inside_tree() and UpdateManager.should_open_progress_screen():
+			UpdateManager.open_update_screen())
 	GameRegistry.active_game_id = GameRegistry.DEFAULT_ID
 	MouseLock.release_all()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -131,11 +150,12 @@ func _ready() -> void:
 	footer.add_child(_shared_button("AccountButton", "ACCOUNT", _on_account))
 	footer.add_child(_shared_button("SettingsButton", "SETTINGS", _on_settings))
 	var admin := _shared_button("AdminButton", "ADMIN", _on_admin)
-	admin.disabled = not Backend.admin_owner_authorized()
+	admin.visible = admin_entry_visible()
 	admin.tooltip_text = "Admin tools open inside a run"
 	footer.add_child(admin)
-	# Web builds have no desktop to quit to; the browser tab is the way out.
-	if not OS.has_feature("web"):
+	# Web builds have no desktop to quit to (the browser tab is the way out) and iOS apps may not quit themselves
+	# (the user swipes them away): PlatformProfile.can_quit hides the button there.
+	if PlatformProfile.can_quit():
 		footer.add_child(_shared_button("QuitButton", "QUIT", _ask_quit))
 	_toast = Label.new()
 	_toast.name = "HubToast"
@@ -458,7 +478,7 @@ func _refresh_signed_in() -> void:
 		_signed_in.add_theme_color_override("font_color", Palette.MUTED)
 	var admin_button := find_child("AdminButton", true, false) as Button
 	if admin_button != null:
-		admin_button.disabled = not Backend.admin_owner_authorized()
+		admin_button.visible = admin_entry_visible()   # the row closes up without it (HBox)
 	var account_button := find_child("AccountButton", true, false) as Button
 	if account_button != null:
 		account_button.text = Backend.account_username if Backend.signed_in() else "ACCOUNT"
@@ -561,6 +581,8 @@ func _ask_quit() -> void:
 		return
 	_quit_dialog = Control.new()
 	_quit_dialog.name = "QuitDialog"
+	# Above the carousel: the cards raise themselves with z_index (up to 10) and used to cover the YES / NO box.
+	_quit_dialog.z_index = QUIT_DIALOG_Z
 	_quit_dialog.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_quit_dialog.mouse_filter = Control.MOUSE_FILTER_STOP
 	_quit_dialog.gui_input.connect(func(event: InputEvent) -> void:
@@ -583,7 +605,7 @@ func _ask_quit() -> void:
 	box.add_theme_constant_override("separation", 6)
 	panel.add_child(box)
 	var question := Label.new()
-	question.text = "QUIT TO DESKTOP?"
+	question.text = "QUIT GAME?" if OS.has_feature("mobile") else "QUIT TO DESKTOP?"
 	Palette.style_label(question, Palette.INK, 8)
 	box.add_child(question)
 	var row := HBoxContainer.new()
@@ -591,7 +613,7 @@ func _ask_quit() -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 6)
 	box.add_child(row)
-	var yes := _shared_button("QuitYesButton", "YES", func() -> void: get_tree().quit())
+	var yes := _shared_button("QuitYesButton", "YES", func() -> void: PlatformProfile.quit_app())
 	var no := _shared_button("QuitNoButton", "NO", _close_quit_dialog)
 	row.add_child(yes)
 	row.add_child(no)
@@ -712,4 +734,7 @@ func _on_settings() -> void:
 
 
 func _on_admin() -> void:
-	_toast.text = "ADMIN TOOLS OPEN INSIDE A RUN"
+	if not admin_entry_visible():
+		return
+	if find_child("HubAdminPanel", true, false) == null:
+		add_child(HubAdminPanel.new())

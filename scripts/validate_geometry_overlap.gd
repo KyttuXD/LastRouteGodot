@@ -24,6 +24,7 @@ func _expect(condition: bool, message: String) -> void:
 func run(host: Node) -> int:
 	var findings: Array = []
 	var lr := GeometryAudit.sweep_last_route(SEEDS, PER_BIOME, findings)
+	var sewer := GeometryAudit.sweep_sewers(SEEDS, 4, findings)
 	var offices := await _audit_offices(host, findings)
 	_expect(int(lr["chunks"]) > 20, "only %d Last Route chunks swept" % int(lr["chunks"]))
 	var table := GeometryAudit.counts(findings)

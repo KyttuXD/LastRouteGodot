@@ -76,7 +76,6 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	HardAbilities.reset_director()
 	HardAbilities.enabled = true
-	RoomState.hunter_abilities = true
 
 	# ---- who has what, in which mode
 	for ability in HardAbilities.ROSTER:
@@ -84,6 +83,9 @@ func run(host: Node) -> int:
 			_expect(HunterRoster.PROFILES.has(hunter), "%s lists %s who is not in the roster" % [ability, hunter])
 	for id in ["haelith", "elise", "dovelle", "kathy", "void_red"]:
 		_expect(_brain(id, "relaxed").hard == null, "%s: Relaxed gets no abilities" % id)
+	for id in [0, 1, 2, 3]:
+		_expect(not String(RoomState.DIFFICULTY_BLURBS.get(id, "")).is_empty(), "difficulty %d has a menu blurb" % id)
+	_expect(not "hunter_abilities" in RoomState, "no separate room switch for hunter abilities")
 	_expect(_brain("dovelle", "hard").hard == null, "a hunter without an ability has no component")
 	_expect(_brain("haelith", "standard").hard != null and _brain("haelith", "hard").hard != null and _brain("haelith", "nightmare").hard != null, "Haelith has the pounce on Normal, Hard and Nightmare")
 	_expect(_brain("solyth", "standard").hard == null and _brain("solyth", "hard").hard != null, "Solyth's pounce starts on Hard")
@@ -154,7 +156,7 @@ func run(host: Node) -> int:
 			"link":
 				b.near_link = func(_p: Vector2, _r: float) -> bool: return true
 			"switch":
-				RoomState.hunter_abilities = false
+				HardAbilities.enabled = false
 			"safe":
 				tg["in_safe_zone"] = true
 			"vent":
@@ -166,7 +168,7 @@ func run(host: Node) -> int:
 			if _step(b, f, tg):
 				fired = true
 				break
-		RoomState.hunter_abilities = true
+		HardAbilities.enabled = true
 		_expect(not fired, "no pounce in the '%s' case" % case)
 
 	# ---- bonk: the leap runs into something and she is stunned for a moment

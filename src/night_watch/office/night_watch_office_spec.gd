@@ -22,7 +22,7 @@ var entrances: Array = []
 var required_stations: Array = []
 var has_monitor := true            # false for Bedtime-style offices with no camera monitor
 var mood := {"kind": "warm_lamp", "ambient": Color(0.38, 0.40, 0.55), "lamp": Color(1.0, 0.82, 0.55), "accent": Color(0.96, 0.72, 0.28)}
-var tone_cue := "presence"         # one of NightWatchSounds.CUES, the room tone
+var tone_cue := "presence"         # one of NightWatchSounds.OFFICE_TONES, the room tone
 ## The Night Watch quick-key actions that apply in this office (NightWatchControls names); others are inactive and hidden from the hint line.
 var controls: Array = []
 var references := {}               # {"2d_screenshot": "docs/night_watch_offices/<id>_2d.png", "concept": "..."} for the docs
@@ -60,7 +60,7 @@ func problems() -> Array:
 		seen[String(e.get("id", ""))] = true
 	if not MOODS.has(String(mood.get("kind", ""))):
 		out.append("%s: mood %s unknown" % [id, str(mood.get("kind", ""))])
-	if not NightWatchSounds.CUES.has(tone_cue):
+	if not NightWatchSounds.OFFICE_TONES.has(tone_cue):
 		out.append("%s: tone cue %s is not a shared cue" % [id, tone_cue])
 	if has_monitor and not required_stations.has("monitor"):
 		out.append("%s: has a monitor but does not require the monitor station" % id)

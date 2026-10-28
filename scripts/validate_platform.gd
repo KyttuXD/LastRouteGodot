@@ -17,8 +17,13 @@ func run(host: Node) -> int:
 	# This run is a desktop headless run: the live profile must be the desktop reference.
 	var live := PlatformProfile
 	_expect(not live.is_phone and not live.is_quest, "a desktop run reports a phone or Quest profile")
-	_expect(live.lamp_pool == 8 and live.camera_far == 0.0 and live.prebuild_linked_levels and live.default_pixel_effect_percent < 0.0,
-		"the desktop profile changed a reference budget: %s" % live.summary())
+	# Desktops adapt to their tier (QualityTier); a desktop on ULTRA keeps the reference budgets exactly.
+	var expected := QualityGovernor.degrade(QualityTier.budgets(live.tier, live.specs), live.notch)
+	_expect(live.lamp_pool == int(expected["lamp_pool"]) and live.camera_far == float(expected["camera_far"])
+		and live.default_pixel_effect_percent < 0.0, "the desktop profile does not match its tier: %s" % live.summary())
+	if live.tier == QualityTier.Tier.ULTRA and live.notch == 0:
+		_expect(live.lamp_pool == 8 and live.camera_far == 0.0 and live.prebuild_linked_levels,
+			"an ULTRA desktop changed a reference budget: %s" % live.summary())
 	# The other profiles, built from a fresh instance with the feature checks faked.
 	var phone = _profile({"mobile": true})
 	_expect(phone.is_phone and phone.lamp_pool < 8 and phone.camera_far > 0.0 and phone.default_pixel_effect_percent == 0.0,
@@ -53,6 +58,9 @@ func run(host: Node) -> int:
 			_expect(int(presets.get_value(options, "xr_features/xr_mode", -1)) == 1, "the Quest preset lost OpenXR")
 	_expect(found.has("phone") and found.has("quest") and found.has("iphone"), "missing mobile presets: %s" % [found.keys()])
 	_check_touch_controls(host)
+	_check_quit()
+	_check_player_release_presets()
+	_check_self_update()
 	_check_xr_comfort(host)
 	await _check_xr_route_panel(host)
 	if _failures == 0:
@@ -124,25 +132,24 @@ func _check_xr_route_panel(host: Node) -> void:
 	panel._process(0.0)
 	_expect(quad != null and quad.visible and quad.global_position.z < -0.8 and absf(quad.global_position.x) < 0.01,
 		"the XR route panel did not open in front of the head (%s)" % [quad.global_position if quad != null else "none"])
-	right.global_transform = Transform3D(Basis.IDENTITY, Vector3(0, quad.global_position.y, -0.2))
+	# No tracked controller here, so the head points (XRGaze.pointer_hand): look straight at the panel's middle.
+	camera.global_transform = Transform3D(Basis.IDENTITY, Vector3(0, quad.global_position.y, 0))
 	panel._process(0.0)
 	panel.call("_click", true)
 	await host.get_tree().process_frame
 	panel.call("_click", false)
 	await host.get_tree().process_frame
 	_expect(clicks[0] == 1, "a laser click on the XR route panel did not press the button under it (%d)" % clicks[0])
-	# The right stick scrolls: nothing inside the dead zone, one step past it, then a short wait between steps.
-	var wait := XRMenuPanel.scroll_from_stick(0.2, Vector2(240, 135), 0.0, 0.016)
-	var stepped := XRMenuPanel.scroll_from_stick(-0.9, Vector2(240, 135), 0.0, 0.016)
-	var waiting := XRMenuPanel.scroll_from_stick(-0.9, Vector2(240, 135), stepped, 0.016)
-	_expect(wait == 0.0 and is_equal_approx(stepped, XRMenuPanel.SCROLL_STEP_SECONDS) and waiting < stepped and waiting > 0.0,
-		"the XR panel stick scroll steps wrongly (%s %s %s)" % [wait, stepped, waiting])
 	open[0] = false
 	panel._process(0.0)
 	_expect(not quad.visible, "the XR route panel stays up after the screen closed")
 	route.queue_free()
 	await host.get_tree().process_frame
 	await _check_xr_keyboard(host)
+	await _check_xr_panel_scroll(host)
+	await _check_vr_pose_sync(host)
+	await _check_no_touch_controllers(host)
+	await _check_xr_origin_handover(host)
 
 
 ## The headset keyboard shows while a LineEdit has focus, types into it without taking focus, deletes, submits, and
@@ -178,11 +185,295 @@ func _check_xr_keyboard(host: Node) -> void:
 	await host.get_tree().process_frame
 
 
+## XR panel scrolling (XRPanelScroll): a stick held on either controller scrolls the list in use (here the focused one)
+## down and back up, faster with time; a trigger press that stays inside the dead zone is a click, one that moves
+## drags the list like a finger.
+func _check_xr_panel_scroll(host: Node) -> void:
+	var layer := CanvasLayer.new()
+	host.add_child(layer)
+	var list := ScrollContainer.new()
+	list.position = Vector2(40, 40)
+	list.size = Vector2(200, 120)
+	layer.add_child(list)
+	var column := VBoxContainer.new()
+	column.custom_minimum_size = Vector2(180, 900)
+	list.add_child(column)
+	var row := Button.new()
+	row.text = "ROW"
+	column.add_child(row)
+	await host.get_tree().process_frame
+	await host.get_tree().process_frame
+	row.grab_focus()
+	var root := host.get_tree().root
+	_expect(XRPanelScroll.target_in(root) == list, "the XR panel scroll does not find the list in use")
+	var scroll := XRPanelScroll.new()
+	scroll.stick(root, [Vector2.ZERO, Vector2(0, -1)], 0.25)   # right stick down
+	var first := list.scroll_vertical
+	scroll.stick(root, [Vector2.ZERO, Vector2(0, -1)], 0.25)
+	var second := list.scroll_vertical - first
+	_expect(first > 0 and second > first, "stick down did not scroll the list faster over time (%d then %d)" % [first, second])
+	var before := list.scroll_vertical
+	scroll.stick(root, [Vector2(0, 1), Vector2.ZERO], 0.25)   # left stick up
+	_expect(list.scroll_vertical < before, "the left stick does not scroll back up")
+	scroll.stick(root, [Vector2.ZERO, Vector2.ZERO], 0.1)
+	scroll.press(root, Vector2(120, 100))
+	_expect(not scroll.move(root, Vector2(121, 102)) and not scroll.release(), "a still trigger press is not a click")
+	list.scroll_vertical = 100
+	scroll.press(root, Vector2(120, 100))
+	var dragged := scroll.move(root, Vector2(120, 60))
+	var after_drag := list.scroll_vertical
+	_expect(dragged and scroll.release() and absi(after_drag - 140) <= 1,
+		"dragging up 40 units did not scroll the list down 40 (now %d)" % after_drag)
+	layer.queue_free()
+	await host.get_tree().process_frame
+
+
+## VR bodies in co-op (VRPoseSync): a synthetic VR peer's head and hand poses survive the 43-byte packet within a
+## couple of millimetres, drive a real mannequin (each arm points at its hand, the head pitches with the head), turn
+## the body once the head is turned far, leave a flat peer's body untouched, and stay small per peer.
+func _check_vr_pose_sync(host: Node) -> void:
+	var head := Transform3D(Basis(Vector3.RIGHT, deg_to_rad(-30.0)), Vector3(0.02, 1.36, -0.05))
+	var left := Transform3D(Basis(Vector3.UP, 0.4), Vector3(-0.25, 1.1, -0.45))
+	var right := Transform3D(Basis(Vector3.FORWARD, 0.3), Vector3(0.3, 0.75, -0.2))
+	var packet := VRPoseSync.encode(head, left, right, VRPoseSync.FLAG_LEFT | VRPoseSync.FLAG_RIGHT)
+	_expect(packet.size() == VRPoseSync.PACKET_BYTES and packet.size() * 20 <= 1000,
+		"a VR pose packet is %d bytes (%d bytes/s per peer)" % [packet.size(), packet.size() * 20])
+	var pose := VRPoseSync.decode(packet)
+	_expect(not pose.is_empty(), "a VR pose packet does not decode")
+	if pose.is_empty():
+		return
+	for pair in [[head, "head"], [left, "left"], [right, "right"]]:
+		var sent: Transform3D = pair[0]
+		var got: Transform3D = pose[pair[1]]
+		_expect(sent.origin.distance_to(got.origin) < 0.002
+			and absf(sent.basis.get_rotation_quaternion().dot(got.basis.get_rotation_quaternion())) > 0.9999,
+			"the VR %s pose does not survive the packet (%s vs %s)" % [pair[1], sent, got])
+	_expect(VRPoseSync.decode(PackedByteArray([1, 2, 3])).is_empty() and VRPoseSync.decode(null).is_empty(),
+		"a malformed VR packet decodes")
+	var turned := VRPoseSync.decode(VRPoseSync.encode(Transform3D(Basis(Vector3.UP, deg_to_rad(90.0)), head.origin),
+		left, right, 0))
+	_expect(is_equal_approx(rad_to_deg(VRPoseSync.body_follow(turned)), 40.0) and is_zero_approx(VRPoseSync.body_follow(pose)),
+		"the body does not follow a head turned 90 degrees by 40 (got %.1f)" % rad_to_deg(VRPoseSync.body_follow(turned)))
+	var body := ModelSlot.instantiate(PlayerModels.SCENE)
+	var flat := ModelSlot.instantiate(PlayerModels.SCENE)
+	_expect(body != null and flat != null, "the runner mannequin did not load")
+	if body == null or flat == null:
+		return
+	for model in [body, flat]:
+		model.scale = Vector3.ONE * PlayerModels.SCALE
+		model.rotation.y = 0.7
+		host.add_child(model)
+	await host.get_tree().process_frame
+	var flat_arm := (flat.find_child("L-Arm", true, false) as Node3D).global_transform
+	VRPoseSync.apply(flat, {})
+	_expect(flat_arm.is_equal_approx((flat.find_child("L-Arm", true, false) as Node3D).global_transform),
+		"a flat peer's body moved without VR data")
+	VRPoseSync.apply(body, pose)
+	var yaw := Basis(Vector3.UP, body.global_rotation.y)
+	for side in [["L", left], ["R", right]]:
+		var arm := body.find_child("%s-Arm" % side[0], true, false) as Node3D
+		var hand := body.find_child("%s-Hand" % side[0], true, false) as Node3D
+		var target := body.global_position + yaw * (side[1] as Transform3D).origin
+		var angle := rad_to_deg((hand.global_position - arm.global_position).angle_to(target - arm.global_position))
+		_expect(angle < 4.0, "the remote %s arm points %.1f degrees away from the VR hand" % [side[0], angle])
+	var head_node := body.find_child("Head", true, false) as Node3D
+	var flat_head := flat.find_child("Head", true, false) as Node3D
+	var pitch := rad_to_deg(head_node.global_basis.z.normalized().angle_to(flat_head.global_basis.z.normalized()))
+	_expect(absf(pitch - 30.0) < 3.0, "the remote head turned %.1f degrees for a 30 degree head pitch" % pitch)
+	body.queue_free()
+	flat.queue_free()
+	await host.get_tree().process_frame
+
+
+## Playing without Touch controllers: with no tracked hand the head points (pointer_hand null), dwell clicks a button
+## once after XRGaze.DWELL_SECONDS and moving away resets it, and a gamepad's right stick / look keys turn the player.
+func _check_no_touch_controllers(host: Node) -> void:
+	var left := XRController3D.new()
+	var right := XRController3D.new()
+	_expect(XRGaze.pointer_hand(left, right) == null, "an untracked controller still points at the panels")
+	left.free()
+	right.free()
+	var layer := CanvasLayer.new()
+	host.add_child(layer)
+	var button := Button.new()
+	button.position = Vector2(100, 60)
+	button.size = Vector2(80, 30)
+	layer.add_child(button)
+	var clicks := [0]
+	button.pressed.connect(func() -> void: clicks[0] += 1)
+	await host.get_tree().process_frame
+	var root := host.get_tree().root
+	var centre := Vector2(140, 75)
+	var motion := InputEventMouseMotion.new()
+	motion.position = root.get_final_transform() * centre
+	motion.global_position = motion.position
+	Input.parse_input_event(motion)
+	await host.get_tree().process_frame
+	var gaze := XRGaze.new()
+	var fired := 0
+	for i in 15:   # 1.5 s of steady gaze in 0.1 s steps
+		if gaze.update(root, centre, 0.1):
+			fired += 1
+	_expect(fired == 1, "a steady gaze on a button clicked %d times (once expected)" % fired)
+	_expect(not gaze.update(root, centre + Vector2(30, 0), 0.1) and gaze.progress < 0.1, "moving the gaze does not restart the dwell")
+	layer.queue_free()
+	Input.action_press("look_right")
+	var turn := XRComfort.turn_input(0.2)
+	Input.action_release("look_right")
+	_expect(is_equal_approx(turn, 1.0) and is_equal_approx(XRComfort.turn_input(-0.7), -0.7),
+		"a gamepad / keyboard look does not turn a headset player (%s)" % turn)
+	await host.get_tree().process_frame
+
+
+## Only one XROrigin3D drives the headset: the first in the tree becomes current (the menu panel's). The route's origin
+## must take over when it enters XR (PlayerController3D._try_enter_xr) and the panel's must take back the view after.
+func _check_xr_origin_handover(host: Node) -> void:
+	var menu := XROrigin3D.new()
+	var route := XROrigin3D.new()
+	route.position = Vector3(22.5, 0, 21.5)
+	host.add_child(menu)
+	host.add_child(route)
+	await host.get_tree().process_frame
+	var first_current := menu.current and not route.current
+	route.current = true
+	var route_drives := route.current and not menu.current \
+		and XRServer.world_origin.origin.is_equal_approx(route.global_position)
+	menu.current = true
+	var menu_back := menu.current and not route.current
+	_expect(menu_back and route_drives, "the XR origin hand-over is wrong (route drives %s, menu back %s; first current %s)" % [
+		route_drives, menu_back, first_current])
+	menu.queue_free()
+	route.queue_free()
+	await host.get_tree().process_frame
+
+
 func _xr_player_script() -> GDScript:
 	var script := GDScript.new()
 	script.source_code = "extends Node3D\nvar xr_active := false\nvar xr_origin: Node\nvar xr_camera: Node\nvar xr_left: Node\nvar xr_right: Node\n"
 	script.reload()
 	return script
+
+
+## Phone / Quest self-update (UpdateManager): the platform picks the right channel, the manifest parser accepts only
+## HTTPS or the backend's own files with a real sha256 (and normalises them), a newer commit installs only with a
+## higher build number, and the sha256 the download is checked with matches a known digest.
+func _check_self_update() -> void:
+	var keys := {["android"]: "phone", ["android", "quest", "xr"]: "quest", ["ios"]: "ios", ["web"]: "web",
+		["windows", "xr"]: "steamvr", ["windows"]: "windows", ["macos"]: "macos", []: "linux"}
+	for features in keys:
+		var tags: Array = features
+		var key := UpdateManager.platform_key_for(func(name: String) -> bool: return tags.has(name))
+		_expect(key == keys[features], "features %s pick the update channel %s, not %s" % [features, key, keys[features]])
+	var sha := "a".repeat(64)
+	var good := UpdateManager.parse_manifest(JSON.stringify({"update": {"version": "0.0.1.0", "revision": "ABCDEF1234",
+		"build": 812, "url": "/api/updates/files/KyttusLab-Android-Debug.apk", "sha256": sha.to_upper()}}),
+		"https://lab.test", false)
+	_expect(not good.has("error") and good["url"] == "https://lab.test/api/updates/files/KyttusLab-Android-Debug.apk"
+		and good["revision"] == "abcdef1234" and good["sha256"] == sha and int(good["build"]) == 812,
+		"a valid phone manifest parsed as %s" % [good])
+	var cases := {
+		"not json": "INVALID UPDATE RESPONSE",
+		JSON.stringify({"update": {"url": "http://evil.test/x.apk", "sha256": sha}}): "UNTRUSTED UPDATE RESPONSE",
+		JSON.stringify({"update": {"url": "https://lab.test/x.apk", "sha256": "a".repeat(63)}}): "UNTRUSTED UPDATE RESPONSE",
+		JSON.stringify({"update": {"url": "http://127.0.0.1/x.apk", "sha256": sha}}): "UNTRUSTED UPDATE RESPONSE",
+	}
+	for text in cases:
+		var parsed := UpdateManager.parse_manifest(String(text), "https://lab.test", false)
+		_expect(String(parsed.get("error", "")) == cases[text], "manifest %s parsed as %s" % [text, parsed])
+	var newer := "b".repeat(40)
+	var installed := "c".repeat(40)
+	_expect(UpdateManager.mobile_update_needed(newer, installed, 813, 812), "a newer commit with a higher build does not update")
+	_expect(not UpdateManager.mobile_update_needed(newer, installed, 812, 812), "an equal build number would install (Android refuses it)")
+	_expect(not UpdateManager.mobile_update_needed(newer, installed, 700, 812), "an older build would install")
+	_expect(not UpdateManager.mobile_update_needed(installed, installed, 900, 812), "the same commit would install again")
+	_expect(not UpdateManager.mobile_update_needed("not-a-sha", installed, 900, 812), "an invalid revision would install")
+	var path := "user://self_update_check.bin"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	file.store_string("abc")
+	file.close()
+	_expect(FileAccess.get_sha256(path) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+		"the download checksum does not match a known sha256")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+## Player Release presets (docs/XR_ANDROID.md, "Encrypted player builds"): one per shipped platform, encrypted (PCK and
+## directory), feature "player", internal code excluded; every other preset is "internal". No shipped script or scene
+## may reference an excluded file, or a player build would fail to load it.
+func _check_player_release_presets() -> void:
+	var presets := ConfigFile.new()
+	_expect(presets.load("res://export_presets.cfg") == OK, "export_presets.cfg does not load")
+	var player := {}
+	var excluded := PackedStringArray()
+	for section in presets.get_sections():
+		if section.ends_with(".options") or not presets.has_section_key(section, "name"):
+			continue
+		var name := String(presets.get_value(section, "name"))
+		var features := String(presets.get_value(section, "custom_features", "")).split(",")
+		if name.ends_with("Player Release"):
+			player[name] = true
+			_expect(features.has("player") and not features.has("internal"), "%s is not a player-only build" % name)
+			_expect(bool(presets.get_value(section, "encrypt_pck", false)) and bool(presets.get_value(section, "encrypt_directory", false)),
+				"%s does not encrypt its PCK" % name)
+			excluded = String(presets.get_value(section, "exclude_filter", "")).split(",")
+			_expect(excluded.size() >= 3, "%s excludes no internal code" % name)
+			_expect(int(presets.get_value(section, "script_export_mode", -1)) == 2,
+				"%s does not export GDScript as compressed binary tokens (script_export_mode 2)" % name)
+		else:
+			_expect(features.has("internal"), "%s is not marked internal" % name)
+	# macOS builds are Apple Silicon only unless a preset opts in by name ("... Universal ..."): KT, Intel on request.
+	for section in presets.get_sections():
+		if section.ends_with(".options") or String(presets.get_value(section, "platform", "")) != "macOS":
+			continue
+		var mac_name := String(presets.get_value(section, "name"))
+		var arch := String(presets.get_value(section + ".options", "binary_format/architecture", ""))
+		_expect(arch == ("universal" if mac_name.contains("Universal") else "arm64"),
+			"%s builds %s (macOS is arm64 unless the preset is a Universal opt-in)" % [mac_name, arch])
+	for wanted in ["macOS", "Windows", "Linux", "Android Phone", "Meta Quest", "iPhone"]:
+		_expect(player.has("%s Player Release" % wanted), "missing the %s Player Release preset" % wanted)
+	var offenders := []
+	for path in _shipped_sources("res://src") + _shipped_sources("res://scenes"):
+		if _excluded(path, excluded):
+			continue
+		var text := FileAccess.get_file_as_string(path)
+		for pattern in excluded:
+			var folder := pattern.strip_edges().trim_suffix("*")
+			if folder.ends_with("/") and text.contains("res://" + folder) and path != "res://src/look/perf_log.gd":
+				offenders.append("%s -> %s" % [path, folder])
+	_expect(offenders.is_empty(), "shipped code references excluded files: %s" % [offenders])
+
+
+func _shipped_sources(dir_path: String) -> Array:
+	var found := []
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return found
+	for file in dir.get_files():
+		if file.ends_with(".gd") or file.ends_with(".tscn"):
+			found.append(dir_path.path_join(file))
+	for sub in dir.get_directories():
+		found.append_array(_shipped_sources(dir_path.path_join(sub)))
+	return found
+
+
+func _excluded(path: String, patterns: PackedStringArray) -> bool:
+	for pattern in patterns:
+		if path.trim_prefix("res://").match(pattern.strip_edges()):
+			return true
+	return false
+
+
+## QUIT: hidden on iOS and the web, offered elsewhere (this desktop run included), and the quit path saves before it
+## leaves.
+func _check_quit() -> void:
+	_expect(PlatformProfile.can_quit(), "a desktop run lost its QUIT button")
+	_expect(not PlatformProfile.quit_allowed(true, false) and not PlatformProfile.quit_allowed(false, true)
+		and PlatformProfile.quit_allowed(false, false), "QUIT visibility per platform is wrong")
+	var order: Array = []
+	var on_saved := func() -> void: order.append("saved")
+	PlatformProfile.saves_flushed.connect(on_saved)
+	PlatformProfile.quit_app(func() -> void: order.append("quit"))
+	PlatformProfile.saves_flushed.disconnect(on_saved)
+	_expect(order == ["saved", "quit"], "quitting does not save first: %s" % [order])
 
 
 ## Touch look: a drag across the short side turns LOOK_DEGREES_PER_SHORT_SIDE at speed 1 on any screen (a 2400x1080

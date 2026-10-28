@@ -206,11 +206,15 @@ func _ready() -> void:
 	facility.pickup_requester = _request_streamed_pickup
 	facility.door_requester = _request_streamed_door
 	facility.room_light_requester = _request_room_light
+	facility.booth_requester = _request_booth
+	facility.booth_reporter = _report_booth
+	facility.carousel_requester = _request_carousel
 	if not pending_payload.is_empty():
 		_loaded_from_save = _adopt_route_save_before_stream(pending_payload)
 	facility.begin(str(RoomState.run_seed()), player, world_state)
 	if not _loaded_from_save:
 		player.global_position = facility.spawn_position()
+		_settle_spawn.call_deferred()
 	_statistics_last_position = player.global_position
 	_navigation = StreamedHunterNavigation.new(facility.generator,
 		facility.current_level(), world_state)
@@ -227,8 +231,13 @@ func _ready() -> void:
 	_remotes.player_event.connect(_apply_player_event)
 	_remotes.hunter_event.connect(_apply_hunter_event)
 	_remotes.snapshot_source = _build_stream_snapshot
+	# Respawns and checkpoint returns are the only long jumps a guest makes on one floor (docs/ANTI_CHEAT.md).
+	_remotes.guard.legit_spot = func(at: Vector3, _depth: int) -> bool:
+		return at.distance_to(facility.spawn_position()) < 4.0 or at.distance_to(_checkpoint_world_position()) < 4.0
 	world.add_child(_remotes)
 	_room_chat = RoomChat.attach(self, _remotes)
+	_room_chat.ping_posted.connect(hud.add_map_ping)
+	_room_chat.hunter_aim_provider = _aimed_hunter_mark
 	_room_chat.open_changed.connect(_on_chat_open_changed)
 	if not Backend.admin_ticket_verified.is_connected(_on_admin_ticket_verified):
 		Backend.admin_ticket_verified.connect(_on_admin_ticket_verified)
@@ -327,6 +336,9 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	if not _booth_occupants.is_empty():
+		_tick_booth_occupancy()
+	_tick_carousels(delta)
 	if _void_fx != null:
 		_void_fx.tick(delta)
 	if not _slammed_doors.is_empty() and _remotes.simulates():
@@ -378,17 +390,18 @@ func _process(delta: float) -> void:
 	GameState.depth = -level
 	var data := facility.current_chunk_data()
 	_update_map_discovery(data)
+	if not _discovery_queue.is_empty():
+		_pump_map_discovery()
 	# Story presentation freezes both input and host AI. This preserves the
 	# original dialog/cutscene contract instead of letting a hunter capture a
 	# player while every client's choices are on screen.
 	if _story != null and _story.is_active():
 		player.velocity = Vector3.ZERO
-		_update_hud()
+		_update_hud(_map_due())
 		return
 	_clear_reached_waypoints(level)
 	_update_floor_audio(level)
 	_update_ravelle_traps(get_process_delta_time())
-	_handle_waypoint_input(level)
 	_update_waypoint_hud(level)
 	_update_player_ladder(level)
 	_update_falls_jump(level)
@@ -415,7 +428,7 @@ func _process(delta: float) -> void:
 	_update_hunter_audio(delta, data)
 	_update_player_sleep(delta)
 	hud.set_interaction_prompt(player.get_interaction_prompt())
-	_update_hud()
+	_update_hud(_map_due())
 
 
 func _update_checkpoint(data: Dictionary) -> void:
@@ -469,7 +482,23 @@ func _on_pickup_claimed(entity_id: String) -> void:
 	pass
 
 
-func _update_hud() -> void:
+var _map_update_clock := 0.0
+
+
+## The minimap redraw is the largest steady script cost on a phone or the Quest (~5.7 ms a frame on the Quest 3S):
+## lower quality tiers redraw it at PlatformProfile.map_update_hz from the frame loop instead of every frame.
+func _map_due() -> bool:
+	if PlatformProfile.map_update_hz <= 0.0:
+		return true
+	_map_update_clock -= get_process_delta_time()
+	if _map_update_clock > 0.0:
+		return false
+	_map_update_clock = 1.0 / PlatformProfile.map_update_hz
+	return true
+
+
+## update_map false skips the minimap redraw (the per-frame caller throttles it; see _map_due).
+func _update_hud(update_map: bool = true) -> void:
 	var data := facility.current_chunk_data()
 	var safe := _player_in_intact_safe_room(data)
 	hud.update_infinite_status(GameState.relays_collected,
@@ -483,7 +512,8 @@ func _update_hud() -> void:
 		player.inventory_durability_snapshot(), player.inventory_owned_snapshot(),
 		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot(),
 		player.selected_inventory_slot, player.inventory_slot_durability_snapshot())
-	_update_streamed_maps()
+	if update_map:
+		_update_streamed_maps()
 	_present_afk_void_warning()
 
 
@@ -525,7 +555,7 @@ func _admin_status() -> String:
 	var afk_remaining := maxi(0, ceili(
 		GameConfig.anti_afk_hunter_seconds(RoomState.difficulty_id()) \
 		- _party_afk_seconds))
-	var result := "ROUTE DEBUG\nCHUNK %d:%d:%d  %s\nLOADED %d  DISCOVERED %d  HUNTERS %d\nSAFE %s  CHECKPOINT %s\nPRESSURE %ds  SURGES %d\nMAP REVEAL %s" % [
+	var result := ServerPrivacy.debug_line() + "\nROUTE DEBUG\nCHUNK %d:%d:%d  %s\nLOADED %d  DISCOVERED %d  HUNTERS %d\nSAFE %s  CHECKPOINT %s\nPRESSURE %ds  SURGES %d\nMAP REVEAL %s" % [
 		coord.x, coord.y, coord.z, String(data.get("region", "maze")).to_upper(),
 		facility.loaded_chunk_count(), _discovered_chunks.size(), _hunter_views.size(), safe_text,
 		world_state.active_checkpoint if not world_state.active_checkpoint.is_empty()
@@ -573,6 +603,12 @@ func _infinite_admin_actions() -> Array:
 	return [
 		{"label": "REFRESH ADMIN ROSTER", "action": Backend.admin_roster_refresh,
 			"owner_only": true, "no_debug": true},
+		{"heading": "ROOM CHAT", "label": "ROOM MUTE LAST SPEAKER", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("mute")},
+		{"label": "ROOM UNMUTE EVERYONE", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("unmute")},
+		{"label": "KICK LAST SPEAKER", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_room_chat("kick")},
 		{"heading": "ITEMS", "label": "CREATIVE INVENTORY",
 			"permission": "inventory",
 			"items": PlayerController3D.COLLECTIBLE_ITEMS,
@@ -772,6 +808,28 @@ func _dismiss_gameplay_overlay() -> bool:
 		_room_chat.close()
 		return true
 	return false
+
+
+## How far the runner starts from the starting safe-zone marker post (it has no collider; a headset camera was inside it).
+const SPAWN_MARKER_CLEARANCE := 0.9
+
+## The spawn cell is the first chunk's centre, which a room layout can make a wall junction: once the first stream
+## window's colliders are in the physics space (the floor under the spawn exists; the window builds incrementally),
+## move the runner to the nearest clear cell.
+func _settle_spawn() -> void:
+	for i in 90:
+		await get_tree().physics_frame
+		if not is_instance_valid(player):
+			return
+		var space := player.get_world_3d().direct_space_state
+		var at := player.global_position
+		if not space.intersect_ray(PhysicsRayQueryParameters3D.create(at + Vector3.UP * 0.5, at + Vector3.DOWN * 0.6,
+				player.collision_mask, [player.get_rid()])).is_empty():
+			break
+	if is_instance_valid(player) and not _loaded_from_save:
+		var marker := find_child("StartingSafeZoneMarker", true, false) as Node3D
+		player.global_position = player.clear_spot_near(player.global_position, 4,
+			marker.global_position if marker != null else Vector3.INF, SPAWN_MARKER_CLEARANCE)
 
 
 ## Whether a 2D screen is open over the run (XRRoutePanel shows them in a headset).
@@ -1180,8 +1238,13 @@ func _force_disable_admin_cheats() -> void:
 func _discover_loaded_chunks() -> void:
 	if facility.generator == null:
 		return
+	# Each chunk is read into the map once (2025 cells plus collider boxes: ~4 ms a chunk, so all nine at every crossing
+	# was a 35 ms frame on a level change). New chunks queue and _pump_map_discovery takes one per frame; the map
+	# filters collected pickups at draw time, so a chunk seen before needs no second pass.
 	for coord in facility.loaded_horizontal_coords():
-		_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+		if not _discovered_chunks.has(coord) and not _discovery_queue.has(coord):
+			_discovery_queue.append(coord)
+	_pump_map_discovery()
 	if _admin_reveal_map:
 		var center := facility.current_chunk_coord()
 		for z in range(center.z - 4, center.z + 5):
@@ -1190,6 +1253,19 @@ func _discover_loaded_chunks() -> void:
 				if not facility.generator.is_chunk_allowed(coord):
 					continue
 				_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+
+
+var _discovery_queue: Array[Vector3i] = []
+
+
+## One queued chunk into the map per frame (the one under the runner first, as queued).
+func _pump_map_discovery() -> void:
+	while not _discovery_queue.is_empty():
+		var coord: Vector3i = _discovery_queue.pop_front()
+		if _discovered_chunks.has(coord) or not facility._loaded.has(coord):
+			continue
+		_remember_discovered_chunk(coord, facility.generator.chunk(coord))
+		return
 
 
 func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
@@ -1629,19 +1705,6 @@ func _crosshair_waypoint_target() -> Dictionary:
 
 
 ## The waypoint key: place where you look, or remove the waypoint when you look at it / stand on it. the clear key removes it outright.
-func _handle_waypoint_input(level: int) -> void:
-	if Input.is_action_just_pressed("waypoint_clear"):
-		_clear_local_waypoint()
-		return
-	if not Input.is_action_just_pressed("waypoint"):
-		return
-	var target := _crosshair_waypoint_target()
-	if target.is_empty():
-		hud.show_message("NOWHERE TO PLACE A WAYPOINT")
-		return
-	_place_waypoint_at(target["at"], level)
-
-
 func _update_waypoint_hud(level: int) -> void:
 	if _waypoint_overlay == null:
 		return
@@ -2778,7 +2841,7 @@ func _update_player_ladder(level: int) -> void:
 	var going_down := level == 0
 	if distance <= 1.4 and _ladder_hint_id != link_id:
 		_ladder_hint_id = link_id
-		hud.show_message("[E] LADDER %s // HOLD W / S TO CLIMB" % ("DOWN INTO THE SEWER" if going_down else "UP"))
+		hud.show_message(InputGlyphs.prompt("interact", "LADDER %s" % ("DOWN INTO THE SEWER" if going_down else "UP")))
 	elif distance > 2.0 and _ladder_hint_id == link_id:
 		_ladder_hint_id = ""
 	var wants := distance <= 0.45 or (distance <= 1.4 and Input.is_action_just_pressed("interact"))
@@ -3565,6 +3628,254 @@ func _request_streamed_door(_requesting_player: PlayerController3D,
 		event)
 	return ""
 
+# --- carnival booths (docs/CARNIVAL_BOOTHS.md) ------------------------------------------------------------------------------------------
+## The host judges every booth: one player at a time, the cooldown (kept in the world state, unix time), the result and the prize. A guest only asks (start) and reports (finish / cancel).
+## booth id = "cx:cy:cz:propType:cellX:cellY"; the host re-derives the booth from the generated chunk, so an invented id does nothing.
+
+var _booth_occupants := {}
+
+
+func _request_booth(_requesting_player: PlayerController3D, booth_id: String, prop_type: String) -> String:
+	var booth := facility.booth_node(booth_id)
+	if booth == null:
+		return ""
+	if booth.is_busy() or world_state.booth_cooldown_left(booth_id, Time.get_unix_time_from_system()) > 0.5:
+		Sound.interaction_fail()
+		return booth.prompt_text()
+	var event := {"what": "stream_booth", "action": "start", "booth_id": booth_id, "type": prop_type}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_booth(_local_peer_id(), event)
+	return ""
+
+
+func _report_booth(event: Dictionary) -> void:
+	var out := event.duplicate()
+	out["what"] = "stream_booth"
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(out)
+	else:
+		_accept_booth(_local_peer_id(), out)
+
+
+## {type, center (Vector2 world cell), coord} of a real generated booth, else {}.
+func _booth_info(booth_id: String) -> Dictionary:
+	var parts := booth_id.split(":")
+	if booth_id.length() > 80 or parts.size() != 6 or not parts[0].is_valid_int() or not parts[1].is_valid_int() \
+			or not parts[2].is_valid_int() or not parts[4].is_valid_int() or not parts[5].is_valid_int():
+		return {}
+	var type := String(parts[3])
+	if not CarnivalBooths.is_booth(type):
+		return {}
+	var coord := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+	if absi(coord.x) > 1_000_000 or absi(coord.y) > 1_000_000 or absi(coord.z) > 1_000_000:
+		return {}
+	var cell := Vector2i(int(parts[4]), int(parts[5]))
+	for value in facility.generator.chunk(coord).get("region_props", []):
+		var prop: Dictionary = value
+		if String(prop.get("type", "")) == type and prop.get("cell", Vector2i(-99, -99)) == cell:
+			return {"type": type, "coord": coord,
+				"center": Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5, coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)}
+	return {}
+
+
+func _accept_booth(peer_id: int, event: Dictionary) -> void:
+	var booth_id := String(event.get("booth_id", ""))
+	var info := _booth_info(booth_id)
+	if info.is_empty():
+		return
+	var type := String(info["type"])
+	var now := Time.get_unix_time_from_system()
+	var action := String(event.get("action", ""))
+	if action == "start":
+		if world_state.booth_cooldown_left(booth_id, now) > 0.5 or _booth_occupants.has(booth_id):
+			return
+		var target := _target_state_for_peer(peer_id)
+		var position = target.get("position")
+		if target.is_empty() or not position is Vector2 or -int(target.get("depth", 999999)) != (info["coord"] as Vector3i).y \
+				or (position as Vector2).distance_to(info["center"]) > CarnivalBooths.INTERACT_DISTANCE:
+			return
+		var seed_value := randi()
+		_booth_occupants[booth_id] = {"peer": peer_id, "type": type, "seed": seed_value, "since": now}
+		_publish_stream_event({"what": "stream_booth", "action": "start", "booth_id": booth_id, "type": type, "peer_id": peer_id, "seed": seed_value})
+		return
+	var occupant: Dictionary = _booth_occupants.get(booth_id, {})
+	if occupant.is_empty() or int(occupant["peer"]) != peer_id or action not in ["finish", "cancel"]:
+		return
+	var booth_score := int(event.get("booth_score", 0))
+	var elapsed := float(event.get("elapsed", 0.0))
+	var won := false
+	var cooldown := CarnivalBooths.CANCEL_COOLDOWN
+	if action == "finish" and CarnivalBooths.plausible(type, booth_score, elapsed):
+		won = CarnivalBooths.is_win(type, booth_score)
+		cooldown = CarnivalBooths.cooldown_for(type, won)
+	else:
+		booth_score = 0
+	_booth_occupants.erase(booth_id)
+	_publish_stream_event({"what": "stream_booth", "action": "finish", "booth_id": booth_id, "type": type, "peer_id": peer_id, "booth_score": booth_score,
+		"won": won, "rest_until": now + cooldown, "reward": CarnivalBooths.reward_for(type, int(occupant["seed"])) if won else {}})
+
+
+## Host: a booth whose player left or dropped is freed after the game's length plus a grace.
+func _tick_booth_occupancy() -> void:
+	if RoomState.online and not RoomState.is_host:
+		return
+	var now := Time.get_unix_time_from_system()
+	for booth_id in _booth_occupants.keys():
+		var occupant: Dictionary = _booth_occupants[booth_id]
+		var limit := float(CarnivalBooths.spec(String(occupant["type"])).get("seconds", 30.0)) + CarnivalBooths.OCCUPANCY_GRACE
+		if now - float(occupant["since"]) > limit:
+			_accept_booth(int(occupant["peer"]), {"action": "cancel", "booth_id": booth_id})
+
+
+## Everyone: the start shows the board, the finish rests the booth and, for the winner, pays.
+func _apply_booth_event(event: Dictionary) -> void:
+	var booth_id := String(event.get("booth_id", ""))
+	var booth := facility.booth_node(booth_id)
+	var peer := int(event.get("peer_id", 0))
+	var mine := peer == _local_peer_id()
+	if String(event.get("action", "")) == "start":
+		if booth == null:
+			return
+		if mine:
+			booth.begin_local(player, int(event.get("seed", 0)))
+		else:
+			booth.begin_remote(peer, int(event.get("seed", 0)), player.global_position)
+		return
+	world_state.rest_booth(booth_id, float(event.get("rest_until", 0.0)))
+	var won := bool(event.get("won", false))
+	if booth != null:
+		booth.end_game(won, int(event.get("booth_score", 0)))
+	if won and mine:
+		_pay_booth_reward(event.get("reward", {}))
+
+
+func _pay_booth_reward(reward: Dictionary) -> void:
+	match String(reward.get("kind", "")):
+		"battery", "tool":
+			var item := "battery" if String(reward.get("kind")) == "battery" else String(reward.get("item", "lockpick"))
+			if player.grant_inventory_item(item):
+				hud.show_message("PRIZE // %s" % String(PlayerController3D.INVENTORY_LABELS.get(item, item)).to_upper())
+				Sound.collect()
+			else:
+				hud.show_message("POCKETS FULL // PRIZE LEFT BEHIND")
+		"hint":
+			hud.show_message(_relay_hint())
+
+
+## The strength tester's prize: where the nearest unsecured signal relay is, in words.
+func _relay_hint() -> String:
+	var found := _admin_nearest_relay_position()
+	if found == Vector3.INF:
+		return "THE BELL RINGS ACROSS THE MIDWAY // NO RELAY IN EARSHOT"
+	var to := found - player.global_position
+	var away := Vector2(to.x, to.z)
+	var facing := -player.global_transform.basis.z
+	var angle := rad_to_deg(Vector2(facing.x, facing.z).angle_to(away))
+	var way := "AHEAD"
+	if angle > 135.0 or angle < -135.0:
+		way = "BEHIND YOU"
+	elif angle > 45.0:
+		way = "TO YOUR RIGHT"
+	elif angle < -45.0:
+		way = "TO YOUR LEFT"
+	return "THE BELL CARRIES // A SIGNAL RELAY IS %s, ABOUT %d M" % [way, roundi(away.length())]
+
+
+# --- the merry-go-round (CarouselRide3D) ------------------------------------------------------------------------------------------------
+## The lever asks the host; the host toggles the ride and publishes its angle at that instant; every machine re-bases its own clock to it (StreamedWorldState.carousels), so all show the same angle.
+## A ride nobody is near is stopped by the host after CAROUSEL_IDLE_STOP seconds (CPU, and the music).
+
+const CAROUSEL_IDLE_STOP := 20.0
+const CAROUSEL_NEAR := 32.0
+const CAROUSEL_REACH := 4.6
+var _carousel_idle := {}
+var _carousel_check := 0.0
+
+
+func _request_carousel(_requesting_player: PlayerController3D, ride_id: String) -> String:
+	var event := {"what": "stream_carousel", "carousel_id": ride_id}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_carousel(_local_peer_id(), event)
+	return ""
+
+
+## {center (Vector2 world cell), coord} of a real generated carousel, else {}.
+func _carousel_info(ride_id: String) -> Dictionary:
+	var parts := ride_id.split(":")
+	if ride_id.length() > 80 or parts.size() != 6 or parts[3] != "carouselCenterpiece" or not parts[0].is_valid_int() or not parts[1].is_valid_int() \
+			or not parts[2].is_valid_int() or not parts[4].is_valid_int() or not parts[5].is_valid_int():
+		return {}
+	var coord := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+	if absi(coord.x) > 1_000_000 or absi(coord.y) > 1_000_000 or absi(coord.z) > 1_000_000:
+		return {}
+	var cell := Vector2i(int(parts[4]), int(parts[5]))
+	for value in facility.generator.chunk(coord).get("region_props", []):
+		var prop: Dictionary = value
+		if String(prop.get("type", "")) == "carouselCenterpiece" and prop.get("cell", Vector2i(-99, -99)) == cell:
+			return {"coord": coord, "center": Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5, coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)}
+	return {}
+
+
+func _accept_carousel(peer_id: int, event: Dictionary) -> void:
+	var ride_id := String(event.get("carousel_id", ""))
+	var info := _carousel_info(ride_id)
+	if info.is_empty():
+		return
+	if peer_id != 0:   # peer 0 is the host's own idle stop
+		var target := _target_state_for_peer(peer_id)
+		var position = target.get("position")
+		if target.is_empty() or not position is Vector2 or -int(target.get("depth", 999999)) != (info["coord"] as Vector3i).y \
+				or (position as Vector2).distance_to(info["center"]) > CAROUSEL_REACH + CarouselRide3D.RADIUS:
+			return
+	var now := Time.get_unix_time_from_system()
+	var turn_on := not world_state.carousel_on(ride_id) if peer_id != 0 else false
+	_publish_stream_event({"what": "stream_carousel", "carousel_id": ride_id, "on": turn_on, "angle": world_state.carousel_angle(ride_id, now), "peer_id": peer_id})
+
+
+func _apply_carousel_event(event: Dictionary) -> void:
+	var ride_id := String(event.get("carousel_id", ""))
+	var on := bool(event.get("on", false))
+	world_state.set_carousel(ride_id, on, float(event.get("angle", 0.0)), Time.get_unix_time_from_system())
+	var ride := facility.carousel_node(ride_id)
+	if ride != null:
+		ride._refresh()
+	if int(event.get("peer_id", 0)) == _local_peer_id():
+		Sound.carnival("lever")
+		player.emit_noise_burst(0.8 if on else 0.4, 3.0)
+	_carousel_idle.erase(ride_id)
+
+
+## Host: a ride that runs with nobody near is stopped.
+func _tick_carousels(delta: float) -> void:
+	if RoomState.online and not RoomState.is_host:
+		return
+	_carousel_check -= delta
+	if _carousel_check > 0.0:
+		return
+	_carousel_check = 2.0
+	for ride_id in world_state.carousels.keys():
+		if not world_state.carousel_on(String(ride_id)):
+			continue
+		var info := _carousel_info(String(ride_id))
+		if info.is_empty():
+			continue
+		var near := false
+		for target in _remotes.target_states(_hunter_target(_player_in_intact_safe_room(facility.current_chunk_data()))):
+			var position = target.get("position")
+			if position is Vector2 and -int(target.get("depth", 999999)) == (info["coord"] as Vector3i).y and (position as Vector2).distance_to(info["center"]) < CAROUSEL_NEAR:
+				near = true
+		if near:
+			_carousel_idle.erase(ride_id)
+		else:
+			_carousel_idle[ride_id] = float(_carousel_idle.get(ride_id, 0.0)) + 2.0
+			if float(_carousel_idle[ride_id]) >= CAROUSEL_IDLE_STOP:
+				_accept_carousel(0, {"carousel_id": ride_id})
+
+
 ## Room light switch (docs/LIGHT_SWITCHES.md): host-authoritative like doors. The host applies and relays; a guest asks.
 func _request_room_light(on: bool, room_id: String) -> String:
 	Sound.light_switch()
@@ -3639,6 +3950,10 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_stream_sabotage(peer_id, event)
 		"stream_door":
 			_accept_stream_door(peer_id, event)
+		"stream_booth":
+			_accept_booth(peer_id, event)
+		"stream_carousel":
+			_accept_carousel(peer_id, event)
 		"stream_room_light":
 			_publish_stream_event({"what": "stream_room_light", "room_id": String(event.get("room_id", "")),
 				"on": bool(event.get("on", true))})
@@ -4052,6 +4367,10 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 				if owner_id == _local_peer_id():
 					_waypoint_feedback(not (waypoint as Dictionary).is_empty())
 				_update_streamed_maps()
+		"stream_booth":
+			_apply_booth_event(event)
+		"stream_carousel":
+			_apply_carousel_event(event)
 		"stream_room_light":
 			var light_room := String(event.get("room_id", ""))
 			if facility.apply_room_light(light_room, bool(event.get("on", true))) and String(event.get("by", "")) != "":
@@ -4522,6 +4841,15 @@ func _apply_player_event(event: Dictionary) -> void:
 			var stun_note := String(event.get("message", ""))
 			if not stun_note.is_empty():
 				hud.show_message(stun_note)
+		"anticheat_snap":
+			# RemotePlayers already moved the player back. Lag gets a plain network note, never anti-cheat wording.
+			hud.show_message("CONNECTION UNSTABLE" if bool(event.get("lag", false)) else "POSITION CORRECTED")
+		"troll":
+			player.troll_active = bool(event.get("on", false))
+		"troll_pickup":
+			# The host refused it; it vanishes for this client only.
+			if facility.apply_pickup_claim(String(event.get("entity_id", ""))):
+				hud.show_message("IT SLIPS AWAY")
 		"revive":
 			if player.spectator_mode and not RoomState.is_host:
 				_end_spectating()
@@ -4631,6 +4959,7 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 	if HunterJumpscare.ENABLED:
 		Sound.office_jumpscare(hunter_id)
 	if jumpscare != null:
+		jumpscare.duration_scale = GameConfig.TROLL_SCARE_SCALE if player.troll_active else 1.0
 		await jumpscare.play(player.active_camera(), hunter_id)
 	# The death moment is only an overlay: online the spectator hand-off below happens at once, solo the run card
 	# waits for it so the line is read before the end card.
@@ -5352,3 +5681,50 @@ func _leave_test() -> void:
 		RoomState.session_active = false
 		RoomState.status_message = "ROUTE SUSPENDED // BACK IN STAGING"
 		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+
+
+## Quick chat "HUNTER!": the hunter in front of the crosshair (within 30 m, close to the view direction), as a map mark.
+func _aimed_hunter_mark() -> Dictionary:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return {}
+	var look := -camera.global_basis.z
+	var best := {}
+	var best_dot := 0.97
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view == null or view.brain == null or not view.brain.active or not view.visible:
+			continue
+		var to := view.global_position + Vector3(0, 1.2, 0) - camera.global_position
+		if to.length() > 30.0:
+			continue
+		var dot := look.dot(to.normalized())
+		if dot > best_dot:
+			best_dot = dot
+			best = {"at": view.brain.position, "depth": GameState.depth}
+	return best
+
+
+## Owner/admin room moderation (host): the last guest heard in chat is room-muted (their lines are dropped before relay)
+## or removed from the room.
+func _admin_room_chat(what: String) -> void:
+	if _remotes == null or not RoomState.is_host:
+		hud.show_message("ROOM MODERATION NEEDS THE HOST")
+		return
+	var target := 0
+	for entry_value in RoomChat.history:
+		var entry: Dictionary = entry_value
+		if int(entry.get("peer", 0)) > 1 and not bool(entry.get("system", false)):
+			target = int(entry["peer"])
+	match what:
+		"unmute":
+			_remotes.room_muted.clear()
+			_remotes.send_system("ROOM CHAT UNMUTED")
+		"mute":
+			if target > 1:
+				_remotes.set_room_muted(target, true)
+				_remotes.send_system("%s IS MUTED IN THIS ROOM" % RoomState.peer_display_name(target).to_upper())
+		"kick":
+			if target > 1:
+				_remotes.send_system("%s WAS REMOVED FROM THE ROOM" % RoomState.peer_display_name(target).to_upper())
+				RoomState.kick_peer(target)

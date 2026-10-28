@@ -174,16 +174,14 @@ func _config_block() -> Control:
 	# The route is now the game rather than a selectable experimental mode, so
 	# MODE and MAP SCALE were redundant controls. Difficulty remains the one
 	# meaningful room choice; the freed above-fold space exposes local archives.
-	groups.add_child(_config_group("DIFFICULTY", RoomState.DIFFICULTY_LABELS,
+	var difficulty_group := _config_group("DIFFICULTY", RoomState.DIFFICULTY_LABELS,
 		RoomState.difficulty,
 		func(value: int) -> void: RoomState.set_difficulty(value),
 		func(value: int) -> bool:
-			return RoomState.is_host and RoomState.difficulty_available(value)))
-	# Normal / Hard / Nightmare hunters have extra abilities (HardAbilities); the host can switch them off for the room.
-	groups.add_child(_config_group("HUNTER ABILITIES", {0: "ON", 1: "OFF"},
-		0 if RoomState.hunter_abilities else 1,
-		func(value: int) -> void: RoomState.hunter_abilities = value == 0,
-		func(_value: int) -> bool: return RoomState.is_host))
+			return RoomState.is_host and RoomState.difficulty_available(value),
+		RoomState.DIFFICULTY_BLURBS)
+	difficulty_group.add_child(_label(String(RoomState.DIFFICULTY_BLURBS.get(RoomState.difficulty, "")), Palette.MUTED, 6))
+	groups.add_child(difficulty_group)
 	groups.add_child(_archive_group())
 
 	stack.add_child(_label("SAVE DURING A ROUTE // LOAD FROM STAGING", Palette.MUTED, 6))
@@ -297,24 +295,25 @@ func _format_save_duration(seconds: float) -> String:
 
 
 func _config_group(title: String, labels: Dictionary, selected: int,
-		on_pick: Callable, is_allowed: Callable) -> Control:
+		on_pick: Callable, is_allowed: Callable, tips: Dictionary = {}) -> Control:
 	var group := VBoxContainer.new()
 	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	group.add_theme_constant_override("separation", 2)
 	group.add_child(_label(title, Palette.MUTED, 6))
-	group.add_child(_toggles(labels, selected, on_pick, is_allowed))
+	group.add_child(_toggles(labels, selected, on_pick, is_allowed, tips))
 	return group
 
 
 ## A row of mutually exclusive buttons, amber-filled when selected -- the web
 ## build's quick button groups.
 func _toggles(labels: Dictionary, selected: int, on_pick: Callable,
-		is_allowed: Callable) -> Control:
+		is_allowed: Callable, tips: Dictionary = {}) -> Control:
 	var row := HFlowContainer.new()
 	row.add_theme_constant_override("separation", 3)
 	for value in labels:
 		var button := Button.new()
 		button.text = String(labels[value])
+		button.tooltip_text = String(tips.get(value, ""))
 		button.add_theme_font_size_override("font_size", 7)
 		button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
 		button.focus_mode = Control.FOCUS_ALL
@@ -398,7 +397,7 @@ func _actions() -> Control:
 
 	var leave := Button.new()
 	leave.name = "BackToMenuButton"
-	leave.text = "BACK TO GAMES"
+	leave.text = RoomState.menu_back_label()   # "BACK TO LAST ROUTE": this game's menu, not the games hub
 	leave.add_theme_font_size_override("font_size", 7)
 	leave.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(leave, false)
@@ -513,15 +512,19 @@ func _show_dossier_entry(hunter_id: String) -> void:
 	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
 		return
 	if not Backend.hunter_discovered(hunter_id):
-		_dossier_name.text = "UNDISCOVERED SIGNAL"
-		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" if Backend.signed_in() \
-			else "SIGN IN TO RETAIN DISCOVERIES"
-		_dossier_behavior.text = "ENCOUNTER THIS HUNTER IN THE ROUTE TO REVEAL HER DOSSIER. SPAWN ROLLS AND ROOM SNAPSHOTS DO NOT COUNT."
-		_dossier_gimmick_heading.visible = false
-		_dossier_gimmick.visible = false
-		_dossier_gimmick.text = ""
+		_dossier_name.text = "??? (LOCKED)"
+		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" \
+			if Backend.signed_in() else "SIGN IN TO RETAIN DISCOVERIES"
+		_dossier_behavior.text = HunterDossier.redacted(hunter_id, String(entry["behavior"]))
+		var locked_chart := entry.has("gimmick_behavior")
+		_dossier_gimmick_heading.visible = locked_chart
+		_dossier_gimmick.visible = locked_chart
+		_dossier_gimmick.text = HunterDossier.redacted(hunter_id,
+			String(entry.get("gimmick_behavior", ""))) if locked_chart else ""
 		_dossier_counter.text = ""
-		_dossier_stats.text = "IDENTITY // ABILITY // TUNING HIDDEN"
+		_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
+			float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
+			float(profile["hearing"])]
 		return
 	_dossier_name.text = String(profile["name"]).to_upper()
 	var category := String(profile.get("category", "az"))
@@ -530,15 +533,11 @@ func _show_dossier_entry(hunter_id: String) -> void:
 		else "SECRET // FOUND IN THE CITY" if category == "secret" \
 		else "RULE-SUMMONED // A-Z SPECIAL" if special \
 		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
-	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
-		String(entry["behavior"])]
+	_dossier_behavior.text = String(entry["behavior"])
 	var has_chart := entry.has("gimmick_behavior")
 	_dossier_gimmick_heading.visible = has_chart
 	_dossier_gimmick.visible = has_chart
-	_dossier_gimmick.text = "%s // %s" % [
-		String(entry.get("gimmick_title", "UNASSIGNED")),
-		String(entry.get("gimmick_behavior", "")),
-	] if has_chart else ""
+	_dossier_gimmick.text = String(entry.get("gimmick_behavior", "")) if has_chart else ""
 	_dossier_counter.text = ""
 	_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
 		float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),

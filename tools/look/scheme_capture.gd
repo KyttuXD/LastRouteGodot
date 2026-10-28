@@ -70,7 +70,7 @@ func _shot(out: String, screen: String, scheme: String) -> void:
 			await get_tree().process_frame
 			hud.update_infinite_status(3, 40, 35)
 			hud.update_inventory("flashlight", 0.0)
-			hud.status_bar.set_segment("env", "BETA  //  play.kyttulab.org", "env")
+			hud.status_bar.set_segment("env", "TEST SERVER", "env")
 			hud.status_bar.set_segment("admin", "ADMIN ACTIVE // SOLO", "admin")
 			hud.show_message("RELAY ONLINE")
 			node = hud

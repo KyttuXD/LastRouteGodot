@@ -120,6 +120,7 @@ func run(host: Node) -> int:
 	var old_update_required: bool = UpdateManager.update_required
 	var old_available: Dictionary = UpdateManager.available.duplicate(true)
 	UpdateManager.update_required = true
+	UpdateManager.build_number_override = 700   # a stamped build: dev (unstamped) builds are never gated
 	_expect(not UpdateManager._should_install_automatically(),
 		"the background updater would restart the executable during gameplay")
 	gameplay_marker.queue_free()
@@ -128,14 +129,14 @@ func run(host: Node) -> int:
 		and ResourceLoader.exists(UpdateManager.UPDATE_PROGRESS_SCENE),
 		"desktop required updates have no in-progress screen")
 	_expect(UpdateManager.uses_in_progress_screen() == (UpdateManager.platform_key()
-		in ["linux", "windows", "windows_legacy", "steamvr", "macos"]),
+		in ["linux", "windows", "windows_legacy", "steamvr", "macos", "phone", "quest"]),
 		"in-progress screen eligibility does not match the desktop platforms")
 	_expect(not UpdateManager._should_install_automatically(),
 		"required desktop updates still quit before the in-progress screen")
 	UpdateManager.available = {"version": "0.0.1.1", "required": true}
-	_expect(UpdateManager.should_open_progress_screen()
-		== UpdateManager.uses_in_progress_screen(),
-		"a required desktop update did not ask the menu for the in-progress screen")
+	# background updates (UpdateBadge): even a required update never sends the menu to a blocking screen
+	_expect(not UpdateManager.should_open_progress_screen(),
+		"an update still sends the menu to a blocking screen")
 	var old_preparing: bool = UpdateManager.preparing
 	var old_downloading: bool = UpdateManager.downloading
 	UpdateManager.available = {
@@ -146,9 +147,8 @@ func run(host: Node) -> int:
 	}
 	UpdateManager.preparing = true
 	UpdateManager.downloading = false
-	_expect(UpdateManager.should_open_progress_screen()
-		== UpdateManager.uses_in_progress_screen(),
-		"verify/unpack no longer keeps the desktop update-in-progress screen open")
+	_expect(not UpdateManager.should_open_progress_screen(),
+		"verify/unpack sends the menu to a blocking screen")
 	UpdateManager.download_update()
 	_expect(not UpdateManager.downloading,
 		"verify/unpack re-entered download and could wipe the staging tree")
@@ -178,6 +178,7 @@ func run(host: Node) -> int:
 		and UpdateManager.WINDOWS_HELPER.contains("Start-Process"),
 		"the Windows update helper no longer waits for exit before replacing and relaunching")
 	UpdateManager.available = old_available
+	UpdateManager.build_number_override = -1
 	UpdateManager.update_required = old_update_required
 	for safe_entry in ["LastRoute.pck", "Game.app/Contents/MacOS/Game"]:
 		_expect(UpdateManager._safe_archive_entry(safe_entry),
@@ -436,10 +437,19 @@ func run(host: Node) -> int:
 	var hard := GameConfig.difficulty_profile("hard")
 	var nightmare := GameConfig.difficulty_profile("nightmare")
 	for field in GameConfig.DIFFICULTY_PROFILES["standard"]:
-		var midpoint := (float(standard[field]) + float(nightmare[field])) * 0.5
-		_expect(is_equal_approx(float(hard[field]), midpoint),
-			"Hard %s is %.3f, not the Standard/Nightmare midpoint %.3f" % [
-				field, float(hard[field]), midpoint])
+		var low := minf(float(standard[field]), float(nightmare[field]))
+		var high := maxf(float(standard[field]), float(nightmare[field]))
+		_expect(float(hard[field]) >= low - .0001 and float(hard[field]) <= high + .0001,
+			"Hard %s is %.3f, outside the Standard/Nightmare range %.3f..%.3f" % [
+				field, float(hard[field]), low, high])
+	# the approved tweak table for Hard (docs/HUNTER_HARD_ABILITIES.md)
+	var approved_hard := {"hunter_sight": 1.10, "hunter_hearing": 1.12, "search_time": 4.0, "lost_sight_grace": 3.6,
+		"stamina_drain": 12.0, "hide_tell": 1.3, "hide_trail": 3.5, "hide_cooldown": 16.0, "hide_random": .25,
+		"taser_stun": 2.4, "taser_cooldown": 9.0, "escape_stun": 2.6, "spawn_distance": 11.0, "emote_chase_scale": .5,
+		"emote_spot_p": .15, "relay_alert_radius": 18.0, "relay_alert_chance": 1.0}
+	for field in approved_hard:
+		_expect(is_equal_approx(float(hard[field]), float(approved_hard[field])),
+			"Hard %s is %.3f, the approved table says %.3f" % [field, float(hard[field]), float(approved_hard[field])])
 	for difficulty_id in ["relaxed", "standard", "hard", "nightmare"]:
 		GameState.start_new_run(12345, difficulty_id)
 		_expect(not GameState.game_over,
@@ -593,6 +603,10 @@ func run(host: Node) -> int:
 		"staging lost its enter-route action")
 	_expect(lobby.find_child("BackToMenuButton", true, false) != null,
 		"staging lost its back-to-menu action")
+	var back := lobby.find_child("BackToMenuButton", true, false) as Button
+	_expect(back != null and back.text == "BACK TO LAST ROUTE", "the staging back button is not BACK TO LAST ROUTE (%s)" % (back.text if back != null else "none"))
+	_expect(RoomState.menu_scene_path() == "res://scenes/main_menu.tscn" and Settings.hub_last_game == "last_route",
+		"back from Last Route staging does not land on the Last Route menu / card")
 	var old_connection_copy := ["HOST + LIST ROOM", "JOIN ROOM CODE", "LOCAL SESSION",
 		"JOIN AT", "GO OFFLINE", "127.0.0.1", ":8421"]
 	for node in lobby.find_children("*", "Control", true, false):

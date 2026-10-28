@@ -29,7 +29,10 @@ var _active := false
 var _shown := false
 var _pointer := Vector2(-1, -1)
 var _held := false
-var _scroll_wait := 0.0
+var _trigger_down := false
+var _scroll := XRPanelScroll.new()
+var _left: XRController3D
+var _gaze := XRGaze.new()
 
 
 static func attach(host: Node, run_player: Node3D, open_check: Callable) -> XRRoutePanel:
@@ -70,13 +73,13 @@ func _process(delta: float) -> void:
 		if wanted:
 			_place()
 		else:
-			_click(false)
+			_trigger(false)
 		for node in [_panel, _backdrop, _ray]:
 			node.visible = wanted
 		_dot.visible = false
 	if _shown:
 		_point()
-		_scroll_wait = XRMenuPanel.scroll_from_stick(_right.get_vector2("primary").y, _pointer, _scroll_wait, delta)
+		_scroll.stick(get_tree().root, [_left.get_vector2("primary"), _right.get_vector2("primary")], delta)
 
 
 func _activate() -> void:
@@ -99,6 +102,7 @@ func _activate() -> void:
 	get_tree().node_added.connect(_on_node_added)   # the death screen, chat and friends are created later
 	var origin := player.get("xr_origin") as XROrigin3D
 	_right = player.get("xr_right") as XRController3D
+	_left = player.get("xr_left") as XRController3D
 	for controller in [_right, player.get("xr_left")]:
 		(controller as Node).process_mode = Node.PROCESS_MODE_ALWAYS
 	_panel = MeshInstance3D.new()
@@ -115,6 +119,9 @@ func _activate() -> void:
 	_panel.material_override = material
 	_panel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	origin.add_child(_panel)
+	var hint := XRMenuPanel.hint_label("STICK: SCROLL  //  TRIGGER: CLICK OR DRAG")
+	hint.position = Vector3(0, -quad.size.y * 0.5 - 0.04, 0.01)
+	_panel.add_child(hint)
 	_backdrop = _box("RouteUIBackdrop", Vector3(PANEL_WIDTH * 1.04, quad.size.y * 1.06, 0.002), Color(0.02, 0.01, 0.03, 0.82), 1)
 	_backdrop.position = Vector3(0, 0, -0.01)
 	_panel.add_child(_backdrop)
@@ -127,6 +134,8 @@ func _activate() -> void:
 		node.visible = false
 	_right.button_pressed.connect(_on_right_pressed)
 	_right.button_released.connect(_on_right_released)
+	_left.button_pressed.connect(_on_left_pressed)
+	_left.button_released.connect(_on_right_released)
 
 
 func _exit_tree() -> void:
@@ -170,12 +179,27 @@ func _place() -> void:
 	_panel.global_transform = Transform3D(Basis.looking_at(forward, Vector3.UP), centre)
 
 
+func _on_left_pressed(action: StringName) -> void:
+	if action == &"trigger_click" and _shown and XRGaze.pointer_hand(_left, _right) == _left:
+		_trigger(true)
+
+
+## The pointer: the tracked hand's laser, else the head (gaze dwell when nothing else can click; see XRGaze).
 func _point() -> void:
 	var size := (_panel.mesh as QuadMesh).size
-	var uv := XRMenuPanel.panel_uv(_right.global_position, -_right.global_basis.z, _panel.global_transform, size)
+	var hand := XRGaze.pointer_hand(_left, _right)
+	var source: Node3D = hand if hand != null else player.get("xr_camera") as Node3D
+	_ray.visible = hand != null
+	if hand != null and _ray.get_parent() != hand:
+		_ray.reparent(hand, false)
+	var uv := XRMenuPanel.panel_uv(source.global_position, -source.global_basis.z, _panel.global_transform, size)
 	_dot.visible = uv.x >= 0.0
 	if uv.x < 0.0:
+		_gaze.reset()
 		return
+	if XRGaze.dwell_wanted(hand) and _gaze.update(get_tree().root, _canvas(_pointer), get_process_delta_time()):
+		_click(true)
+		_click(false)
 	_dot.global_transform = _panel.global_transform.translated_local(
 		Vector3((uv.x - 0.5) * size.x, (0.5 - uv.y) * size.y, 0.004))
 	var root := get_tree().root
@@ -188,16 +212,44 @@ func _point() -> void:
 	motion.global_position = at
 	motion.button_mask = MOUSE_BUTTON_MASK_LEFT if _held else 0
 	Input.parse_input_event(motion)
+	if _trigger_down:
+		_scroll.move(get_tree().root, _canvas(at))
 
 
 func _on_right_pressed(action: StringName) -> void:
 	if action == &"trigger_click" and _shown:
-		_click(true)
+		_trigger(true)
 
 
 func _on_right_released(action: StringName) -> void:
 	if action == &"trigger_click":
+		_trigger(false)
+
+
+## Same as XRMenuPanel._trigger: drag past the dead zone scrolls, a still press clicks on release.
+func _trigger(down: bool) -> void:
+	var root := get_tree().root
+	if down:
+		if _pointer.x < 0.0:
+			return
+		_trigger_down = true
+		_scroll.press(root, _canvas(_pointer))
+		if _scroll.passthrough:
+			_click(true)
+		return
+	if not _trigger_down:
+		return
+	_trigger_down = false
+	var was_drag := _scroll.release()
+	if _held:
 		_click(false)
+	elif not was_drag:
+		_click(true)
+		_click(false)
+
+
+func _canvas(window_position: Vector2) -> Vector2:
+	return get_tree().root.get_final_transform().affine_inverse() * window_position
 
 
 func _click(pressed: bool) -> void:

@@ -67,6 +67,13 @@ const LINK_CHANCE := 0.55
 ## Every sewer space has the same low brick ceiling, so a ladder shaft always
 ## spans exactly LEVEL_HEIGHT - CEILING_HEIGHT between it and the maze floor.
 const CEILING_HEIGHT := 3.2
+## Crawl-under pipes (docs/GEOMETRY_AUDIT.md): a low iron main across a utility room's three-wide branch. The underside is the
+## crouched capsule plus 5 cm, so a crouched player passes and a standing one (or any normal hunter) does not. The authored
+## sewerPipeRun is two stacked mains, the lower 0.11 m in radius about 0.30 m above its origin.
+const CRAWL_CLEARANCE := PlayerController3D.CROUCH_COLLISION_HEIGHT + 0.05
+const CRAWL_PIPE_MOUNT_Y := CRAWL_CLEARANCE + 0.11
+const CRAWL_PIPE_SIZE := Vector3(2.0, 0.55, 0.5)
+const CRAWL_CHANCE := 0.6
 ## Deep channels: the bed lies CHANNEL_DEPTH below the walkways and the water
 ## surface WATER_SURFACE below them (negative = down). Nobody wades: railings
 ## line every walkway edge and the channel cells block movement, so the water
@@ -312,8 +319,11 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 			link["wall"] = wall
 			links.append(link)
 			features.append({"type": "sewerLadder", "cell": up, "link": links.back()["id"], "wall": wall})
+	features.append_array(_crawl_features(rooms, grid, rng))
 	features.append_array(_tunnel_features())
 	features.append_array(_crossing_features())
+	features = _centre_room_lamps(grid, rooms, features)
+	features = _pair_tunnel_lamps(grid, features)
 	features = _mount_on_walls(grid, features)
 	var schema := _streamed_schema(coord, grid, rooms, links, features, ramps)
 	schema["stairwells"] = wells
@@ -391,7 +401,7 @@ func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: A
 		"difficulty": surface.difficulty_for_level(coord.y),
 		"links": links, "features": features, "ramps": ramps,
 		"falls": falls_between(coord.x, coord.z) if is_chunk_allowed(coord) else {},
-		"ramp_cells": ramp_cells(coord.x, coord.z, coord.y)}
+		"ramp_cells": ramp_cells(coord.x, coord.z, coord.y), "crawl_cells": _crawl_stripe_cells(features)}
 
 
 static func _carve_rect(grid: Array, rect: Rect2i, code: int) -> void:
@@ -468,6 +478,8 @@ func _pickups(coord: Vector3i, sewer_grid: Array, grid: Array, features: Array, 
 	var excluded := {}
 	for feature in features:
 		StreamedRouteGenerator._exclude_neighbourhood(excluded, feature["cell"], 1)
+		for behind in feature.get("behind", []):
+			excluded[behind] = true
 	for link in links:
 		StreamedRouteGenerator._exclude_neighbourhood(excluded, link["to_cell"], 2)
 	var candidates := []
@@ -587,6 +599,64 @@ static func _room_features(kind: String, rect: Rect2i, center: Vector2i) -> Arra
 				{"type": "sewerPipeRun", "cell": west, "wall": Vector2i(-1, 0)}]
 
 
+## Deliberate crawl-under spots: at most one per chunk, in the branch of a pump or valve room (never an overflow chamber, never a
+## shaft with a ladder), as two overlapping mains that span the three-wide passage. "behind" lists the cells past the pipe
+## (the rest of the branch and the room): no pickup is placed there, so a relay is never reachable only by crawling.
+func _crawl_features(rooms: Array, grid: Array, rng: SeededRandom) -> Array:
+	var out := []
+	for room_value in rooms:
+		var room: Dictionary = room_value
+		if room["kind"] == "overflow_chamber" or rng.next_float() >= CRAWL_CHANCE:
+			continue
+		var rect: Rect2i = room["rect"]
+		var centre: Vector2i = room["center"]
+		var dx := absi(centre.x - CENTER)
+		var dz := absi(centre.y - CENTER)
+		# the branch runs along x toward the north-south tunnel (dx <= dz) or along z; the pipe lies across its width
+		var along_x := dx <= dz
+		var step := Vector2i(1, 0) if (centre.x < CENTER) else Vector2i(-1, 0)
+		if not along_x:
+			step = Vector2i(0, 1) if centre.y < CENTER else Vector2i(0, -1)
+		# first branch cell outside the room wall, then three cells further: well inside the passage
+		var half := (rect.size.x - 1) / 2
+		var pipe_cell := centre + step * (half + 3)
+		var across := Vector2i(0, 1) if along_x else Vector2i(1, 0)
+		if not (is_walkable(int(grid[pipe_cell.y][pipe_cell.x])) and int(grid[(pipe_cell + across).y][(pipe_cell + across).x]) == DRY \
+				and int(grid[(pipe_cell - across).y][(pipe_cell - across).x]) == DRY \
+				and int(grid[(pipe_cell + across * 2).y][(pipe_cell + across * 2).x]) == SOLID):
+			continue
+		var behind := []
+		for z in range(rect.position.y, rect.end.y):
+			for x in range(rect.position.x, rect.end.x):
+				behind.append(Vector2i(x, z))
+		var k := 1
+		while k <= half + 3:
+			for w in range(-1, 2):
+				behind.append(centre + step * k + across * w)
+			k += 1
+		var cells := [pipe_cell - across, pipe_cell, pipe_cell + across]
+		# two 2 m mains, half a metre either side of the middle, cover the whole 3 m width
+		for side in [-1, 1]:
+			out.append({"type": "sewerPipeRun", "cell": pipe_cell, "wall": Vector2i.ZERO, "crawl": true,
+				"yaw": PI / 2.0 if along_x else 0.0, "across": across, "side": side, "step": step,
+				"cells": cells, "behind": behind})
+		break
+	return out
+
+
+## Floor cells under a crawl pipe and one row either side of it: laid with the hazard plate so the low pipe reads from afar.
+static func _crawl_stripe_cells(features: Array) -> Array:
+	var cells := []
+	for feature in features:
+		if not feature.has("crawl") or int(feature["side"]) != -1:
+			continue
+		var step: Vector2i = feature["step"]
+		for cell_value in feature["cells"]:
+			for k in [-1, 0, 1]:
+				cells.append((cell_value as Vector2i) + step * k)
+	return cells
+
+
 ## Caged lamps far apart on the tunnels' outer walls, and pipe runs between them.
 static func _tunnel_features() -> Array:
 	var out := []
@@ -596,6 +666,79 @@ static func _tunnel_features() -> Array:
 	for offset in [14, 30]:
 		out.append({"type": "sewerPipeRun", "cell": Vector2i(offset, CENTER + TUNNEL_HALF), "wall": Vector2i(0, 1)})
 		out.append({"type": "sewerPipeRun", "cell": Vector2i(CENTER - TUNNEL_HALF, offset), "wall": Vector2i(-1, 0)})
+	return out
+
+
+## A room's lamp hangs at the MIDDLE of a wall. The planned wall can be the one a branch opens through (no brick there), where
+## _mount_on_walls would slide the lamp two cells off centre; it moves to the middle of a room wall that is brick instead
+## (GeometryAudit rule sewer_lamp_symmetry), preferring the planned one, then the walls not already carrying a piece.
+static func _centre_room_lamps(grid: Array, rooms: Array, features: Array) -> Array:
+	var out := []
+	for feature_value in features:
+		var feature: Dictionary = feature_value
+		if String(feature.get("type", "")) != "sewerLamp":
+			out.append(feature)
+			continue
+		var cell: Vector2i = feature["cell"]
+		var room := {}
+		for r in rooms:
+			if (r["rect"] as Rect2i).has_point(cell):
+				room = r
+		if room.is_empty() or wall_backed(grid, cell, feature["wall"]):
+			out.append(feature)
+			continue
+		var rect: Rect2i = room["rect"]
+		var centre: Vector2i = room["center"]
+		var used := {}
+		for other_value in features:
+			var other: Dictionary = other_value
+			if other != feature and rect.has_point(other["cell"]):
+				used[other["cell"]] = true
+		var options := [[Vector2i(centre.x, rect.position.y), Vector2i(0, -1)], [Vector2i(centre.x, rect.end.y - 1), Vector2i(0, 1)],
+			[Vector2i(rect.position.x, centre.y), Vector2i(-1, 0)], [Vector2i(rect.end.x - 1, centre.y), Vector2i(1, 0)]]
+		var moved := feature
+		for option in options:
+			if not used.has(option[0]) and wall_backed(grid, option[0], option[1]):
+				moved = feature.duplicate()
+				moved["cell"] = option[0]
+				moved["wall"] = option[1]
+				break
+		out.append(moved)
+	return out
+
+
+## Tunnel lamps come in mirror pairs about the chunk centre. A branch doorway can interrupt the wall under one of them, and
+## sliding it alone left the pair uneven; both move inward by the same number of cells until both have brick behind them.
+static func _pair_tunnel_lamps(grid: Array, features: Array) -> Array:
+	var out := features.duplicate()
+	for i in out.size():
+		var lamp: Dictionary = out[i]
+		if String(lamp.get("type", "")) != "sewerLamp":
+			continue
+		var wall: Vector2i = lamp["wall"]
+		var cell: Vector2i = lamp["cell"]
+		var along_x := wall.y != 0
+		var a := cell.x if along_x else cell.y
+		if a >= CENTER or absi((cell.y if along_x else cell.x) - CENTER) != TUNNEL_HALF:
+			continue
+		var mirror_cell := Vector2i(2 * CENTER - cell.x, cell.y) if along_x else Vector2i(cell.x, 2 * CENTER - cell.y)
+		var j := -1
+		for k in out.size():
+			if out[k]["type"] == "sewerLamp" and out[k]["cell"] == mirror_cell and out[k]["wall"] == wall:
+				j = k
+		if j < 0:
+			continue
+		for s in range(0, 9):
+			var left := cell + (Vector2i(s, 0) if along_x else Vector2i(0, s))
+			var right := mirror_cell - (Vector2i(s, 0) if along_x else Vector2i(0, s))
+			if wall_backed(grid, left, wall) and wall_backed(grid, right, wall):
+				var moved_left: Dictionary = lamp.duplicate()
+				moved_left["cell"] = left
+				var moved_right: Dictionary = (out[j] as Dictionary).duplicate()
+				moved_right["cell"] = right
+				out[i] = moved_left
+				out[j] = moved_right
+				break
 	return out
 
 
@@ -673,12 +816,23 @@ func _feature_props(coord: Vector3i, features: Array) -> Array:
 		var wall: Vector2i = feature.get("wall", Vector2i.ZERO)
 		var prop := {"id": "%s:PROP:%d" % [chunk_id(coord), index], "type": type, "cell": feature["cell"],
 			"yaw": float(feature.get("yaw", wall_yaw(wall))), "solid": SOLID_FEATURES.has(type), "sewer_feature": true}
-		if FEATURE_MOUNT_Y.has(type):
+		if feature.has("crawl"):
+			var across: Vector2i = feature["across"]
+			prop["solid"] = true
+			prop["crawl_under"] = true
+			prop["crawl_step"] = feature["step"]
+			prop["crawl_side"] = feature["side"]
+			prop["mount_y"] = CRAWL_PIPE_MOUNT_Y
+			prop["collider_size"] = CRAWL_PIPE_SIZE
+			prop["collider_y0"] = CRAWL_CLEARANCE
+			prop["placement_offset"] = Vector2(across) * (.5 * float(feature["side"]))
+			prop["occupied_cells"] = (feature["cells"] as Array).duplicate()
+		elif FEATURE_MOUNT_Y.has(type):
 			prop["mount_y"] = FEATURE_MOUNT_Y[type]
 			prop["mount_offset"] = Vector2(wall) * .5
 		elif type == "sewerPump":
 			prop["mount_offset"] = Vector2(wall) * .05
-		if SOLID_FEATURES.has(type):
+		if SOLID_FEATURES.has(type) and not feature.has("crawl"):
 			prop["collider_size"] = SOLID_FEATURES[type]
 		if feature.has("link"):
 			prop["link"] = feature["link"]
