@@ -25,14 +25,9 @@ tools/modpack/modpack.sh validate <folder>    # the game's own checks
 tools/modpack/modpack.sh pack <folder>        # identity hash and file list
 ```
 
-To use a pack in your own rooms, turn it on in the game's `settings.cfg` (next to the `mods` folder):
-
-```
-[mods]
-enabled=["mypack"]
-```
-
-A switch for this in **Settings -> MODS** is on the way. Then start a private room.
+To use a pack in your own rooms, open **Settings -> MODS** and switch on **USE IN MY ROOMS** on its row, then start a
+private room. (Only packs you installed yourself can be hosted; downloaded packs are for joining. The switch is stored
+as `[mods] enabled=["mypack"]` in `settings.cfg`, next to the `mods` folder.)
 
 ## Pages
 

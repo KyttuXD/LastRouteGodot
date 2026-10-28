@@ -50,6 +50,6 @@ OK ember 1.0.0: 4 files, 20027 bytes, { "props": 1, "regions": 0, "hunters": 1 }
 
 ## 5. Play it
 
-Copy the folder to the game's `mods/ember/`, turn it on (`[mods] enabled=["ember"]` in `settings.cfg`, until the
-switch in **Settings -> MODS** lands), and start a private room.
+Copy the folder to the game's `mods/ember/`, switch on **USE IN MY ROOMS** for Ember in **Settings -> MODS**, and
+start a private room.
 Players who join without it are offered the download (see [publishing](publishing.md)).

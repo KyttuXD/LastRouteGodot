@@ -12,8 +12,8 @@ For now publishing is **owner-only**: Kyttu's Lab publishes packs. Player upload
 
 ## How players get it
 
-- A host turns packs on for their rooms (`[mods] enabled` in `settings.cfg`; a switch in **Settings -> MODS** is on
-  the way) and opens a private room.
+- A host switches packs on with **USE IN MY ROOMS** in **Settings -> MODS** (hand-installed packs only) and opens a
+  private room.
 - A joining player who is missing a pack sees each pack's name, author, size and hash with an own-risk warning, and
   chooses **DOWNLOAD & JOIN** or **CANCEL**. "Auto-download mods", off by default, skips the question.
 - The game asks the index for the pack, downloads each file from the file host, checks every file's SHA-256 and size
