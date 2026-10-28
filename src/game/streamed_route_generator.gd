@@ -1191,6 +1191,7 @@ func difficulty_for_level(level: int) -> Dictionary:
 
 
 var _large_cache := {}
+var _base_large_cache := {}
 
 
 ## Which sides of this chunk hold a great hall: {"W": room_type or "", "E": room_type or ""}. Pure function of the seed and
@@ -1199,6 +1200,26 @@ func large_plan(coord: Vector3i) -> Dictionary:
 	var key := chunk_id(coord)
 	if _large_cache.has(key):
 		return _large_cache[key]
+	var plan := _base_large_plan(coord).duplicate()
+	# the music wing takes BOTH great-hall slots of a hotel chunk or none (MusicWing)
+	if _wing_roll(coord):
+		var both := true
+		for dx in [-1, 1]:
+			var next_door := coord + Vector3i(dx, 0, 0)
+			both = both and is_chunk_allowed(next_door) and DENSE_DISTRICTS.has(region_for(next_door)) \
+				and not _wing_roll(next_door) and String(_base_large_plan(next_door)["E" if dx < 0 else "W"]).is_empty()
+		if both:
+			plan["W"] = MusicWing.LARGE_TYPE
+			plan["E"] = MusicWing.LARGE_TYPE
+	_large_cache[key] = plan
+	return plan
+
+
+## The ordinary great-hall slots of a chunk (no music wing); pure, so the wing can look at its neighbours without recursing.
+func _base_large_plan(coord: Vector3i) -> Dictionary:
+	var key := chunk_id(coord)
+	if _base_large_cache.has(key):
+		return _base_large_cache[key]
 	var plan := {"W": "", "E": ""}
 	var region := region_for(coord) if is_chunk_allowed(coord) else ""
 	if LARGE_ROOM_CHANCE.has(region) and not is_safe_room(coord):
@@ -1215,20 +1236,15 @@ func large_plan(coord: Vector3i) -> Dictionary:
 			if not is_chunk_allowed(neighbour) or not DENSE_DISTRICTS.has(region_for(neighbour)):
 				continue
 			plan[side] = String(types[type_index])
-	# the music wing takes BOTH great-hall slots of a hotel chunk or none (MusicWing, its own roll so the other plans are unchanged)
-	if MUSIC_WING_REGIONS.has(region) and not is_safe_room(coord):
-		var wing_rng := SeededRandom.new("%s:MUSICWING:%s" % [world_seed, key])
-		if wing_rng.next_float() < MUSIC_WING_CHANCE:
-			var both := true
-			for dx in [-1, 1]:
-				var next_door := coord + Vector3i(dx, 0, 0)
-				both = both and is_chunk_allowed(next_door) and DENSE_DISTRICTS.has(region_for(next_door)) \
-					and String(large_plan(next_door)["E" if dx < 0 else "W"]).is_empty()
-			if both:
-				plan["W"] = MusicWing.LARGE_TYPE
-				plan["E"] = MusicWing.LARGE_TYPE
-	_large_cache[key] = plan
+	_base_large_cache[key] = plan
 	return plan
+
+
+## The raw roll for a music wing at this chunk: a hotel chunk, its own roll (so the other plans are unchanged).
+func _wing_roll(coord: Vector3i) -> bool:
+	if not is_chunk_allowed(coord) or not MUSIC_WING_REGIONS.has(region_for(coord)) or is_safe_room(coord):
+		return false
+	return SeededRandom.new("%s:MUSICWING:%s" % [world_seed, chunk_id(coord)]).next_float() < MUSIC_WING_CHANCE
 
 
 ## True when the middle east-west hall is cut short on this chunk's west (dx -1) or east (dx +1) end: its own great hall
