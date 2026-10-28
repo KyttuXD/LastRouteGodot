@@ -132,8 +132,8 @@ func _check_view_gap(host: Node) -> void:
 			blocked += 1 if structure.get_cell_item(Vector3i(n.x, 0, n.y)) == view._col_channel_item else 0
 		_expect(blocked == 2, "the drop around the jump cell is open (%d blocked neighbours)" % blocked)
 		# railings: the multimesh has fewer segments than the same chunk without the gap would
-		# the fall comes out of a visible source: the sill, the crest of foam and the lip light stand on the spur's end
-		for source_name in ["Waterfall", "FallsSill", "FallsCrest", "FallsLipLight"]:
+		# the fall comes out of a visible source: the crest of foam and the lip light stand on the spur's end
+		for source_name in ["Waterfall", "FallsCrest", "FallsLipLight"]:
 			_expect(root.get_node_or_null(source_name) != null, "the falls chunk has no %s (the water comes from nothing)" % source_name)
 		var rails := root.get_node_or_null("ChannelRails") as MultiMeshInstance3D
 		_expect(rails != null, "the falls chunk has no railings")

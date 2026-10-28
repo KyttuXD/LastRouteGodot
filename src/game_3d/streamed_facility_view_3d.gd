@@ -61,8 +61,8 @@ const RAMP_FLOOR_KIND := "concrete1"
 const RAMP_PRESTREAM_CELLS := 6.0
 ## The falls: rough stone on the drop's cliffs, and how far the roar carries.
 const CLIFF_WALL_KIND := "stone1"
-## How far the concrete outflow spout juts out over a waterfall drop; the sheet leaves its tip.
-const FALLS_SPOUT := 1.0
+## How far past the lip the sheet hangs.
+const FALLS_SPOUT := .12
 const FALLS_SOUND_RANGE := 28.0
 const SEWER_FALLS_SHADER := preload("res://src/look/sewer_falls.gdshader")
 
@@ -1091,6 +1091,10 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		# a stairwell's lower level opens straight up the well: full-storey walls
 		if not bool((shaft_cells[cell_value] as Dictionary)["upper"]):
 			heights[cell_value] = LEVEL_HEIGHT
+			# and so does its foot landing, under the head landing one storey up: a
+			# sewer-height ceiling there was a slab across the well at mid-height (KT)
+			for landing_value in ((shaft_cells[cell_value] as Dictionary)["well"] as Dictionary)["lower_landing"]:
+				heights[landing_value] = LEVEL_HEIGHT - SLAB
 	var ramp_cells: Dictionary = data.get("ramp_cells", {})
 	for cell_value in ramp_cells:
 		# the lower end of a ramp tunnel has no ceiling of its own: it opens up to
@@ -1830,28 +1834,11 @@ func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
 		_add_falls_sound(root, mist.position)
 
 
-## The top of a fall (level -1): the spur channel's water runs on over a concrete sill, a crest of foam rolls over the
-## lip, and a cool light on the spur shows the water, the sheet's top and the shaft walls (it read as a dark box).
+## The top of a fall (level -1): the spur channel's water runs on over the lip with a crest of foam, and a cool light on
+## the spur shows the water, the sheet's top and the shaft walls (it read as a dark box). No slab behind it (KT).
 func _add_falls_spillway(root: Node3D, lip: Vector3, north: bool) -> void:
 	var dir := -1.0 if north else 1.0                  # the way the water runs, toward and over the lip
 	var y := SewerRouteGenerator.WATER_SURFACE
-	var tool := SurfaceTool.new()
-	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	# the sill: a low concrete lip under the water's last metre, and a foam strip riding the crest
-	InfernoPitView.iron_box(tool, Vector3(lip.x, y - .22, lip.z - dir * .08), Vector3(3.2, .36, .22))
-	# the outflow spout: a concrete tongue jutting over the drop from the channel's end; the sheet leaves its tip, so
-	# from the cistern below the water visibly comes out of something
-	InfernoPitView.iron_box(tool, Vector3(lip.x, y - .55, lip.z + dir * FALLS_SPOUT * .5), Vector3(3.6, .6, FALLS_SPOUT))
-	for side in [-1.0, 1.0]:
-		InfernoPitView.iron_box(tool, Vector3(lip.x + side * 1.7, y + .05, lip.z + dir * FALLS_SPOUT * .5), Vector3(.2, .6, FALLS_SPOUT))
-	var sill := MeshInstance3D.new()
-	sill.name = "FallsSill"
-	sill.mesh = tool.commit()
-	var concrete := StandardMaterial3D.new()
-	concrete.albedo_color = Color(.2, .21, .2)
-	concrete.roughness = .95
-	sill.material_override = concrete
-	root.add_child(sill)
 	var crest := MeshInstance3D.new()
 	crest.name = "FallsCrest"
 	var strip := QuadMesh.new()
