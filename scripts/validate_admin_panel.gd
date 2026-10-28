@@ -27,6 +27,11 @@ func _fake(path: String, body: Dictionary) -> Dictionary:
 		return {"ok": true, "online": 4, "route": "PUBLIC"}
 	if path == "/api/skins/remove":
 		return {"ok": true}
+	if path == "/api/admin/flags":
+		return {"ok": true, "accounts": [{"username": "griefer", "flagged": true, "flaggedUntil": "2026-11-01", "troll": true,
+			"reason": "spam"}, {"username": "old", "permanent": true}], "builds": [{"buildHash": "deadbeef0123456789"}]}
+	if path in ["/api/admin/flags/set", "/api/admin/builds/add", "/api/admin/builds/remove"]:
+		return {"ok": true}
 	return {}
 
 
@@ -40,6 +45,16 @@ func run(host: Node) -> int:
 	hub._on_admin()
 	_expect(hub.find_child("HubAdminPanel", true, false) == null, "a non-admin opened the admin panel")
 	GameHub.admin_override = 1
+	# act as the owner for the owner-only sections (restored below; nothing is saved)
+	var saved := [Backend.account_username, Backend.account_session_token, Backend.account_session_verified, Backend.account_admin,
+		Backend.account_admin_owner, Backend.account_admin_permissions]
+	Backend.account_username = "KYTTU"
+	Backend.account_session_token = "validation-token"
+	Backend.account_session_verified = true
+	Backend.account_admin = true
+	Backend.account_admin_owner = true
+	Backend.account_admin_permissions = PackedStringArray(["world", "visual"])
+	_expect(Backend.admin_owner_authorized(), "could not act as the owner for the test")
 	hub._on_admin()
 	await host.get_tree().process_frame
 	await host.get_tree().process_frame
@@ -64,7 +79,22 @@ func run(host: Node) -> int:
 			await panel.remove_skin()
 			var last: Array = _calls[-1]
 			_expect(last[0] == "/api/skins/remove" and String((last[1] as Dictionary).get("hash", "")) == "a".repeat(64), "skin removal did not post the hash")
+		if Backend.admin_owner_authorized():
+			var mod := panel.get_section("MODERATION")
+			_expect(mod.contains("GRIEFER: FLAGGED UNTIL") and mod.contains("TROLL") and mod.contains("OLD: BANNED") and mod.contains("DEADBEEF0123"),
+				"moderation list not shown: %s" % mod)
+			await panel.moderate("griefer", "extend")
+			var sent: Dictionary = (_calls.filter(func(c: Array) -> bool: return c[0] == "/api/admin/flags/set")[-1] as Array)[1]
+			_expect(sent.get("username") == "GRIEFER" and sent.get("action") == "extend" and int(sent.get("hours", 0)) == 24, "EXTEND did not post the right body: %s" % sent)
+			await panel.block_build("ABCDEF", true)
+			_expect((_calls[-2] as Array)[0] == "/api/admin/builds/add" or _calls.any(func(c: Array) -> bool: return c[0] == "/api/admin/builds/add"), "BLOCK BUILD did not post")
 		panel.queue_free()
+	Backend.account_username = saved[0]
+	Backend.account_session_token = saved[1]
+	Backend.account_session_verified = saved[2]
+	Backend.account_admin = saved[3]
+	Backend.account_admin_owner = saved[4]
+	Backend.account_admin_permissions = saved[5]
 	GameHub.admin_override = -1
 	HubAdminPanel.fetch_override = Callable()
 	hub.queue_free()

@@ -68,10 +68,11 @@ func _ready() -> void:
 	_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_column.add_theme_constant_override("separation", 3)
 	scroll.add_child(_column)
-	for section in ["THIS BUILD", "ACCOUNT", "SERVER", "UPDATES", "PUBLIC ROUTE", "SERVER NOTICES", "DEBUG TOGGLES", "SKINS", "ROUTE TOOLS"]:
+	for section in ["THIS BUILD", "ACCOUNT", "SERVER", "UPDATES", "PUBLIC ROUTE", "SERVER NOTICES", "DEBUG TOGGLES", "SKINS", "MODERATION", "ROUTE TOOLS"]:
 		_add_section(section)
 	_build_toggles()
 	_build_skins()
+	_build_moderation()
 	section_text("ROUTE TOOLS", "In a run: press 0 (or the right stick click) for the admin menu: items, hunters, map reveal, god mode,\nroom chat mute / kick, FULLBRIGHT (F7).")
 	_fill_local()
 	refresh_all()
@@ -139,6 +140,7 @@ func refresh_all() -> void:
 	section_text("UPDATES", "\n".join(manifest_lines))
 	_public = await _fetch("/api/public/status", {})
 	section_text("PUBLIC ROUTE", _short(_public) if not _public.is_empty() else "NO ANSWER")
+	await refresh_moderation()
 
 
 static func _short(value) -> String:
@@ -232,3 +234,116 @@ func remove_skin() -> void:
 		body["username"] = target.to_upper()
 	var answer: Dictionary = await _fetch("/api/skins/remove", body)
 	_skin_status.text = "SKIN REMOVED AND BLOCKED" if bool(answer.get("ok", false)) else "COULD NOT REMOVE // %s" % String(answer.get("error", "NO ANSWER"))
+
+
+
+# -- moderation (owners; WORLD lane's /api/admin/flags API) ----------------------------------------------------------
+## Flagged / banned / troll accounts and blocked builds; actions: CLEAR, EXTEND 24H, BAN, UNBAN, TROLL ON, TROLL OFF on a
+## username, and adding / removing a blocked build hash. Owners only (the server answers 403 ADMIN_OWNER_REQUIRED otherwise).
+const MODERATION_ACTIONS := [["CLEAR", "clear"], ["EXTEND 24H", "extend"], ["BAN", "ban"], ["UNBAN", "unban"],
+	["TROLL ON", "troll_on"], ["TROLL OFF", "troll_off"]]
+var _moderation_user: LineEdit
+var _moderation_build: LineEdit
+var _moderation_status: Label
+var moderation := {}
+
+
+func _build_moderation() -> void:
+	var owner := Backend.admin_owner_authorized()
+	var box := VBoxContainer.new()
+	box.name = "ModerationTools"
+	box.visible = owner
+	_column.add_child(box)
+	_column.move_child(box, (_sections["MODERATION"] as Label).get_index() + 1)
+	var user_row := HBoxContainer.new()
+	box.add_child(user_row)
+	_moderation_user = LineEdit.new()
+	_moderation_user.name = "ModerationUserInput"
+	_moderation_user.placeholder_text = "USERNAME"
+	_moderation_user.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	Palette.style_line_edit(_moderation_user)
+	user_row.add_child(_moderation_user)
+	var actions := HFlowContainer.new()
+	box.add_child(actions)
+	for pair in MODERATION_ACTIONS:
+		var button := Button.new()
+		button.name = "Moderation_%s" % pair[1]
+		button.text = String(pair[0])
+		Palette.style_button(button, false, true)
+		var action := String(pair[1])
+		button.pressed.connect(func() -> void: moderate(_moderation_user.text, action))
+		actions.add_child(button)
+	var build_row := HBoxContainer.new()
+	box.add_child(build_row)
+	_moderation_build = LineEdit.new()
+	_moderation_build.name = "ModerationBuildInput"
+	_moderation_build.placeholder_text = "BUILD HASH TO BLOCK"
+	_moderation_build.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	Palette.style_line_edit(_moderation_build)
+	build_row.add_child(_moderation_build)
+	for pair in [["BLOCK BUILD", "add"], ["UNBLOCK", "remove"]]:
+		var button := Button.new()
+		button.name = "ModerationBuild_%s" % pair[1]
+		button.text = String(pair[0])
+		Palette.style_button(button, false, true)
+		var which := String(pair[1])
+		button.pressed.connect(func() -> void: block_build(_moderation_build.text, which == "add"))
+		build_row.add_child(button)
+	_moderation_status = Label.new()
+	_moderation_status.name = "ModerationStatus"
+	Palette.style_label(_moderation_status, Palette.MUTED, 6)
+	box.add_child(_moderation_status)
+	section_text("MODERATION", "LOADING..." if owner else "OWNERS ONLY")
+
+
+func refresh_moderation() -> void:
+	if not Backend.admin_owner_authorized():
+		return
+	moderation = await _fetch("/api/admin/flags", {"sessionToken": Backend.account_session_token})
+	if not bool(moderation.get("ok", false)):
+		section_text("MODERATION", "UNAVAILABLE // %s" % String(moderation.get("error", "NO ANSWER")))
+		return
+	var lines := []
+	for record_value in moderation.get("accounts", []):
+		var record: Dictionary = record_value
+		var state := []
+		if bool(record.get("permanent", false)):
+			state.append("BANNED")
+		elif bool(record.get("flagged", false)):
+			state.append("FLAGGED UNTIL %s" % str(record.get("flaggedUntil", "?")))
+		if bool(record.get("troll", false)):
+			state.append("TROLL")
+		lines.append("%s: %s%s" % [String(record.get("username", "?")).to_upper(), " + ".join(state) if not state.is_empty() else "CLEAR",
+			(" // " + String(record.get("reason", ""))) if not String(record.get("reason", "")).is_empty() else ""])
+	var builds: Array = moderation.get("builds", [])
+	lines.append("BLOCKED BUILDS: %s" % (", ".join(builds.map(func(b) -> String:
+		return String(b.get("buildHash", b) if b is Dictionary else b).left(12).to_upper())) if not builds.is_empty() else "NONE"))
+	section_text("MODERATION", "\n".join(lines) if not lines.is_empty() else "NO FLAGGED ACCOUNTS")
+
+
+## /api/admin/flags/set {sessionToken, username, action, hours?}.
+func moderate(username: String, action: String) -> void:
+	var name := username.strip_edges().to_upper()
+	if name.is_empty():
+		_moderation_status.text = "ENTER A USERNAME"
+		return
+	var body := {"sessionToken": Backend.account_session_token, "username": name, "action": action}
+	if action == "extend":
+		body["hours"] = 24
+	var answer: Dictionary = await _fetch("/api/admin/flags/set", body)
+	_moderation_status.text = ("%s // %s" % [action.to_upper().replace("_", " "), name]) if bool(answer.get("ok", false)) \
+		else "FAILED // %s" % String(answer.get("error", "NO ANSWER"))
+	await refresh_moderation()
+
+
+## /api/admin/builds/add | remove {sessionToken, buildHash}.
+func block_build(build_hash: String, block: bool) -> void:
+	var hash_value := build_hash.strip_edges().to_lower()
+	if hash_value.is_empty():
+		_moderation_status.text = "ENTER A BUILD HASH"
+		return
+	var answer: Dictionary = await _fetch("/api/admin/builds/%s" % ("add" if block else "remove"),
+		{"sessionToken": Backend.account_session_token, "buildHash": hash_value})
+	_moderation_status.text = ("BUILD %s" % ("BLOCKED" if block else "UNBLOCKED")) if bool(answer.get("ok", false)) \
+		else "FAILED // %s" % String(answer.get("error", "NO ANSWER"))
+	await refresh_moderation()
