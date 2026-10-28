@@ -1089,6 +1089,7 @@ func _resolve_capture_outcome() -> void:
 			"hunter_id": hunter_id,
 		})
 	if capturing_view != null:
+		hud.set_death_flow(true)   # the grab owns the screen: no hotbar, minimap or stamina over it
 		await grab.play(player, capturing_view, hunter_id, _take_grab_roll())
 	if HunterJumpscare.ENABLED:
 		Sound.office_jumpscare(hunter_id)

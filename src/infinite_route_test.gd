@@ -5130,6 +5130,7 @@ func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void
 	# takeover before the death screen or spectator handoff so the player
 	# actually sees the hunter that caught them.
 	if catcher != null:
+		hud.set_death_flow(true)   # the grab owns the screen: no hotbar, minimap or stamina over it
 		await grab.play(player, catcher, hunter_id, _take_grab_roll())
 	if HunterJumpscare.ENABLED:
 		Sound.office_jumpscare(hunter_id)

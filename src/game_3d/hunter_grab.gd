@@ -434,11 +434,11 @@ static func pose_nearest_hunter(from: Node, body: Node3D, packet: Array) -> void
 const CLEARANCE := .07
 ## The hold widens the view up to fov_widen degrees, eased, while her face is closer than FACE_DISTANCE.
 const FACE_DISTANCE := 1.2
-## KT is comparing (docs/HUNTER_GRABS.md): her arms stretched along their length while she reaches for and holds the runner
+## KT's pick (option c): her arms stretched along their length while she reaches for and holds the runner
 ## (arm_stretch, for the styles in STRETCH_STYLES), and how far the hold may widen the view (fov_widen, degrees). Static so
-## a capture rig can set both; every peer uses the same values.
+## a capture rig can still compare; every peer uses the same values.
 static var arm_stretch := 1.6
-static var fov_widen := 10.0
+static var fov_widen := 25.0
 const UPSIDE_DOWN_HIDDEN := ["Chest", "Belly", "Pelvis", "L-Thigh", "R-Thigh", "L-Arm", "R-Arm"]
 const STRETCH_STYLES := [GrabStyles.NECK_LIFT, GrabStyles.SHOULDER_GRAB, GrabStyles.WRIST_YANK, GrabStyles.WALL_PIN,
 	GrabStyles.COLLAR_DRAG, GrabStyles.LEG_GRAB, GrabStyles.UPSIDE_DOWN]
