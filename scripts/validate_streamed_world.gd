@@ -372,6 +372,10 @@ func run(host: Node) -> int:
 								owning_room_id, {})
 							cafeteria_counts[prop_type] = int(cafeteria_counts.get(
 								prop_type, 0)) + 1
+							for room_value in data.get("rooms", []):
+								if String((room_value as Dictionary).get("id", "")) == owning_room_id:
+									var room_rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+									cafeteria_counts["_small_side"] = mini(room_rect.size.x, room_rect.size.y)
 							prison_cafeteria_props[owning_room_id] = cafeteria_counts
 						if room_template == "office_job" \
 								and prop_type == "officeDesk":
@@ -572,8 +576,10 @@ func run(host: Node) -> int:
 	var saw_complete_prison_cafeteria := false
 	for cafeteria_room_id in prison_cafeteria_props:
 		var cafeteria_counts: Dictionary = prison_cafeteria_props[cafeteria_room_id]
+		# a 5-deep prison wing (3x3 inside) holds the serving line and the tray return, not a hunter-scale 3.9 m table too
+		var needs_table := int(cafeteria_counts.get("_small_side", 99)) >= 11    # the rect includes its walls
 		if int(cafeteria_counts.get("prisonServingCounter", 0)) >= 1 \
-				and int(cafeteria_counts.get("prisonCafeteriaTable", 0)) >= 1 \
+				and (not needs_table or int(cafeteria_counts.get("prisonCafeteriaTable", 0)) >= 1) \
 				and int(cafeteria_counts.get("prisonTrayReturn", 0)) >= 1 \
 				and int(cafeteria_counts.get("prisonKitchenRack", 0)) >= 1:
 			saw_complete_prison_cafeteria = true

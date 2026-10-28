@@ -623,5 +623,8 @@
 				1.8
 			]
 		}
-	]
+	],
+	"keep_person_size": {
+		"locker": "you hide inside it and look out of its door slats at the runner's 1.44 m eye height"
+	}
 }

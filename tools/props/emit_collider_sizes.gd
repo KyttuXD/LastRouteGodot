@@ -125,8 +125,10 @@ func _ready() -> void:
 			variants[type] = per_variant
 		if MULTI_BOX.has(type):
 			var parts := []
+			var factor := PropModelCatalog.hunter_scale(type)    # the rectangles are in the authored model frame
 			for r in MULTI_BOX[type]:
-				var m := ColliderAudit.in_collider_frame(r as Rect2).grow(PAD * .5)
+				var scaled := Rect2((r as Rect2).position * factor, (r as Rect2).size * factor)
+				var m := ColliderAudit.in_collider_frame(scaled).grow(PAD * .5)
 				parts.append(Vector4(snappedf(m.get_center().x, 0.01), snappedf(m.get_center().y, 0.01), snappedf(m.size.x, 0.01), snappedf(m.size.y, 0.01)))
 			extras[type] = parts
 			offsets.erase(type)
