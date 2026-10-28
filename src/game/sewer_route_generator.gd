@@ -761,7 +761,8 @@ func _pipe_breakables(coord: Vector3i, sewer_grid: Array, region_props: Array) -
 		out.append(Breach.make_spec(id, Breach.KIND_PIPE, "authored", coord, middle, int(PIPE_HP[pipe]), PIPE_TOOLS, {
 			"pipe": pipe, "props": [prop["id"]], "cells": cells.duplicate(),
 			"centre": Vector2(middle) + Vector2(.5, .5), "dir": Vector2(along),
-			"flood_cells": _flood_cells(sewer_grid, cells)}))
+			"flood_cells": _flood_cells(sewer_grid, cells),
+			"wall": Vector2(prop.get("outflow_wall", Vector2i.ZERO))}))
 	return out
 
 
