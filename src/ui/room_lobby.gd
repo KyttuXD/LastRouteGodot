@@ -179,6 +179,11 @@ func _config_block() -> Control:
 		func(value: int) -> void: RoomState.set_difficulty(value),
 		func(value: int) -> bool:
 			return RoomState.is_host and RoomState.difficulty_available(value)))
+	# Normal / Hard / Nightmare hunters have extra abilities (HardAbilities); the host can switch them off for the room.
+	groups.add_child(_config_group("HUNTER ABILITIES", {0: "ON", 1: "OFF"},
+		0 if RoomState.hunter_abilities else 1,
+		func(value: int) -> void: RoomState.hunter_abilities = value == 0,
+		func(_value: int) -> bool: return RoomState.is_host))
 	groups.add_child(_archive_group())
 
 	stack.add_child(_label("SAVE DURING A ROUTE // LOAD FROM STAGING", Palette.MUTED, 6))

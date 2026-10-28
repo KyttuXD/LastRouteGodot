@@ -1,18 +1,22 @@
 class_name ScaleFit
 extends RefCounted
 
-## Scale-fit reference (docs/SCALE_FIT.md): what the player mannequin measures and the size range each prop category must
-## keep against it. Prop sizes are the collider footprints derived from the models (PropColliderSizes: x, height, z; the
-## height of tall pieces is capped at 2.2 there). Hunters are deliberately 1.5x and are NOT part of this table.
+## Scale-fit reference (docs/SCALE_FIT.md). The world is built at HUNTER scale: a normal hunter (2.67 m) is the "human"
+## the rooms, doors and furniture are judged against, and the runners are smaller (PlayerModels.SCALE, 1.60 m). Prop sizes
+## are the collider footprints derived from the models (PropColliderSizes: x, height, z).
 
-## Measured with tools/look/scale_measure.tscn on the blocky player mannequin (metres).
+## Measured with tools/look/scale_measure.tscn on the blocky mannequin (1.78 m as authored), times PlayerModels.SCALE.
 const PLAYER := {
-	"height": 1.78, "eye": 1.51, "camera": 1.60, "shoulder": 1.45, "elbow": 1.10, "hip": 0.90, "knee": 0.48,
-	"hand_hanging": 0.77, "reach_up": 2.15, "shoulder_width": 0.50,
+	"height": 1.60, "eye": 1.36, "camera": 1.44, "shoulder": 1.31, "elbow": 0.99, "hip": 0.81, "knee": 0.43,
+	"hand_hanging": 0.69, "reach_up": 1.94, "shoulder_width": 0.45,
 }
+## A normal (1.5x) hunter, measured by the door_clearance validator: the human the world is sized for.
+const HUNTER := {"height": 2.67, "eye": 2.27, "shoulder_width": 1.38}
+## Prop ranges below are person ranges (as for a 1.78 m human); against the hunters they are this much bigger.
+const HUNTER_FACTOR := 1.5
 
-## [category, name words (any), exclude words, height range, long-side range, short-side range]. First match wins.
-## A range of [] is not checked.
+## [category, name words (any), exclude words, height range, long-side range, short-side range] for a person; first match
+## wins, a range of [] is not checked. outliers(HUNTER_FACTOR) judges the props at hunter scale.
 const RULES := [
 	["bed", ["Bed", "Bunk"], ["Bedroom", "Bench", "Nightstand"], [0.35, 2.25], [1.8, 2.35], [0.8, 2.1]],
 	["seat", ["Chair", "Stool"], ["Cushion"], [0.70, 1.45], [], [0.35, 0.85]],
@@ -32,10 +36,11 @@ const RULES := [
 ## Architecture against the player: [name, value, min, max, note].
 const ARCHITECTURE := [
 	["ceiling_height", 4.0, 2.6, 4.5, "StreamedFacilityView3D.WALL_HEIGHT; high on purpose (hunters are 1.5x)"],
-	["door_opening_height", DoorwayFrames.TARGET_OPENING, 1.95, 3.0, "door frames are raised toward 2.95 m (capped at 3.15 m tall) for the 1.5x hunters (2.67 m), who duck the rest (DoorwayPose); a person needs 2.0"],
+	["door_opening_height", DoorwayFrames.TARGET_OPENING, 2.9, 3.2, "doors open 3.07 m: a normal hunter (2.67 m) + 40 cm; two-cell doors for every room with a side of 4+ cells (docs/DOORWAY_CLEARANCE.md)"],
 	["hall_width", 3.0, 2.0, 5.0, "StreamedRouteGenerator.CORRIDOR_WIDTH, 3 or 5 cells"],
-	["capsule_standing", 1.7, 1.5, 1.85, "PlayerController3D.STANDING_COLLISION_HEIGHT vs the 1.78 m model"],
-	["camera_vs_model_eye", 0.09, 0.0, 0.15, "camera 1.60 against the model's eye node at 1.51"],
+	["capsule_standing", PlayerController3D.STANDING_COLLISION_HEIGHT, 1.35, 1.66, "PlayerController3D.STANDING_COLLISION_HEIGHT vs the 1.60 m runner"],
+	["camera_vs_model_eye", 0.08, 0.0, 0.15, "camera 1.44 against the model's eye node at 1.36"],
+	["light_switch_height", 1.45, 0.9, 1.94, "StreamedFacilityView3D.SWITCH_HEIGHT: within the runner's reach (1.94), below a hunter's shoulder"],
 ]
 
 
@@ -54,8 +59,9 @@ static func category_of(type: String) -> Dictionary:
 	return {}
 
 
-## Outliers: [{type, category, dim, value, min, max}] across every collider-sized prop.
-static func outliers() -> Array:
+## Outliers: [{type, category, dim, value, min, max}] across every collider-sized prop, with the ranges times `factor`
+## (1 = person scale, HUNTER_FACTOR = the hunters' scale the world is built at).
+static func outliers(factor: float = 1.0) -> Array:
 	var out := []
 	for type_value in PropColliderSizes.SIZES:
 		var type := String(type_value)
@@ -70,7 +76,9 @@ static func outliers() -> Array:
 			if range_value.is_empty():
 				continue
 			var value := float(check[1])
-			if value < float(range_value[0]) - 0.005 or value > float(range_value[1]) + 0.005:
+			var low := float(range_value[0]) * factor
+			var high := float(range_value[1]) * factor
+			if value < low - 0.005 or value > high + 0.005:
 				out.append({"type": type, "category": cat["name"], "dim": check[0], "value": value,
-					"min": range_value[0], "max": range_value[1]})
+					"min": low, "max": high})
 	return out

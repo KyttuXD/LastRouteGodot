@@ -54,3 +54,24 @@ floor set, every district has hall and room sets and every kind is painted.
 ## Before / after
 
 ![](wall_themes_before_after.png)
+
+## Archways and hall pilasters follow the hall (KT, 2026-10-28)
+
+* **Materials**: the jambs, headers, corner steps, pilasters and arches are the hall's own wall (the theme of the space
+  each face looks into, the same paper / panel / brick / tile / concrete), never the old flat gray stone. Caps,
+  mouldings and keystones take the district's accent (`RefLook.ARCH_ACCENT`): brass in the mansion, hotel, apartments
+  and carnival, painted steel in the prison, lab, hospital and inferno, stone in gothic and the sewer, terrazzo in
+  the mall, concrete in the maze, iron in the greenhouse. Every trim face is a textured pixel material.
+* **Texture mapping** (`src/look/ref_plane_uv.gdshader`, mirrored by `RefDecor.plane_uv`): each face is mapped from its
+  own plane, u along the wall in metres and v by storeys from the floor, exactly as the wall faces are. Courses line
+  up with the wall beside the arch, and stay level and unstretched on an arch turned to any angle or standing on a
+  ramp (jambs plumb, courses level, consistently for every theme).
+* **Alignment**: a hall arch springs from the +x / +z wall's pilaster and spans pilaster face to pilaster face, centred
+  on the hall's centreline (the hall is measured across the grid), under the ceiling; the three-cell archways'
+  faces lie on the wall planes. The facing pilaster is placed by the opposite wall at the same position along the
+  hall.
+* **Check** (`wall_themes`): no default gray or gold block, trim is the district's textured accent, arch materials are
+  the faced wall's texture with the plane mapping, centre offset under 2 cm, span equal to the opening, faces on the
+  wall planes, top under the ceiling; and the mapping itself: identical to the wall faces on all four sides at 3.3 /
+  4.0 / 5.9 m, the same texel density on arches turned 30 / 45 / 117 degrees and on a 12 degree ramp, no seam between
+  blocks. (Measured on the mapping: the headless validator has no renderer.)
