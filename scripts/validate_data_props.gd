@@ -118,6 +118,26 @@ const FROZEN_MODELS := {
 	"publicSoapDispenser": ["res://art/props-3d/props/mansion/public_soap_dispenser.glb"],
 	"publicPaperTowelDispenser": ["res://art/props-3d/props/mansion/public_paper_towel_dispenser.glb"],
 	"publicBabyChangeStation": ["res://art/props-3d/props/mansion/public_baby_change_station.glb"],
+	"publicSanitaryBin": ["res://art/props-3d/props/mansion/public_sanitary_bin.glb"],
+	"publicMensRoomSign": ["res://art/props-3d/props/mansion/public_mens_room_sign.glb"],
+	"publicWomensRoomSign": ["res://art/props-3d/props/mansion/public_womens_room_sign.glb"],
+	"publicMensShowerStall": ["res://art/props-3d/props/mansion/public_mens_shower_stall.glb"],
+	"publicWomensShowerStall": ["res://art/props-3d/props/mansion/public_womens_shower_stall.glb"],
+	"publicShowerBench": ["res://art/props-3d/props/mansion/public_shower_bench.glb"],
+	"houseBathtub": ["res://art/props-3d/props/mansion/house_bathtub.glb"],
+	"houseToilet": ["res://art/props-3d/props/mansion/house_toilet.glb"],
+	"houseShowerEnclosure": ["res://art/props-3d/props/mansion/house_shower_enclosure.glb"],
+	"houseMedicineCabinet": ["res://art/props-3d/props/mansion/house_medicine_cabinet.glb"],
+	"houseTowelRack": ["res://art/props-3d/props/mansion/house_towel_rack.glb"],
+	"houseBathMat": ["res://art/props-3d/props/mansion/house_bath_mat.glb"],
+	"houseBathroomShelf": ["res://art/props-3d/props/mansion/house_bathroom_shelf.glb"],
+	"grandStaircase": ["res://art/props-3d/props/mansion/grand_staircase.glb"],
+	"grandFoyerStaircase": ["res://art/props-3d/props/mansion/grand_foyer_staircase.glb"],
+	"singleBed": ["res://art/props-3d/props/mansion/single_bed_burgundy.glb", "res://art/props-3d/props/mansion/single_bed_navy.glb", "res://art/props-3d/props/mansion/single_bed_violet.glb", "res://art/props-3d/props/mansion/single_bed_olive.glb", "res://art/props-3d/props/mansion/single_bed_ivory.glb", "res://art/props-3d/props/mansion/single_bed_charcoal.glb"],
+	"doubleBed": ["res://art/props-3d/props/mansion/double_bed_burgundy.glb", "res://art/props-3d/props/mansion/double_bed_navy.glb", "res://art/props-3d/props/mansion/double_bed_violet.glb", "res://art/props-3d/props/mansion/double_bed_olive.glb", "res://art/props-3d/props/mansion/double_bed_ivory.glb", "res://art/props-3d/props/mansion/double_bed_charcoal.glb"],
+	"bunkBed": ["res://art/props-3d/props/prison/bunk_bed_metal.glb", "res://art/props-3d/props/prison/bunk_bed_wood.glb", "res://art/props-3d/props/prison/bunk_bed_loft.glb"],
+	"bedroomNightstand": ["res://art/props-3d/props/mansion/bedroom_nightstand.glb", "res://art/props-3d/props/mansion/bedroom_nightstand_navy.glb", "res://art/props-3d/props/mansion/bedroom_nightstand_violet.glb", "res://art/props-3d/props/mansion/bedroom_nightstand_olive.glb", "res://art/props-3d/props/mansion/bedroom_nightstand_ivory.glb", "res://art/props-3d/props/mansion/bedroom_nightstand_charcoal.glb"],
+	"bedroomWardrobe": ["res://art/props-3d/props/mansion/bedroom_wardrobe.glb", "res://art/props-3d/props/mansion/bedroom_wardrobe_navy.glb", "res://art/props-3d/props/mansion/bedroom_wardrobe_violet.glb", "res://art/props-3d/props/mansion/bedroom_wardrobe_olive.glb", "res://art/props-3d/props/mansion/bedroom_wardrobe_ivory.glb", "res://art/props-3d/props/mansion/bedroom_wardrobe_charcoal.glb"],
 	# FROZEN_MODELS_END
 }
 const FROZEN_THEMES := {
@@ -129,6 +149,10 @@ const FROZEN_THEMES := {
 	"retroComputerTower": ["ivory", "charcoal", "teal", "burgundy"],
 	"retroComputerDesktop": ["ivory", "charcoal", "teal", "burgundy"],
 	"retroComputerTerminal": ["ivory", "charcoal", "teal", "burgundy"],
+	"singleBed": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"doubleBed": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"bedroomNightstand": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
+	"bedroomWardrobe": ["burgundy", "navy", "violet", "olive", "ivory", "charcoal"],
 	# FROZEN_THEMES_END
 }
 
