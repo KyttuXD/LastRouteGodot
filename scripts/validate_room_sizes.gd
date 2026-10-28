@@ -87,7 +87,9 @@ func run(_host: Node) -> int:
 
 func _check_great_hall(generator: StreamedRouteGenerator, coord: Vector3i, data: Dictionary, room: Dictionary) -> int:
 	var rect: Rect2i = room["rect"]
-	_expect(rect.size == Vector2i(21, 21), "great hall %s is %s, not 21x21" % [room["id"], rect.size])
+	# a maze great hall stops a cell short of the five-wide centre hall (KT: "5 wide maze region hallways")
+	var want := Vector2i(20, 21) if generator.biome_for(coord) == "maze" else Vector2i(21, 21)
+	_expect(rect.size == want, "great hall %s is %s, not %s" % [room["id"], rect.size, want])
 	var profile := RoomSizeProfiles.profile(String(room["room_type"]))
 	var table_types: Array = profile.get("signature", [])
 	var tables := []

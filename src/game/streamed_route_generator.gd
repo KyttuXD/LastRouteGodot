@@ -48,6 +48,8 @@ const STAIR_BAYS_BY_BOUNDARY_PARITY := {
 }
 const STAIR_RUN_CELLS := 8
 const CORRIDOR_WIDTH := 3
+## Share of seeds whose spawn region (level 0 around chunk 0) is the maze.
+const SPAWN_MAZE_SHARE := 0.6
 ## Regions laid out as banks of rooms along a central three-wide cross (see _linear_room_layout).
 const LINEAR_REGIONS := ["hotel", "prison"]
 ## Per-district density: dense districts use tight rooms along the halls (see _dense_linear_layout); the others keep
@@ -810,7 +812,11 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"north": edge_openings(coord, Vector2i(0, -1)),
 		"south": edge_openings(coord, Vector2i(0, 1)),
 	}
-	var edge_corridors := _carve_edges(grid, edges, layout["rooms"], circulation, DENSE_DISTRICTS.has(region))
+	var wide_seams := {}
+	for side in edges:
+		wide_seams[side] = wide_seam(coord, {"west": Vector2i(-1, 0), "east": Vector2i(1, 0), "north": Vector2i(0, -1),
+			"south": Vector2i(0, 1)}[side])
+	var edge_corridors := _carve_edges(grid, edges, layout["rooms"], circulation, DENSE_DISTRICTS.has(region), wide_seams)
 	(layout["corridors"] as Array).append_array(edge_corridors)
 	for stair in stairs:
 		_carve_stair_access(grid, stair, layout["rooms"], circulation)
@@ -1001,6 +1007,14 @@ func biome_for(coord: Vector3i) -> String:
 		"prison", "carnival", "mansion", "hotel", "maze",
 		"hospital", "lab", "lab", "greenhouse", "mall"]
 	if coord.y == 0:
+		if region_x == 0 and region_z == 0:
+			# KT: "make the maze the most common spawn point". The run starts in chunk (0, 0, 0), so the region around it is
+			# the maze SPAWN_MAZE_SHARE of the time, else any other level-0 region (the safe-spawn room is unchanged).
+			var spawn_rng := SeededRandom.new("%s:SPAWN-REGION" % world_seed)
+			if spawn_rng.next_float() < SPAWN_MAZE_SHARE:
+				return "maze"
+			var others := choices.filter(func(choice: String) -> bool: return choice != "maze")
+			return others[spawn_rng.next_index(others.size())]
 		return choices[rng.next_index(choices.size())]
 	# Upper levels remain recognizable and forgiving. Gothic wings begin below
 	# the central floor; Inferno is a deep-only biome and can never leak upward.
@@ -1094,6 +1108,14 @@ func edge_openings(coord: Vector3i, direction: Vector2i) -> Array:
 	return [CHUNK_SIZE / 2]
 
 
+## Maze chunks on both sides of a seam: their five-wide centre halls meet through a five-wide opening. Symmetric, so
+## both chunks carve the same gap.
+func wide_seam(coord: Vector3i, direction: Vector2i) -> bool:
+	var neighbour := coord + Vector3i(direction.x, 0, direction.y)
+	return is_chunk_allowed(coord) and is_chunk_allowed(neighbour) and biome_for(coord) == "maze" \
+		and biome_for(neighbour) == "maze"
+
+
 ## The route is a single level: no stair links exist, so no chunk has a
 ## stairwell, floor void or ceiling void.
 func stair_links(_coord: Vector3i) -> Array:
@@ -1176,7 +1198,7 @@ func _solid_grid() -> Array:
 
 
 func _carve_edges(grid: Array, edges: Dictionary, rooms: Array,
-		circulation: Dictionary = {}, dense: bool = false) -> Array:
+		circulation: Dictionary = {}, dense: bool = false, wide_seams: Dictionary = {}) -> Array:
 	var corridors := []
 	var center := CHUNK_SIZE / 2
 	for side in ["west", "east", "north", "south"]:
@@ -1195,7 +1217,8 @@ func _carve_edges(grid: Array, edges: Dictionary, rooms: Array,
 				for spread in range(-1, 2):
 					grid[offset + spread][0 if side == "west" else CHUNK_SIZE - 1] = 0
 				continue
-			for spread in range(-1, 2):
+			var reach := 2 if bool(wide_seams.get(side, false)) and offset == CHUNK_SIZE / 2 else 1
+			for spread in range(-reach, reach + 1):
 				if side == "west":
 					grid[offset + spread][0] = 0
 				elif side == "east":
@@ -1463,14 +1486,19 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 	var center := CHUNK_SIZE / 2
 	# Maze keeps its signature office suite in the south-east quarter: the banks leave that quarter alone.
 	var office_quarter := region == "maze"
+	# KT: "5 wide maze region hallways". The maze's two main halls (the centre cross the seams meet) are five wide; its
+	# outer east-west halls stay three wide as side passages, so the banks either side keep usable room depths.
+	var wide := region == "maze"
+	var half := 2 if wide else 1
 	var plan := large_plan(coord)
-	var middle_start := center - 1 if hall_trimmed(coord, -1) else 1
-	# the maze office suite is entered from this hall (doors at x 31-32), so its east trim leaves the hall as far as the entrance
-	var middle_end := (35 if office_quarter else center + 2) if hall_trimmed(coord, 1) else CHUNK_SIZE - 1
+	var middle_start := center - half if hall_trimmed(coord, -1) else 1
+	# the maze office suite is entered from this hall (doors at x 32-33), so its east trim leaves the hall as far as the entrance
+	var middle_end := (35 if office_quarter else center + 1 + half) if hall_trimmed(coord, 1) else CHUNK_SIZE - 1
 	var mall := region == "mall"
-	# the arcade's main hall is five wide (shops on both sides); every other district keeps a three-wide centre hall
-	var main_hall := Rect2i(center - 2, 1, 5, CHUNK_SIZE - 2) if mall else Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)
-	var halls := [Rect2i(1, 9, CHUNK_SIZE - 2, 3), Rect2i(middle_start, center - 1, middle_end - middle_start, 3),
+	# the arcade's and the maze's main halls are five wide; every other district keeps a three-wide centre hall
+	var main_hall := Rect2i(center - 2, 1, 5, CHUNK_SIZE - 2) if mall or wide else Rect2i(center - 1, 1, 3, CHUNK_SIZE - 2)
+	var halls := [Rect2i(1, 9, CHUNK_SIZE - 2, 3),
+		Rect2i(middle_start, center - half, middle_end - middle_start, 1 + 2 * half),
 		Rect2i(1, 33, 22 if office_quarter else CHUNK_SIZE - 2, 3), main_hall]
 	for hall_index in halls.size():
 		var hall: Rect2i = halls[hall_index]
@@ -1480,9 +1508,16 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 			"axis": "north_south" if hall_index == 3 else "east_west", "serves_many_rooms": true})
 	# rows of rooms (top y, door on the top wall when facing a hall above, bottom wall when facing one below); each
 	# side is either two 11x9 rooms sharing a wall or one 21x9 hall room, from the chunk border to the centre hall.
-	var rows := [{"y": 0, "door_top": false}, {"y": 12, "door_top": true},
-		{"y": 24, "door_top": false}, {"y": 36, "door_top": true}]
-	var side_x := [0, 25] if mall else [0, 24]
+	var rows := [{"y": 0, "h": 9, "door_top": false}, {"y": 12, "h": 9, "door_top": true},
+		{"y": 24, "h": 9, "door_top": false}, {"y": 36, "h": 9, "door_top": true}]
+	if wide:
+		# the five-wide middle hall (rows 20-24) takes a row from each middle bank
+		rows[1]["h"] = 8
+		rows[2]["y"] = 25
+		rows[2]["h"] = 8
+	var side_x := [0, 25] if mall or wide else [0, 24]
+	# a bank side runs from the border to the centre hall: 21 cells beside a three-wide hall, 20 beside a five-wide one
+	var bank_w := 20 if wide else 21
 	var big_types: Array = BANK_BIG_TYPES.get(region, [])
 	var small_types := []
 	for type_name in (_room_type_choices(region) as Array):
@@ -1501,7 +1536,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		if hall_type.is_empty():
 			continue
 		merged_sides[side] = true
-		var big := Rect2i(side_x[side], 12, LARGE_ROOM_SIZE, LARGE_ROOM_SIZE)
+		var big := Rect2i(side_x[side], 12, bank_w if wide else LARGE_ROOM_SIZE, LARGE_ROOM_SIZE)
 		_carve_rect(grid, big)
 		var big_door := Vector2i(big.end.x - 1 if side == 0 else big.position.x, center)
 		_seal_room_perimeter_except(grid, big, big_door)
@@ -1518,7 +1553,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		for side in 2:
 			if office_quarter and side == 1 and int(row["y"]) >= 24:
 				continue
-			if merged_sides.has(side) and (int(row["y"]) == 12 or int(row["y"]) == 24):
+			if merged_sides.has(side) and int(row["y"]) > 0 and int(row["y"]) < 36:
 				continue
 			var specs := []
 			if pod_pending:
@@ -1527,12 +1562,17 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 			elif mall:
 				specs.append({"x": side_x[side], "w": MALL_SHOP_WIDTH, "type": ""})
 			elif not big_types.is_empty() and rng.next_float() < float(BANK_BIG_CHANCE.get(region, 0.0)):
-				specs.append({"x": side_x[side], "w": 21, "type": big_types[rng.next_index(big_types.size())]})
+				specs.append({"x": side_x[side], "w": bank_w, "type": big_types[rng.next_index(big_types.size())]})
+			elif wide:
+				# two rooms sharing a wall, the one nearer the centre hall a cell narrower
+				var outer := 0 if side == 0 else 9
+				specs.append({"x": side_x[side] + outer, "w": 11, "type": ""})
+				specs.append({"x": side_x[side] + (10 if side == 0 else 0), "w": 10, "type": ""})
 			else:
 				specs.append({"x": side_x[side], "w": 11, "type": ""})
 				specs.append({"x": side_x[side] + 10, "w": 11, "type": ""})
 			for spec in specs:
-				var rect := Rect2i(int(spec["x"]), int(row["y"]), int(spec["w"]), 9)
+				var rect := Rect2i(int(spec["x"]), int(row["y"]), int(spec["w"]), int(row["h"]))
 				_carve_rect(grid, rect)
 				var door_top: bool = row["door_top"]
 				var doorway := Vector2i(rect.position.x + rect.size.x / 2, rect.position.y if door_top else rect.end.y - 1)
@@ -1561,7 +1601,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		_carve_rect(grid, bay)
 		_mark_rect_cells(circulation, bay)
 	if office_quarter:
-		var suite := _carve_suite_cluster(coord, region, grid, circulation, Rect2i(24, 24, 17, 17), 3, "office", rng)
+		var suite := _carve_suite_cluster(coord, region, grid, circulation, Rect2i(25, 25, 17, 17), 3, "office", rng)
 		rooms.append_array(suite["rooms"])
 		corridors.append_array(suite["corridors"])
 		suites.append(suite["suite"])
