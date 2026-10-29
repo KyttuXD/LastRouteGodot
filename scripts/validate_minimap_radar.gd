@@ -104,6 +104,34 @@ func _check_map_wiring(host: Node) -> void:
 	_expect(guest_marks.size() == host_marks.size(), "a guest sees %d marks, the host %d" % [guest_marks.size(), host_marks.size()])
 	RoomState.online = was_online
 	RoomState.is_host = was_host
+	# save points (safe rooms / checkpoints): every discovered floor, other floors flagged, a sabotage flashes with a HUD line, a repair restores
+	var fake_chunks := {
+		Vector3i(0, level, 0): {"safe_room": true, "safe_room_data": {"id": "SAFE_A", "checkpoint_id": "CP_A"}},
+		Vector3i(2, level + 1, 1): {"safe_room": true, "safe_room_data": {"id": "SAFE_B", "checkpoint_id": "CP_B"}},
+	}
+	var save_marks: Array = route._safe_room_map_marks(level, fake_chunks)
+	_expect(save_marks.size() == 2, "both discovered save points should be marked, got %d" % save_marks.size())
+	var here: Dictionary = save_marks.filter(func(m: Dictionary) -> bool: return not m["other_floor"]).front() if not save_marks.is_empty() else {}
+	var above: Dictionary = save_marks.filter(func(m: Dictionary) -> bool: return m["other_floor"]).front() if save_marks.size() > 1 else {}
+	_expect(not here.is_empty() and not above.is_empty() and int(above["level"]) == level + 1, "the save point on another floor is not flagged with its level")
+	route.hud.message_label.visible = false
+	route._note_save_point_state("SAFE_A", true)
+	_expect(route.hud.message_label.visible and route.hud.message_label.text == "SAVE POINT SABOTAGED", "a sabotaged save point did not say so on the HUD")
+	var flashed: Array = route._safe_room_map_marks(level, fake_chunks)
+	var flashing := flashed.filter(func(m: Dictionary) -> bool: return int(m["flash_until"]) > Time.get_ticks_msec())
+	_expect(flashing.size() == 1, "a fresh sabotage should flash its map marker")
+	_expect(route.hud.minimap.live_pings().size() >= 1, "a sabotage on this floor should ping the minimap")
+	route.hud.message_label.visible = false
+	route._note_save_point_state("SAFE_A", true)
+	_expect(not route.hud.message_label.visible, "an unchanged sabotaged state flashed again")
+	route._note_save_point_state("SAFE_A", false)
+	_expect(route.hud.message_label.text == "SAVE POINT RESTORED", "a repaired save point did not go back to active")
+	var map := FacilityMap.new()
+	map.show_streamed_state({}, level, 16, Vector2.ZERO, Vector2.DOWN, [], false, 0, [], false, [], save_marks)
+	_expect(map.safe_rooms.size() == 2, "the map dropped the other-floor save point")
+	map.free()
+	var save_source := FileAccess.get_file_as_string("res://src/infinite_route_test.gd")
+	_expect(save_source.contains("_note_save_point_state(room_id,"), "the host's safe-room events do not feed the save-point markers")
 	# the map keeps only Porcelle's ghost on its pinged marks: a plain hunter mark still draws the normal marker
 	route.queue_free()
 	await host.get_tree().process_frame
