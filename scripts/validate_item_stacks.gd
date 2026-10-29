@@ -143,8 +143,88 @@ func run(host: Node) -> int:
 	var over := state.duplicate(true)
 	over["inventory_slot_durability"] = [50, 6, 2]
 	_expect(String(guard.check(9, over, .1).get("reason", "")) == "stack", "a slot of 6 batteries was not flagged")
+	await _per_item_cooldowns(host, scene, player)
 	scene.queue_free()
 	await host.get_tree().process_frame
 	if _failures == 0:
 		print("  item_stacks  ok")
 	return _failures
+
+
+## KT 2026-10-28: "make only the used taser/item have a cooldown or usage hit". Cooldowns live per slot and move with the
+## item; firing one taser leaves a second ready (HUD too); picking up or dropping another taser does not reset it; the host
+## times each taser slot on its own; a tool swing or a battery only touches its own slot.
+func _per_item_cooldowns(host: Node, scene: Node, player: PlayerController3D) -> void:
+	_empty(player)
+	player.grant_inventory_item("taser")
+	player.grant_inventory_item("taser")
+	player.grant_inventory_item("crowbar")
+	player.grant_inventory_item("crowbar")
+	var first := player.inventory_order.find("taser")
+	var second := player.inventory_order.rfind("taser")
+	player.select_inventory_slot(first)
+	player.input_frozen = false
+	player.stun_timer = 0.0
+	player._fire_taser()
+	_expect(player.slot_cooldown(first) > 0.0 and player.slot_cooldown(second) == 0.0 and player.last_taser_slot == first,
+		"firing one taser put the other on cooldown too (%s)" % [player.slot_cooldowns])
+	for slot in player.inventory_order.size():
+		if slot != first:
+			_expect(player.slot_cooldown(slot) == 0.0, "firing a taser put slot %d (%s) on cooldown" % [slot, player.inventory_order[slot]])
+	# the HUD: only the fired taser's bar is draining
+	for _i in 2:
+		await host.get_tree().process_frame
+	var hud: HUD = scene.hud
+	if second < hud._inventory_bars.size() and first < hud._inventory_bars.size():
+		_expect(hud._inventory_bars[first].value < 50.0 and is_equal_approx(hud._inventory_bars[second].value, 100.0),
+			"the hotbar shows the cooldown on both tasers (%.0f / %.0f)" % [hud._inventory_bars[first].value, hud._inventory_bars[second].value])
+	# the second taser fires while the first recharges
+	player._fire_taser()
+	_expect(player.last_taser_slot == second and player.slot_cooldown(second) > 0.0, "the second taser would not fire while the first recharged")
+	player._fire_taser()
+	_expect(player.last_taser_slot == second, "a taser fired with both on cooldown")
+	# a swap carries the cooldown with the item
+	player.slot_cooldowns[second] = 0.0
+	var spent := player.slot_cooldown(first)
+	player.move_inventory_slot(first, second)
+	_expect(is_equal_approx(player.slot_cooldown(second), spent) and player.slot_cooldown(first) == 0.0, "the cooldown stayed on the row, not the taser")
+	# dropping or picking up another taser leaves this one's cooldown alone
+	player.remove_inventory_item("taser", first)
+	_expect(is_equal_approx(player.slot_cooldown(second), spent), "dropping the other taser reset this one's cooldown")
+	player.grant_inventory_item("taser")
+	_expect(is_equal_approx(player.slot_cooldown(second), spent) and player.slot_cooldown(player.inventory_order.find("taser")) == 0.0,
+		"picking up a taser reset the other one's cooldown, or arrived on cooldown")
+	# tools: a swing only wears the crowbar that swung
+	var bars := []
+	for slot in player.inventory_order.size():
+		if player.inventory_order[slot] == "crowbar":
+			bars.append(slot)
+	player.select_inventory_slot(bars[1])
+	var before := [player.inventory_slot_durability[bars[0]], player.inventory_slot_durability[bars[1]]]
+	player.consume_item_durability("crowbar")
+	_expect(player.inventory_slot_durability[bars[0]] == before[0] and player.inventory_slot_durability[bars[1]] == before[1] - 1,
+		"using one crowbar wore the other (%s -> %s)" % [before, [player.inventory_slot_durability[bars[0]], player.inventory_slot_durability[bars[1]]]])
+	# batteries: using one takes from the selected stack only
+	_empty(player)
+	player.grant_inventory_item("battery", 5)
+	player.grant_inventory_item("battery", 2)
+	var full := player.inventory_order.find("battery")
+	var small := player.inventory_order.rfind("battery")
+	player.select_inventory_slot(small)
+	player.lamp_charge = 10.0
+	player._use_battery()
+	_expect(player.stack_count_at(full) == 5 and player.stack_count_at(small) == 1, "a battery came off the wrong stack")
+	# host: each taser slot has its own timer (keyed peer:slot)
+	scene._taser_ready_usec_by_peer.clear()
+	scene._resolve_taser(1, 3)
+	var keys: Array = scene._taser_ready_usec_by_peer.keys()
+	_expect(keys.size() == 1 and String(keys[0]).begins_with("1:"), "the host keeps no per-slot taser timer (%s)" % [keys])
+	# resetting the taser cooldown clears every taser, nothing else
+	player.grant_inventory_item("taser")
+	player.grant_inventory_item("taser")
+	player._fire_taser()
+	player._fire_taser()
+	player.taser_cooldown = 0.0
+	for slot in player.inventory_order.size():
+		if player.inventory_order[slot] == "taser":
+			_expect(player.slot_cooldown(slot) == 0.0, "resetting the taser cooldown missed slot %d" % slot)

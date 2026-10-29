@@ -567,7 +567,7 @@ func _update_hud(update_map: bool = true) -> void:
 	hud.update_inventory(player.selected_inventory_item(), player.taser_cooldown,
 		player.inventory_durability_snapshot(), player.inventory_owned_snapshot(),
 		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot(),
-		player.selected_inventory_slot, player.inventory_slot_durability_snapshot())
+		player.selected_inventory_slot, player.inventory_slot_durability_snapshot(), player.slot_cooldowns)
 	if update_map:
 		_update_streamed_maps()
 	_present_afk_void_warning()
@@ -3771,18 +3771,24 @@ func _checkpoint_world_position() -> Vector3:
 
 func _on_taser_requested() -> void:
 	if RoomState.online and not RoomState.is_host:
-		_remotes.submit_hunter_event({"what": "taser"})
+		_remotes.submit_hunter_event({"what": "taser", "slot": player.last_taser_slot})
 		return
-	_resolve_taser(multiplayer.get_unique_id() if RoomState.online else 1)
+	_resolve_taser(multiplayer.get_unique_id() if RoomState.online else 1, player.last_taser_slot)
 
 
-func _resolve_taser(peer_id: int) -> void:
+## The host times each taser on its own (peer + slot): a runner carrying two can fire the second while the first recharges.
+## A slot the runner's reported inventory does not hold a taser in falls back to that runner's first taser.
+func _resolve_taser(peer_id: int, slot: int = -1) -> void:
 	if not _remotes.simulates():
 		return
+	var reported = _target_state_for_peer(peer_id).get("inventory_order", [])
+	if not (reported is Array and slot >= 0 and slot < reported.size() and String(reported[slot]) == "taser"):
+		slot = reported.find("taser") if reported is Array else -1
+	var key := "%d:%d" % [peer_id, slot]
 	var now := Time.get_ticks_usec()
-	if now < int(_taser_ready_usec_by_peer.get(peer_id, 0)):
+	if now < int(_taser_ready_usec_by_peer.get(key, 0)):
 		return
-	_taser_ready_usec_by_peer[peer_id] = now + int(
+	_taser_ready_usec_by_peer[key] = now + int(
 		GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown") * 1_000_000.0)
 	var target := _target_state_for_peer(peer_id)
 	if target.is_empty() or bool(target.get("hidden", false)):
@@ -5873,7 +5879,7 @@ func _apply_hunter_event(event: Dictionary) -> void:
 	match String(event.get("what", "")):
 		"taser":
 			_resolve_taser(int(event.get("peer_id",
-				multiplayer.get_unique_id() if RoomState.online else 1)))
+				multiplayer.get_unique_id() if RoomState.online else 1)), int(event.get("slot", -1)))
 		"caught":
 			_hunters_gloat(int(event.get("peer_id", 0)), "")
 			var caught_peer := int(event.get("peer_id", 0))
