@@ -201,8 +201,10 @@ func _movement_reason(peer: Dictionary, state: Dictionary, at: Vector3, good: Ve
 	# over-speed runs dry within a second or two. A move past the budget and beyond TELEPORT_DISTANCE is a teleport.
 	var tolerance := TOLERANCE * _lag_scale(peer) * (GameConfig.STIM_SPEED_SCALE if boosted(peer) else 1.0)
 	var window := _longest_gap(peer)
-	var flat_credit := minf(float(peer.get("flat_credit", LAG_SLACK_M)) + max_speed * tolerance * dt,
-		max_speed * tolerance * window + LAG_SLACK_M) - flat
+	# in a duct (VentCrawl) the top speed is the crawl, so a guest cannot sprint through the vents
+	var top := VentCrawl.CRAWL_SPEED if bool(state.get("duct", false)) else max_speed
+	var flat_credit := minf(float(peer.get("flat_credit", LAG_SLACK_M)) + top * tolerance * dt,
+		top * tolerance * window + LAG_SLACK_M) - flat
 	var up_credit := minf(float(peer.get("up_credit", LAG_SLACK_M)) + UP_SPEED * tolerance * dt,
 		UP_SPEED * tolerance * window + LAG_SLACK_M) - maxf(rise, 0.0)
 	if flat_credit < 0.0 or up_credit < 0.0:
@@ -217,7 +219,7 @@ func _movement_reason(peer: Dictionary, state: Dictionary, at: Vector3, good: Ve
 	peer["flat_credit"] = flat_credit
 	peer["up_credit"] = up_credit
 	if space != null and flat >= SWEEP_MIN_M and dt <= SWEEP_MAX_DT and seq_jump <= 2 \
-			and not bool(state.get("in_vent", false)) \
+			and not bool(state.get("in_vent", false)) and not bool(state.get("duct", false)) \
 			and not bool(state.get("hidden", false)) and _blocked(space, good, at):
 		return "noclip"
 	return ""

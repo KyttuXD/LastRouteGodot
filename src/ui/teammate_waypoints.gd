@@ -1,8 +1,8 @@
 class_name TeammateWaypoints
 extends Control
 
-## On-screen markers for co-op teammates: name and distance in metres at their world position, clamped to the screen edge with an
-## arrow when they are off screen or behind you. Positions come from the room's replicated player states (RemotePlayers
+## On-screen markers for co-op teammates in view: name and distance in metres at their world position. Teammates off screen or behind
+## you get no marker here; the minimap shows them as a small arrow on its border (FacilityMap). Positions come from the room's replicated player states (RemotePlayers
 ## .remote_player_marks), never from loaded player nodes, so they work beyond chunk and stream range. Another floor gets an up/down
 ## triangle with the level ("+1"); a teammate quiet for more than STALE_MS is dimmed; DOWN / CAUGHT states are labelled.
 ## `update_marks(camera, viewer_position, marks)` once per frame; `layout_for()` is the pure projection, testable without a camera.
@@ -56,6 +56,8 @@ func update_marks(cam: Camera3D, viewer: Vector3, marks: Array) -> void:
 		var viewport_point := Vector2.ZERO if behind else cam.unproject_position(world)
 		var canvas_point: Vector2 = to_canvas * viewport_point
 		var entry := layout_for(canvas_point, Vector2(local.x, -local.y), behind, size, EDGE_MARGIN)
+		if entry["clamped"]:
+			continue   # off screen or behind you: the minimap's border arrow points to them instead (KT 2026-10-28)
 		entry["name"] = String(mark.get("name", "?")).to_upper().substr(0, 14)
 		entry["distance"] = roundi(viewer.distance_to(world))
 		entry["colour"] = mark.get("colour", Color("63d9f1"))

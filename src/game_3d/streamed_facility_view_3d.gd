@@ -65,8 +65,12 @@ const RAMP_FLOOR_KIND := "concrete1"
 const RAMP_PRESTREAM_CELLS := 6.0
 ## The falls: rough stone on the drop's cliffs, and how far the roar carries.
 const CLIFF_WALL_KIND := "stone1"
-## How far past the lip the sheet hangs.
-const FALLS_SPOUT := .12
+## How far past the lip the water is thrown before it drops (KT: "waterfall doesnt connect to sewage hall"): a sheet hanging
+## straight down under the lip hid behind the lip itself from everywhere on the first sewer, so the spur seemed to run into
+## a wall. The arc carries it out where the hall sees it, and it still lands well inside the cistern's pool.
+const FALLS_THROW := .9
+## How far the arc drops while it travels out, before the sheet falls straight.
+const FALLS_CURL_DROP := .7
 const SEWER_FALLS_SHADER := preload("res://src/look/sewer_falls.gdshader")
 
 const SEWER_WATER_SHADER := preload("res://src/look/sewer_water.gdshader")
@@ -140,6 +144,8 @@ var _safe_floor_item := -1
 var _col_floor_item := -1
 var _col_wall_item := -1
 var _col_sewer_wall_item := -1
+## A maze wall cell under a duct: its collider stops under the duct's floor (VentNetwork.DUCT_FLOOR) so the duct runs on.
+var _col_duct_wall_item := -1
 var _col_channel_item := -1
 var _loaded := {}
 ## Chunks of the storey the runner just left by a ladder (the 3x3 around the shaft): hidden, lights off, physics
@@ -1417,6 +1423,8 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"floor_voids": floor_voids,
 		# a maze chunk beside a deck patch or the void is seen from above: its slab gets a top face (ceilings face down)
 		"roof_top": coord.y == 0 and _seen_from_above(coord),
+		# the vents: a level-0 chunk of the maze and its regions (not the void) carries the duct lines under its ceiling
+		"ducts": coord.y == 0 and not data.has("mezzanine_grid"),
 		"structural_voids": structural_voids,
 		"safe": bool(data.get("safe_room", false)),
 		"style": RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"]),
@@ -1501,6 +1509,8 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				_spawn_streamed_ceiling_lights(root, data)
 				_spawn_stairwells(root, data, (build["coord"] as Vector3i).y)
 				_spawn_mezzanine_rails(root, data)
+				if bool(build.get("ducts", false)):
+					_spawn_ducts(root, build["coord"])
 				_spawn_shop_signs(root, data)
 				if not (build["sewer_grid"] as Array).is_empty():
 					_spawn_sewer_water(root, build["sewer_grid"], _jump_cell(data), _gate_gaps(data))
@@ -1752,14 +1762,18 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
 					or _sewer_code(build, n.x, n.y) == SewerRouteGenerator.FALL:
 				continue
-			# the shaft is lined in the sewer's own brick, so it reads as part of the network, not a rock box
+			# the shaft is lined in the sewer's own brick, so it reads as part of the network, not a rock box. Only
+			# through the slab, down to the collector's ceiling: below that the cistern chamber is open floor whose own
+			# walls and lintels close the shaft, and a full-storey lining stood in it as brick with no collider (KT:
+			# "waterfalls have these walls that can be walked through")
 			var shaft_kind := _ref_wall_kind(build, n.x, n.y, x, z)
 			surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", shaft_kind),
-				RefTextures.params("wall", shaft_kind), 0.0, -LEVEL_HEIGHT, LEVEL_HEIGHT)
+				RefTextures.params("wall", shaft_kind), 0.0, -(LEVEL_HEIGHT - SewerRouteGenerator.CEILING_HEIGHT), LEVEL_HEIGHT)
 	else:
 		# every level below the maze keeps its wall colliders inside its own storey
+		var under_duct := bool(build.get("ducts", false)) and VentNetwork.is_duct_cell(cell)
 		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
-			if (build["coord"] as Vector3i).y < 0 else _col_wall_item)
+			if (build["coord"] as Vector3i).y < 0 else (_col_duct_wall_item if under_duct else _col_wall_item))
 		# a room door's cell: wall over the frame up to both rooms' ceilings, and a soffit on the frame (no see-through)
 		var header: Dictionary = (build["door_headers"] as Dictionary).get(cell, {})
 		if not header.is_empty():
@@ -1793,6 +1807,8 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 					# put a cornice and skirting across the shaft at 3.6 m instead)
 					room_floor = -LEVEL_HEIGHT if bool(ramp_info["upper"]) else 0.0
 					room_top = face_height if bool(ramp_info["upper"]) else LEVEL_HEIGHT + RAMP_VAULT
+			if under_duct:
+				face_height = minf(face_height, VentNetwork.DUCT_FLOOR)   # the duct runs on through the wall above
 			var wall_kind := _ref_wall_kind(build, x, z, nx, nz)
 			if room_top > 0.0:
 				wall_kind = _ramp_wall_kind(build, nx, nz)
@@ -1893,6 +1909,80 @@ func _spawn_mezzanine_rails(root: Node3D, data: Dictionary) -> void:
 		glow.omni_range = 26.0
 		glow.position = Vector3(UpperLevelTools.CENTER + .5, .6, UpperLevelTools.CENTER + .5)
 		root.add_child(glow)
+
+
+## KT: the vents are real. The four duct lines of a chunk (VentNetwork.LINES on both axes) as sheet-metal boxes hung under
+## the ceiling: a floor at DUCT_FLOOR, a roof at the slab, side walls broken where the crossing duct passes through, all
+## solid; a crawling runner or hunter moves inside (WORLD's VentCrawl). Long boxes per straight run keep it to a few dozen
+## shapes a chunk. Grate hatches show as darker plates in the duct floor (their traversal is WORLD's).
+const DUCT_SKIN := .06
+
+
+func _spawn_ducts(root: Node3D, coord: Vector3i) -> void:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var body := StaticBody3D.new()
+	body.name = "Ducts"
+	body.collision_layer = 1
+	body.collision_mask = 0
+	root.add_child(body)
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var floor_y := VentNetwork.DUCT_FLOOR
+	var roof_y := LEVEL_HEIGHT - SLAB
+	var mid_y := (floor_y + roof_y) * .5
+	var tall := roof_y - floor_y
+	var add_box := func(centre: Vector3, extent: Vector3) -> void:
+		var shape := BoxShape3D.new()
+		shape.size = extent
+		var collider := CollisionShape3D.new()
+		collider.shape = shape
+		collider.position = centre
+		body.add_child(collider)
+		_add_rail_bar(surface, centre, extent)
+	for line in VentNetwork.LINES:
+		for along_x in [true, false]:
+			# floor and roof: one box each along the whole line
+			var centre_line := float(line) + .5
+			var floor_centre := Vector3(size * .5, floor_y - DUCT_SKIN * .5, centre_line) if along_x else Vector3(centre_line, floor_y - DUCT_SKIN * .5, size * .5)
+			var floor_extent := Vector3(size, DUCT_SKIN, 1.0) if along_x else Vector3(1.0, DUCT_SKIN, size)
+			add_box.call(floor_centre, floor_extent)
+			add_box.call(floor_centre + Vector3(0, tall + DUCT_SKIN, 0), floor_extent)
+			# side walls, open where the crossing ducts pass
+			var cuts: Array = VentNetwork.LINES.duplicate()
+			var start := 0
+			for cut in cuts + [size]:
+				var end_at: int = int(cut)
+				if end_at > start:
+					for side in [-1, 1]:
+						var offset: float = centre_line + float(side) * (.5 - DUCT_SKIN * .5)
+						var length := float(end_at - start)
+						var mid := float(start) + length * .5
+						var centre := Vector3(mid, mid_y, offset) if along_x else Vector3(offset, mid_y, mid)
+						var extent := Vector3(length, tall, DUCT_SKIN) if along_x else Vector3(DUCT_SKIN, tall, length)
+						add_box.call(centre, extent)
+				start = end_at + 1
+	surface.generate_normals()
+	var mesh := MeshInstance3D.new()
+	mesh.name = "DuctSkin"
+	mesh.mesh = surface.commit()
+	var metal := StandardMaterial3D.new()
+	metal.albedo_color = Color("6b7378")
+	metal.metallic = .6
+	metal.roughness = .55
+	MaterialLook.tame(metal, true)
+	mesh.material_override = metal
+	root.add_child(mesh)
+	# grate hatches: darker plates just above the duct floor where VentNetwork opens one
+	for link_value in generator.vents().grates_for(coord, coord.y):
+		var cell: Vector2i = (link_value as Dictionary)["from_cell"]
+		var plate := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(.9, .02, .9)
+		plate.mesh = box
+		plate.material_override = _stair_iron()
+		plate.position = Vector3(cell.x + .5, floor_y + .01, cell.y + .5)
+		plate.name = "VentHatch"
+		root.add_child(plate)
 
 
 func _add_rail_bar(surface: SurfaceTool, center: Vector3, size: Vector3) -> void:
@@ -2292,16 +2382,13 @@ func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
 	if level == StreamedRouteGenerator.SEWER_LEVEL:
 		var sheet := MeshInstance3D.new()
 		sheet.name = "Waterfall"
-		var quad := QuadMesh.new()
-		quad.size = Vector2(3.0, LEVEL_HEIGHT)
-		sheet.mesh = quad
+		sheet.mesh = _falls_sheet_mesh(bool(falls["north"]))
 		var material := ShaderMaterial.new()
 		material.shader = SEWER_FALLS_SHADER
 		sheet.material_override = material
 		sheet.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		# just past the lip, from the channel's surface down to the pool's
-		sheet.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE - LEVEL_HEIGHT * .5,
-			lip.z + (-FALLS_SPOUT if bool(falls["north"]) else FALLS_SPOUT))
+		# from the channel's surface at the lip, out over the drop and down to the pool's
+		sheet.position = Vector3(lip.x, 0.0, lip.z)
 		root.add_child(sheet)
 		_add_falls_spillway(root, lip, bool(falls["north"]))
 		_add_falls_sound(root, Vector3(lip.x, 0.0, lip.z))
@@ -2330,10 +2417,43 @@ func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
 		puff_material.albedo_color = Color(.78, .84, .8, .16)
 		puff.material = puff_material
 		mist.draw_pass_1 = puff
-		mist.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE + .1, lip.z + (-FALLS_SPOUT - .65 if bool(falls["north"]) else FALLS_SPOUT + .65))
+		mist.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE + .1, lip.z + (-FALLS_THROW - .5 if bool(falls["north"]) else FALLS_THROW + .5))
 		root.add_child(mist)
-		_add_falls_impact(root, Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE, lip.z + (-FALLS_SPOUT - .75 if bool(falls["north"]) else FALLS_SPOUT + .75)))
+		_add_falls_impact(root, Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE, lip.z + (-FALLS_THROW - .3 if bool(falls["north"]) else FALLS_THROW + .3)))
 		_add_falls_sound(root, mist.position)
+
+
+## The falling water, local to the lip's centre: a 3 m wide strip that leaves the channel's surface, arcs FALLS_THROW out
+## over the drop while it sinks FALLS_CURL_DROP, then falls straight to the cistern's water a storey down. UV.y runs top to
+## bottom, so the shader's froth gathers where it lands.
+func _falls_sheet_mesh(north: bool) -> ArrayMesh:
+	var out := -1.0 if north else 1.0
+	var top := SewerRouteGenerator.WATER_SURFACE
+	var bottom := top - LEVEL_HEIGHT
+	var rail := []
+	for i in 7:
+		var k := float(i) / 6.0
+		rail.append(Vector2(FALLS_THROW * sqrt(k), top - FALLS_CURL_DROP * k))       # a ballistic curl: fast out, then down
+	rail.append(Vector2(FALLS_THROW, bottom))
+	var length := 0.0
+	var lengths := [0.0]
+	for i in range(1, rail.size()):
+		length += (rail[i] as Vector2).distance_to(rail[i - 1])
+		lengths.append(length)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(1, rail.size()):
+		var a: Vector2 = rail[i - 1]
+		var b: Vector2 = rail[i]
+		var va := float(lengths[i - 1]) / length
+		var vb := float(lengths[i]) / length
+		var quad := [[Vector3(-1.5, a.y, a.x * out), Vector2(0, va)], [Vector3(1.5, a.y, a.x * out), Vector2(1, va)],
+			[Vector3(1.5, b.y, b.x * out), Vector2(1, vb)], [Vector3(-1.5, b.y, b.x * out), Vector2(0, vb)]]
+		for index in [0, 1, 2, 0, 2, 3]:
+			st.set_uv(quad[index][1])
+			st.add_vertex(quad[index][0])
+	st.generate_normals()
+	return st.commit()
 
 
 ## The top of a fall (level -1): the spur channel's water runs on over the lip with a crest of foam, and a cool light on
@@ -2496,6 +2616,10 @@ func _add_channel_trench(build: Dictionary, cell: Vector2i) -> void:
 		var step: Vector2i = step_value
 		var n := cell + step
 		if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size or _is_channel(_sewer_code(build, n.x, n.y)):
+			continue
+		# the falls' lip: the water pours straight over it (the drop's own lining faces the cistern). A face here stood
+		# above the water across the spur's end and hid the whole fall from the first sewer (KT: "doesnt connect").
+		if _sewer_code(build, n.x, n.y) == SewerRouteGenerator.FALL:
 			continue
 		var kind := RefLook.wall_kind("sewer", "", coord.x * size + n.x, coord.z * size + n.y)
 		surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", kind),
@@ -4242,6 +4366,13 @@ func _add_ref_items(library: MeshLibrary, first_id: int) -> int:
 	# The sewer's walls stop under the maze floor slab above them. A full-height
 	# maze wall block placed one storey down rose 3.5 m into level 0 and walled
 	# off open maze halls (playtest GOLF).
+	_col_duct_wall_item = next_id
+	library.create_item(next_id)
+	var duct_wall_shape := BoxShape3D.new()
+	duct_wall_shape.size = Vector3(1.0, VentNetwork.DUCT_FLOOR, 1.0)
+	library.set_item_shapes(next_id, [duct_wall_shape,
+		Transform3D(Basis.IDENTITY, Vector3(0.0, VentNetwork.DUCT_FLOOR * .5, 0.0))])
+	next_id += 1
 	_col_sewer_wall_item = next_id
 	library.create_item(next_id)
 	var sewer_wall_shape := BoxShape3D.new()
