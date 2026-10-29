@@ -942,7 +942,12 @@ func _begin_emote(index: int, seconds: float) -> void:
 	# Kathy's scythe is held by the carry clips; she emotes with her face only.
 	_emote_clip = "" if _carries_scythe else HunterEmoteCatalog.resolve_clip(index,
 		_shown_id, _animation_player, HunterEmotePersonality.clip_override(_shown_id, index))
-	_emote_cue(HunterEmoteCatalog.noise(index))
+	var voice := HunterEmotePersonality.voice(_shown_id, index)
+	if not voice.is_empty():
+		# a content pack's voice for this emote: heard like the noisy emotes, even when this one is normally silent
+		_emote_cue(maxf(HunterEmoteCatalog.noise(index), VOICE_RADIUS), voice[randi() % voice.size()])
+	else:
+		_emote_cue(HunterEmoteCatalog.noise(index))
 
 
 func _end_emote() -> void:
@@ -964,7 +969,10 @@ func _emote_plays_now() -> bool:
 
 
 ## Small positional cue for noisy emotes (laugh, hum, dance): quieter with distance, silent beyond the radius.
-func _emote_cue(radius: float) -> void:
+const VOICE_RADIUS := 16.0
+
+
+func _emote_cue(radius: float, voice: AudioStream = null) -> void:
 	if radius <= 0.0 or not is_inside_tree():
 		return
 	var camera := get_viewport().get_camera_3d()
@@ -974,6 +982,9 @@ func _emote_cue(radius: float) -> void:
 	if distance >= radius:
 		return
 	var side := (global_position - camera.global_position).dot(camera.global_basis.x)
+	if voice != null:
+		Sound.play_voice(voice, 1.0 - distance / radius)
+		return
 	Sound.hunter_laugh(clampf(side / maxf(radius * .5, 1.0), -1.0, 1.0), .05 * (1.0 - distance / radius))
 
 
