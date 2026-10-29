@@ -1162,8 +1162,8 @@ static func _coop_overlay(tree: SceneTree) -> Label:
 	layer.name = "CoopCheckOverlay"
 	tree.root.add_child(layer)
 	var label := Label.new()
-	label.position = Vector2(12, 120)
-	label.add_theme_font_size_override("font_size", 15)
+	label.position = Vector2(10, 22)
+	label.add_theme_font_size_override("font_size", 9)
 	label.add_theme_color_override("font_color", Color(1, 1, .6))
 	label.add_theme_color_override("font_outline_color", Color.BLACK)
 	label.add_theme_constant_override("outline_size", 5)
@@ -1172,20 +1172,23 @@ static func _coop_overlay(tree: SceneTree) -> Label:
 	return label
 
 
+## One small line in the corner (the full roster is in coop_samples.jsonl): it must not cover the view someone is watching.
 static func _coop_overlay_text(scene: Node, role: String, me: int, roles: Array) -> String:
 	var player: PlayerController3D = scene.get("player")
 	var facility: StreamedFacilityView3D = scene.get("facility")
-	var lines := ["CO-OP TEST // ROOM %s // %s peer %d // level %+d" % [RoomState.code, role.to_upper(), me, facility.current_level()],
-		"roster %d: %s   roles A/B/C %s" % [RoomState.peers.size(), _coop_guests(scene), roles]]
 	var states: Dictionary = (scene.get("_remotes") as Object).get("_states")
 	var now := Time.get_ticks_usec()
+	var live := 0
+	var nearest := INF
 	for id in states:
 		var st: Dictionary = states[id]
+		if now - int(st.get("received_usec", 0)) < 2000000:
+			live += 1
 		var at = st.get("position")
-		var d := Vector2(player.global_position.x, player.global_position.z).distance_to(at) if at is Vector2 else -1.0
-		lines.append("  peer %d  %5.1f m  level %+d  %s" % [int(id), d, -int(st.get("depth", 0)),
-			"live" if now - int(st.get("received_usec", 0)) < 2000000 else "STALE"])
-	return "\n".join(lines)
+		if at is Vector2:
+			nearest = minf(nearest, Vector2(player.global_position.x, player.global_position.z).distance_to(at))
+	return "bot %s · room %s · level %+d · %d/%d teammates live%s" % [role, RoomState.code, facility.current_level(), live,
+		RoomState.peers.size() - 1, " · nearest %.0f m" % nearest if nearest < INF else ""]
 
 
 static func _coop_guests(scene: Node) -> Array:
