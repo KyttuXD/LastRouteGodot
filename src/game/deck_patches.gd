@@ -18,12 +18,17 @@ static var _corners := {}
 
 
 static func _corner(world_seed: String, ix: int, iz: int) -> float:
+	# shared by the streaming worker threads and the main thread: never read back a key another thread may just have
+	# cleared; a miss is recomputed (pure seed maths) and returned directly
 	var key := "%s:%d:%d" % [world_seed, ix, iz]
-	if not _corners.has(key):
-		if _corners.size() > 4096:
-			_corners.clear()
-		_corners[key] = SeededRandom.new("%s:DECKS:%d:%d" % [world_seed, ix, iz]).next_float()
-	return float(_corners[key])
+	var cached = _corners.get(key)
+	if cached != null:
+		return float(cached)
+	var fresh := SeededRandom.new("%s:DECKS:%d:%d" % [world_seed, ix, iz]).next_float()
+	if _corners.size() > 4096:
+		_corners = {}
+	_corners[key] = fresh
+	return fresh
 
 
 static func value(world_seed: String, x: int, z: int) -> float:
