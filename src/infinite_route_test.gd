@@ -5536,7 +5536,8 @@ func _apply_player_event(event: Dictionary) -> void:
 					_remotes.submit_hunter_event({"what": "caught"})
 				return
 			if bool(event.get("inescapable", false)) or GameState.escape_on_cooldown():
-				await _resolve_capture_outcome(hunter_id, String(event.get("entity_id", "")))
+				await _resolve_capture_outcome(hunter_id, String(event.get("entity_id", "")),
+					HunterGrab.skips_grab(bool(event.get("inescapable", false))))
 				return
 			_begin_escape_struggle(String(event.get("entity_id", "")), hunter_id)
 		"message":
@@ -5685,7 +5686,7 @@ func _tick_void_fall(delta: float) -> void:
 ## Shared by a failed struggle and an inescapable grab (void hunters, or a
 ## gimmick that declares the grab inescapable): the same local jumpscare and
 ## death report either way.
-func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void:
+func _resolve_capture_outcome(hunter_id: String, entity_id: String = "", instant: bool = false) -> void:
 	if _capture_resolving:
 		return
 	var fell := hunter_id == VOID_FALL
@@ -5715,7 +5716,8 @@ func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void
 	# Same local capture presentation as main_3d.gd: play the lunge/camera
 	# takeover before the death screen or spectator handoff so the player
 	# actually sees the hunter that caught them.
-	if catcher != null and not fell:
+	# an instant capture (HunterGrab.skips_grab) or a fall goes straight to its own screen: no grab at all
+	if catcher != null and not instant and not fell:
 		hud.set_death_flow(true)   # the grab owns the screen: no hotbar, minimap or stamina over it
 		await grab.play(player, catcher, hunter_id, _take_grab_roll())
 	elif fell:
