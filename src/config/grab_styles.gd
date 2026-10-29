@@ -20,7 +20,7 @@ const WRIST_YANK := "wrist_yank"
 const WRAP := "wrap"
 const LEG_GRAB := "leg_grab"
 const UPSIDE_DOWN := "upside_down"
-const BEAR_HUG := "bear_hug"
+const SHOULDER_CARRY := "shoulder_carry"
 const COLLAR_DRAG := "collar_drag"
 const WALL_PIN := "wall_pin"
 const POUNCE_PIN := "pounce_pin"
@@ -36,7 +36,7 @@ const STYLES := {
 	WRAP: {"short": "WR"},
 	LEG_GRAB: {"short": "LG", "back": 1.8},
 	UPSIDE_DOWN: {"short": "UD", "ceiling": 2.4, "back": 1.5},   # the head swings out past the feet as they go up
-	BEAR_HUG: {"short": "BH", "ceiling": 2.75},
+	SHOULDER_CARRY: {"short": "SC", "ceiling": 2.75, "back": 2.8},   # stands tall with the runner up, then walks on
 	COLLAR_DRAG: {"short": "CD", "hunter_back": 1.6},
 	WALL_PIN: {"short": "WP", "wall": 1.3},
 	POUNCE_PIN: {"short": "PP", "back": 1.7, "creature": true},
@@ -50,22 +50,31 @@ const REACH_SECONDS := .35
 const ACT_SECONDS := .7
 const HOLD_SECONDS := .85
 const TOTAL_SECONDS := REACH_SECONDS + ACT_SECONDS + HOLD_SECONDS
+## The shoulder carry walks a few steps before the end, so it runs longer; the longest grab bounds every timer.
+const CARRY_METRES := 2.4
+const CARRY_SECONDS := 3.2
+const MAX_SECONDS := CARRY_SECONDS
 
-## Points on the 1.60 m runner body the hunter's hands go to, in the body's own frame (facing -Z, +X its right, feet at 0).
+
+static func duration(style: String) -> float:
+	return CARRY_SECONDS if style == SHOULDER_CARRY else TOTAL_SECONDS
+
+## Points on the 2.2 m runner body (measured at 1.60 m, times PlayerModels.SCALE / 0.9) the hunter's hands go to, in the body's own frame (facing -Z, +X its right, feet at 0).
 const BODY_POINTS := {
-	"neck": Vector3(0.0, 1.08, -.17),
-	"l_shoulder": Vector3(-.3, 1.27, -.03),
-	"r_shoulder": Vector3(.3, 1.27, -.03),
-	"l_wrist": Vector3(-.3, 1.24, -.37),
-	"back_l": Vector3(-.24, 1.05, .08),
-	"back_r": Vector3(.24, 1.05, .08),
-	"r_ankle": Vector3(.1, .1, .1),
+	"neck": Vector3(0, 1.483, -0.233),
+	"l_shoulder": Vector3(-0.412, 1.744, -0.041),
+	"r_shoulder": Vector3(0.412, 1.744, -0.041),
+	"l_wrist": Vector3(-0.412, 1.703, -0.508),
+	"back_l": Vector3(-0.33, 1.442, 0.11),
+	"back_r": Vector3(0.33, 1.442, 0.11),
+	"r_ankle": Vector3(0.137, 0.137, 0.137),
+	"knees": Vector3(0, 1.099, -0.371),   # the front of the thighs, legs folded down her front in the shoulder carry (0.8 / -0.27 at the old 1.60 m)
 }
-## The 1.60 m mannequin's joints these points were measured from (scale .9): neck pivot 1.18, shoulders 1.08 (arm tops ~1.2),
+## The mannequin's joints these points were measured from (at the old scale .9; multiplied by 1.236 / 0.9 here): neck pivot 1.18, shoulders 1.08 (arm tops ~1.2),
 ## arms .44 long, torso .2 deep, head .4. Contacts sit just off the surface so a hunter's (much bigger) hand closes on it.
 
 ## Standing eye height of the runner the poses assume when no real camera is involved (the other players' view of a body).
-const BODY_EYE := 1.36
+const BODY_EYE := 1.868   # 1.36 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
 
 static var _pools := {}
 static var _looks := {}
@@ -166,7 +175,7 @@ static func apply_defs(defs: Array) -> void:
 
 ## How a hunter's head follows the runner during a grab (radians, chest share 0..1, Aki's look-away seconds): the data's
 ## "look" over these defaults.
-const LOOK_DEFAULTS := {"yaw": 1.75, "up": 1.05, "down": .96, "chest": .3, "delay": 0.0}
+const LOOK_DEFAULTS := {"yaw": 2.0, "up": 1.05, "down": 1.4, "chest": 0.0, "delay": 0.0}
 
 
 static func look_for(hunter_id: String) -> Dictionary:
@@ -259,7 +268,8 @@ static func smooth(k: float) -> float:
 ##   "view_pitch", "view_roll": first-person camera on top of the body's own lean,  "hands": first-person hand pose, "k": its amount,
 ##   "arms": [[hunter arm "R"/"L", BODY_POINTS key, amount]],  "hunter": [forward, drop, lean] for the hunter's own body,
 ##   "clip": what other players' copy of the runner plays, and optionally "wide" (elbows out, for arms that go round the runner),
-##   "runner_arms" (the runner's own arm reaching the named point), "flip" (the upside-down turn, 0..1), "look" (0..1, how far the
+##   "runner_arms" (the runner's own arm reaching the named point), "flip" (the upside-down turn, 0..1), "fold" (the carried
+##   runner's hips bent, 0..1), "walk" (she walks: her walk clip), "look_down_back", "look" (0..1, how far the
 ##   first-person view has turned to her face; 1 when absent) }
 static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 	var r := smooth(t / REACH_SECONDS)
@@ -314,23 +324,36 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["runner_arms"] = [["L", "l_wrist"]]
 			out["hunter"] = [0.0, 0.0, -.18 * yank]
 		WRAP:
-			out["at"] = Vector3(0.0, .1 * a, .95)
+			out["at"] = Vector3(0.0, .1 * a, 1.3)   # her long arms round the runner from a step away: her face stays in front of theirs
 			out["view_roll"] = sway * .04
 			out["hands"] = "pinned"
 			out["arms"] = [["R", "back_l", r], ["L", "back_r", r]]
 			out["wide"] = true   # elbows out wide, so the arms come round the runner instead of through them
-		BEAR_HUG:
-			# crushed against her: lifted until the runner's chest is at hers, feet well off the floor
-			out["at"] = Vector3(0.0, .7 * a, .95)
-			out["view_pitch"] = .15 * a
-			out["view_roll"] = sway * .05
-			out["hands"] = "pinned"
-			out["arms"] = [["R", "back_l", r], ["L", "back_r", r]]
-			out["wide"] = true   # elbows out wide, so the arms come round the runner instead of through them
-			out["clip"] = "fall"
+		SHOULDER_CARRY:
+			# hoisted over her right shoulder, torso hanging down her back, legs down her front locked by her arm; then she
+			# carries the runner off a few steps (CARRY_METRES) before the end
+			var hoist := smooth((t - REACH_SECONDS) / .9)
+			var walk := smooth((t - REACH_SECONDS - 1.0) / 1.5)
+			var tilt := -(PI - .35) * hoist
+			var pelvis := Vector3(shoulder_side, shoulder_y + .05, shoulder_fwd + walk * CARRY_METRES)
+			var carried := pelvis - Vector3(0.0, .6 * cos(tilt), .6 * sin(tilt))
+			# out to her side first, then up and over, so the body never swings through hers
+			var out_side := smooth((t - REACH_SECONDS * .5) / .35)   # stepped out to her shoulder side before going up
+			out["at"] = Vector3(carried.x * out_side, carried.y * hoist, lerpf(.75, carried.z, hoist))
+			out["tilt"] = tilt
+			out["fold"] = hoist
+			out["view_pitch"] = 0.0
+			out["look_down_back"] = hoist   # looking down her back at the floor going away
+			out["hands"] = "dangle"
+			out["k"] = hoist
+			out["arms"] = [["R", "knees", r]]
+			out["hunter"] = [walk * CARRY_METRES, 0.0, 0.0]
+			out["walk"] = walk > .001 and walk < .999
+			out["her_look_ahead"] = true   # she looks where she is carrying them, not round at the runner over her shoulder
+			out["clip"] = "idle"
 		LEG_GRAB:
 			# grabbed low from behind: the runner falls forward on their face and is dragged back to the hunter
-			var fall := smooth((t - REACH_SECONDS) / (ACT_SECONDS * .85))
+			var fall := smooth((t - REACH_SECONDS) / (ACT_SECONDS + .25))
 			var drag := smooth((t - REACH_SECONDS - ACT_SECONDS * .35) / (ACT_SECONDS * .65 + HOLD_SECONDS * .6))
 			out["face"] = -1.0
 			out["at"] = Vector3(0.0, 0.0, lerpf(1.25, .75, drag))

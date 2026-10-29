@@ -16,9 +16,13 @@ export const MOD_PACK_SCHEMA = "lr.pack/1";
 const MANIFEST_KEYS = new Set(["schema", "id", "name", "version", "author", "description", "game_version", "overrides", "files"]);
 export const MOD_VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
-// the loader's layout: pack.json; props|regions|hunters/*.json one level deep; assets/** .glb .png .ogg (lower-case)
+// the loader's layout: pack.json; <kind>/*.json one level deep; assets/** .glb .png .ogg (lower-case)
+// keep in step with ContentPacks.KINDS (src/config/content_packs.gd)
+export const MOD_PACK_KINDS = ["props", "regions", "hunters", "grabs"];
+const KIND_GROUP = MOD_PACK_KINDS.join("|");
 const SEGMENT = "[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}";
-const FILE_PATH_PATTERN = new RegExp(`^(?:pack\\.json|(?:props|regions|hunters)/${SEGMENT}\\.json|assets/(?:${SEGMENT}/){0,6}${SEGMENT}\\.(?:glb|png|ogg))$`);
+const FILE_PATH_PATTERN = new RegExp(`^(?:pack\\.json|(?:${KIND_GROUP})/${SEGMENT}\\.json|assets/(?:${SEGMENT}/){0,6}${SEGMENT}\\.(?:glb|png|ogg))$`);
+const OVERRIDE_PATTERN = new RegExp(`^(?:${KIND_GROUP})/[A-Za-z0-9_]{1,64}$`);
 
 export const MOD_LIMITS = Object.freeze({
   maxFileBytes: 16 * 1024 * 1024,     // one file      (the client loader's limits: a bigger pack would be refused there)
@@ -48,7 +52,7 @@ export function validatePackManifest(input, limits = MOD_LIMITS) {
   const unknown = Object.keys(manifest).find((key) => !MANIFEST_KEYS.has(key));
   if (unknown) return { error: "UNKNOWN_PACK_FIELD", path: unknown };
   if (manifest.overrides !== undefined && (!Array.isArray(manifest.overrides)
-      || manifest.overrides.some((entry) => !/^(?:props|regions|hunters)\/[A-Za-z0-9_]{1,64}$/.test(String(entry))))) {
+      || manifest.overrides.some((entry) => !OVERRIDE_PATTERN.test(String(entry))))) {
     return { error: "INVALID_PACK_OVERRIDES" };
   }
   const id = String(manifest.id || "");

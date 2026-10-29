@@ -12,6 +12,7 @@ const HUNTER_HEAD := 1.6
 const LOOK_RATE := 2.8          # PlayerController3D.CONTROLLER_LOOK_RADIANS_PER_SECOND
 const CHUNK := 45               # StreamedRouteGenerator.CHUNK_SIZE
 const INTERACT_RANGE := 2.1
+const USE_COOLDOWN := 120.0     # seconds before the same music box / switch / board is used again
 const THREAT_RANGE := 20.0
 const SAFE_ARRIVAL := 3.2
 const PATH_REFRESH := 0.5
@@ -38,6 +39,11 @@ var _stuck_next := 0.0
 var _strafe_until := 0.0
 var _strafe_dir := 1.0
 var _interact_cooldown := 0.0
+## Items and the world's objects (KT: the co-op bots must use them, so sync and load are exercised like real play).
+var _use_time := 0.0             # seconds spent at the current "use" goal
+var _use_swings := 0
+var _dark_check := 0.0
+var _dark := false
 var _interact_tries := 0
 var _relays_at_interact := 0
 var _hide_clear_time := 0.0
@@ -411,7 +417,7 @@ func _reset() -> void:
 	var pitch_hist: Dictionary = stats.get("pitch_hist", {}) if stats is Dictionary else {}
 	stats = {"frames": 0, "distance_m": 0.0, "stuck_events": 0, "soft_locks": 0, "interact_failures": 0,
 		"unreachable_goals": 0, "chase_frames": 0, "relays": 0, "deaths": 0, "hidden_frames": 0,
-		"chunks_visited": 0, "max_depth": 1, "hunters_seen": {}, "pitch_hist": pitch_hist}
+		"chunks_visited": 0, "max_depth": 1, "hunters_seen": {}, "pitch_hist": pitch_hist, "uses": {}, "flashlight_toggles": 0}
 	events.clear()
 	_goal = {}
 	_path = []
@@ -548,8 +554,9 @@ func decide(obs: Dictionary, delta: float) -> Dictionary:
 	var nav: StreamedHunterNavigation = scene.get("_navigation")
 	var p := player.global_position
 	var cell := Vector2i(floori(p.x), floori(p.z))
-	var act := {"move": [0.0, 0.0], "look": [0.0, 0.0], "hold": {"sprint": false, "crouch": false, "jump": false}, "pulse": []}
+	var act := {"move": [0.0, 0.0], "look": [0.0, 0.0], "hold": {"sprint": false, "crouch": false, "jump": false, "interact": false}, "pulse": []}
 	_track_progress(obs, p, delta)
+	_flashlight(scene, player, act, delta)
 	if int(stats["frames"]) % 10 == 0 and not player.hidden:
 		# where the bot looks, for the run's median-pitch check (PlaytestReporter): whole degrees -> frames
 		var deg := str(roundi(rad_to_deg(player.first_person_pivot.rotation.x)))
@@ -596,6 +603,12 @@ func decide(obs: Dictionary, delta: float) -> Dictionary:
 			act["pulse"].append("interact")
 			_interact_cooldown = 0.8
 		return act
+	if _last_goal_kind == "use" and distance <= INTERACT_RANGE + .6:
+		_use(player, p, goal, act, delta)
+		return act
+	if _last_goal_kind != "use":
+		_use_time = 0.0
+		_use_swings = 0
 	if _last_goal_kind == "safe" and distance <= SAFE_ARRIVAL:
 		# stand in the safe room until the threat is gone, but never longer than WAIT_IN_SAFE_SECONDS
 		_safe_wait += delta
@@ -641,7 +654,114 @@ func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, 
 		for entry in world["batteries"]:
 			if float(entry["dist"]) < 60.0 and not _blacklisted("battery:%s" % entry["id"]):
 				return {"kind": "battery", "key": "battery:%s" % entry["id"], "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
+	var use := _use_goal(obs, nav)
+	if not use.is_empty():
+		return use
 	return _explore_goal(obs, nav, cell)
+
+
+## Something to use on the way: a music box (wound, hold interact), a light switch while it is dark, a tool lying about, or a boarded
+## path / breakable when a crowbar or the rescue axe is in the hotbar. Each spot is left alone for USE_COOLDOWN after a go.
+func _use_goal(obs: Dictionary, nav: StreamedHunterNavigation) -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {}
+	var player: PlayerController3D = scene.get("player")
+	var tool := _breach_tool(player)
+	for item in obs.get("interactables", []):
+		var kind := String(item["kind"])
+		var d := float(item["dist"])
+		if bool(item["completed"]):
+			continue
+		var wanted := (kind == "MUSIC_BOX" and d < 14.0) or (kind == "LIGHT_SWITCH" and _dark and d < 10.0) \
+				or (kind == "TOOL_PICKUP" and d < 25.0) or (kind in ["BOARDED_PATH", "BREAKABLE"] and tool >= 0 and d < 20.0)
+		if not wanted:
+			continue
+		var pos: Array = item["pos"]
+		var key := "use:%s:%d,%d" % [kind, roundi(float(pos[0])), roundi(float(pos[2]))]
+		if _blacklisted(key):
+			continue
+		var stand := _open_cell_near(nav, Vector2(float(pos[0]), float(pos[2])))
+		if stand == Vector2i(-99999, -99999):
+			continue
+		return {"kind": "use", "use": kind, "key": key, "cell": stand, "at": Vector3(float(pos[0]), float(pos[1]), float(pos[2]))}
+	return {}
+
+
+## The hotbar slot holding a crowbar or the rescue axe, or -1.
+func _breach_tool(player: PlayerController3D) -> int:
+	for slot in PlayerController3D.HOTBAR_SIZE:
+		if String(player.inventory_order[slot]) in ["crowbar", "rescue_axe"]:
+			return slot
+	return -1
+
+
+## At a "use" goal: face it and use it the way a player does (hold interact on a music box, press it on a switch or a pickup, swing the
+## tool at boards), then leave it alone for USE_COOLDOWN.
+func _use(player: PlayerController3D, p: Vector3, goal: Dictionary, act: Dictionary, delta: float) -> void:
+	var kind := String(goal["use"])
+	var at: Vector3 = goal["at"]
+	var aimed := _aim_at(player, at, act, delta)
+	var flat := Vector2(at.x - p.x, at.z - p.z)
+	act["move"] = [0.0, .3 if flat.length() > INTERACT_RANGE * .7 else 0.0]
+	_use_time += delta
+	var done := false
+	if aimed:
+		match kind:
+			"MUSIC_BOX":
+				act["hold"]["interact"] = true
+				done = _use_time > 2.6
+			"BOARDED_PATH", "BREAKABLE":
+				var slot := _breach_tool(player)
+				if slot < 0:
+					done = true
+				elif player.selected_inventory_slot != slot:
+					player.select_inventory_slot(slot)   # what the number key does
+				elif _interact_cooldown <= 0.0:
+					act["pulse"].append("tool_use")
+					_interact_cooldown = .8
+					_use_swings += 1
+					done = _use_swings >= 6
+			_:
+				if _interact_cooldown <= 0.0:
+					act["pulse"].append("interact")
+					_interact_cooldown = .8
+					_use_swings += 1
+					done = _use_swings >= 3
+	if done or _use_time > 8.0:
+		stats["uses"][kind] = int(stats["uses"].get(kind, 0)) + 1
+		add_event("use", {"kind": kind, "at": [snappedf(p.x, .1), snappedf(p.z, .1)], "seconds": snappedf(_use_time, .1), "aimed": aimed})
+		_blacklist[String(goal["key"])] = _clock + USE_COOLDOWN
+		_goal = {}
+		_use_time = 0.0
+		_use_swings = 0
+
+
+## The flashlight like a player: on in the dark, off where it is lit (saves the battery), never on an empty lamp. Dark is the drawn
+## frame's mean brightness when there is one (windowed), else a storey below the maze or a blackout.
+func _flashlight(scene: Node, player: PlayerController3D, act: Dictionary, delta: float) -> void:
+	_dark_check -= delta
+	if _dark_check > 0.0:
+		return
+	_dark_check = 1.5
+	var image: Image = null
+	if DisplayServer.get_name() != "headless" and scene.get_viewport().get_texture() != null:
+		image = scene.get_viewport().get_texture().get_image()
+	if image != null and not image.is_empty():
+		image.resize(32, 18, Image.INTERPOLATE_BILINEAR)
+		var sum := 0.0
+		for y in 18:
+			for x in 32:
+				sum += image.get_pixel(x, y).get_luminance()
+		# hysteresis: the lamp's own light is in the frame while it is on
+		_dark = sum / (32.0 * 18.0) < (.16 if player.flashlight_enabled else .09)
+	else:
+		var facility: StreamedFacilityView3D = scene.get("facility")
+		_dark = facility != null and (facility.current_level() != 0 or not facility.all_lights_enabled())
+	var want := _dark and player.lamp_charge > 3.0
+	if want != player.flashlight_enabled:
+		act["pulse"].append("flashlight")
+		stats["flashlight_toggles"] = int(stats.get("flashlight_toggles", 0)) + 1
 
 
 func _explore_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i) -> Dictionary:

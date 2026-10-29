@@ -9,7 +9,7 @@ extends Node
 const ARENA := preload("res://scripts/grab_arena.gd")
 const STYLE_HUNTER := {
 	"neck_lift": "kathy", "shoulder_grab": "dovelle", "tackle": "haelith", "wrist_yank": "aki", "wrap": "briselle",
-	"leg_grab": "ceryth", "upside_down": "xivvy", "bear_hug": "glyra", "collar_drag": "javelle", "wall_pin": "opalie",
+	"leg_grab": "ceryth", "upside_down": "xivvy", "shoulder_carry": "glyra", "collar_drag": "javelle", "wall_pin": "opalie",
 	"pounce_pin": SecretCreatures.IDS[0],
 }
 const MOMENTS := {"start": .3, "hold": 1.5}
@@ -112,7 +112,7 @@ func _ready() -> void:
 			var shot_names := MOMENTS.keys()
 			var next := 0
 			var waited := 0.0
-			while waited < GrabStyles.TOTAL_SECONDS + .6:
+			while waited < GrabStyles.duration(style) + .6:
 				await get_tree().process_frame
 				waited += get_process_delta_time()
 				if next < shot_names.size() and waited >= float(MOMENTS[shot_names[next]]):
@@ -127,7 +127,7 @@ func _ready() -> void:
 			player.global_position = stand + side * 30.0 + Vector3.UP * 30.0   # out of the way
 			_guest.visible = true
 			_guest.global_position = held_at + Vector3.UP * float(_packet[2])
-			_guest.global_basis = Basis.from_euler(Vector3(float(_packet[3]), yaw, 0.0)) * Basis.from_scale(_guest.scale)
+			_guest.rotation = Vector3(float(_packet[3]), yaw, 0.0)   # as RemotePlayers does
 			# from the front three-quarters of the runner's face (KT), past the hunter's side, clear of the walls
 			var front := Vector3(-sin(yaw), 0.0, -cos(yaw))
 			for _i in 2:
@@ -141,6 +141,10 @@ func _ready() -> void:
 			var spot := runner_head + (front * .45 + across).normalized() * 2.4 + Vector3.UP * .45
 			if where == "hallway":
 				spot = runner_head + front * 2.4 + across * .6 + Vector3.UP * .95
+			if style == GrabStyles.SHOULDER_CARRY:
+				# over her shoulder: from her side, the runner folded across it, her arm round their legs
+				runner_head = held_at + Vector3.UP * 1.6
+				spot = held_at - facing.cross(Vector3.UP).normalized() * 3.0 + Vector3.UP * 1.8
 			if where == "hallway":
 				spot.x = clampf(spot.x, ARENA.BASE.x - .75, ARENA.BASE.x + .75)
 			camera.global_position = spot
