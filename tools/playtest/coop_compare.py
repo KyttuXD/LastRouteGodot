@@ -160,6 +160,18 @@ for label, name, after in (("guest A", by_id.get(A), 238), ("host", host, 478)):
     check("5 death screen on %s (%s)" % (label, name), bool(flow),
           "death flow / run over from t=%s (%d samples)" % (flow[0]["t"] if flow else "-", len(flow)))
 
+# CrashWatch markers pulled by coop_airs.sh (<machine>/crash/): a session sentinel = not a clean quit, a freeze dump, queued reports
+for d in sorted(p for p in out.iterdir() if p.is_dir()):
+    for f in sorted((d / "crash").glob("*.json")) if (d / "crash").exists() else []:
+        kind = ("crash: did not quit cleanly" if f.name == "crashwatch_session.json" else
+                "freeze: main loop stalled and never came back" if f.name == "crashwatch_freeze.json" else
+                "report: " + f.stem.rsplit("-", 1)[-1])
+        try:
+            crumbs = [str(c) for c in json.loads(f.read_text()).get("breadcrumbs", [])][-3:]
+        except (OSError, ValueError, AttributeError):
+            crumbs = []
+        check("crash marker: " + d.name, False, kind + (" | last: " + " / ".join(c[:80] for c in crumbs) if crumbs else ""))
+
 w = max(len(r["check"]) for r in results)
 for r in results:
     print("%-*s  %s  %s" % (w, r["check"], "PASS" if r["pass"] else "FAIL", r["detail"]))

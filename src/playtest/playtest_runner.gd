@@ -76,7 +76,7 @@ func _watch(seconds: float) -> void:
 
 static func parse_args(args: PackedStringArray) -> Dictionary:
 	var out := {"game": "last_route", "scenario": "survive", "seed": "PLAYTEST", "difficulty": "standard", "minutes": 2.0,
-		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_y": -9999.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "goal_x": 0, "goal_z": 0, "goal_kind": "relay", "deadline": 0.0, "screenshots": false, "keep_alive": false, "area": "", "fps": 30, "seconds": 0.0, "lamp": true, "variant": 0, "bob": true, "clean": false, "keep": "", "doors": true, "shot": "", "preview": false,
+		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_y": -9999.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "goal_x": 0, "goal_z": 0, "goal_kind": "relay", "deadline": 0.0, "screenshots": false, "keep_alive": false, "area": "", "fps": 30, "seconds": 0.0, "lamp": true, "variant": 0, "bob": true, "clean": false, "keep": "", "doors": true, "shot": "", "shot_file": "", "preview": false,
 		"level_every": 150.0, "hop_every": 0.0, "save_every": 600.0, "pause_every": 60.0, "seam_every": 90.0, "observe_every": 0, "coop_check": false, "mute": ""}
 	out.merge(PlaytestReporter.DEFAULT_LIMITS, true)
 	for arg in args:

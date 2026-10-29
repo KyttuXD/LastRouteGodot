@@ -1224,9 +1224,7 @@ func _leave_after_report() -> void:
 	if RoomState.online and RoomState.is_host:
 		RoomState.end_session("HOST ENDED THE ROUTE // BACK IN STAGING")
 	elif RoomState.online:
-		RoomState.status_message = "LEFT THE ROUTE"
-		RoomState.leave_network()
-		get_tree().change_scene_to_file(RoomState.menu_scene_path())
+		RoomState.leave_room_to_menu("YOU LEFT THE ROOM")
 	else:
 		RoomState.session_active = false
 		get_tree().change_scene_to_file(RoomState.menu_scene_path())
@@ -2098,9 +2096,7 @@ func _on_abandoned() -> void:
 	if RoomState.online and RoomState.is_host:
 		RoomState.end_session("HOST ENDED THE ROUTE // BACK IN STAGING")
 	elif RoomState.online:
-		RoomState.status_message = "LEFT THE ROUTE // BACK IN STAGING"
-		RoomState.leave_network()
-		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+		RoomState.leave_room_to_menu("YOU LEFT THE ROOM")
 	else:
 		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 

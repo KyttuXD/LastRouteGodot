@@ -91,6 +91,9 @@ func run(host: Node) -> int:
 	boot2.set("auto_start", false)
 	host.add_child(boot2)
 	await host.get_tree().process_frame
+	for _attempt in 3:   # the boot retries the server (with a growing pause) before giving up
+		boot2.call("_on_update_check_finished", false, false)
+		_expect(not UpdateManager.offline_mode, "the boot went offline before retrying the server")
 	boot2.call("_on_update_check_finished", false, false)
 	_expect(bool(boot2.get("_may_open_menu")) and UpdateManager.offline_mode, "an unreachable server did not fall through offline")
 	boot2.queue_free()

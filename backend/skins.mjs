@@ -7,6 +7,12 @@
 //   POST /api/skins/clear    {sessionToken}                         -> {ok}            (an account removes its own skin)
 //   POST /api/skins/remove   {sessionToken, hash|username}          -> {ok}            (owners only; the hash is blocked from re-upload)
 //   GET  /api/skins/files/<sha256>.png                              -> the PNG, immutable
+//
+// Account skins (the skin lives on the account, not on the computer):
+//   GET  /api/v1/skins/<ACCOUNT>   public (co-op peers)  -> {ok, account, hash|"", arms, updatedAt, versions:[hash]}
+//   PUT  /api/v1/skins/<ACCOUNT>   raw PNG body, headers x-session-token (the owner's) and x-skin-arms (auto|classic|slim)
+//                                                         -> {ok, hash, arms, updatedAt}   (same checks and rate limit as /upload)
+// A PNG is 64x64 (or the old 64x32). The last SKIN_VERSIONS skins of an account are kept as versions.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,6 +21,10 @@ import { inflateSync } from "node:zlib";
 export const SKIN_SIZE = 64;
 export const SKIN_MAX_BYTES = 65536;
 export const SKIN_TOKEN_HEADER = "x-session-token";
+export const SKIN_ARMS_HEADER = "x-skin-arms";
+export const SKIN_VERSIONS = 5;
+export const SKIN_ACCOUNT_PATH = /^\/api\/v1\/skins\/([A-Za-z0-9_]{1,32})$/;
+const ARMS_VALUES = new Set(["auto", "classic", "slim"]);
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const FILE_PATTERN = /^\/api\/skins\/files\/([0-9a-f]{64})\.png$/;
@@ -71,14 +81,16 @@ export function validateSkinPng(bytes) {
     offset += 12 + length;
   }
   if (!header || !sawEnd || data.length === 0) return "truncated PNG";
-  if (header.width !== SKIN_SIZE || header.height !== SKIN_SIZE) return `a skin is exactly ${SKIN_SIZE}x${SKIN_SIZE}`;
+  if (header.width !== SKIN_SIZE || (header.height !== SKIN_SIZE && header.height !== SKIN_SIZE / 2)) {
+    return `a skin is ${SKIN_SIZE}x${SKIN_SIZE} (or the old ${SKIN_SIZE}x${SKIN_SIZE / 2})`;
+  }
   const depths = ALLOWED_DEPTHS.get(header.colour);
   if (!depths || !depths.includes(header.depth) || header.compression !== 0 || header.filter !== 0 || header.interlace > 1) {
     return "unsupported PNG format";
   }
   if (header.interlace === 1) return "interlaced PNGs are not supported";
   const rowBytes = Math.ceil((SKIN_SIZE * COLOUR_CHANNELS.get(header.colour) * header.depth) / 8);
-  const expected = (rowBytes + 1) * SKIN_SIZE;
+  const expected = (rowBytes + 1) * header.height;
   let raw;
   try {
     raw = inflateSync(Buffer.concat(data), { maxOutputLength: expected + 1 });
@@ -96,6 +108,7 @@ export function createSkins({ directory = null, accountService, now = Date.now, 
   const indexPath = enabled ? join(directory, "index.json") : "";
   let owners = new Map();     // username -> hash
   let blocked = new Set();    // hashes an owner removed
+  let meta = new Map();       // username -> {arms, updatedAt, versions: [{hash, updatedAt}]} (newest first)
   const uploads = new Map();  // username -> [timestamps]
   const cache = new Map();    // hash -> Buffer (bounded)
 
@@ -106,6 +119,11 @@ export function createSkins({ directory = null, accountService, now = Date.now, 
         const saved = JSON.parse(readFileSync(indexPath, "utf8"));
         owners = new Map(Object.entries(saved.owners || {}).filter(([, hash]) => HASH_PATTERN.test(hash)));
         blocked = new Set((saved.blocked || []).filter((hash) => HASH_PATTERN.test(hash)));
+        meta = new Map(Object.entries(saved.meta || {}).map(([who, entry]) => [who, {
+          arms: ARMS_VALUES.has(entry?.arms) ? entry.arms : "auto",
+          updatedAt: Number(entry?.updatedAt) || 0,
+          versions: (Array.isArray(entry?.versions) ? entry.versions : []).filter((v) => HASH_PATTERN.test(v?.hash)).slice(0, SKIN_VERSIONS),
+        }]));
       } catch (error) {
         logger.error(`skins: unreadable index.json: ${error.message}`);
       }
@@ -114,7 +132,7 @@ export function createSkins({ directory = null, accountService, now = Date.now, 
 
   function persist() {
     const next = `${indexPath}.tmp`;
-    writeFileSync(next, JSON.stringify({ owners: Object.fromEntries(owners), blocked: [...blocked] }));
+    writeFileSync(next, JSON.stringify({ owners: Object.fromEntries(owners), blocked: [...blocked], meta: Object.fromEntries(meta) }));
     renameSync(next, indexPath);
   }
 
@@ -128,6 +146,7 @@ export function createSkins({ directory = null, accountService, now = Date.now, 
 
   function stillUsed(hash) {
     for (const value of owners.values()) if (value === hash) return true;
+    for (const entry of meta.values()) if (entry.versions.some((v) => v.hash === hash)) return true;
     return false;
   }
 
@@ -137,9 +156,8 @@ export function createSkins({ directory = null, accountService, now = Date.now, 
     if (existsSync(path)) unlinkSync(path);
   }
 
-  function upload(token, bytes) {
-    if (!enabled) return off();
-    const who = username(token);
+  // the checks every upload shares; returns [status, body] on refusal, else null
+  function refuse(who, bytes) {
     if (!who) return [401, { ok: false, code: "NOT_SIGNED_IN", error: "Sign in to share a skin" }];
     const recent = (uploads.get(who) || []).filter((at) => now() - at < uploadWindowMs);
     if (recent.length >= uploadLimit) {
@@ -149,15 +167,63 @@ export function createSkins({ directory = null, accountService, now = Date.now, 
     if (reason) return [400, { ok: false, code: "BAD_SKIN", error: `Skin refused: ${reason}` }];
     const hash = createHash("sha256").update(bytes).digest("hex");
     if (blocked.has(hash)) return [403, { ok: false, code: "SKIN_BLOCKED", error: "That skin was removed by an owner" }];
+    return null;
+  }
+
+  function store(who, bytes, arms) {
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    const recent = (uploads.get(who) || []).filter((at) => now() - at < uploadWindowMs);
     recent.push(now());
     uploads.set(who, recent);
     const path = join(filesDirectory, `${hash}.png`);
     if (!existsSync(path)) writeFileSync(path, bytes);
     const previous = owners.get(who);
     owners.set(who, hash);
-    if (previous && previous !== hash && !stillUsed(previous)) dropFile(previous);
+    const entry = meta.get(who) || { arms: "auto", updatedAt: 0, versions: [] };
+    const updatedAt = Math.floor(now() / 1000);
+    entry.arms = ARMS_VALUES.has(arms) ? arms : "auto";
+    entry.updatedAt = updatedAt;
+    entry.versions = [{ hash, updatedAt }, ...entry.versions.filter((v) => v.hash !== hash)];
+    const dropped = entry.versions.splice(SKIN_VERSIONS);
+    meta.set(who, entry);
+    for (const old of [previous, ...dropped.map((v) => v.hash)]) {
+      if (old && old !== hash && !stillUsed(old)) dropFile(old);
+    }
     persist();
-    return [200, { ok: true, hash }];
+    return { hash, arms: entry.arms, updatedAt };
+  }
+
+  function upload(token, bytes) {
+    if (!enabled) return off();
+    const who = username(token);
+    const refused = refuse(who, bytes);
+    if (refused) return refused;
+    return [200, { ok: true, hash: store(who, bytes, meta.get(who)?.arms).hash }];
+  }
+
+  function account(name) {
+    return String(name || "").toUpperCase();
+  }
+
+  // PUT /api/v1/skins/<ACCOUNT>: only the account's own session may write it
+  function put(token, accountName, bytes, arms) {
+    if (!enabled) return off();
+    const who = username(token);
+    if (!who) return [401, { ok: false, code: "NOT_SIGNED_IN", error: "Sign in to save your skin" }];
+    if (who !== account(accountName)) return [403, { ok: false, code: "NOT_YOUR_SKIN", error: "That skin belongs to another account" }];
+    const refused = refuse(who, bytes);
+    if (refused) return refused;
+    return [200, { ok: true, account: who, ...store(who, bytes, arms) }];
+  }
+
+  // GET /api/v1/skins/<ACCOUNT>: public; "" when the account has no skin
+  function get(accountName) {
+    if (!enabled) return off();
+    const who = account(accountName);
+    const hash = owners.get(who) || "";
+    const entry = meta.get(who);
+    return [200, { ok: true, account: who, hash: blocked.has(hash) ? "" : hash, arms: entry?.arms || "auto",
+      updatedAt: entry?.updatedAt || 0, versions: (entry?.versions || []).map((v) => v.hash).filter((h) => !blocked.has(h)) }];
   }
 
   function mine(body) {
@@ -172,8 +238,10 @@ export function createSkins({ directory = null, accountService, now = Date.now, 
     const who = username(body?.sessionToken);
     if (!who) return [401, { ok: false, code: "NOT_SIGNED_IN", error: "Sign in first" }];
     const previous = owners.get(who);
+    const old = (meta.get(who)?.versions || []).map((v) => v.hash);
     owners.delete(who);
-    if (previous && !stillUsed(previous)) dropFile(previous);
+    meta.delete(who);
+    for (const hash of [previous, ...old]) if (hash && !stillUsed(hash)) dropFile(hash);
     persist();
     return [200, { ok: true }];
   }
@@ -188,6 +256,7 @@ export function createSkins({ directory = null, accountService, now = Date.now, 
     if (!hash && body?.username) hash = owners.get(String(body.username).toUpperCase()) || "";
     if (!HASH_PATTERN.test(hash)) return [404, { ok: false, code: "SKIN_NOT_FOUND", error: "No such skin" }];
     for (const [who, value] of [...owners]) if (value === hash) owners.delete(who);
+    for (const entry of meta.values()) entry.versions = entry.versions.filter((v) => v.hash !== hash);
     blocked.add(hash);
     dropFile(hash);
     persist();
@@ -216,5 +285,5 @@ export function createSkins({ directory = null, accountService, now = Date.now, 
     return [200, bytes, hash];
   }
 
-  return { enabled, upload, mine, clear, remove, file, owners: () => new Map(owners), blocked: () => new Set(blocked) };
+  return { enabled, upload, put, get, mine, clear, remove, file, owners: () => new Map(owners), blocked: () => new Set(blocked) };
 }

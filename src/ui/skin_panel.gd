@@ -280,6 +280,7 @@ func _apply() -> void:
 	var result := PlayerSkin.apply_result(_pending)
 	if bool(result["ok"]):
 		_pending = {}
+		Settings.set_skin_pending_upload(true)   # cleared when the account holds it; a sign-in before that uploads it, not replaces it
 		Backend.skin_sync.sync_own()
 		_say("Skin applied." if Backend.signed_in() else "Skin applied (only you see it; sign in to share it).")
 	else:

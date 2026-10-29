@@ -20,6 +20,9 @@ var _menu_loaded := false
 var _may_open_menu := false
 var _opening_menu := false
 var _update_discovered := false
+## Pauses before each retry of the first update/server check; when they run out the game starts offline.
+const RETRY_DELAYS := [1.5, 3.0, 5.0]
+var _check_attempts := 0
 
 var _phase: Label
 var _status: Label
@@ -176,8 +179,18 @@ func _on_update_check_finished(success: bool, update_needed: bool) -> void:
 	if success:
 		_allow_main_menu("BUILD IS UP TO DATE")
 		return
-	# server unreachable or the check timed out (UpdateManager.MANIFEST_TIMEOUT_SECONDS): play offline, never block
+	# server unreachable or the check timed out (UpdateManager.MANIFEST_TIMEOUT_SECONDS): retry a few times with a growing pause
+	# (a flaky first packet should not cost the player online play), then play offline; never block
+	if _check_attempts < RETRY_DELAYS.size():
+		var delay: float = RETRY_DELAYS[_check_attempts]
+		_check_attempts += 1
+		_status.text = "SERVER NOT REACHABLE // RETRYING (%d/%d)" % [_check_attempts, RETRY_DELAYS.size()]
+		get_tree().create_timer(delay).timeout.connect(func() -> void:
+			if is_inside_tree() and not _may_open_menu:
+				UpdateManager.check())
+		return
 	UpdateManager.enable_offline_mode()
+	Backend.enable_offline_mode()
 	_allow_main_menu("UPDATE SERVICE UNAVAILABLE // STARTING OFFLINE")
 
 

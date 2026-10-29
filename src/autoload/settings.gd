@@ -70,7 +70,7 @@ const REBINDABLE_ACTIONS: Array[String] = [
 	"move_left", "move_right", "move_up", "move_down",
 	"look_left", "look_right", "look_up", "look_down",
 	"sprint", "crouch", "jump", "flashlight", "taser", "tool_use", "interact",
-	"inventory", "drop_item", "chat", "toggle_map", "pause",
+	"inventory", "drop_item", "chat", "toggle_map", "player_list", "pause",
 	"office_left_door", "office_right_door", "office_desk_light",
 	"office_vent", "office_cameras", "office_radio", "office_breaker",
 	"office_reboot", "office_emergency_flash", "office_rear_flash",
@@ -110,6 +110,8 @@ var short_death_scenes := false
 ## Open the pause menu when the window loses focus. Default ON only in release builds; always OFF in debug, BETA and
 ## TEST SERVER builds so two windows can be played side by side. focus_loss_pauses() also refuses with other players.
 var pause_on_focus_loss := false
+## CrashWatch sends a crash / freeze report on the next launch (build, device, log tail, breadcrumbs; never credentials).
+var send_crash_reports := true
 ## Spoken chat (RoomChat): text-to-speech volume 0..100, voices on/off (off = subtitles only), subtitles, locally muted
 ## players (by callsign, upper case).
 var voice_volume := 80.0
@@ -130,6 +132,8 @@ var voice_player_volumes := {}
 var tts_mode := "everyone"
 ## Settings -> MODS: fetch missing room mod packs without asking. Off by default; downloads are other players' content.
 var auto_download_mods := false
+## Settings -> DISPLAY: on-screen teammate waypoints (name, distance, edge arrows); also shows teammates on the minimap and full map.
+var teammate_waypoints := true
 var tts_rate := 1.0
 var tts_voice_id := ""
 ## Content packs (user://mods/<id>) this player's private rooms play with; RoomPacks.host_load(). Public routes ignore it.
@@ -140,6 +144,9 @@ var hub_last_game := ""
 var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
 ## The custom player skin (PlayerSkin): sha256 of its canonical PNG in user://skins, "" = the default mannequin skin.
 var skin_hash := ""
+## A skin applied on this device that the account does not hold yet (offline or signed out when it was picked). While set, the next
+## sign-in uploads it instead of adopting the account's skin from the server.
+var skin_pending_upload := false
 ## Whether other players may COPY your skin in co-op (SKIN tab). Honoured by their game; the skin itself is visible either way.
 var skin_copyable := true
 ## In-world ads (flavour, TrollAds): "off" (default), "gentle" or "annoying". Troll mode overrides it for cheaters.
@@ -220,6 +227,11 @@ static func default_pause_on_focus_loss() -> bool:
 	return not (OS.is_debug_build() or Build.is_beta() or OS.has_feature("test_server"))
 
 
+func set_send_crash_reports(enabled: bool) -> void:
+	send_crash_reports = enabled
+	_save()
+
+
 func set_pause_on_focus_loss(enabled: bool) -> void:
 	pause_on_focus_loss = enabled
 	_save()
@@ -286,6 +298,12 @@ func set_mod_enabled(pack_id: String, on: bool) -> void:
 		mods_enabled.erase(pack_id)
 	else:
 		return
+	_save()
+
+
+func set_teammate_waypoints(on: bool) -> void:
+	teammate_waypoints = on
+	display_changed.emit()
 	_save()
 
 
@@ -421,6 +439,12 @@ func set_ads_mode(value: String) -> void:
 func set_skin_copyable(value: bool) -> void:
 	skin_copyable = value
 	_save()
+
+
+func set_skin_pending_upload(value: bool) -> void:
+	if skin_pending_upload != value:
+		skin_pending_upload = value
+		_save()
 
 
 func set_skin_hash(hash: String) -> void:
@@ -630,6 +654,7 @@ func _load() -> void:
 	player_hue_degrees = clampf(config.get_value("player",
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	skin_hash = String(config.get_value("player", "skin_hash", ""))
+	skin_pending_upload = bool(config.get_value("player", "skin_pending_upload", false))
 	skin_copyable = bool(config.get_value("player", "skin_copyable", true))
 	ads_mode = String(config.get_value("gameplay", "ads_mode", "off"))
 	if ads_mode not in TrollAds.MODES:
@@ -666,6 +691,7 @@ func _load() -> void:
 	short_death_scenes = bool(config.get_value("accessibility", "short_death_scenes", false))
 	hub_last_game = String(config.get_value("hub", "last_game", ""))
 	pause_on_focus_loss = bool(config.get_value("gameplay", "pause_on_focus_loss", default_pause_on_focus_loss()))
+	send_crash_reports = bool(config.get_value("privacy", "send_crash_reports", true))
 	voice_volume = clampf(float(config.get_value("voice", "volume", 80.0)), 0.0, 100.0)
 	voice_enabled = bool(config.get_value("voice", "enabled", true))
 	voice_subtitles = bool(config.get_value("voice", "subtitles", true))
@@ -685,6 +711,7 @@ func _load() -> void:
 	tts_rate = clampf(float(config.get_value("voice", "tts_rate", 1.0)), 0.5, 2.0)
 	tts_voice_id = String(config.get_value("voice", "tts_voice", ""))
 	auto_download_mods = bool(config.get_value("mods", "auto_download", false))
+	teammate_waypoints = bool(config.get_value("gameplay", "teammate_waypoints", true))
 	mods_enabled = Array(config.get_value("mods", "enabled", []))
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)
@@ -757,6 +784,7 @@ func _save() -> void:
 	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("player", "skin_hash", skin_hash)
+	config.set_value("player", "skin_pending_upload", skin_pending_upload)
 	config.set_value("player", "skin_copyable", skin_copyable)
 	config.set_value("gameplay", "ads_mode", ads_mode)
 	config.set_value("player", "skin_slim", skin_slim)
@@ -781,6 +809,7 @@ func _save() -> void:
 	config.set_value("accessibility", "short_death_scenes", short_death_scenes)
 	config.set_value("hub", "last_game", hub_last_game)
 	config.set_value("gameplay", "pause_on_focus_loss", pause_on_focus_loss)
+	config.set_value("privacy", "send_crash_reports", send_crash_reports)
 	config.set_value("voice", "volume", voice_volume)
 	config.set_value("voice", "enabled", voice_enabled)
 	config.set_value("voice", "subtitles", voice_subtitles)
@@ -796,6 +825,7 @@ func _save() -> void:
 	config.set_value("voice", "tts_rate", tts_rate)
 	config.set_value("voice", "tts_voice", tts_voice_id)
 	config.set_value("mods", "auto_download", auto_download_mods)
+	config.set_value("gameplay", "teammate_waypoints", teammate_waypoints)
 	config.set_value("mods", "enabled", mods_enabled)
 	for key_value in ADMIN_PREFERENCE_DEFAULTS:
 		var key := String(key_value)

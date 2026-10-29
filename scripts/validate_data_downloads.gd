@@ -83,9 +83,23 @@ func run(host: Node) -> int:
 	_expect(not progress.is_empty() and progress.back()[0] == progress.back()[1], "progress never reached the total")
 	_expect(RoomPacks.local_dir("dlpack", sha) == ROOT.path_join(".cache").path_join(sha), "downloaded pack not found")
 	_expect(_installed("downloaded").size() == 1, "downloaded pack not listed as downloaded")
-	_expect(ContentRegistry.load_packs([ROOT.path_join(".cache").path_join(sha)], ContentPacks.LIMITS, false)["ok"],
+	_expect(ContentRegistry.load_packs([ROOT.path_join(".cache").path_join(sha)])["ok"],
 		"downloaded pack does not load")
 	ContentRegistry.unload_packs()
+	# the room handshake finds and loads it exactly as a guest does after downloading
+	var announced := {"hash": "", "packs": [{"pack_id": "dlpack", "version": "1.0.0", "name": "Download Pack",
+		"sha256": sha}]}
+	ContentRegistry.load_packs([ROOT.path_join(".cache").path_join(sha)])
+	announced["hash"] = ContentRegistry.pack_hash()
+	ContentRegistry.unload_packs()
+	var adopted := RoomPacks.adopt(announced, false)
+	_expect(adopted["ok"] and ContentRegistry.pack_hash() == announced["hash"], "a guest could not adopt a downloaded pack: %s"
+		% adopted["reason"])
+	ContentRegistry.unload_packs()
+	_expect(_provider.remove_downloaded() == 1, "remove_downloaded did not remove the pack")
+	_publish(pack, {"bare_base": true})
+	result = await _download([entry], func(_d, _t, _n): pass)
+	_expect(result[0], "download from a bare file-host base failed: %s" % result[1])
 	var before := _host.requests
 	result = await _download([entry], func(_d, _t, _n): pass)
 	_expect(result[0] and _host.requests == before, "a pack already on disk was downloaded again")
@@ -141,9 +155,14 @@ func _publish(pack: Dictionary, how: Dictionary) -> void:
 		files.append({"path": file["path"], "sha256": file["sha256"], "size": file["bytes"]})
 	if how.get("escape", false):
 		files.append({"path": "../escape.json", "sha256": "0".repeat(64), "size": 2})
-	var index := {"id": "dlpack", "name": "Download Pack", "version": "1.0.0", "files": files,
-		"downloadBase": "http://127.0.0.1:%d/files" % PORT, "blocked": how.get("blocked", false)}
-	_host.routes["/api/mods/packs/dlpack?version=1.0.0"] = JSON.stringify(index).to_utf8_buffer()
+	# the live index gives the pack's own folder (…/<id>/<version>/); "bare_base" checks the plain file-host form too
+	var base := "http://127.0.0.1:%d/files" % PORT
+	if not how.get("bare_base", false):
+		base += "/dlpack/1.0.0/"
+	var index := {"id": "dlpack", "name": "Download Pack", "version": "1.0.0", "files": files, "downloadBase": base,
+		"blocked": how.get("blocked", false)}
+	# the live VPS 3 shape wraps the pack: {"ok": true, "pack": {...}}
+	_host.routes["/api/mods/packs/dlpack?version=1.0.0"] = JSON.stringify({"ok": true, "pack": index}).to_utf8_buffer()
 
 
 func _installed(source: String) -> Array:

@@ -1150,8 +1150,8 @@ func _end_peek(next: State) -> void:
 
 ## Rolls the dice for a qualifying pass (HunterInspect.qualifies) and starts the inspection if it lands and a stand
 ## clears her body.
-func maybe_inspect(spot_centre: Vector2, door: Vector2, generator) -> bool:
-	if _rng.next_float() >= HunterInspect.chance(hunter_id, difficulty_id):
+func maybe_inspect(spot_centre: Vector2, door: Vector2, generator, chance_scale: float = 1.0) -> bool:
+	if _rng.next_float() >= HunterInspect.chance(hunter_id, difficulty_id) * chance_scale:
 		inspect_cooldown = 4.0   # a missed roll: not again on the very next frame of the same pass
 		return false
 	return start_inspect(spot_centre, door, generator)
