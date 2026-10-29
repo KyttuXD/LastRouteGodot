@@ -3,7 +3,7 @@
 KT (2026-10-28): the world is built around the hunters; think of the hunters as the humans and the runners as smaller.
 A normal hunter (1.5x, **2.67 m**, eye 2.27, shoulders 1.38 wide; `ScaleFit.HUNTER`) is the person the rooms, doors,
 counters and beds are sized for. The runner is the blocky mannequin (`assets/hunters_blocky/player_mannequin`, 1.78 m as
-authored) drawn at `PlayerModels.SCALE` = **0.9**: **1.60 m**, 0.6x a hunter.
+authored) drawn at `PlayerModels.SCALE` = **1.236**: **2.20 m**, 0.85x of a hunter (KT, 2026-10-28; was 0.9 / 1.60 m, which looked far too small in the grabs). Capsule radius 0.28, jump 3.3, seated eye 1.58, grab contact points x1.236/0.9.
 
 Everything about the runner follows that one constant: the body (own and co-op peers, the name tag with it), the
 standing capsule (1.53 m) and crouch capsule (0.97 m), the camera (aligned to the eye nodes, about 1.36-1.44 m), the

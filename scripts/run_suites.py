@@ -41,6 +41,17 @@ VERDICT = re.compile(r"^-- suite (\S+) (PASS|FAIL) ([0-9.]+)s")
 COMPILE_ERROR = re.compile(r"SCRIPT ERROR|Parse Error|Failed to load script|Compile Error|res://\S+:\d+ - ")
 
 
+# Legacy names old lane trees still pass (validate_runner.gd SUITE_ALIASES): "biomes" became the four region shards.
+ALIASES = {"biomes": ["regions_hospital", "regions_lab", "regions_greenhouse", "regions_mall"]}
+
+
+def expand_aliases(names):
+    out = []
+    for n in names:
+        out.extend(ALIASES.get(n.split("#")[0], [n]))
+    return out
+
+
 def all_suites():
     text = open(os.path.join(ROOT, "scripts", "validate_runner.gd")).read()
     block = re.search(r"const SUITES := \[(.*?)\]", text, re.S).group(1)
@@ -347,7 +358,7 @@ def main():
     args = ap.parse_args()
 
     known = all_suites()
-    wanted = args.suites or known
+    wanted = expand_aliases(args.suites) if args.suites else known
     if args.affected:
         changed = [l.strip() for l in open(args.affected) if l.strip()]
         wanted = affected_suites(changed, known)
@@ -356,7 +367,9 @@ def main():
             print("RESULT: PASS (nothing affected; run --full before pushing)")
             return 0
     # "suite#i/n" is shard i of n of a known suite (the runner sets VALIDATE_SHARD for it)
-    unknown = [s for s in wanted if s.split("#")[0] not in known and not s.startswith("res://")]
+    # a suite outside SUITES still runs by name when its script exists ("regions", the whole unsharded suite)
+    unknown = [s for s in wanted if s.split("#")[0] not in known and not s.startswith("res://")
+               and not os.path.exists(os.path.join(ROOT, "scripts", "validate_%s.gd" % s.split("#")[0]))]
     durations = {}
     if os.path.exists(TIMINGS):
         try:

@@ -415,11 +415,16 @@ func _check_closed_world(host: Node) -> void:
 				slopes.append(ramp["ramp"])
 			var tested := 0
 			var escaped := []
+			# each cell's own vault (under the collector's channel trench it steps down to 2.9 m): a ray starts inside the cave
+			var target_root: Node = view._loaded.get(Vector3i(target.x, level, target.z))
+			var ceilings: Dictionary = target_root.get_meta("ref_heights", {}) if target_root != null else {}
 			for z in range(2, size - 2, 3):
 				for x in range(2, size - 2, 3):
 					if int(grid[z][x]) != 0:
 						continue
 					for height in RAY_HEIGHTS:
+						if ceilings.has(Vector2i(x, z)) and float(height) >= float(ceilings[Vector2i(x, z)]) - .05:
+							continue
 						var origin := Vector3(target.x * size + x + .5, float(level) * StreamedFacilityView3D.LEVEL_HEIGHT + height,
 							target.z * size + z + .5)
 						for k in (RAY_DIRECTIONS * RAY_PITCHES.size()) + 1:

@@ -385,32 +385,37 @@ static func stretch_for(style: String, t: float) -> float:
 	return 1.0 + (arm_stretch - 1.0) * GrabStyles.smooth(t / GrabStyles.REACH_SECONDS)
 
 
-## Her upper arms stretched `factor` along their length (the forearm rides along, the hand keeps its size), from their own
-## scale; 1 puts them back. HunterView3D puts them back too once nothing grabs with her any more.
+## Her upper arm and forearm lengthened `factor` times along their own length, nothing else: the width stays, the hand keeps its
+## exact size and shape, and the body is untouched (scale_consistency). Each bone is set from the rotation the animation gave it and
+## its own rest scale, in world space, so the lengthened upper arm never skews the forearm or the hand under it (scaling the upper
+## arm node and counter-scaling the hand sheared the hand by up to 60% when the elbow was bent). 1 puts them back.
+## HunterView3D puts them back too once nothing grabs with her any more.
 static func stretch_arms(view: Node3D, factor: float) -> void:
 	for side in ["R", "L"]:
 		var chain := arm_chain(view, side)
 		var arm := chain["arm"] as Node3D
 		var forearm := chain["forearm"] as Node3D
 		var hand := chain["hand"] as Node3D
-		if arm == null or hand == null:
+		if arm == null or forearm == null or hand == null:
+			continue
+		var bones: Array = [arm, forearm, hand]
+		if not arm.has_meta("grab_scale") and is_equal_approx(factor, 1.0):
 			continue
 		if not arm.has_meta("grab_scale"):
-			arm.set_meta("grab_scale", arm.scale)
-			hand.set_meta("grab_scale", hand.scale)
-			if forearm != null:
-				forearm.set_meta("grab_scale", forearm.scale)
-		arm.scale = (arm.get_meta("grab_scale") as Vector3) * Vector3(1.0, factor, 1.0)
-		hand.scale = (hand.get_meta("grab_scale") as Vector3) * Vector3(1.0, 1.0 / factor, 1.0)
-		# under the stretched upper arm the IK sets the forearm's world shape, which leaves its own basis sheared: squared
-		# back up every frame before the IK (a clip keys only its rotation, so the shear built up frame on frame)
-		if forearm != null and forearm.has_meta("grab_scale"):
-			forearm.scale = forearm.get_meta("grab_scale")
+			for bone in bones:
+				(bone as Node3D).set_meta("grab_scale", (bone as Node3D).scale)
+		var parent := arm.get_parent() as Node3D
+		var size := parent.global_basis.get_scale().y
+		var turn := parent.global_basis.orthonormalized()
+		for index in 3:
+			var bone := bones[index] as Node3D
+			var rest: Vector3 = bone.get_meta("grab_scale")
+			var lengthen := Vector3(1.0, factor, 1.0) if index < 2 else Vector3.ONE
+			turn = turn * Basis(bone.quaternion)
+			bone.global_basis = turn * Basis.from_scale(rest * lengthen * size)
 		if is_equal_approx(factor, 1.0):
-			arm.remove_meta("grab_scale")
-			hand.remove_meta("grab_scale")
-			if forearm != null:
-				forearm.remove_meta("grab_scale")
+			for bone in bones:
+				(bone as Node3D).remove_meta("grab_scale")
 
 
 ## The body points the hunter's hands go to: [[arm side, world point, amount]] for a body placed by `feet` and `basis`.

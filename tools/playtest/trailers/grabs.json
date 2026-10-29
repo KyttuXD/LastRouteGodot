@@ -1,0 +1,70 @@
+{
+ "name": "grabs_montage",
+ "shots": [
+  {
+   "card": [
+    "LAST ROUTE",
+    "CAUGHT"
+   ],
+   "t": 1.6,
+   "fade_in": 0.2,
+   "fade_out": 0.2
+  },
+  {
+   "clip": "gp_grab_neck_lift",
+   "ss": 0.05,
+   "t": 2.6,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.12
+  },
+  {
+   "clip": "gp_grab_shoulder_grab",
+   "ss": 0.05,
+   "t": 2.6,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.12
+  },
+  {
+   "clip": "gp_grab_bear_hug",
+   "ss": 0.05,
+   "t": 2.6,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.12
+  },
+  {
+   "clip": "gp_grab_collar_drag",
+   "ss": 0.05,
+   "t": 2.6,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.12
+  },
+  {
+   "clip": "gp_grab_upside_down",
+   "ss": 0.05,
+   "t": 2.6,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.12
+  },
+  {
+   "clip": "gp_grab_wall_pin",
+   "ss": 0.05,
+   "t": 2.6,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.12
+  },
+  {
+   "clip": "gp_grab_leg_grab",
+   "ss": 0.05,
+   "t": 2.6,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.12
+  }
+ ]
+}

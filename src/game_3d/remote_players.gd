@@ -524,26 +524,9 @@ func receive_state(id: int, state: Dictionary) -> void:
 
 	var body: Node3D = _bodies.get(id)
 	if body == null:
-		body = ModelSlot.instantiate(MODEL)
+		body = _make_body(id, state, at)
 		if body == null:
 			return
-		body.name = "Peer%d" % id
-		body.scale = Vector3.ONE * PlayerModels.SCALE   # the name tag above her scales down with her
-		add_child(body)
-		body.global_position = at
-		body.rotation.y = float(state.get("facing_y", 0.0))
-		_bodies[id] = body
-		_players[id] = ModelSlot.find_animation_player(body)
-		if _players[id] != null:
-			# another runner's clips blend into each other (caught, their arms swung from the run into the grab in one frame)
-			(_players[id] as AnimationPlayer).playback_default_blend_time = .2
-		ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
-		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
-		_add_name_tag(body, String(state.get("display_name",
-			RoomState.peer_display_name(id))))
-		body.set_meta("fade_current", 0.0)
-		_step_distances[id] = 0.0
-		_attach_remote_flashlight(id, body)
 	# seated on a hunter-scale seat: the "sit" clip is authored for a person chair, so lift the body by the difference
 	if received.get("seat_at") is Vector2:
 		at = (at as Vector3) + Vector3.UP * maxf(0.0, float(received.get("seat_top", 0.0)) - PlayerController3D.SIT_CLIP_SEAT)
@@ -581,6 +564,32 @@ func receive_state(id: int, state: Dictionary) -> void:
 
 
 ## A sleeping teammate shows "z Z" over their head (docs/REST_AND_SLEEP.md).
+
+## The guest's copy of runner `id`: the mannequin at PlayerModels.SCALE (the same size as the runner's own body), skinned and tagged.
+func _make_body(id: int, state: Dictionary, at: Vector3) -> Node3D:
+	var body: Node3D = ModelSlot.instantiate(MODEL)
+	if body == null:
+		return null
+	body.name = "Peer%d" % id
+	body.scale = Vector3.ONE * PlayerModels.SCALE   # the name tag above her scales down with her
+	add_child(body)
+	body.global_position = at
+	body.rotation.y = float(state.get("facing_y", 0.0))
+	_bodies[id] = body
+	_players[id] = ModelSlot.find_animation_player(body)
+	if _players[id] != null:
+		# another runner's clips blend into each other (caught, their arms swung from the run into the grab in one frame)
+		(_players[id] as AnimationPlayer).playback_default_blend_time = .2
+	ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
+	_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
+	_add_name_tag(body, String(state.get("display_name",
+		RoomState.peer_display_name(id))))
+	body.set_meta("fade_current", 0.0)
+	_step_distances[id] = 0.0
+	_attach_remote_flashlight(id, body)
+	return body
+
+
 func _sync_sleep_tag(body: Node3D, asleep: bool) -> void:
 	var tag := body.get_node_or_null("SleepTag") as Label3D
 	if tag == null:

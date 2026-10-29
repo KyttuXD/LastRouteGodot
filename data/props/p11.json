@@ -63,6 +63,12 @@
 			]
 		},
 		{
+			"id": "sewerOutflowPipe",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_outflow_pipe.glb"
+			]
+		},
+		{
 			"id": "sewerOverflowGrate",
 			"models": [
 				"res://art/props-3d/props/sewer/sewer_overflow_grate.glb"
