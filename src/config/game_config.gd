@@ -82,7 +82,7 @@ const TROLL_FAKE_STEP_SECONDS := Vector2(2.5, 6.0)
 ## theoretical 0.375 m apex and roughly half a second of air time; enough to
 ## clear a small lip without letting players vault the maze walls or props.
 const PLAYER_GRAVITY := 12.0
-const PLAYER_JUMP_VELOCITY := 3.3   # a little more than the 3.0 of the 1.60 m runner (hop 0.48 m, inside the restrained 0.24-0.50 m arc)
+const PLAYER_JUMP_VELOCITY := 3.15   # a little more than the 3.0 of the 1.60 m runner (hop 0.48 m, inside the restrained 0.24-0.50 m arc)
 const LADDER_CLIMB_SPEED := 2.15
 ## Ordinary room-height drops and imperfect stair transitions remain playable.
 ## Only a near-full-level fall crosses this threshold, and even severe falls
@@ -146,7 +146,7 @@ const FACILITY_SAFE_ZONE_AT_SPAWN := true
 ## the SAME grid-cell units as facility_generator.gd (1 unit = 1 cell) —
 ## hunter_brain.gd is presentation-agnostic and never touches pixels or
 ## meters directly; each presentation layer converts at its own boundary.
-const PLAYER_RADIUS := 0.28   # 0.85x of the hunter's 0.33 (the runner is 2.2 m beside a 2.58 m hunter)
+const PLAYER_RADIUS := 0.24   # 0.74x of the hunter's 0.33 (the runner is 1.9 m beside a 2.58 m hunter)
 ## Brain footprint: 0.22 m at the old size, times HunterRoster.MODEL_SCALE (1.5). Still inside one cell, so cell walkability is unchanged.
 const HUNTER_RADIUS := 0.33
 ## Capture reach uses the tuned footprint from before the 1.5x scale, so difficulty catch distances are unchanged.
