@@ -25,10 +25,9 @@ const ROOM_LIMITS := {"w": [2.0, 30.0], "d": [2.0, 30.0], "h": [3.2, 8.0]}
 ## field -> [type, required]. TYPE_ARRAY / TYPE_DICTIONARY hold JSON values; numbers are TYPE_FLOAT (JSON has no ints; whole numbers are
 ## checked where a count is meant).
 const FIELDS := {
-	"nw_modes": {"id": [TYPE_STRING, true], "title": [TYPE_STRING, true], "kicker": [TYPE_STRING, false], "blurb": [TYPE_STRING, true],
-		"order": [TYPE_FLOAT, false], "rules": [TYPE_STRING, true], "office": [TYPE_STRING, true], "building": [TYPE_STRING, false],
-		"cast": [TYPE_STRING, true], "levels": [TYPE_FLOAT, true], "presets": [TYPE_ARRAY, false], "custom": [TYPE_ARRAY, false],
-		"ratings": [TYPE_ARRAY, false], "colors": [TYPE_DICTIONARY, false], "texts": [TYPE_DICTIONARY, false]},
+	"nw_modes": {"id": [TYPE_STRING, true], "order": [TYPE_FLOAT, false], "menu": [TYPE_DICTIONARY, true], "rules": [TYPE_STRING, false],
+		"office": [TYPE_STRING, false], "building": [TYPE_STRING, false], "cast": [TYPE_STRING, false], "levels": [TYPE_FLOAT, false],
+		"colors": [TYPE_DICTIONARY, false], "texts": [TYPE_DICTIONARY, false]},
 	"nw_rules": {"id": [TYPE_STRING, true], "ruleset": [TYPE_STRING, true], "params": [TYPE_DICTIONARY, true]},
 	"nw_casts": {"id": [TYPE_STRING, true], "hunters": [TYPE_ARRAY, true]},
 	"nw_offices": {"id": [TYPE_STRING, true], "title": [TYPE_STRING, false], "room": [TYPE_DICTIONARY, true], "spawn": [TYPE_ARRAY, true],
@@ -67,8 +66,11 @@ static func validate(kind: String, def: Dictionary, path: String) -> PackedStrin
 	match kind:
 		"nw_modes":
 			_check_count(def, "levels", 1, 20, path, errors)
-			if not RULESETS.has(String(def["rules"])) and not String(def["rules"]).contains("_"):
+			if def.has("rules") and not RULESETS.has(String(def["rules"])) and not String(def["rules"]).contains("_"):
 				errors.append("%s: 'rules' names no ruleset or rules entry: %s" % [path, def["rules"]])
+			for key in ["id", "title", "label"]:
+				if not (def["menu"] as Dictionary).has(key):
+					errors.append("%s: menu is missing '%s' (the Shift Board entry)" % [path, key])
 			for key in def.get("colors", {}):
 				if Color.html_is_valid(String(def["colors"][key])) == false:
 					errors.append("%s: colors.%s is not a colour" % [path, key])

@@ -73,7 +73,7 @@ const NW_DATA_SCRIPTS := ["res://src/night_watch/night_watch_data.gd", "res://sr
 	"res://src/night_watch/mixed/mixed_data.gd", "res://src/night_watch/openair/openair_data.gd", "res://src/night_watch/story/story_data.gd"]
 
 ## Tables that moved from a const to a static var read from res://data/night_watch (file -> names).
-const NW_DATA_TABLES := {"night_watch_calls_data.gd": ["CALLS"]}
+const NW_DATA_TABLES := {"night_watch_calls_data.gd": ["CALLS"], "night_watch_modes_data.gd": ["MODES"]}
 
 
 static func nw_hash() -> String:

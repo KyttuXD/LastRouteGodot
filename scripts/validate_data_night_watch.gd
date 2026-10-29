@@ -8,8 +8,8 @@ extends RefCounted
 const Parity := preload("res://scripts/data_parity.gd")
 
 const GOOD := {
-	"nw_modes": {"schema": "nw.mode/1", "id": "classic", "title": "Classic", "blurb": "Hold the doors.", "rules": "classic", "office": "classic_security",
-		"cast": "classic", "levels": 7, "colors": {"accent": "#e0b04a"}},
+	"nw_modes": {"schema": "nw.mode/1", "id": "classic", "menu": {"id": "classic", "title": "CLASSIC", "label": "1. CLASSIC"}, "rules": "classic",
+		"office": "classic_security", "cast": "classic", "levels": 7, "colors": {"accent": "#e0b04a"}},
 	"nw_rules": {"schema": "nw.rules/1", "id": "classic", "ruleset": "classic", "params": {"night_ms": 270000.0, "door_grace_ms": [9000.0, 8200.0]}},
 	"nw_casts": {"schema": "nw.cast/1", "id": "classic", "hunters": [{"id": "dovelle", "levels": [0, 2, 4], "poses": {"door": "peek"}}]},
 	"nw_offices": {"schema": "nw.office/1", "id": "classic_security", "room": {"w": 6.0, "d": 5.0, "h": 3.6}, "spawn": [0, 0, 1.6],
@@ -23,9 +23,10 @@ const GOOD := {
 
 ## [kind, entry, a fragment the error must contain]
 const BAD := [
-	["nw_modes", {"id": "x", "title": "X", "blurb": "b", "rules": "chess", "office": "o", "cast": "c", "levels": 7}, "rules"],
-	["nw_modes", {"id": "x", "title": "X", "blurb": "b", "rules": "classic", "office": "o", "cast": "c", "levels": 99}, "levels"],
-	["nw_modes", {"id": "x", "title": "X", "blurb": "b", "rules": "classic", "office": "o", "cast": "c", "levels": 3, "script": "res://x.gd"}, "unknown field 'script'"],
+	["nw_modes", {"id": "x", "menu": {"id": "x", "title": "X", "label": "X"}, "rules": "chess"}, "rules"],
+	["nw_modes", {"id": "x", "menu": {"id": "x", "title": "X", "label": "X"}, "levels": 99}, "levels"],
+	["nw_modes", {"id": "x", "menu": {"id": "x", "title": "X", "label": "X"}, "script": "res://x.gd"}, "unknown field 'script'"],
+	["nw_modes", {"id": "x", "menu": {"title": "X"}}, "menu is missing 'id'"],
 	["nw_rules", {"id": "x", "ruleset": "classic", "params": {"pace": "1 + 1"}}, "params.pace"],
 	["nw_rules", {"id": "x", "ruleset": "poker", "params": {}}, "ruleset"],
 	["nw_casts", {"id": "x", "hunters": [{"id": "a", "poses": {"dance": "x"}}]}, "poses.dance"],
