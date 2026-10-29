@@ -622,25 +622,50 @@ static func is_batchable(type: String) -> bool:
 ## authored person-sized. ModelSlot.instantiate_prop scales their children by this factor, so the view, the collider
 ## emitter (PropColliderSizes) and every audit see the same scaled model. Seats, benches, sofas and stools all scale.
 const HUNTER_SCALE := {
-	# seats (every chair, stool, bench and sofa you can sit on): seat pans end up about 0.45 m x 1.5
-	"barberChair": 1.5, "beachChair": 1.5, "dinerStool": 1.5, "diningChair": 1.5, "diningChairCushion": 1.5,
-	"gothicBedroomBench": 1.5, "gothicHighbackChair": 1.5, "greenhouseBench": 1.5, "labStool": 1.5, "loungeCouch": 1.5,
-	"loungeCouchWide": 1.5, "mallBench": 1.5, "officeChair": 1.5, "publicShowerBench": 1.5, "waitingChairs": 1.5,
-	"wheelchair": 1.5, "woodenChair": 1.5, "woodenChairCushion": 1.5, "dinerBooth": 1.5,
-	# beds (the gothic canopy stops at 1.48 so it stays under the hunter-scale bed length)
-	"bunkBed": 1.5, "doubleBed": 1.5, "gothicDoubleBed": 1.48, "hospitalBed": 1.5, "prisonBunk": 1.5, "singleBed": 1.5,
-	# counters, kitchens, sinks
-	"bathroomSink": 1.5, "bathroomVanity": 1.5, "bedroomDresser": 1.5, "checkoutCounter": 1.5, "concessionCounter": 1.5,
-	"diningSideboard": 1.5, "luxuryKitchenCounter": 1.5, "luxuryKitchenIsland": 1.5, "luxuryKitchenSink": 1.5,
-	"luxuryKitchenStove": 1.5, "normalKitchenCounter": 1.5, "normalKitchenIsland": 1.5, "normalKitchenSink": 1.5,
-	"normalKitchenStove": 1.5, "prisonServingCounter": 1.5, "receptionDesk": 1.5, "woodenDresserSideboard": 1.5,
-	"normalCoffeeTable": 1.5,
-	# storage, lamps, bathrooms
-	"clothesRack": 1.5, "filingCabinet": 1.5, "gasCylinderRack": 1.5, "surfboardRack": 1.5, "floorLamp": 1.5,
-	"gothicFloorCandelabra": 1.5, "deconShower": 1.5, "houseShowerEnclosure": 1.5, "publicMensShowerStall": 1.5,
-	"publicWomensShowerStall": 1.5, "houseToilet": 1.5, "publicRestroomToilet": 1.5, "publicMensUrinal": 1.5,
+	# every person-sized prop people use (docs/PROP_SIZES.md, data/scale/prop_size_ranges.json): seats, beds, tables,
+	# counters, storage, machines, carts, bathrooms and their mansion-finish copies; a few take less than 1.5 to land in range.
+	# The "...Mansion" finish copies spawn under their base type (model_path picks the model, the hint stays the base
+	# type), so they already take the base's scale; their own entries keep the catalog audits (scale_fit) consistent.
+	# Not lockers: you hide inside one and look out of its slats at the runner's eye height (data/scale/prop_size_ranges.json "keep_person_size").
+	"arcadeCabinet": 1.5, "arcadeCabinetCyanMagenta": 1.5, "arcadeTokenChanger": 1.5, "autopsyTable": 1.5,
+	"backstageRepairStand": 1.25, "bakeryRack": 1.5, "barberChair": 1.5, "bathroomSink": 1.5, "bathroomStall": 1.5,
+	"bathroomVanity": 1.5, "bathroomVanityMansion": 1.5, "beachChair": 1.5, "bedroomBench": 1.5,
+	"bedroomBenchMansion": 1.5, "bedroomDresser": 1.5, "bedroomDresserMansion": 1.5, "bedroomNightstand": 1.5,
+	"bedroomNightstandMansion": 1.5, "bedroomVanity": 1.5, "bedroomVanityMansion": 1.5, "bedroomWardrobe": 1.5,
+	"bedroomWardrobeMansion": 1.5, "breakerCabinet": 1.5, "bunkBed": 1.5, "checkoutCounter": 1.5, "cinemaSeats": 1.5,
+	"circusPedestal": 1.5, "clothesRack": 1.5, "coldStorageUnit": 1.5, "concessionCounter": 1.5, "deconShower": 1.5,
+	"dinerBooth": 1.5, "dinerStool": 1.5, "diningChair": 1.5, "diningChairCushion": 1.5,
+	"diningChairCushionMansion": 1.5, "diningChairMansion": 1.5, "diningSideboard": 1.5, "diningSideboardMansion": 1.5,
+	"diningTable": 1.5, "diningTableMansion": 1.5, "diveHeadsetShelf": 1.5, "donutFryer": 1.25, "doubleBed": 1.5,
+	"doubleBedMansion": 1.5, "dryerStack": 1.5, "duckPond": 1.5, "filingCabinet": 1.5, "floorLamp": 1.5,
+	"floorLampMansion": 1.5, "foodCourtTable": 1.5, "fumeHood": 1.2, "gardenPlanterBench": 1.5, "gasCylinderRack": 1.5,
+	"gothicBedroomBench": 1.5, "gothicDoubleBed": 1.48, "gothicDresser": 1.5, "gothicFloorCandelabra": 1.5,
+	"gothicHighbackChair": 1.5, "gothicKitchenCounter": 1.5, "gothicKitchenFridge": 1.5, "gothicKitchenIsland": 1.5,
+	"gothicKitchenSink": 1.5, "gothicKitchenStove": 1.5, "gothicPedestalTable": 1.5, "gothicPedestalTableMansion": 1.5,
+	"gothicVanityStool": 1.5, "gothicWritingDesk": 1.5, "greenhouseBench": 1.5, "hospitalBed": 1.5, "houseBathtub": 1.4,
+	"houseShowerEnclosure": 1.5, "houseToilet": 1.5, "instrumentTrolley": 1.5, "ivDripStand": 1.5, "ivStand": 1.5,
+	"labCoolingUnit": 1.5, "labStool": 1.5, "lavaPipeManifold": 1.5, "loungeCouch": 1.5,
+	"loungeCouchMansion": 1.5, "loungeCouchWide": 1.5, "loungeCouchWideMansion": 1.5, "luxuryKitchenCounter": 1.5,
+	"luxuryKitchenFridge": 1.5, "luxuryKitchenIsland": 1.5, "luxuryKitchenSink": 1.5, "luxuryKitchenStove": 1.5,
+	"maintenanceToolCabinet": 1.5, "mallBench": 1.5, "mansionBookshelf": 1.5, "mansionBookshelfMansion": 1.5,
+	"mansionChaiseLounge": 1.5, "mansionChaiseLoungeMansion": 1.5, "mansionCoatRack": 1.5, "mansionConsoleTable": 1.5,
+	"mansionConsoleTableMansion": 1.5, "mansionDisplayCabinet": 1.25, "mansionDisplayCabinetMansion": 1.25,
+	"mansionGrandfatherClock": 1.5, "mansionRockingChair": 1.5, "mansionTeaCart": 1.5, "mansionTeaCartMansion": 1.5,
+	"medicalCart": 1.5, "medicalSupplyRack": 1.5, "morgueCabinet": 1.5, "normalBookcase": 1.5,
+	"normalBookcaseMansion": 1.5, "normalCoffeeTable": 1.5, "normalCoffeeTableMansion": 1.5, "normalEntryBench": 1.5,
+	"normalKitchenCounter": 1.5, "normalKitchenFridge": 1.5, "normalKitchenIsland": 1.5, "normalKitchenSink": 1.5,
+	"normalKitchenStove": 1.5, "officeChair": 1.5, "officeCornerWorkstation": 1.5, "officeDesk": 1.5,
+	"officePhotocopier": 1.5, "operatingTable": 1.5, "pharmacyShelf": 1.5, "prisonBunk": 1.5,
+	"prisonCafeteriaTable": 1.5, "prisonKitchenRack": 1.5, "prisonServingCounter": 1.5, "prizeClawMachine": 1.5,
+	"publicMensShowerStall": 1.5, "publicMensUrinal": 1.5, "publicRestroomToilet": 1.5, "publicShowerBench": 1.5,
+	"publicWomensShowerStall": 1.5, "readingTable": 1.5, "receptionDesk": 1.5, "seedlingRack": 1.5, "serverRack": 1.5,
+	"shopFridge": 1.5, "shopShelf": 1.5, "singleBed": 1.5, "singleBedMansion": 1.5, "storageShelving": 1.5,
+	"surfboardRack": 1.5, "utilityCart": 1.25, "vanityStool": 1.5, "vanityStoolMansion": 1.5, "vendingMachine": 1.5,
+	"vitalsMonitor": 1.5, "waitingChairs": 1.5, "washingMachine": 1.5, "wateringCart": 1.5, "wheelchair": 1.5,
+	"woodenChair": 1.5, "woodenChairCushion": 1.5, "woodenChairCushionMansion": 1.5, "woodenChairMansion": 1.5,
+	"woodenDresserSideboard": 1.5, "woodenDresserSideboardMansion": 1.5, "woodenTable": 1.5, "woodenTableMansion": 1.5,
 	# music wing: authored at real size like the counters
-	"micStand": 1.5, "podiumMic": 1.5, "deskMic": 1.5, "drumKit": 1.5, "electricGuitarStand": 1.5, "acousticGuitarStand": 1.5, "bassGuitarStand": 1.5, "keyboardStand": 1.5, "uprightPianoMusic": 1.5, "ampStack": 1.5, "comboAmp": 1.5, "stageMonitor": 1.5, "paSpeakerPole": 1.5, "mixingDesk": 1.5, "studioMonitors": 1.5, "rackGear": 1.5, "musicStand": 1.5, "cableCoil": 1.5, "cableRun": 1.5, "stageLightRig": 1.5, "acousticPanel": 1.5, "guitarWallHanger": 1.5, "instrumentCases": 1.5, "onAirSign": 1.5,
+	"micStand": 1.5, "podiumMic": 1.5, "deskMic": 1.5, "drumKit": 1.5, "electricGuitarStand": 1.5, "acousticGuitarStand": 1.5, "bassGuitarStand": 1.5, "keyboardStand": 1.5, "uprightPianoMusic": 1.5, "ampStack": 1.5, "comboAmp": 1.5, "stageMonitor": 1.5, "paSpeakerPole": 1.5, "mixingDesk": 1.5, "studioMonitors": 1.5, "rackGear": 1.5, "musicStand": 1.5, "cableCoil": 1.5, "cableRun": 1.5, "stageLightRig": 1.5, "acousticPanel": 1.5, "guitarWallHanger": 1.5, "instrumentCases": 1.5, "onAirSign": 1.5
 }
 ## Multi-seat furniture: this many separate sit points side by side along the prop's width, each its own interactable
 ## (its own prompt and camera, picked by aim), and each a seat a hunter can take. Anything not listed is one seat.

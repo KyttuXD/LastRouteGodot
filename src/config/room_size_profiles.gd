@@ -4,6 +4,8 @@ extends RefCounted
 ## What size each kind of room should be, and how much of its signature furniture it holds (docs/ROOM_SIZES.md).
 ## Sizes are cells (x, z) in either orientation. `generated` says whether the generators make this room type today; the
 ## planned types (classroom, library, gym, warehouse...) are listed so new districts and the city follow the same table.
+## Hunter-scale pass (docs/ROOM_REFERENCE.md): ICU, nurses station, imaging, chem/bio lab, control room and arcade are 21x9
+## rooms now, the server hall and glasshouse can be 21x21; every aisle and every strip beside a bed or counter is 1.4 m+.
 ## Small rooms never go below the 9x9 playable minimum (the maze's middle banks are 8 deep beside its five-wide centre
 ## hall: KT, "5 wide maze region hallways"); corridors and halls are not rooms and are not listed.
 
@@ -31,7 +33,7 @@ const PROFILES := {
 	"family_dining": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 11), "tables": Vector2i(1, 1),
 		"signature": ["woodenTable"], "generated": true},
 	"drawing_room": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 4), "signature": [], "generated": true},
-	"big_top": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
+	"big_top": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 21), "max": Vector2i(21, 21), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"midway": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"kitchen": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 11), "max": Vector2i(13, 13), "tables": Vector2i(0, 1),
 		"signature": ["normalKitchenCounter", "normalKitchenStove"], "generated": true},
@@ -56,7 +58,7 @@ const PROFILES := {
 	"prison_cell": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(11, 9), "tables": Vector2i(0, 0), "signature": ["prisonBunk"], "generated": true},
 	"living_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 11), "max": Vector2i(15, 15), "tables": Vector2i(0, 2), "signature": ["loungeCouch"], "generated": true},
 	"mourning_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 1), "signature": [], "generated": true},
-	"arcade_room": {"min": Vector2i(9, 8), "preferred": Vector2i(11, 11), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": ["arcadeCabinet"], "generated": true},
+	"arcade_room": {"min": Vector2i(9, 8), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": ["arcadeCabinet"], "generated": true},
 	"game_stall": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"backstage": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"beach_hut": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 1), "signature": [], "generated": true},
@@ -64,28 +66,28 @@ const PROFILES := {
 	# hospital, research lab and greenhouse (scripts/validate_regions.gd); the great halls seat nobody, so no chair rule
 	"ward": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 21), "tables": Vector2i(0, 0), "signature": [], "generated": true, "seated": false},
 	"operating_theatre": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
-	"nurses_station": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
+	"nurses_station": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"waiting_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
-	"icu": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
+	"icu": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"morgue": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"pharmacy": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
-	"imaging": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
+	"imaging": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"supply_closet": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
-	"chem_lab": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
+	"chem_lab": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"pod_room": {"min": Vector2i(19, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": ["divePod"], "generated": true},
-	"bio_lab": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
+	"bio_lab": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"decon": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"cold_storage": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"lab_office": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
-	"control_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
+	"control_room": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"potting_shed": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"cactus_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"irrigation_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"overgrown_room": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 13), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"clean_room": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
-	"server_hall": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": ["serverRack"], "generated": true},
+	"server_hall": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 21), "tables": Vector2i(0, 200), "signature": ["serverRack"], "generated": true, "seated": false},
 	"containment": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 21), "tables": Vector2i(0, 0), "signature": [], "generated": true, "seated": false},
-	"glasshouse": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": ["raisedPlanter"], "generated": true},
+	"glasshouse": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 21), "tables": Vector2i(0, 30), "signature": ["raisedPlanter"], "generated": true, "seated": false},
 	"palm_house": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"dome_atrium": {"min": Vector2i(21, 21), "preferred": Vector2i(21, 21), "max": Vector2i(21, 21), "tables": Vector2i(1, 1), "signature": ["domeFountain"], "generated": true, "seated": false},
 	# shopping arcade: 20x9 shopfronts on the five-wide main hall
