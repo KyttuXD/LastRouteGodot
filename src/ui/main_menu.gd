@@ -21,6 +21,8 @@ extends Control
 
 var _modal: Control
 var _join_input: LineEdit
+## Shown once a code turns out to be a reserved private room this account is not invited to.
+var _room_password_input: LineEdit
 var _creating_room := false
 var _routes_update_locked := false
 
@@ -61,6 +63,8 @@ func _ready() -> void:
 	UpdateManager.status_changed.connect(_on_update_status)
 	UpdateManager.check_finished.connect(_on_update_check_finished)
 	Backend.room_resolved.connect(_on_room_resolved)
+	Backend.reserved_room_hostable.connect(_on_reserved_room_hostable)
+	Backend.reserved_room_access_needed.connect(_on_reserved_room_access_needed)
 	Backend.health_checked.connect(_on_create_health_checked)
 	Backend.account_changed.connect(_on_account_changed)
 	Backend.account_progress_changed.connect(_on_account_progress_changed)
@@ -474,7 +478,7 @@ func _submit_join() -> void:
 		return
 	var code := _join_input.text.strip_edges().to_upper()
 	var status := _modal.find_child("JoinStatus", true, false) as Label
-	if not RoomState.valid_room_code(code):
+	if not RoomState.valid_join_code(code):
 		status.text = "ENTER A VALID FIVE-CHARACTER ROOM CODE"
 		return
 	if Backend.offline_mode:
@@ -484,7 +488,42 @@ func _submit_join() -> void:
 			go_button.visible = true
 		return
 	status.text = "LOOKING UP ROOM %s..." % code
+	Backend.room_password = _room_password_input.text if _room_password_input != null else ""
 	Backend.resolve_room(code)
+
+
+## A reserved private room wants an invite or its password: ask for the password under the code.
+func _on_reserved_room_access_needed(_code: String, message: String) -> void:
+	if _modal == null or _join_input == null:
+		return
+	if _room_password_input == null:
+		_room_password_input = LineEdit.new()
+		_room_password_input.name = "RoomPasswordInput"
+		_room_password_input.secret = true
+		_room_password_input.placeholder_text = "ROOM PASSWORD"
+		_room_password_input.add_theme_font_size_override("font_size", 10)
+		_room_password_input.custom_minimum_size = Vector2(0, 22)
+		_room_password_input.text_submitted.connect(func(_value: String) -> void: _submit_join())
+		Palette.style_line_edit(_room_password_input)
+		_join_input.get_parent().add_child(_room_password_input)
+		_join_input.get_parent().move_child(_room_password_input, _join_input.get_index() + 1)
+		_room_password_input.grab_focus.call_deferred()
+	var status := _modal.find_child("JoinStatus", true, false) as Label
+	if status != null:
+		status.text = message
+
+
+## Nobody is hosting this reserved room and this player may: host it with its stored route settings.
+func _on_reserved_room_hostable(code: String, settings: Dictionary) -> void:
+	if _modal == null or _join_input == null:
+		return
+	var status := _modal.find_child("JoinStatus", true, false) as Label
+	var error := RoomState.host_reserved_room(code, settings)
+	if not error.is_empty():
+		status.text = error
+		return
+	_close_modal()
+	XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 
 
 func _on_room_resolved(code: String, endpoint: Dictionary, error: String) -> void:
@@ -626,6 +665,7 @@ func _close_modal() -> void:
 		_modal.queue_free()
 	_modal = null
 	_join_input = null
+	_room_password_input = null
 
 
 ## The menu's last button no longer quits the app: the hub is the main menu, quitting is its own button there.

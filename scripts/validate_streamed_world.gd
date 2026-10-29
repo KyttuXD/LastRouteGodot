@@ -16,11 +16,11 @@ func run(host: Node) -> int:
 	var world := StreamedRouteGenerator.new("STREAM-CHECK")
 	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
 		"Infinite corridors are no longer three cells wide")
-	_expect(world.stair_links(Vector3i.ZERO).is_empty() and world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.MEZZANINE_LEVEL, 0)) and not world.is_chunk_allowed(Vector3i(0, 2, 0)) \
+	_expect(world.stair_links(Vector3i.ZERO).is_empty() and not world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.MEZZANINE_LEVEL, 0)) and not world.is_chunk_allowed(Vector3i(0, 2, 0)) \
 		and world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(0, -2, 0)) \
 		and world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL, 0)) \
 		and not world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL - 1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
-		"the route is not one unbounded maze level under the Mezzanine and over the two sewers and the Inferno")
+		"the route is not one unbounded maze level (deck patches at +1) over the two sewers and the Inferno")
 	_expect(FacilityMap.RELAY_TEAL_BLUE.is_equal_approx(Color("32c9d8")),
 		"relay map markers are not the distinct teal-blue palette colour")
 	_expect(FacilityMap.STAIR_ICON_WHITE.is_equal_approx(Color("f4f7f6")),
@@ -157,8 +157,9 @@ func run(host: Node) -> int:
 		for z in range(-12, 13):
 			for x in range(-12, 13):
 				var sampled_coord := Vector3i(x, level, z)
-				if not world.is_chunk_allowed(sampled_coord) or (level != 0 and (absi(x) > 3 or absi(z) > 3)):
-					continue
+				if not world.is_chunk_allowed(sampled_coord) or world.is_void_column(sampled_coord) \
+						or (level != 0 and (absi(x) > 3 or absi(z) > 3)):
+					continue   # the Mezzanine void is checked by its own suite (scripts/validate_void.gd)
 				var data := world.chunk(sampled_coord)
 				regions[data["region"]] = true
 				var dual_contract: Dictionary = data.get("dual_level_room", {})
@@ -199,7 +200,7 @@ func run(host: Node) -> int:
 							child_roles[child_role] = true
 							suite_roles_seen[child_role] = true
 					_expect(suite_kind in ["apartment", "office"] \
-						and suite_rect.size == Vector2i(17, 17),
+						and suite_rect.size in [Vector2i(17, 17), Vector2i(17, 19)],   # the maze's office sector is 19 tall under the five-wide hall
 						"unsupported or clipped generated suite: %s" % suite)
 					_expect(parent_count == 1 and child_ids.size() == 4,
 						"%s is not one shared entry plus four amenity rooms" % suite_id)
@@ -303,6 +304,10 @@ func run(host: Node) -> int:
 						# Rooms of one apartment share walls: openings that are another room's door
 						# (or declared extra doorways) on this boundary are legitimate.
 						var allowed_openings: Array = expected_doorway_cells.duplicate()
+						# a great hall that declares a wider doorless entrance (the carousel's big top: three wide) owns those cells
+						if room.has("great_hall"):
+							for extra_value in room.get("extra_doorways", []):
+								allowed_openings.append(extra_value)
 						if room.has("suite_id"):
 							for extra_value in room.get("extra_doorways", []):
 								allowed_openings.append(extra_value)
@@ -319,7 +324,7 @@ func run(host: Node) -> int:
 									for sibling_extra in sibling.get("extra_doorways", []):
 										allowed_openings.append(sibling_extra)
 						_expect((open_boundary.size() == expected_doorway_cells.size() \
-								or (room.has("suite_id") and open_boundary.all(func(at):
+								or ((room.has("suite_id") or room.has("great_hall")) and open_boundary.all(func(at):
 									return allowed_openings.has(at)))) \
 							and expected_doorway_cells.all(func(at):
 								return open_boundary.has(at)),
@@ -373,6 +378,10 @@ func run(host: Node) -> int:
 								owning_room_id, {})
 							cafeteria_counts[prop_type] = int(cafeteria_counts.get(
 								prop_type, 0)) + 1
+							for room_value in data.get("rooms", []):
+								if String((room_value as Dictionary).get("id", "")) == owning_room_id:
+									var room_rect: Rect2i = (room_value as Dictionary).get("rect", Rect2i())
+									cafeteria_counts["_small_side"] = mini(room_rect.size.x, room_rect.size.y)
 							prison_cafeteria_props[owning_room_id] = cafeteria_counts
 						if room_template == "office_job" \
 								and prop_type == "officeDesk":
@@ -573,8 +582,10 @@ func run(host: Node) -> int:
 	var saw_complete_prison_cafeteria := false
 	for cafeteria_room_id in prison_cafeteria_props:
 		var cafeteria_counts: Dictionary = prison_cafeteria_props[cafeteria_room_id]
+		# a 5-deep prison wing (3x3 inside) holds the serving line and the tray return, not a hunter-scale 3.9 m table too
+		var needs_table := int(cafeteria_counts.get("_small_side", 99)) >= 11    # the rect includes its walls
 		if int(cafeteria_counts.get("prisonServingCounter", 0)) >= 1 \
-				and int(cafeteria_counts.get("prisonCafeteriaTable", 0)) >= 1 \
+				and (not needs_table or int(cafeteria_counts.get("prisonCafeteriaTable", 0)) >= 1) \
 				and int(cafeteria_counts.get("prisonTrayReturn", 0)) >= 1 \
 				and int(cafeteria_counts.get("prisonKitchenRack", 0)) >= 1:
 			saw_complete_prison_cafeteria = true

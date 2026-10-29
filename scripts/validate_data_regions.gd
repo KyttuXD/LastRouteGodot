@@ -13,11 +13,12 @@ const Parity := preload("res://scripts/data_parity.gd")
 const MALL_HALL := {"floor": ["terrazzo0", "terrazzo1"], "runner": false}
 const MALL_ROOM_DEFAULT := ["terrazzo0"]
 const MALL_ROOMS := ["donut_shop", "cinema", "corner_store", "food_court", "bakery", "laundromat", "electronics",
-	"night_diner", "drugstore", "florist", "barber", "pawn_shop", "stationery"]
+	"night_diner", "drugstore", "florist", "barber", "pawn_shop", "stationery", "music_store"]
 const SHOP_NAMES := {"donut_shop": "DONUT COUNTER", "cinema": "CINEMA", "corner_store": "24/7 CORNER",
 	"food_court": "FOOD COURT", "bakery": "BAKERY", "laundromat": "LAUNDROMAT", "electronics": "ARCADE & ELECTRONICS",
 	"night_diner": "NIGHT DINER", "drugstore": "PHARMACY", "florist": "FLORIST", "barber": "BARBER",
-	"pawn_shop": "PAWN & LOAN", "stationery": "STATIONERY & READING"}
+	"pawn_shop": "PAWN & LOAN", "stationery": "STATIONERY & READING",
+	"music_store": "MUSIC & SOUND"}
 const MALL_PROP_SET := [
 	{"type": "mallBench", "size": Vector3(1.8, .5, .6)},
 	{"type": "mallPlanter", "size": Vector3(1.3, 2.4, 1.3)},

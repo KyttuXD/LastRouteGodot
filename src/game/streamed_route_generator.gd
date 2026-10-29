@@ -65,12 +65,14 @@ const DENSE_DISTRICTS := ["hotel", "prison", "maze", "mansion", "beach", "gothic
 ## Share of bank sides that become ONE big room (21x9, a hall/ballroom/greenhouse/big top) instead of two 11x9 rooms, and the
 ## hall-type rooms to pick from. Hotel and prison stay all small rooms; apartments are all suites (_mixed_room_layout).
 const BANK_BIG_CHANCE := {"mansion": .5, "carnival": .5, "gothic": .35, "inferno": .35, "beach": .4, "maze": .2,
-	"hospital": .3, "lab": .4, "greenhouse": .55}
+	"hospital": .5, "lab": .55, "greenhouse": .55}
 const BANK_BIG_TYPES := {
-	"mansion": ["drawing_room", "dining_room"], "carnival": ["big_top", "midway"],
+	"mansion": ["drawing_room", "dining_room"], "carnival": ["midway", "carnival_stage"],
 	"gothic": ["crypt", "chapel", "archive"], "inferno": ["forge", "thermal_chamber", "lava_gallery", "altar_room"],
-	"beach": ["cove", "tide_pool"], "maze": ["restaurant_dining", "storage"],
-	"hospital": ["ward", "operating_theatre"], "lab": ["server_hall", "containment", "clean_room"],
+	"beach": ["cove", "tide_pool"], "maze": ["restaurant_dining", "storage", "arcade_room"],
+	# hunter-scale beds, imaging, benches and consoles need 1.4 m aisles (docs/ROOM_REFERENCE.md): these are 21x9 rooms
+	"hospital": ["ward", "operating_theatre", "icu", "nurses_station", "imaging"],
+	"lab": ["server_hall", "containment", "clean_room", "chem_lab", "bio_lab", "control_room"],
 	"greenhouse": ["glasshouse", "palm_house"],
 }
 ## Room types of the three facility regions, in the order a bank cycles through them (big/great-hall types also appear
@@ -95,15 +97,20 @@ const REGION_REPEAT_TEMPLATES := ["operating_theatre", "icu", "morgue", "pharmac
 ## them into ONE 21x21 room for the districts' big gathering rooms (restaurant, mess hall, dining hall). The room opens on
 ## the vertical hall; both chunks at that seam give up the seam row and trim the hall stub so no dead-end hall remains.
 const LARGE_ROOM_CHANCE := {"maze": .35, "prison": .30, "hotel": .25, "mansion": .30,
-	"hospital": .25, "lab": .30, "greenhouse": .45}
+	"hospital": .25, "lab": .30, "greenhouse": .45, "carnival": .35}
 const LARGE_ROOM_TYPES := {"maze": ["restaurant_dining"], "prison": ["prison_cafeteria"],
 	"hotel": ["restaurant_dining"], "mansion": ["dining_room"],
-	"hospital": ["ward"], "lab": ["containment"], "greenhouse": ["dome_atrium"]}
+	"hospital": ["ward"], "lab": ["containment", "server_hall"], "greenhouse": ["dome_atrium", "glasshouse"],
+	# the merry-go-round (6.7 m across) needs 2-3 cells clear on every side: only a 21x21 big top holds it (KT)
+	"carnival": ["big_top"]}
 const LARGE_ROOM_SIZE := 21
+## The music wing (MusicWing): rare, hotel chunks only (the mall's slots are 20 wide), both slots of a chunk or neither.
+const MUSIC_WING_REGIONS := ["hotel"]
+const MUSIC_WING_CHANCE := .06
 ## Wall cleanup pass (stubs, diagonal pinches); off only for before/after maps.
 const REMOVE_HUMPS := true
-## Run PlacementClearance on every chunk: door keep-clear zones and the margin-wide walk-through.
-const CLEAR_WALKWAYS := true
+## Run PlacementClearance on every chunk: door keep-clear zones and the margin-wide walk-through (off only for audits).
+static var clear_walkways := true
 const STAIR_ACCESS_WIDTH := 5
 ## Rooms are big enough to furnish properly: nothing below 9x9 here (no closets, no 3x3 cells).
 const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 11),
@@ -530,25 +537,27 @@ func adopt_chunk(coord: Vector3i, data: Dictionary) -> void:
 ## as the sewer's ladders are); +1..+3 are pure seed maths, planned here for the
 ## upper-levels lane, which builds around them.
 func stairwell_between(x: int, z: int, upper_level: int) -> Dictionary:
-	if upper_level == 0 or upper_level == MEZZANINE_LEVEL:
+	if VoidRegion.contains(world_seed, x, z):
+		# inside the void the only stairs are the tower's
+		var tower := VoidRegion.tower_chunk(world_seed)
+		return VoidRegion.tower_well(world_seed, upper_level) if x == tower.x and z == tower.y else {}
+	if upper_level == 0 or (upper_level == MEZZANINE_LEVEL and is_chunk_allowed(Vector3i(x, MEZZANINE_LEVEL, z))):
 		for well in chunk(Vector3i(x, 0, z)).get("stairwells", []):
 			if int(well["upper"]) == upper_level:
 				return well
 		return {}
-	var key := Vector3i(x, upper_level, z)
-	if not _stairwell_cache.has(key):
-		_stairwell_cache[key] = Stairwells.plan(world_seed, x, z, upper_level)
-	return _stairwell_cache[key]
+	return {}
 
 
 const MAX_STAIRWELL_DROPPED_ROOM_CELLS := 100
+const MAX_FORCED_STAIRWELL_DROPPED_ROOM_CELLS := 220
 
 
 ## The maze <-> sewer stairwell for a maze chunk being built: clear of the
 ## sewer's ramp and falls quadrants, and only where it fits the maze as built
 ## (_maze_stairwell_fits), so no suite or hall loses anything to it.
 func _plan_maze_stairwell(x: int, z: int, grid: Array, layout: Dictionary, circulation: Dictionary,
-		upper_level: int = 0, also_avoid: Array = []) -> Dictionary:
+		upper_level: int = 0, also_avoid: Array = [], force: bool = false) -> Dictionary:
 	var avoid := also_avoid.duplicate()
 	var ramp: Dictionary = sewer().ramp_between(x, z, SEWER_LEVEL)
 	if not ramp.is_empty():
@@ -557,14 +566,15 @@ func _plan_maze_stairwell(x: int, z: int, grid: Array, layout: Dictionary, circu
 	if not falls.is_empty():
 		avoid.append(int(falls["quadrant"]))
 	return Stairwells.plan(world_seed, x, z, upper_level, avoid,
-		func(well: Dictionary) -> bool: return _maze_stairwell_fits(grid, layout, circulation, well),
-		Stairwells.MAZE_AREAS if upper_level == 0 else Stairwells.MAZE_UP_AREAS)
+		func(well: Dictionary) -> bool: return _maze_stairwell_fits(grid, layout, circulation, well, force),
+		Stairwells.MAZE_AREAS if upper_level == 0 else Stairwells.MAZE_UP_AREAS, force)
 
 
 ## True when a stairwell's box (and a cell round it) touches no suite or main
 ## hall, it drops at most MAX_STAIRWELL_DROPPED_ROOM_CELLS of plain rooms, and a
 ## trial carve cuts no open area in two.
-static func _maze_stairwell_fits(grid: Array, layout: Dictionary, circulation: Dictionary, well: Dictionary) -> bool:
+static func _maze_stairwell_fits(grid: Array, layout: Dictionary, circulation: Dictionary, well: Dictionary,
+		relaxed: bool = false) -> bool:
 	var reach: Rect2i = (well["box"] as Rect2i).grow(1)
 	for suite_value in layout.get("suites", []):
 		if ((suite_value as Dictionary).get("rect", Rect2i()) as Rect2i).intersects(reach):
@@ -584,7 +594,8 @@ static func _maze_stairwell_fits(grid: Array, layout: Dictionary, circulation: D
 			if not String((room_value as Dictionary).get("suite_id", "")).is_empty():
 				return false
 			dropped += ((room_value as Dictionary).get("rect", Rect2i()) as Rect2i).get_area()
-	if dropped > MAX_STAIRWELL_DROPPED_ROOM_CELLS:
+	# a deck patch's only way up (relaxed) may take a second room's worth of floor
+	if dropped > (MAX_FORCED_STAIRWELL_DROPPED_ROOM_CELLS if relaxed else MAX_STAIRWELL_DROPPED_ROOM_CELLS):
 		return false
 	# the seams are carved later, so pockets may exist already: the carve must not add one
 	return _open_components(trial_grid) <= _open_components(grid)
@@ -631,6 +642,11 @@ func stairwells_at(x: int, z: int, level: int) -> Array:
 ## seed maths and always included).
 func vertical_links(coord: Vector3i, cached_only: bool = false) -> Array:
 	var out := []
+	if VoidRegion.contains(world_seed, coord.x, coord.z):
+		# the void has no ladders, ramps or maze stairwells: only the tower
+		for well in stairwells_at(coord.x, coord.z, coord.y):
+			out.append(well["link"])
+		return out
 	if coord.y == 0 or coord.y == SEWER_LEVEL:
 		var ladder_coord := Vector3i(coord.x, SEWER_LEVEL, coord.z)
 		if not cached_only or _chunk_cache.has(ladder_coord):
@@ -715,7 +731,7 @@ static func _ensure_pickups_reachable(data: Dictionary) -> void:
 
 
 func chunk(coord: Vector3i) -> Dictionary:
-	if coord.y == MEZZANINE_LEVEL and is_chunk_allowed(coord):
+	if VoidRegion.is_void_chunk(world_seed, coord) or (coord.y == MEZZANINE_LEVEL and is_chunk_allowed(coord)):
 		if _chunk_cache.has(coord):
 			return _chunk_cache[coord]
 		var mezzanine_data := mezzanine().chunk(coord)
@@ -912,10 +928,13 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		var down := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation)
 		if not down.is_empty():
 			wells.append(down)
-		if is_chunk_allowed(Vector3i(coord.x, MEZZANINE_LEVEL, coord.z)):
-			# the way up to the Mezzanine is decided here too, in a different quadrant from the way down
-			var up := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation, MEZZANINE_LEVEL,
-				[int(down["quadrant"])] if not down.is_empty() else [])
+		if is_chunk_allowed(Vector3i(coord.x, MEZZANINE_LEVEL, coord.z)) and not is_void_column(coord):
+			# the way up to the deck patch above this chunk is decided here too, in a different quadrant from the way down;
+			# a patch with no well yet forces one here (DeckPatches)
+			var avoid_down: Array = [int(down["quadrant"])] if not down.is_empty() else []
+			var up := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation, MEZZANINE_LEVEL, avoid_down)
+			if up.is_empty() and _deck_needs_well(coord):
+				up = _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation, MEZZANINE_LEVEL, avoid_down, true)
 			if not up.is_empty():
 				wells.append(up)
 	var shaft_cells := {}
@@ -947,8 +966,9 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		_remove_wall_humps(grid, layout["rooms"], region_props)
 	# Props a few centimetres inside a wall slide clear of it first (GeometryAudit prop_in_wall), then the walkway checks run.
 	region_props = GeometryResolve.push_out(grid, region_props)
+	scale_surface_mounts(region_props)
 	# Keep-clear zones at every door and a margin-wide walk from each door into its room (docs/COLLISION.md).
-	if CLEAR_WALKWAYS:
+	if clear_walkways:
 		region_props = PlacementClearance.clear(grid, layout["rooms"], region_props)
 	var fixtures := _fixtures(coord, grid, layout["rooms"], stairs,
 		region_props, safe)
@@ -1121,7 +1141,7 @@ func biome_for(coord: Vector3i) -> String:
 	return region_for(coord)
 
 func region_for(coord: Vector3i) -> String:
-	if coord.y == MEZZANINE_LEVEL:
+	if VoidRegion.is_void_chunk(world_seed, coord):
 		return "mezzanine"
 	if coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL:
 		return "sewer"
@@ -1191,6 +1211,7 @@ func difficulty_for_level(level: int) -> Dictionary:
 
 
 var _large_cache := {}
+var _base_large_cache := {}
 
 
 ## Which sides of this chunk hold a great hall: {"W": room_type or "", "E": room_type or ""}. Pure function of the seed and
@@ -1199,6 +1220,26 @@ func large_plan(coord: Vector3i) -> Dictionary:
 	var key := chunk_id(coord)
 	if _large_cache.has(key):
 		return _large_cache[key]
+	var plan := _base_large_plan(coord).duplicate()
+	# the music wing takes BOTH great-hall slots of a hotel chunk or none (MusicWing)
+	if _wing_roll(coord):
+		var both := true
+		for dx in [-1, 1]:
+			var next_door := coord + Vector3i(dx, 0, 0)
+			both = both and is_chunk_allowed(next_door) and DENSE_DISTRICTS.has(region_for(next_door)) \
+				and not _wing_roll(next_door) and String(_base_large_plan(next_door)["E" if dx < 0 else "W"]).is_empty()
+		if both:
+			plan["W"] = MusicWing.LARGE_TYPE
+			plan["E"] = MusicWing.LARGE_TYPE
+	_large_cache[key] = plan
+	return plan
+
+
+## The ordinary great-hall slots of a chunk (no music wing); pure, so the wing can look at its neighbours without recursing.
+func _base_large_plan(coord: Vector3i) -> Dictionary:
+	var key := chunk_id(coord)
+	if _base_large_cache.has(key):
+		return _base_large_cache[key]
 	var plan := {"W": "", "E": ""}
 	var region := region_for(coord) if is_chunk_allowed(coord) else ""
 	if LARGE_ROOM_CHANCE.has(region) and not is_safe_room(coord):
@@ -1215,8 +1256,15 @@ func large_plan(coord: Vector3i) -> Dictionary:
 			if not is_chunk_allowed(neighbour) or not DENSE_DISTRICTS.has(region_for(neighbour)):
 				continue
 			plan[side] = String(types[type_index])
-	_large_cache[key] = plan
+	_base_large_cache[key] = plan
 	return plan
+
+
+## The raw roll for a music wing at this chunk: a hotel chunk, its own roll (so the other plans are unchanged).
+func _wing_roll(coord: Vector3i) -> bool:
+	if not is_chunk_allowed(coord) or not MUSIC_WING_REGIONS.has(region_for(coord)) or is_safe_room(coord):
+		return false
+	return SeededRandom.new("%s:MUSICWING:%s" % [world_seed, chunk_id(coord)]).next_float() < MUSIC_WING_CHANCE
 
 
 ## True when the middle east-west hall is cut short on this chunk's west (dx -1) or east (dx +1) end: its own great hall
@@ -1295,8 +1343,57 @@ func spawn_cell() -> Vector2i:
 
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
-	# One maze level (y == 0), unbounded horizontally, over the sewer layer and under the Mezzanine.
-	return coord.y <= MEZZANINE_LEVEL and coord.y >= INFERNO_LEVEL
+	# One maze level (y == 0), unbounded horizontally, over the sewer layer; level +1 only where a deck patch or the void is.
+	if coord.y == MEZZANINE_LEVEL:
+		return VoidRegion.contains(world_seed, coord.x, coord.z) or DeckPatches.is_deck(world_seed, coord.x, coord.z)
+	return coord.y <= 0 and coord.y >= INFERNO_LEVEL
+
+
+var _deck_component_cache := {}
+
+
+## The deck chunks joined to (x, z) through shared edges (4-neighbours), capped, in a fixed order: the patch it belongs to.
+func deck_component(x: int, z: int) -> Array:
+	var key := Vector2i(x, z)
+	if _deck_component_cache.has(key):
+		return _deck_component_cache[key]
+	var members: Array[Vector2i] = []
+	var seen := {key: true}
+	var queue: Array[Vector2i] = [key]
+	while not queue.is_empty() and members.size() < DECK_PATCH_CAP:
+		var cell: Vector2i = queue.pop_front()
+		members.append(cell)
+		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var next: Vector2i = cell + step
+			if not seen.has(next) and DeckPatches.is_deck(world_seed, next.x, next.y):
+				seen[next] = true
+				queue.append(next)
+	# a fixed per-chunk order (hash), the same from every member of the patch
+	members.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return SeededRandom.new("%s:DECKRANK:%d:%d" % [world_seed, a.x, a.y]).next_float() \
+			< SeededRandom.new("%s:DECKRANK:%d:%d" % [world_seed, b.x, b.y]).next_float())
+	for member in members:
+		_deck_component_cache[member] = members
+	return members
+
+
+const DECK_PATCH_CAP := 60
+
+
+## True when no earlier-ranked chunk of this chunk's deck patch has a way up: then this chunk must have one. Earlier chunks
+## are built first (strictly earlier ranks, so no cycle).
+func _deck_needs_well(coord: Vector3i) -> bool:
+	for member in deck_component(coord.x, coord.z):
+		if member == Vector2i(coord.x, coord.z):
+			return true
+		if not stairwell_between(member.x, member.y, MEZZANINE_LEVEL).is_empty():
+			return false
+	return true
+
+
+## True for a chunk column inside the Mezzanine void's footprint (VoidRegion): no maze, sewer or Inferno chunk is made there.
+func is_void_column(coord: Vector3i) -> bool:
+	return VoidRegion.contains(world_seed, coord.x, coord.z)
 
 
 func coordinates_around(world_xz: Vector2, level: int, radius: int = 2) -> Array:
@@ -1660,7 +1757,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 	var big_types: Array = BANK_BIG_TYPES.get(region, [])
 	var small_types := []
 	for type_name in (_room_type_choices(region) as Array):
-		if not big_types.has(type_name):
+		if not big_types.has(type_name) and not (region == "carnival" and type_name == "big_top"):
 			small_types.append(type_name)
 	if small_types.is_empty():
 		small_types = _room_type_choices(region)
@@ -1683,9 +1780,32 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		corridors.append({"id": "%s:ROOM-BRANCH:%d" % [chunk_id(coord), room_index],
 			"axis": "east_west", "width": CORRIDOR_WIDTH, "length": 1, "branch": true,
 			"from_main_hall": true, "serves_many_rooms": false, "doorway": big_door})
+		if hall_type == "big_top":
+			# the merry-go-round hall opens onto the vertical hall three cells wide (no narrowing beside the ride)
+			for door_row in range(big_door.y - 1, big_door.y + 2):
+				grid[door_row][big_door.x] = 0
+		if hall_type == MusicWing.LARGE_TYPE:
+			var wing := MusicWing.carve(grid, big, big_door, null, MusicWing.part_for_side(side))
+			for wing_room in wing["rooms"]:
+				var wing_entry := _room_entry(coord, room_index, region, wing_room["rect"], String(wing_room["room_type"]))
+				wing_entry["doorway"] = wing_room["doorway"]
+				wing_entry["preset_room"] = true
+				rooms.append(wing_entry)
+				room_index += 1
+			if (wing["hall"] as Rect2i).has_area():
+				# the wing hall is three wide, so its entrance from the vertical hall is a three-wide opening, not one cell
+				for door_row in range(big_door.y - 1, big_door.y + 2):
+					grid[door_row][big_door.x] = 0
+				corridors.append({"id": "%s:WING-HALL:%d" % [chunk_id(coord), side], "rect": wing["hall"],
+					"axis": "east_west", "width": CORRIDOR_WIDTH, "branch": true, "serves_many_rooms": true})
+			for wing_cell in wing["circulation"]:
+				_mark_corridor_cell(circulation, wing_cell, 1)
+			continue
 		var big_entry := _room_entry(coord, room_index, region, big, hall_type)
 		big_entry["doorway"] = big_door
 		big_entry["great_hall"] = true
+		if hall_type == "big_top":
+			big_entry["extra_doorways"] = [Vector2i(big_door.x, big_door.y - 1), Vector2i(big_door.x, big_door.y + 1)]
 		rooms.append(big_entry)
 		room_index += 1
 	for row in rows:
@@ -1747,7 +1867,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		_carve_rect(grid, bay)
 		_mark_rect_cells(circulation, bay)
 	if office_quarter:
-		var suite := _carve_suite_cluster(coord, region, grid, circulation, Rect2i(25, 25, 17, 17), 3, "office", rng)
+		var suite := _carve_suite_cluster(coord, region, grid, circulation, Rect2i(25, 25, 17, 19), 3, "office", rng)
 		rooms.append_array(suite["rooms"])
 		corridors.append_array(suite["corridors"])
 		suites.append(suite["suite"])
@@ -1963,18 +2083,25 @@ func _carve_suite_cluster(coord: Vector3i, region: String, grid: Array,
 	parent["preset_room"] = true
 	suite_rooms.append(parent)
 
-	var hall_x := Rect2i(rect.position + Vector2i(7, 1), Vector2i(3, 15))
-	var hall_z := Rect2i(rect.position + Vector2i(1, 7), Vector2i(15, 3))
+	# four rooms round a three-wide cross: 7 x 7 in a 17 x 17 sector; the maze's office sector is 17 wide (the seam bay
+	# needs the last three columns) and 19 tall under the five-wide hall, so its rooms are 7 x 8 (hunter scale needs the
+	# depth; docs/ROOM_REFERENCE.md). A 21 sector would give 9 x 9.
+	var room_w := (rect.size.x - 3) / 2
+	var room_h := (rect.size.y - 3) / 2
+	var far_x := room_w + 3
+	var far_z := room_h + 3
+	var hall_x := Rect2i(rect.position + Vector2i(room_w, 1), Vector2i(3, rect.size.y - 2))
+	var hall_z := Rect2i(rect.position + Vector2i(1, room_h), Vector2i(rect.size.x - 2, 3))
 	for hall in [hall_x, hall_z]:
 		_carve_rect(grid, hall)
 		_mark_rect_cells(circulation, hall)
 	var child_specs := [
-		{"rect": Rect2i(rect.position, Vector2i(7, 7)), "door_side": "right"},
-		{"rect": Rect2i(rect.position + Vector2i(10, 0), Vector2i(7, 7)),
+		{"rect": Rect2i(rect.position, Vector2i(room_w, room_h)), "door_side": "right"},
+		{"rect": Rect2i(rect.position + Vector2i(far_x, 0), Vector2i(room_w, room_h)),
 			"door_side": "left"},
-		{"rect": Rect2i(rect.position + Vector2i(0, 10), Vector2i(7, 7)),
+		{"rect": Rect2i(rect.position + Vector2i(0, far_z), Vector2i(room_w, room_h)),
 			"door_side": "right"},
-		{"rect": Rect2i(rect.position + Vector2i(10, 10), Vector2i(7, 7)),
+		{"rect": Rect2i(rect.position + Vector2i(far_x, far_z), Vector2i(room_w, room_h)),
 			"door_side": "left"},
 	]
 	var apartment_roles := ["bedroom", "kitchen", "family_dining",
@@ -2675,6 +2802,8 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	elif region in ["hospital", "lab", "greenhouse", "mall"] and (HOSPITAL_ROOMS + LAB_ROOMS + GREENHOUSE_ROOMS
 			+ MALL_ROOMS + ["dome_atrium", "pod_room"]).has(room_type):
 		template = room_type
+	elif MusicWing.TEMPLATES.has(room_type):
+		template = room_type
 	if template.is_empty():
 		return []
 	# Great halls (21x21) get the table-grid versions of their gathering-room recipes (docs/ROOM_SIZES.md).
@@ -2710,12 +2839,13 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 				and not result.any(func(other: Dictionary) -> bool:
 					return RoomCatalog.surface_parent_covers(other, entry)):
 			continue
-		if not _collider_clear(entry, result):
+		if not _collider_clear(entry, result) and not _nudge_seat_clear(entry, result, grid, rect):
 			continue
 		entry["spec_index"] = spec_index
 		result.append(entry)
 		for occupied_value in entry.get("occupied_cells", []):
-			reserved[occupied_value as Vector2i] = true
+			if not reserved.has(occupied_value as Vector2i):
+				reserved[occupied_value as Vector2i] = SEAT_SHAREABLE    # a placed prop's cell: a seat may tuck into it
 	result = even_ceiling_fixtures(one_ceiling_family(result), rect)
 	orient_props(result, grid)
 	if guarantee_beds and template in BED_TEMPLATES and not result.any(func(e: Dictionary) -> bool:
@@ -2744,6 +2874,10 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 						result.erase(e)
 						for cell_value in e.get("occupied_cells", []):
 							reserved.erase(cell_value as Vector2i)
+				# a lamp whose nightstand made way for the bed would float: it goes too
+				result = result.filter(func(e: Dictionary) -> bool:
+					return not RoomCatalog.is_surface_prop(String(e.get("type", ""))) or float(e.get("mount_y", 0.0)) <= 0.0 \
+						or result.any(func(other: Dictionary) -> bool: return RoomCatalog.surface_parent_covers(other, e)))
 		if not bed.is_empty():
 			bed["spec_index"] = specs.size()
 			result.append(bed)
@@ -2754,6 +2888,23 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	for entry in result:
 		entry.erase("spec_index")
 	return result
+
+
+## Things standing on furniture (a lamp on a dresser, a computer on a desk) are authored at the person-sized parent's top
+## (`mount_y`). The parent is drawn at its hunter scale (PropModelCatalog.HUNTER_SCALE), so its top is that much higher:
+## raise the mount with it, or the lamp sinks into the dresser (docs/PROP_SIZES.md).
+static func scale_surface_mounts(props: Array) -> void:
+	for prop_value in props:
+		var prop: Dictionary = prop_value
+		var mount := float(prop.get("mount_y", 0.0))
+		if mount <= 0.0 or not RoomCatalog.is_surface_prop(String(prop.get("type", ""))) or bool(prop.get("mount_scaled", false)):
+			continue
+		for parent_value in props:
+			var parent: Dictionary = parent_value
+			if parent != prop and RoomCatalog.surface_parent_covers(parent, prop):
+				prop["mount_y"] = mount * PropModelCatalog.hunter_scale(String(parent.get("type", "")))
+				prop["mount_scaled"] = true
+				break
 
 
 ## KT: "a gothic bedroom is nearly empty, no bed". A bedroom never goes without a bed: when the recipe's bed could not be
@@ -3009,6 +3160,15 @@ static func one_ceiling_family(props: Array) -> Array:
 ## Big props claim their space first: solid specs by footprint (largest first), then the rest; ties keep recipe order, so
 ## a bed or counter is never dropped because a chair or crate listed earlier took its cell. Surface props come after the
 ## desks and tables that carry them. Deterministic (depends only on the recipe).
+## `reserved` value for a cell a placed recipe prop took (doors and thresholds are `true`): only seats may share it.
+const SEAT_SHAREABLE := "prop"
+
+
+## An authored (person-sized) blocker size, as big as the view draws the prop (PropModelCatalog.HUNTER_SCALE).
+static func hunter_sized(type: String, size: Vector3) -> Vector3:
+	return size * PropModelCatalog.hunter_scale(type)
+
+
 static func _claim_order(specs: Array) -> Array:
 	var order := []
 	for i in specs.size():
@@ -3016,8 +3176,10 @@ static func _claim_order(specs: Array) -> Array:
 		var type := String(spec.get("type", ""))
 		var area := 0.0
 		if bool(spec.get("solid", not bool(spec.get("wall_mount", false)))) and not RoomCatalog.is_surface_prop(type):
-			var size: Vector3 = TEMPLATE_PROP_SIZES.get(type, PropColliderSizes.SIZES.get(type, Vector3.ZERO))
+			var size: Vector3 = PropColliderSizes.SIZES.get(type, hunter_sized(type, TEMPLATE_PROP_SIZES.get(type, Vector3.ZERO)))
 			area = size.x * size.z
+		if bool(spec.get("claim_first", false)):
+			area = INF
 		order.append([area, i])
 	order.sort_custom(func(a: Array, b: Array) -> bool:
 		return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
@@ -3025,6 +3187,29 @@ static func _claim_order(specs: Array) -> Array:
 	for pair in order:
 		out.append(pair[1])
 	return out
+
+
+## A seat set around a table at fixed cells (dining sets, cafeteria rows, desks) hits its hunter-scale table: slide it
+## straight back from what it faces, 15 cm at a time up to 1.2 m, until it is clear and still inside the room on open
+## floor (docs/PROP_SIZES.md). Only seats move; anything else that collides is dropped as before.
+static func _nudge_seat_clear(entry: Dictionary, placed: Array, grid: Array, rect: Rect2i) -> bool:
+	if PropModelCatalog.interaction_for(String(entry.get("type", ""))) != "sit":
+		return false
+	var yaw := float(entry.get("yaw", 0.0))
+	var back := Vector2(sin(yaw), cos(yaw))    # gameplay yaw: -Z faces the target, the back is +Z
+	var start: Vector2 = entry.get("placement_offset", Vector2.ZERO)
+	var cell: Vector2i = entry.get("cell", Vector2i.ZERO)
+	for step in range(1, 9):
+		var offset := start + back * .15 * float(step)
+		var at := Vector2(cell) + Vector2(.5, .5) + offset
+		var at_cell := Vector2i(floori(at.x), floori(at.y))
+		if not rect.has_point(at_cell) or not _grid_cell_open(grid, at_cell):
+			return false
+		entry["placement_offset"] = offset
+		if _collider_clear(entry, placed):
+			return true
+	entry["placement_offset"] = start
+	return false
 
 
 ## Prop clearance as a placement rule: a solid prop's collision boxes may not interpenetrate an already placed solid's
@@ -3240,16 +3425,22 @@ static func _room_template_specs(template: String, region: String,
 			# aisle and repeated bolted tables rather than loose room scatter.
 			# 5-deep / 5-wide wings only have a 3x3 interior, so the counter
 			# must be centred and side equipment stays on the front corners.
+			# the serving line is the room's point: it claims before the (hunter-scale) tables
 			specs.append({"type": "prisonServingCounter", "side": 0,
-				"depth": 0, "wall_backed": true, "facing": "open"})
-			specs.append({"type": "prisonKitchenRack", "side": -1 * mirror,
+				"depth": 0, "wall_backed": true, "facing": "open", "claim_first": true})
+			# side kit beside the table line (hunter-scale tables are 3.9 m long), at the walls where the room is wide enough
+			var kit_side := 3 if side_span >= 7 else 1
+			specs.append({"type": "prisonKitchenRack", "side": -kit_side * mirror,
 				"depth": maxi(2, mid_depth), "facing": "open"})
 			# Linear prison wings are only five cells deep. A middle-row table
 			# keeps the serving line clear; wider halls can take a second row.
 			var table_depths := [1]
+			# hunter-scale tables are 2.6 m deep: rows stand clear of the 1.5 m serving counter and of the door row
 			if depth_span >= 9:
-				table_depths = [mid_depth - 2, mid_depth + 2]
+				table_depths = [mid_depth]
 			if depth_span >= 12:
+				table_depths = [mid_depth - 1, mid_depth + 2]
+			if depth_span >= 15:
 				table_depths.append(mid_depth + 6)
 			for table_depth in table_depths:
 				if table_depth <= 0:
@@ -3258,8 +3449,8 @@ static func _room_template_specs(template: String, region: String,
 					"depth": table_depth, "facing": "open"})
 			# The tray return sits at the side of the queue, not in the aisle
 			# and not on the sealed side wall of a 5-wide wing.
-			specs.append({"type": "prisonTrayReturn", "side": 1 * mirror,
-				"depth": maxi(2, mid_depth), "facing": "open"})
+			specs.append({"type": "prisonTrayReturn", "side": kit_side * mirror,
+				"depth": maxi(2, mid_depth), "facing": "open", "claim_first": true})
 			specs.append({"type": "ceilingLight", "side": -2,
 				"depth": mid_depth, "facing": "open", "solid": false})
 			specs.append({"type": "ceilingLight", "side": 2,
@@ -3398,9 +3589,12 @@ static func _room_template_specs(template: String, region: String,
 		"carnival_big_top":
 			specs.append({"type": "arcadeCarpetCircle", "side": 0, "depth": mid_depth, "facing": "open", "solid": false})
 			# the room's centre is the working merry-go-round (CarouselRide3D); a duck pond and a pedestal either side
-			specs.append({"type": "carouselCenterpiece", "side": 0, "depth": mid_depth, "facing": "center"})
-			specs.append({"type": "duckPond", "side": 6, "depth": mid_depth, "facing": "center"})
-			specs.append({"type": "circusPedestal", "side": -6, "depth": mid_depth, "facing": "center"})
+			if side_span >= 17 and depth_span >= 17:
+				specs.append({"type": "carouselCenterpiece", "side": 0, "depth": mid_depth, "facing": "center"})
+			# 2-3 cells clear round the ride on every side (validate_carousel): the pond and pedestal stand out at the flanks
+			var flank := 8 if side_span >= 17 else 6
+			specs.append({"type": "duckPond", "side": flank, "depth": mid_depth, "facing": "center"})
+			specs.append({"type": "circusPedestal", "side": -flank, "depth": mid_depth, "facing": "center"})
 			for booth_side in [-8, 8]:
 				specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
 			for cart_side in [-4, 4]:
@@ -3707,6 +3901,9 @@ static func _room_template_specs(template: String, region: String,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
 	if region in ["hospital", "lab", "greenhouse", "mall"]:
 		specs.append_array(_region_room_specs(template, (side_span - 3) / 2, depth_span, mirror))
+	# the music wing's rooms (docs/MUSIC_WING.md): the stage, practice rooms, store, booth, the mall music store, the carnival stage
+	if MusicWing.TEMPLATES.has(template):
+		specs.append_array(MusicWing.room_specs(template, (side_span - 3) / 2, depth_span, mirror))
 	# 21-wide hall rooms (docs/ROOM_SIZES.md): the inferno recipes repeat across the width instead of leaving it bare
 	if side_span >= 17 and depth_span <= 11 and template in ["thermal_chamber", "forge", "altar_room", "lava_gallery"]:
 		var originals := specs.duplicate()
@@ -3741,9 +3938,19 @@ static func _keep_entrance_clear(specs: Array, _side_span: int, depth_span: int)
 			kept.append(entry)
 			continue
 		var size: Vector3 = PropColliderSizes.SIZES.get(String(entry.get("type", "")), Vector3.ONE)
-		var half := maxf(size.x, size.z) * .5
-		var covers_door := absf(float(entry.get("side", 0))) - half < .5 \
-			and float(entry.get("depth", 0)) + half > float(depth_span) - 3.5
+		# its extents across the room and toward the door, by its facing (a long table set along the back wall reaches
+		# sideways, not toward the door); "center" can face any way, so it keeps the long side both ways
+		var across_half := maxf(size.x, size.z) * .5
+		var toward_half := across_half
+		match String(entry.get("facing", "open")):
+			"open", "back":
+				across_half = size.x * .5
+				toward_half = size.z * .5
+			"left", "right":
+				across_half = size.z * .5
+				toward_half = size.x * .5
+		var covers_door := absf(float(entry.get("side", 0))) - across_half < .5 \
+			and float(entry.get("depth", 0)) + toward_half > float(depth_span) - 3.5
 		if not covers_door:
 			kept.append(entry)
 	return kept
@@ -3920,7 +4127,8 @@ static func _region_room_specs(template: String, half: int, depth_span: int, mir
 				specs.append(_sp("serverRack", rack_side, 0, "open", _WALL))
 			var island := 2
 			while island + 1 <= front - 3:
-				for rack_side in range(-half + 2, half - 1):
+				# the islands stop a rack short of each side wall: hunter-scale racks need a wider end aisle to walk round
+				for rack_side in range(-half + 3, half - 2):
 					specs.append(_sp("serverRack", rack_side, island, "back"))
 					specs.append(_sp("serverRack", rack_side, island + 1, "open"))
 				specs.append(_sp("labCoolingUnit", -half, island, "center"))
@@ -4354,7 +4562,11 @@ func _template_prop_entry(coord: Vector3i, room: Dictionary,
 		# do not pinch the shared route; applying that mask here dropped desks,
 		# nightstands, and cafeteria furniture while leaving non-solid lamps
 		# and computers in the same cells.
-		if not rect.has_point(at) or reserved.has(at) \
+		# a seat may share a cell with its table (never a door or threshold cell): the collider check and
+		# _nudge_seat_clear decide whether it fits
+		var shareable := reserved.get(at) is String and String(reserved.get(at)) == SEAT_SHAREABLE \
+			and PropModelCatalog.interaction_for(prop_type) == "sit"
+		if not rect.has_point(at) or (reserved.has(at) and not shareable) \
 				or not _grid_cell_open(grid, at):
 			return {}
 	var room_token := String(room.get("id", "ROOM")).replace(":", "-")
