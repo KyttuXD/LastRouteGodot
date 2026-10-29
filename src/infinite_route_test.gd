@@ -5222,6 +5222,7 @@ func _apply_hunter_report(data: Array) -> void:
 
 
 var _guest_hunter_motion := {}
+var _guest_hunter_stamp := {}   # entity id -> newest report time taken (host clock)
 
 
 ## Puts a guest's hunter where its interpolation buffer says it is now (position and facing).
@@ -5241,6 +5242,7 @@ func _present_guest_hunters() -> void:
 		var view := _hunter_views.get(entity_id_value) as HunterView3D
 		if view == null or not is_instance_valid(view) or view.brain == null:
 			_guest_hunter_motion.erase(entity_id_value)
+			_guest_hunter_stamp.erase(entity_id_value)
 			continue
 		_present_guest_hunter(view, _guest_hunter_motion[entity_id_value], now_ms)
 		view.sync_from_brain()
@@ -5285,6 +5287,13 @@ func _apply_guest_hunter_state(entity_id: String, state: Dictionary) -> void:
 	var view := _hunter_views.get(entity_id) as HunterView3D
 	if view == null or view.brain == null:
 		return
+	# a report older than the newest one taken (the reliable large-report channel can arrive after a newer small one)
+	# changes nothing
+	var stamp = state.get("sent_ms")
+	if stamp is int or stamp is float:
+		if float(stamp) <= float(_guest_hunter_stamp.get(entity_id, -1.0)):
+			return
+		_guest_hunter_stamp[entity_id] = float(stamp)
 	world_state.restore_hunter(view.brain, state)
 	# Interpolated like the runners (RemoteMotion): the body is drawn 100 ms behind the newest report, between the two
 	# reports that bracket that moment. Setting the brain to each 20 Hz report made a hunter jump to it within one physics
