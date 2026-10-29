@@ -49,7 +49,7 @@ func run(_host: Node) -> int:
 	for a in ScaleFit.ARCHITECTURE:
 		_expect(float(a[1]) >= float(a[2]) and float(a[1]) <= float(a[3]), "%s = %.2f outside [%.2f, %.2f]" % [a[0], a[1], a[2], a[3]])
 	_expect(absf(float(ScaleFit.PLAYER["height"]) - 1.78 * PlayerModels.SCALE) < .01, "player table does not follow PlayerModels.SCALE")
-	_expect(float(ScaleFit.PLAYER["height"]) < float(ScaleFit.HUNTER["height"]) * .9 and float(ScaleFit.PLAYER["height"]) > float(ScaleFit.HUNTER["height"]) * .8, "the runner is not about 0.85x of a hunter (slightly smaller)")
+	_expect(float(ScaleFit.PLAYER["height"]) < float(ScaleFit.HUNTER["height"]) * .8 and float(ScaleFit.PLAYER["height"]) > float(ScaleFit.HUNTER["height"]) * .65, "the runner is not about 0.74x of a hunter (head top at her upper torso)")
 	_expect(PlayerController3D.STANDING_COLLISION_HEIGHT < float(ScaleFit.PLAYER["height"]), "the standing capsule is taller than the runner")
 	_expect(PlayerController3D.CROUCH_COLLISION_HEIGHT < PlayerController3D.STANDING_COLLISION_HEIGHT * .7, "crouch does not lower the capsule")
 	var sized := 0

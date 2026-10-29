@@ -32,9 +32,12 @@ var _chunk_cache := {}
 ## owns real player collision. Mirror that footprint into the A* surface so a
 ## hunter cannot take a visual shortcut through a couch, bed or cabinet.
 var _solid_prop_cells := {}
+## Channel cells under an open sewer sluice gate (its valve turned an odd number of times): floor for hunters too.
+var _open_gate_cells := {}
 var _active_coords: Array[Vector3i] = []
 var _refresh_revision := -1
 var _refresh_generation := 0
+var _path_grid_walls := Vector2i(-1, -1)
 var _path_grid := AStarGrid2D.new()
 var _path_grid_coords: Array[Vector3i] = []
 var _path_grid_level := 0x7fffffff
@@ -69,6 +72,7 @@ func refresh(route_level: int, coords: Array) -> void:
 	# with total distance travelled.
 	_chunk_cache.clear()
 	_solid_prop_cells.clear()
+	_open_gate_cells.clear()
 	rooms.clear()
 	safe_zones.clear()
 	relays.clear()
@@ -210,7 +214,7 @@ func is_floor(x: float, y: float) -> bool:
 	var grid: Array = data.get("grid", [])
 	return local.y >= 0 and local.y < grid.size() \
 		and local.x >= 0 and local.x < (grid[local.y] as Array).size() \
-		and int(grid[local.y][local.x]) == 0 \
+		and (int(grid[local.y][local.x]) == 0 or _open_gate_cells.has(cell)) \
 		and not _solid_prop_cells.has(cell)
 
 
@@ -277,10 +281,14 @@ func _roomy_cell(cell: Vector2i) -> Vector2i:
 
 
 func _rebuild_path_grid_if_needed() -> void:
-	if _path_grid_level == level and _path_grid_coords == _active_coords:
+	# a world-state change that moves a wall (a seal or pipe broken, a sluice gate opened) rebuilds it too, not only a new
+	# window; a relay claim or pickup (same walls) does not
+	var walls := Vector2i(_solid_prop_cells.size(), _open_gate_cells.size())
+	if _path_grid_level == level and _path_grid_coords == _active_coords and _path_grid_walls == walls:
 		return
 	_path_grid_level = level
 	_path_grid_coords = _active_coords.duplicate()
+	_path_grid_walls = walls
 	if _active_coords.is_empty():
 		_path_grid.region = Rect2i()
 		_path_grid.update()
@@ -305,6 +313,9 @@ func _rebuild_path_grid_if_needed() -> void:
 	_path_grid.default_compute_heuristic = AStarGrid2D.HEURISTIC_OCTILE
 	_path_grid.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
 	_path_grid.update()
+	# update() keeps the solid flags when the region is unchanged: clear them, or a rebuild for an opened gate or a broken
+	# seal would keep the old walls
+	_path_grid.fill_solid_region(Rect2i(origin, size), false)
 	for z in range(origin.y, origin.y + size.y):
 		for x in range(origin.x, origin.x + size.x):
 			var cell := Vector2i(x, z)
@@ -332,7 +343,7 @@ func floor_cells() -> Array:
 				var cell := Vector2i(
 					coord.x * StreamedRouteGenerator.CHUNK_SIZE + x,
 					coord.z * StreamedRouteGenerator.CHUNK_SIZE + z)
-				if int(grid[z][x]) == 0 and not _solid_prop_cells.has(cell):
+				if (int(grid[z][x]) == 0 or _open_gate_cells.has(cell)) and not _solid_prop_cells.has(cell):
 					result.append(cell)
 	return result
 
@@ -454,6 +465,11 @@ static func collider_plan_rects(prop: Dictionary, grow: float = 0.0) -> Array:
 
 func _cache_solid_prop_cells(coord: Vector3i, data: Dictionary) -> void:
 	var base := Vector2i(coord.x, coord.z) * StreamedRouteGenerator.CHUNK_SIZE
+	for gate_value in data.get("gates", []):
+		var gate: Dictionary = gate_value
+		if world_state != null and world_state.valve_count(String(gate["valve"])) % 2 == 1:
+			for local_value in gate["cells"]:
+				_open_gate_cells[base + (local_value as Vector2i)] = true
 	# a closed seal (or any breakable that blocks) is a wall to the hunters until somebody breaks it open
 	for spec_value in data.get("breakables", []):
 		var spec: Dictionary = spec_value

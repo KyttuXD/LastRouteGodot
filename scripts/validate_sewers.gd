@@ -98,7 +98,8 @@ func _check_window(window: Dictionary) -> int:
 			for feature in data["features"]:
 				var fc: Vector2i = feature["cell"]
 				# everything stands on floor or deck
-				var standing: bool = SewerRouteGenerator.is_walkable(int(grid[fc.y][fc.x]))
+				var standing: bool = SewerRouteGenerator.is_walkable(int(grid[fc.y][fc.x])) \
+					or String(feature["type"]) == "sewerSluiceGate" and int(grid[fc.y][fc.x]) == SewerRouteGenerator.WATER   # spans the channel
 				_expect(standing, "%s %s feature %s sits in solid brick" % [seed_text, coord, feature["type"]])
 				# nothing hangs in the air: a wall-mounted piece (valve wheel, lamp, pipe run,
 				# pump, ladder) stands on floor with brick directly behind it

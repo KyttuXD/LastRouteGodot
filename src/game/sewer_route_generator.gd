@@ -363,6 +363,8 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 	features = _pair_tunnel_lamps(grid, features)
 	features = _mount_on_walls(grid, features)
 	features.append_array(_outflow_features(coord, grid, features, links))
+	features.append_array(_flood_valve_features(grid, features, links))
+	features.append_array(_gate_features(coord, grid, features, links))
 	var schema := _streamed_schema(coord, grid, rooms, links, features, ramps)
 	schema["stairwells"] = wells
 	schema["shaft_cells"] = shaft_cells
@@ -441,11 +443,13 @@ func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: A
 				StreamedRouteGenerator._exclude_neighbourhood(gate_cells, cell, 1)
 	var region_props := _feature_props(coord, features)
 	breakables = _pipe_breakables(coord, sewer_grid, region_props) + breakables   # the pipes' ids count from 0, the seals' from 100
+	var gates := _gates(region_props)
 	return {"schema": 2, "coord": coord, "chunk_id": chunk_id(coord), "level": coord.y,
 		"biome": "sewer", "region": "sewer", "grid": grid, "sewer_grid": sewer_grid,
 		"rooms": room_entries, "corridors": [], "suites": [],
 		"edges": {"west": seam, "east": seam, "north": seam, "south": seam},
 		"stairs": [], "safe_room": false, "safe_room_data": {}, "region_props": region_props,
+		"gates": gates,
 		"fixtures": _fixtures(coord, grid, room_entries, features),
 		"pickups": _pickups(coord, sewer_grid, grid, features, links, sealed, gate_cells),
 		"breakables": breakables, "sealed_cells": sealed.keys(),
@@ -762,8 +766,9 @@ func _outflow_features(coord: Vector3i, grid: Array, features: Array, links: Arr
 ## FLOOD_REACH steps of the pipe's cells, at most FLOOD_MAX_CELLS of them.
 const PIPE_TOOLS := ["rescue_axe"]
 const PIPE_HP := {"crawl": 3, "outflow": 4}
-const FLOOD_REACH := 4
-const FLOOD_MAX_CELLS := 40
+## The flood spreads (SewerFloods.reach_at) up to FLOOD_REACH steps over dry walkway, at most FLOOD_MAX_CELLS cells.
+const FLOOD_REACH := 12
+const FLOOD_MAX_CELLS := 160
 
 
 func _pipe_breakables(coord: Vector3i, sewer_grid: Array, region_props: Array) -> Array:
@@ -783,20 +788,36 @@ func _pipe_breakables(coord: Vector3i, sewer_grid: Array, region_props: Array) -
 			continue
 		var middle: Vector2i = cells[cells.size() / 2]
 		var along: Vector2i = prop["crawl_step"]
+		var flood := _flood_cells(sewer_grid, cells)
 		var id := Breach.make_id(coord, out.size())
 		prop["breakable_id"] = id
 		by_cells[key] = out.size()
 		out.append(Breach.make_spec(id, Breach.KIND_PIPE, "authored", coord, middle, int(PIPE_HP[pipe]), PIPE_TOOLS, {
 			"pipe": pipe, "props": [prop["id"]], "cells": cells.duplicate(),
 			"centre": Vector2(middle) + Vector2(.5, .5), "dir": Vector2(along),
-			"flood_cells": _flood_cells(sewer_grid, cells),
+			"flood_cells": flood["cells"], "flood_steps": flood["steps"],
 			"wall": Vector2(prop.get("outflow_wall", Vector2i.ZERO))}))
 	return out
 
 
-## Dry walkway cells a burst pipe floods: a walk outward from its cells over dry floor and decks, FLOOD_REACH steps,
-## nearest first, at most FLOOD_MAX_CELLS (the pipe's own cells included).
-static func _flood_cells(sewer_grid: Array, cells: Array) -> Array:
+## The chunk's sluice gates: {id, cells (the channel cells it bridges when open), valve (its valve prop's id), prop}.
+static func _gates(region_props: Array) -> Array:
+	var out := []
+	for prop_value in region_props:
+		var prop: Dictionary = prop_value
+		if String(prop.get("type", "")) != "sewerSluiceGate":
+			continue
+		var valve := ""
+		for other in region_props:
+			if String(other.get("type", "")) == "sewerValveWheel" and other.get("gate", "") == prop["gate"]:
+				valve = String(other["id"])
+		out.append({"id": prop["gate"], "cells": prop["gate_cells"], "valve": valve, "prop": prop["id"]})
+	return out
+
+
+## Dry walkway cells a burst pipe can flood: a walk outward from its cells over dry floor and decks, FLOOD_REACH steps,
+## nearest first, at most FLOOD_MAX_CELLS (the pipe's own cells included): {cells, steps (each cell's step from the pipe)}.
+static func _flood_cells(sewer_grid: Array, cells: Array) -> Dictionary:
 	var seen := {}
 	var queue := []
 	for cell in cells:
@@ -818,7 +839,100 @@ static func _flood_cells(sewer_grid: Array, cells: Array) -> Array:
 			queue.append(next)
 			if queue.size() >= FLOOD_MAX_CELLS:
 				break
-	return queue
+	return {"cells": queue, "steps": queue.map(func(c: Vector2i) -> int: return int(seen[c]))}
+
+
+## Valve wheels (docs/SEWERS.md) do one of VALVE_EFFECTS: "flood" (shuts the chunk's running floods, else turns its pipes'
+## drips off and on) or "gate" (opens a sluice across a channel). A chunk with pipes the Axe can burst always has a flood
+## valve: a room's, or one on a tunnel wall clear of every other piece.
+const VALVE_EFFECTS := ["flood", "gate"]
+const TUNNEL_VALVE_OFFSETS := [4, 40, 16, 28]
+
+
+func _flood_valve_features(grid: Array, features: Array, links: Array) -> Array:
+	var has_pipe := features.any(func(f: Dictionary) -> bool: return f.has("crawl") or f.has("outflow"))
+	var has_valve := features.any(func(f: Dictionary) -> bool:
+		return String(f["type"]) == "sewerValveWheel" and String(f.get("valve_effect", "flood")) == "flood")
+	if not has_pipe or has_valve:
+		return []
+	var taken := {}
+	for feature in features:
+		StreamedRouteGenerator._exclude_neighbourhood(taken, feature["cell"], 1)
+		for cell in feature.get("cells", []):
+			StreamedRouteGenerator._exclude_neighbourhood(taken, cell, 1)
+	for link in links:
+		StreamedRouteGenerator._exclude_neighbourhood(taken, link["to_cell"], 2)
+	for offset in TUNNEL_VALVE_OFFSETS:
+		for along_x in [true, false]:
+			for side in [-1, 1]:
+				var outer: int = CENTER + int(side) * TUNNEL_HALF
+				var cell: Vector2i = Vector2i(int(offset), outer) if along_x else Vector2i(outer, int(offset))
+				var wall: Vector2i = Vector2i(0, int(side)) if along_x else Vector2i(int(side), 0)
+				if not taken.has(cell) and wall_backed(grid, cell, wall):
+					return [{"type": "sewerValveWheel", "cell": cell, "wall": wall, "valve_effect": "flood"}]
+	return []
+
+
+## Sluice gates (KT: a valve that opens a shortcut across a channel): a lifting leaf hinged on one walkway edge, raised
+## (the channel stays uncrossable) until its gate valve is turned, then lowered flat across the three channel cells as a
+## crossing. At most one per chunk on either sewer (GATE_CHANCE, own seed stream), out on an arm past its bridge
+## (GATE_OFFSETS), with dry walkway at both ends, nothing within a cell, and its valve on the hinge side's outer wall.
+## Open or shut the level stays connected (the bridges and the junction still cross); open, it is a shortcut for runners
+## and hunters alike.
+const GATE_CHANCE := .4
+const GATE_OFFSETS := [5, 39]
+
+
+func _gate_features(coord: Vector3i, grid: Array, features: Array, links: Array) -> Array:
+	var rng := SeededRandom.new("%s:GATE:%d:%d:%d" % [world_seed, coord.x, coord.y, coord.z])
+	if rng.next_float() >= GATE_CHANCE:
+		return []
+	var taken := {}
+	for feature in features:
+		StreamedRouteGenerator._exclude_neighbourhood(taken, feature["cell"], 1)
+		for cell in feature.get("cells", []):
+			StreamedRouteGenerator._exclude_neighbourhood(taken, cell, 1)
+	for link in links:
+		StreamedRouteGenerator._exclude_neighbourhood(taken, link["to_cell"], 2)
+	var options := []
+	for offset in GATE_OFFSETS:
+		for along_x in [true, false]:
+			for side in [-1, 1]:
+				options.append([int(offset), along_x, int(side)])
+	var start := rng.next_index(options.size())
+	for k in options.size():
+		var option: Array = options[(start + k) % options.size()]
+		var offset: int = option[0]
+		var along_x: bool = option[1]
+		var side: int = option[2]
+		# across the channel: from the hinge-side walkway (side) to the far one
+		var across: Vector2i = Vector2i(0, side) if along_x else Vector2i(side, 0)
+		var along: Vector2i = Vector2i(1, 0) if along_x else Vector2i(0, 1)
+		var middle: Vector2i = Vector2i(offset, CENTER) if along_x else Vector2i(CENTER, offset)
+		var cells := [middle - across, middle, middle + across]
+		var hinge_end: Vector2i = middle + across * (CHANNEL_HALF + 1)
+		var far_end: Vector2i = middle - across * (CHANNEL_HALF + 1)
+		var fits := int(grid[hinge_end.y][hinge_end.x]) == DRY and int(grid[far_end.y][far_end.x]) == DRY
+		for cell_value in cells + [hinge_end, far_end]:
+			var c: Vector2i = cell_value
+			fits = fits and not taken.has(c)
+		for cell_value in cells:
+			var c: Vector2i = cell_value
+			fits = fits and int(grid[c.y][c.x]) == WATER
+		if not fits:
+			continue
+		# its valve: on the hinge side's outer wall, a couple of cells along
+		var outer: int = CENTER + side * TUNNEL_HALF
+		for shift in [2, -2, 3, -3]:
+			var spot: Vector2i = Vector2i(offset + int(shift), outer) if along_x else Vector2i(outer, offset + int(shift))
+			if not taken.has(spot) and wall_backed(grid, spot, across):
+				var gate_id := "GATE:%d:%d:%d:0" % [coord.x, coord.y, coord.z]
+				return [
+					{"type": "sewerSluiceGate", "cell": middle, "yaw": wall_yaw(across), "gate": gate_id, "gate_cells": cells,
+						"along": along},
+					{"type": "sewerValveWheel", "cell": spot, "wall": across, "valve_effect": "gate", "gate": gate_id},
+				]
+	return []
 
 
 ## Floor cells under a crawl pipe and one row either side of it: laid with the hazard plate so the low pipe reads from afar.
@@ -1023,6 +1137,14 @@ func _feature_props(coord: Vector3i, features: Array) -> Array:
 			prop["collider_size"] = SOLID_FEATURES[type]
 		if feature.has("link"):
 			prop["link"] = feature["link"]
+		if type == "sewerValveWheel":
+			prop["valve_effect"] = String(feature.get("valve_effect", "flood"))
+			if feature.has("gate"):
+				prop["gate"] = feature["gate"]
+		if type == "sewerSluiceGate":
+			prop["solid"] = false
+			prop["gate"] = feature["gate"]
+			prop["gate_cells"] = (feature["gate_cells"] as Array).duplicate()
 		props.append(prop)
 	return props
 
