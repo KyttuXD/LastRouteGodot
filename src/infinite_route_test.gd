@@ -253,6 +253,7 @@ func _ready() -> void:
 	_remotes.local_player = player
 	_remotes.state_overrides = _streamed_state_overrides
 	_remotes.hunters_received.connect(_apply_hunter_report)
+	HunterModelWarmup.attach(self)   # hunter GLBs load in the background, so the first of each type is cheap to show
 	_remotes.world_event.connect(_apply_stream_world_event)
 	_remotes.interaction_requested.connect(_on_remote_interaction_request)
 	_remotes.world_snapshot.connect(_apply_stream_snapshot)
@@ -447,6 +448,8 @@ func _process(delta: float) -> void:
 	if _remotes.simulates() and _authority_refresh_elapsed >= AUTHORITY_REFRESH_SECONDS:
 		_authority_refresh_elapsed = 0.0
 		_refresh_hunter_stream()
+	if not _remotes.simulates():
+		_pump_guest_hunters()
 	if _remotes.simulates():
 		_hunter_simulation_accumulator = minf(
 			_hunter_simulation_accumulator + delta,
@@ -5184,6 +5187,7 @@ func _apply_hunter_report(data: Array) -> void:
 	if _remotes != null and _remotes.simulates():
 		return
 	var reported := {}
+	var own := facility.current_chunk_coord()
 	for value in data:
 		if not value is Dictionary:
 			continue
@@ -5193,39 +5197,90 @@ func _apply_hunter_report(data: Array) -> void:
 			continue
 		reported[entity_id] = true
 		world_state.hunters[entity_id] = state.duplicate(true)
+		# A guest only builds the hunters near itself. The host's report covers every runner's window, so a teammate
+		# walking into a new area woke a batch of hunters there and each guest instantiated all of them in one packet
+		# (a hunter view costs ~10-25 ms the first time, up to ~140 ms): FPS tanked when teammates streamed.
+		var near := _guest_hunter_near(_state_chunk(state), own, _hunter_views.has(entity_id))
 		if not _hunter_views.has(entity_id):
-			_load_hunter(entity_id, state)
-		var view := _hunter_views.get(entity_id) as HunterView3D
-		if view == null or view.brain == null:
+			if near:
+				_guest_hunter_queue[entity_id] = true
 			continue
-		world_state.restore_hunter(view.brain, state)
-		var level := int(state.get("level", 0))
-		_hunter_levels[entity_id] = level
-		view.surface_height_provider = facility.streamed_surface_height.bind(level)
-		# Guests receive the host's planar tread positions and walk their matching
-		# streamed ramp locally. Applying presentation_y here made remote hunters
-		# pop vertically on every network packet instead of obeying gravity.
-		# A host hunter on a sewer ladder: guests show the same climb at the host's height.
-		if bool(state.get("climbing", false)):
-			view.set_climbing(true, float(state.get("presentation_y", view.position.y)),
-				float(state.get("climb_yaw", view.rotation.y)), String(state.get("climb_clip", "climb")))
-		else:
-			view.set_climbing(false)
-			view.clear_streamed_height_override()
-		view.target_peer_id = int(state.get("target_peer_id", 0))
-		view.set_look_target(state.get("look_target"))
-		view.set_asleep(bool(state.get("asleep", false)), float(state.get("sleep_yaw", 0.0)), int(state.get("sleep_stage", 0)))
-		view.set_seated(bool(state.get("seated", false)), float(state.get("seat_yaw", 0.0)))
-		var gimmick_state = state.get("gimmick", {})
-		if view.brain.gimmick != null and gimmick_state is Dictionary:
-			view.brain.gimmick.apply_network_state(gimmick_state)
-		if view.brain.hard != null and state.get("hard") is Dictionary:
-			view.brain.hard.apply_network_state(state["hard"])
-		view.sync_from_brain()
+		if not near:
+			_unload_hunter(entity_id, false)
+			continue
+		_apply_guest_hunter_state(entity_id, state)
 	for entity_id_value in _hunter_views.keys().duplicate():
 		var entity_id := String(entity_id_value)
 		if not reported.has(entity_id):
 			_unload_hunter(entity_id)
+	for entity_id_value in _guest_hunter_queue.keys():
+		if not reported.has(entity_id_value):
+			_guest_hunter_queue.erase(entity_id_value)
+
+
+## Guest hunter views: built within GUEST_HUNTER_RADIUS chunks and one storey of this runner, dropped past
+## GUEST_HUNTER_DROP_RADIUS or two storeys (hysteresis, so a hunter on the edge is not rebuilt every packet).
+const GUEST_HUNTER_RADIUS := 2
+const GUEST_HUNTER_DROP_RADIUS := 3
+var _guest_hunter_queue := {}
+
+
+static func _guest_hunter_near(hunter: Vector3i, own: Vector3i, has_view: bool) -> bool:
+	var reach := GUEST_HUNTER_DROP_RADIUS if has_view else GUEST_HUNTER_RADIUS
+	var storeys := 2 if has_view else 1
+	return absi(hunter.y - own.y) <= storeys and maxi(absi(hunter.x - own.x), absi(hunter.z - own.z)) <= reach
+
+
+## One queued guest hunter view per frame, the nearest first, built from the latest reported state.
+func _pump_guest_hunters() -> void:
+	if _guest_hunter_queue.is_empty():
+		return
+	var own := facility.current_chunk_coord()
+	var best := ""
+	var best_distance := 1 << 30
+	for entity_id_value in _guest_hunter_queue:
+		var state: Dictionary = world_state.hunters.get(entity_id_value, {})
+		var chunk := _state_chunk(state)
+		var distance := maxi(absi(chunk.x - own.x), absi(chunk.z - own.z)) + absi(chunk.y - own.y) * 2
+		if distance < best_distance:
+			best_distance = distance
+			best = String(entity_id_value)
+	_guest_hunter_queue.erase(best)
+	var latest: Dictionary = world_state.hunters.get(best, {})
+	if latest.is_empty() or _hunter_views.has(best) or not _guest_hunter_near(_state_chunk(latest), own, false):
+		return
+	_load_hunter(best, latest)
+	_apply_guest_hunter_state(best, latest)
+
+
+func _apply_guest_hunter_state(entity_id: String, state: Dictionary) -> void:
+	var view := _hunter_views.get(entity_id) as HunterView3D
+	if view == null or view.brain == null:
+		return
+	world_state.restore_hunter(view.brain, state)
+	var level := int(state.get("level", 0))
+	_hunter_levels[entity_id] = level
+	view.surface_height_provider = facility.streamed_surface_height.bind(level)
+	# Guests receive the host's planar tread positions and walk their matching
+	# streamed ramp locally. Applying presentation_y here made remote hunters
+	# pop vertically on every network packet instead of obeying gravity.
+	# A host hunter on a sewer ladder: guests show the same climb at the host's height.
+	if bool(state.get("climbing", false)):
+		view.set_climbing(true, float(state.get("presentation_y", view.position.y)),
+			float(state.get("climb_yaw", view.rotation.y)), String(state.get("climb_clip", "climb")))
+	else:
+		view.set_climbing(false)
+		view.clear_streamed_height_override()
+	view.target_peer_id = int(state.get("target_peer_id", 0))
+	view.set_look_target(state.get("look_target"))
+	view.set_asleep(bool(state.get("asleep", false)), float(state.get("sleep_yaw", 0.0)), int(state.get("sleep_stage", 0)))
+	view.set_seated(bool(state.get("seated", false)), float(state.get("seat_yaw", 0.0)))
+	var gimmick_state = state.get("gimmick", {})
+	if view.brain.gimmick != null and gimmick_state is Dictionary:
+		view.brain.gimmick.apply_network_state(gimmick_state)
+	if view.brain.hard != null and state.get("hard") is Dictionary:
+		view.brain.hard.apply_network_state(state["hard"])
+	view.sync_from_brain()
 
 
 var _void_fx: VoidPlayerEffects
