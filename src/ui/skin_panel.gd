@@ -43,7 +43,7 @@ func _ready() -> void:
 	viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
 	container.add_child(viewport)
 	var camera := Camera3D.new()
-	camera.position = Vector3(0, 1.0, 2.9)
+	camera.position = Vector3(0, 1.0, 2.9) * PlayerModels.SCALE   # framed for the runner's size, so the picture is the same
 	camera.rotation_degrees = Vector3(-3, 0, 0)
 	camera.fov = 38
 	viewport.add_child(camera)
@@ -53,6 +53,7 @@ func _ready() -> void:
 	var model := ModelSlot.instantiate(PlayerModels.SCENE)
 	if model != null:
 		_preview_model = model
+		model.scale = Vector3.ONE * PlayerModels.SCALE   # the 1.60 m runner, not the 1.78 m authored mannequin
 		viewport.add_child(model)
 		var idle := ModelSlot.find_animation_player(model)
 		if idle != null and idle.has_animation("idle"):

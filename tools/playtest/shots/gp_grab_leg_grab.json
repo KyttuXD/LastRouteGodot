@@ -1,0 +1,80 @@
+{
+ "name": "gp_grab_leg_grab",
+ "area": "hospital",
+ "seconds": 2.8,
+ "gameplay": true,
+ "hunt": false,
+ "dark": 0.0,
+ "torch_energy": 0,
+ "open_spot": {
+  "side": 1.1,
+  "ahead": 4.3,
+  "back": 0.6
+ },
+ "start": [
+  0.0,
+  0.0
+ ],
+ "face_at": [
+  3.2,
+  0.0,
+  1.45
+ ],
+ "actors": {},
+ "camera": [],
+ "flashlight": [],
+ "inputs": [
+  {
+   "t": 0.0,
+   "until": 0.5,
+   "move": [
+    0.0,
+    0.6
+   ]
+  }
+ ],
+ "events": [
+  {
+   "t": 0.0,
+   "summon": "ceryth",
+   "at": [
+    3.2,
+    0.0
+   ],
+   "pin": true
+  },
+  {
+   "t": 0.5,
+   "grab": "leg_grab"
+  }
+ ],
+ "expects": [
+  {
+   "t": 0.15,
+   "label": "approach",
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "hunter_seen": {
+    "id": "ceryth"
+   }
+  },
+  {
+   "t": 1.2,
+   "label": "act",
+   "no_alerts": true,
+   "no_labels": true,
+   "grab": "leg_grab"
+  },
+  {
+   "t": 2.35,
+   "label": "hold",
+   "no_alerts": true,
+   "no_labels": true,
+   "grab": "leg_grab"
+  }
+ ],
+ "fade_in": 0.12,
+ "fade_out": 0.25
+}

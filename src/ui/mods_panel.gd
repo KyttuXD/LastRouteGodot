@@ -42,6 +42,7 @@ func _ready() -> void:
 	remove_button.add_theme_font_size_override("font_size", 7)
 	remove_button.pressed.connect(_on_remove_pressed)
 	_column.add_child(remove_button)
+	_text("USE IN MY ROOMS: LOCAL MODS ONLY. DOWNLOADED MODS ARE FOR JOINING OTHER PLAYERS' ROOMS AND CANNOT BE HOSTED.", Palette.MUTED)
 	status = _text("", Palette.MUTED)
 	status.name = "ModsStatus"
 	visibility_changed.connect(func() -> void:
@@ -108,6 +109,18 @@ func _pack_row(pack: Dictionary) -> Control:
 	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	detail.custom_minimum_size = Vector2(360, 0)
 	box.add_child(detail)
+	# Only hand-installed packs can be hosted; downloaded ones are for joining someone else's room.
+	if String(pack.get("source", "")) == "local":
+		var id := String(pack.get("pack_id", ""))
+		var use := Button.new()
+		use.name = "UseButton"
+		use.custom_minimum_size = Vector2(0, 14)
+		use.add_theme_font_size_override("font_size", 6)
+		Palette.style_state_toggle(use, "USE IN MY ROOMS", Settings.mods_enabled.has(id), true)
+		use.pressed.connect(func() -> void:
+			Settings.set_mod_enabled(id, not Settings.mods_enabled.has(id))
+			_refresh())
+		box.add_child(use)
 	return row
 
 

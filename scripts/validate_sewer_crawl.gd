@@ -36,6 +36,18 @@ func run(_host: Node) -> int:
 					mains += _check_outflow(generator.chunk(Vector3i(dx, level, dz)), seed_text)
 	_expect(mains >= 20, "only %d outflow mains in the sampled chunks (want a few per window)" % mains)
 	_expect(SewerRouteGenerator.CRAWL_CLEARANCE < HUNTER_HEIGHT, "a hunter fits under an outflow main")
+	# the authored mains follow the crawl clearance (rebuild them when PlayerModels.SCALE changes): the whole main's underside
+	# at it, the torn stump's nowhere below it
+	for model in [["res://art/props-3d/props/sewer/sewer_outflow_pipe.glb", true], [StreamedFacilityView3D.OUTFLOW_STUMP, false]]:
+		var visual := ModelSlot.instantiate(String(model[0]))
+		_expect(visual != null, "%s does not load" % model[0])
+		if visual == null:
+			continue
+		var low := ModelSlot.combined_local_bounds(visual).position.y
+		_expect(low >= SewerRouteGenerator.CRAWL_CLEARANCE - .02 and (not bool(model[1]) or low <= SewerRouteGenerator.CRAWL_CLEARANCE + .02),
+			"%s: underside %.3f m, crawl clearance %.3f m (rebuild it with the current PlayerModels.SCALE)" % [
+				String(model[0]).get_file(), low, SewerRouteGenerator.CRAWL_CLEARANCE])
+		visual.free()
 	_expect(SewerRouteGenerator.CRAWL_CLEARANCE + SewerRouteGenerator.OUTFLOW_SIZE.y < SewerRouteGenerator.CEILING_HEIGHT,
 		"an outflow main does not fit under the sewer vault")
 	_expect(SewerRouteGenerator.CRAWL_CLEARANCE > PlayerController3D.CROUCH_COLLISION_HEIGHT, "crawl clearance does not clear the crouched capsule")

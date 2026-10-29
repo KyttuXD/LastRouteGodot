@@ -60,5 +60,6 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [RAVELLE_TRAPS.md](RAVELLE_TRAPS.md) — Ravelle tripwires: stun, bells, visible tell, cut-wire counter, replication, validator
 - [CONTROLS.md](CONTROLS.md) — per-game controls tabs, ControlsRegistry API
 - [PLAYTEST.md](PLAYTEST.md): the playtest bridge, bots, swarm and how an agent playtests the real game.
+- [FLYTHROUGH.md](FLYTHROUGH.md): one-command flythrough videos of every area of a commit, rendered on the test Mac.
 - KYTTU: The City (and its OpenStreetMap "real places" maps) is archived on branch `archive/city-20261027` (see its docs/CITY_ARCHIVE.md); it is no longer part of main.
 - [XR_ANDROID.md](XR_ANDROID.md) — Android phone and OpenXR (Quest/PC VR) support: PlatformProfile flags and budgets, export presets, building on the mini, milestones

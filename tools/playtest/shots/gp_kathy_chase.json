@@ -1,0 +1,89 @@
+{
+ "name": "gp_kathy_chase",
+ "area": "hospital",
+ "seconds": 2.4,
+ "gameplay": true,
+ "hunt": true,
+ "dark": 0.0,
+ "torch_energy": 0,
+ "min_run": 14.0,
+ "start": [
+  3.0,
+  0.0
+ ],
+ "face_at": [
+  14.0,
+  0.0,
+  1.6
+ ],
+ "actors": {},
+ "camera": [],
+ "flashlight": [],
+ "inputs": [
+  {
+   "t": 0.0,
+   "until": 2.4,
+   "move": [
+    0.0,
+    1.0
+   ],
+   "hold": {
+    "sprint": true
+   }
+  }
+ ],
+ "events": [
+  {
+   "t": 0.0,
+   "summon": "kathy",
+   "at": [
+    -1.2,
+    0.0
+   ]
+  },
+  {
+   "t": 0.75,
+   "glance": {
+    "yaw": 150,
+    "out": 0.22,
+    "hold": 0.4,
+    "damping": 0.62,
+    "roll": 0.07
+   }
+  }
+ ],
+ "expects": [
+  {
+   "t": 0.5,
+   "label": "run",
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "player_moving": 4.0
+  },
+  {
+   "t": 1.15,
+   "label": "glance",
+   "hud": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "player_moving": 4.0,
+   "hunter_seen": {
+    "id": "kathy",
+    "min_gap": 3.0
+   }
+  },
+  {
+   "t": 2.2,
+   "label": "away",
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "player_moving": 4.0
+  }
+ ],
+ "fade_in": 0.12,
+ "fade_out": 0.12
+}

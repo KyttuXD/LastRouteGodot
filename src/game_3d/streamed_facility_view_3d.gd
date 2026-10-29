@@ -966,8 +966,17 @@ func dormant_chunk_count() -> int:
 	return _dormant.size()
 
 
+## Headless runs (validators, bots) use Godot's dummy renderer, whose mesh registry is not thread-safe: a GLB loading on
+## a loader thread created its meshes while the main thread built a chunk's surface, and ~1 run in 8 lost a chunk's
+## Surface mesh ("Initializing already initialized RID", mesh_add_surface on a null mesh). The real renderers (GL
+## Compatibility, Mobile, Forward+) keep thread-safe mesh registries, so only headless skips the threaded prefetch.
+static var _headless := DisplayServer.get_name() == "headless"
+
+
 ## Start background loads of the prop scenes a queued chunk will need, so its build never reads a GLB on the main thread.
 func _prefetch_chunk(coord: Vector3i) -> void:
+	if _headless:
+		return   # see _headless: the props load on the main thread when the chunk builds
 	if _gen_worker != null and not _chunk_generated(coord):
 		return   # its props are prefetched once the worker has generated it (_adopt_generated)
 	var data := generator.chunk(coord)
@@ -3399,16 +3408,22 @@ func _set_room_lamps(room_id: String, on: bool) -> void:
 func apply_room_light(room_id: String, on: bool) -> bool:
 	var changed := world_state.set_room_light(room_id, on)
 	_set_room_lamps(room_id, on)
-	var switch := _switch_nodes.get(room_id) as RouteInteractable3D
-	if switch != null and is_instance_valid(switch) and switch.light_enabled != on:
+	var switch := room_light_switch(room_id)
+	if switch != null and switch.light_enabled != on:
 		switch.light_enabled = on
 		switch.configure_room_light(room_id, on, switch.light_resolver)
 	return changed
 
 
 func room_light_switch(room_id: String) -> RouteInteractable3D:
-	var switch := _switch_nodes.get(room_id) as RouteInteractable3D
-	return switch if switch != null and is_instance_valid(switch) else null
+	# a switch in an unloaded chunk is freed: check before the cast (casting a freed object is an error), and forget it
+	var value: Variant = _switch_nodes.get(room_id)
+	if value == null:
+		return null
+	if not is_instance_valid(value):
+		_switch_nodes.erase(room_id)
+		return null
+	return value as RouteInteractable3D
 
 
 func lit_rooms() -> Array:

@@ -1,0 +1,54 @@
+{
+ "name": "gp_item_pickup",
+ "area": "hospital",
+ "seconds": 1.8,
+ "gameplay": true,
+ "dark": 0.0,
+ "torch_energy": 0,
+ "pickup": {
+  "kinds": [
+   "BATTERY",
+   "TOOL_PICKUP"
+  ],
+  "distance": 1.25
+ },
+ "start": [
+  0.0,
+  0.0
+ ],
+ "face_at": "pickup",
+ "actors": {},
+ "camera": [],
+ "flashlight": [],
+ "inputs": [],
+ "events": [
+  {
+   "t": 0.7,
+   "pulse": [
+    "interact"
+   ]
+  }
+ ],
+ "expects": [
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 0.5,
+   "label": "reach",
+   "pickup_taken": false
+  },
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 1.6,
+   "label": "taken",
+   "pickup_taken": true
+  }
+ ],
+ "fade_in": 0.12,
+ "fade_out": 0.12
+}
