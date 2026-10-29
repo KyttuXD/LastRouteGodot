@@ -188,7 +188,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	_end_grab_pose()
+	_end_grab_pose(delta)
 	_doorway.restore()
 	_chase.restore()
 	_update_head_look(delta)
@@ -504,13 +504,77 @@ func grabbing() -> bool:
 	return Time.get_ticks_msec() < grab_until_msec
 
 
-## A grab (on this peer or drawn for another) stretched her arms: once nothing grabs with her, they are put back.
-func _end_grab_pose() -> void:
-	if grabbing() or _model == null:
+## Once a grab (on this peer or drawn for another) lets go of her, her model, arms and stretch ease back over about a
+## third of a second from where the grab last posed them to where she is and what her clip does: nothing pops, on any
+## machine. Checked after everything else this frame (deferred: a guest's copy of the grab poses her deferred too), so a
+## frame she is still held is never eased.
+const GRAB_EASE_RATE := 12.0
+var _grab_ease := 0.0
+var _grab_ease_from := {}
+var _grab_ease_delta := 0.0
+
+
+func _end_grab_pose(delta: float) -> void:
+	if _model == null:
 		return
-	var arm := _model.find_child("R-Arm", true, false)
-	if arm != null and arm.has_meta("grab_scale"):
+	if _model.has_meta("grab_rest") or _grab_ease > 0.0:
+		_grab_ease_delta = delta
+		# twice deferred: after every first-level deferred call this frame, a guest's posing of her among them
+		(func(): ease_out_grab.call_deferred()).call_deferred()
+	elif not grabbing():
+		var arm := _model.find_child("R-Arm", true, false)
+		if arm != null and arm.has_meta("grab_scale"):
+			HunterGrab.stretch_arms(self, 1.0)
+
+
+func ease_out_grab() -> void:
+	if _model == null or not is_instance_valid(_model):
+		return
+	if int(get_meta("grab_posed_frame", -1)) == Engine.get_process_frames():
+		_grab_ease = 0.0   # held (again) this frame: the grab has her
+		_grab_ease_from = {}
+		return
+	if _grab_ease_from.is_empty():
+		if not _model.has_meta("grab_rest"):
+			return
+		# let go: ease from the last held pose (her stretch is taken off now; the bones' blend carries it)
+		_grab_ease_from = {"model": _model.transform, "bones": get_meta("grab_bones", {}), "target": {}, "written": {}}
+		_grab_ease = 1.0
+		remove_meta("grab_anchor")
+		remove_meta("grab_along")
 		HunterGrab.stretch_arms(self, 1.0)
+		for bone in _grab_ease_from["bones"]:
+			if is_instance_valid(bone):
+				# where the bone goes back to: what something else (a clip, the chase layer) has put on it since the grab,
+				# else the pose under her crouch, else where it is
+				var node := bone as Node3D
+				var crouched: bool = bone.has_meta("bend_written") and node.transform.is_equal_approx(bone.get_meta("bend_written"))
+				_grab_ease_from["target"][bone] = bone.get_meta("bend_base") if crouched else node.transform
+		HunterGrab.unbend(_model)
+	_grab_ease *= exp(-GRAB_EASE_RATE * _grab_ease_delta)
+	var rest: Transform3D = _model.get_meta("grab_rest")
+	var bones: Dictionary = _grab_ease_from["bones"]
+	var target: Dictionary = _grab_ease_from["target"]
+	var written: Dictionary = _grab_ease_from["written"]
+	for bone in bones:
+		if not is_instance_valid(bone):
+			continue
+		var node := bone as Node3D
+		if written.has(bone) and not node.transform.is_equal_approx(written[bone]):
+			# rewritten since (a clip keys it): that is where it goes back to now, at the size it has without the grab
+			var scale := (target[bone] as Transform3D).basis.get_scale()
+			target[bone] = Transform3D(Basis(node.transform.basis.get_rotation_quaternion()).scaled(scale), node.transform.origin)
+		node.transform = (target[bone] as Transform3D).interpolate_with(bones[bone], _grab_ease if _grab_ease >= .01 else 0.0)
+		written[bone] = node.transform
+	if _head_node != null:
+		_head_written_q = _head_node.quaternion   # her own head look goes on from the rest pose next frame, as it does after hers
+	if _grab_ease < .01:
+		_model.transform = rest
+		_model.remove_meta("grab_rest")
+		_grab_ease = 0.0
+		_grab_ease_from = {}
+		return
+	_model.transform = rest.interpolate_with(_grab_ease_from["model"], _grab_ease)
 
 
 func _update_beam_visual(delta: float) -> void:

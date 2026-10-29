@@ -67,7 +67,7 @@ const BODY_POINTS := {
 	"l_wrist": Vector3(-.3, 1.24, -.37),
 	"back_l": Vector3(-.24, 1.05, .08),
 	"back_r": Vector3(.24, 1.05, .08),
-	"r_ankle": Vector3(.1, .1, .1),
+	"r_ankle": Vector3(.1, .25, .1),   # the lower calf just above the ankle: her big hand closes round it clear of the floor
 	"knees": Vector3(0.0, .8, -.27),   # the front of the thighs, legs folded down her front in the shoulder carry
 }
 ## The 1.60 m mannequin's joints these points were measured from (scale .9): neck pivot 1.18, shoulders 1.08 (arm tops ~1.2),
@@ -309,7 +309,7 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["hands"] = "push_up"
 			out["arms"] = [["R", "l_shoulder", r], ["L", "r_shoulder", r]]
 			var down := smooth((t - REACH_SECONDS - ACT_SECONDS * .4) / (ACT_SECONDS * .6 + HOLD_SECONDS * .4))
-			out["hunter"] = [.3 * down, .3 * down, .6 * down]   # she follows the runner down once they have hit the floor
+			out["hunter"] = [.3 * down, .3 * down, .3 * down]   # she follows the runner down once they have hit the floor, kneeling over them
 			out["clip"] = "fall"
 		WRIST_YANK:
 			# her hand closes on the runner's outstretched wrist and she hauls them in, leaning back into the pull
@@ -339,7 +339,9 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			var carried := pelvis - Vector3(0.0, .6 * cos(tilt), .6 * sin(tilt))
 			# out to her side first, then up and over, so the body never swings through hers
 			var out_side := smooth((t - REACH_SECONDS * .5) / .35)   # stepped out to her shoulder side before going up
-			out["at"] = Vector3(carried.x * out_side, carried.y * hoist, lerpf(.75, carried.z, hoist))
+			# swung a little wider on the way up (the runner's head passes her side close to her body), in again at the top
+			var wide := 1.0 + .3 * sin(PI * clampf(hoist, 0.0, 1.0))
+			out["at"] = Vector3(carried.x * out_side * wide, carried.y * hoist, lerpf(.75, carried.z, hoist))
 			out["tilt"] = tilt
 			out["fold"] = hoist
 			out["view_pitch"] = 0.0
@@ -349,6 +351,7 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["arms"] = [["R", "knees", r]]
 			out["hunter"] = [walk * CARRY_METRES, 0.0, 0.0]
 			out["walk"] = walk > .001 and walk < .999
+			out["walk_t"] = maxf(t - REACH_SECONDS - 1.0, 0.0)   # her steps from the clip's start, not from mid-stride
 			out["her_look_ahead"] = true   # she looks where she is carrying them, not round at the runner over her shoulder
 			out["clip"] = "idle"
 		LEG_GRAB:

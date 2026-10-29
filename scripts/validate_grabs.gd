@@ -221,8 +221,10 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	var drift_frames := 0
 	while waited < t_end:
 		await route.get_tree().process_frame
-		var delta := maxf(route.get_process_delta_time(), .001)
-		waited += delta
+		# rates over at least a 60 fps frame: a few headless frames are only a few milliseconds long, and a degree in one of
+		# those is not a snap
+		var delta := maxf(route.get_process_delta_time(), 1.0 / 60.0)
+		waited += route.get_process_delta_time()
 		var camera := player.first_person_camera.global_transform
 		var blocked := HunterGrab.camera_blocked(space, camera.origin, [player.get_rid()], player.collision_mask, [view],
 			CAMERA_CLEARANCE)
@@ -265,7 +267,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		else:
 			_expect(upright and absf(roll) <= HunterGrab.MAX_ROLL + .02, "%s: the view rolls %.0f deg at %.2f s" % [label, rad_to_deg(roll), waited])
 		var turn := previous.basis.orthonormalized().get_rotation_quaternion().angle_to(camera.basis.orthonormalized().get_rotation_quaternion())
-		_expect(turn / delta <= MAX_TURN_RATE or grab.pushes > pushes_seen, "%s: the view snaps %.0f deg in one frame at %.2f s" % [label, rad_to_deg(turn), waited])
+		_expect(turn / delta <= MAX_TURN_RATE or grab.pushes > pushes_seen, "%s: the view snaps %.0f deg in one frame at %.2f s (%.1f deg/s)" % [label, rad_to_deg(turn), waited, rad_to_deg(turn / delta)])
 		var pushed := grab.pushes > pushes_seen   # she moved into the camera: the push may be quick, never skipped
 		pushes_seen = grab.pushes
 		# she moved into the camera: it is pushed clear at once, but still never jumps
@@ -381,6 +383,13 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	_expect(is_equal_approx(player.first_person_camera.fov, fov), "%s: release left the view widened" % label)
 	_expect(absf(player.first_person_pivot.rotation.z) < .001, "%s: the view stays rolled after release" % label)
 	if model != null:
+		# her model eases back from the hold (HunterView3D.ease_out_grab), in about a third of a second
+		var settled := 0.0
+		while settled < .7:
+			player.global_position = stand   # let go in mid-air the runner would fall and land meanwhile: the next case starts standing
+			player.velocity = Vector3.ZERO
+			await route.get_tree().process_frame
+			settled += route.get_process_delta_time()
 		_expect(model.transform.is_equal_approx(rest), "%s: the hunter's model was not put back" % label)
 	view.queue_free()
 	await route.get_tree().process_frame
