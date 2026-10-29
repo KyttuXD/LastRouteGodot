@@ -46,6 +46,24 @@ for p in "${PIDS[@]}"; do wait "$p"; done
 i=1
 pull() { local m="${1%@*}" d="$DIR"; case "$1" in *@*) d="Developer/lanes/${1#*@}" ;; esac
   mkdir -p "$OUT/$m"; rsync -a "$m:$d/.playtest/$2/" "$OUT/$m/" 2>/dev/null; rsync -a "$m:$d/.playtest-coop-$3.log" "$OUT/$m/" 2>/dev/null; }
+# CrashWatch markers (TOOLS, src/autoload/crash_watch.gd) from each machine's user://: pulled into <out>/<machine>/crash/, then
+# cleared so the next run starts clean (shell only: the Airs have no python)
+crash() { local m="${1%@*}" dir="$OUT/${1%@*}/crash"
+  mkdir -p "$dir"
+  # bash, not the login shell: zsh on the Macs aborts the whole line when a glob matches nothing
+  ssh -o BatchMode=yes "$m" 'bash -s' 2>/dev/null <<'REMOTE' | tar xf - -C "$dir" 2>/dev/null
+U="$HOME/Library/Application Support/Godot/app_userdata/KYTTU- The Last Route"
+[ -d "$U" ] || U="$HOME/.local/share/godot/app_userdata/KYTTU- The Last Route"
+cd "$U" 2>/dev/null || exit 0
+shopt -s nullglob
+F=(logs/crashwatch_session.json logs/crashwatch_freeze.json crash_queue/*.json)
+E=(); for f in "${F[@]}"; do [ -f "$f" ] && E+=("$f"); done
+[ ${#E[@]} -gt 0 ] || exit 0
+tar cf - "${E[@]}" && rm -f "${E[@]}"
+REMOTE
+  find "$dir" -mindepth 2 -type f -exec mv {} "$dir/" \; 2>/dev/null; find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null
+  rmdir "$dir" 2>/dev/null; true; }
+for m in "$HOSTM" "${GUESTS[@]}"; do crash "$m"; done
 pull "$HOSTM" coop_host0 host0
 for g in "${GUESTS[@]}"; do pull "$g" "coop_guest$i" "guest$i"; i=$((i + 1)); done
 for m in "$HOSTM" "${GUESTS[@]}"; do m="${m%@*}"; echo "== $m: $(grep -a 'PLAYTEST \(PASS\|FAIL\)' "$OUT/$m"/.playtest-coop-*.log 2>/dev/null | tail -1 | cut -c1-200)"; done
