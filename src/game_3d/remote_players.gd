@@ -560,6 +560,8 @@ func receive_state(id: int, state: Dictionary) -> void:
 	_sync_sleep_tag(body, bool(state.get("asleep", false)))
 	body.set_meta("movement_clip", clip)
 	body.set_meta("fade_target", 0.55 if clip == "crouch" else 0.0)
+	if not _grab_packet(state).is_empty() and not body.has_meta("grab_shown"):
+		_blend_clips(body, true)   # caught: their arms swing from the run into the grab clip, not in one frame
 	ModelSlot.play_if_available(_players.get(id), "idle" if clip == "crouch" else clip)
 
 
@@ -577,9 +579,6 @@ func _make_body(id: int, state: Dictionary, at: Vector3) -> Node3D:
 	body.rotation.y = float(state.get("facing_y", 0.0))
 	_bodies[id] = body
 	_players[id] = ModelSlot.find_animation_player(body)
-	if _players[id] != null:
-		# another runner's clips blend into each other (caught, their arms swung from the run into the grab in one frame)
-		(_players[id] as AnimationPlayer).playback_default_blend_time = .2
 	ModelSlot.apply_character_hue(body, float(state.get("player_hue", 0.0)))
 	_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
 	_add_name_tag(body, String(state.get("display_name",
@@ -699,7 +698,9 @@ static func _grab_packet(state: Dictionary) -> Array:
 ## way the body's position does; a new grab, or one far behind, starts from the packet as it is. [] when free.
 func _shown_grab(body: Node3D, grab: Array, delta: float, weight: float) -> Array:
 	if grab.is_empty():
-		body.remove_meta("grab_shown")
+		if body.has_meta("grab_shown"):
+			body.remove_meta("grab_shown")
+			_blend_clips(body, false)
 		return []
 	body.set_meta("grab_drawn", true)
 	var shown: Array = body.get_meta("grab_shown", [])
@@ -715,6 +716,13 @@ func _shown_grab(body: Node3D, grab: Array, delta: float, weight: float) -> Arra
 			shown[i] = lerpf(float(shown[i]), float(grab[i]), weight)
 	body.set_meta("grab_shown", shown)
 	return shown
+
+
+## The copy's clips blend for a moment while a grab starts (any other time they switch as the runner's own do).
+func _blend_clips(body: Node3D, on: bool) -> void:
+	for id in _bodies:
+		if _bodies[id] == body and _players.get(id) != null:
+			(_players[id] as AnimationPlayer).playback_default_blend_time = .2 if on else 0.0
 
 
 static func _grab_lift(state: Dictionary) -> float:
