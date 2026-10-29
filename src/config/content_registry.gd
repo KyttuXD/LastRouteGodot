@@ -17,6 +17,19 @@ extends RefCounted
 const DATA := "@data"
 const ROOT := "res://data"
 const KINDS := ["props", "regions", "hunters"]
+## What packs may ship: the built-in kinds plus kinds whose built-in data has its own reader (grabs: GrabStyles, which
+## reads res://data/grabs itself and takes pack definitions through pack_defs()).
+const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls"]
+## Surface replacements (pack-only kinds): a floor or wall kind RefTextures paints, replaced by a pack PNG. Ceilings are
+## left out for now (glass and vault carry emission the sewer depends on).
+const SURFACE_KINDS := {"floors": "FLOOR_PAINTERS", "walls": "WALL_PAINTERS"}
+## Kinds packs may not replace: the safe-room floors mark the safe zone (gameplay information), and the runner_*/runnerz_*
+## pieces are slices of one continuous strip (a pack replaces "runner"/"runnerz" whole).
+const SURFACE_LOCKED := {"floors": ["safe", "safe_plain", "safe_mark", "runner_l", "runner_c", "runner_r", "runnerz_l",
+	"runnerz_c", "runnerz_r"]}
+const SURFACE_FIELDS := {"image": "string"}
+const SURFACE_SCRIPT := "res://src/look/ref_textures.gd"
+const GRAB_SCRIPT := "res://src/config/grab_styles.gd"
 
 ## Field -> type. "vec3" is [x, y, z] in JSON, "strings" an array of strings. A trailing "?" marks an optional field.
 const HUNTER_FIELDS := {"name": "string", "tier": "string", "category": "string?", "speed": "float",
@@ -28,7 +41,12 @@ const PROP_FIELDS := {"models": "strings", "themes": "strings?", "coordinated": 
 const REGION_FIELDS := {"hall_floor": "strings", "hall_runner": "bool", "room_default_floor": "strings",
 	"room_roles": "strings", "shop_names": "dict_strings?", "room_door": "string?", "double_room_door": "string?",
 	"prop_set": "prop_set"}
-const SCHEMAS := {"hunters": "lr.hunter/1", "props": "lr.prop/1", "regions": "lr.region/1"}
+## Sound replacements (pack-only kinds): "sounds" are named cues (Sound.render_cue names), "ambience" the looping beds
+## (AmbienceTable keys). `files`: .ogg variants, one picked per play; `gain_db`: volume offset.
+const SOUND_FIELDS := {"files": "strings", "gain_db": "float?"}
+const SCHEMAS := {"hunters": "lr.hunter/1", "props": "lr.prop/1", "regions": "lr.region/1", "sounds": "lr.sound/1",
+	"ambience": "lr.sound/1", "floors": "lr.surface/1", "walls": "lr.surface/1"}
+const AMBIENCE_SCRIPT := "res://src/audio/ambience_table.gd"
 
 static var _loaded := false
 ## Built-in definitions (res://data) and families, never changed after loading.
@@ -36,14 +54,14 @@ static var _builtin := {"props": {}, "regions": {}, "hunters": {}}
 static var _builtin_families := {}
 static var _builtin_hash := ""
 ## What readers see: built-in plus the loaded packs.
-static var _defs := {"props": {}, "regions": {}, "hunters": {}}
+static var _defs := {}
 static var _families := {}
 static var _errors := PackedStringArray()
 ## Loaded packs (ContentPacks.read() results) sorted by pack id; per kind, id -> pack id for every pack definition and
 ## the sorted ids packs added (as opposed to overrode).
 static var _packs: Array = []
-static var _origin := {"props": {}, "regions": {}, "hunters": {}}
-static var _added := {"props": [], "regions": [], "hunters": []}
+static var _origin := {}
+static var _added := {}
 ## Pack asset path -> stripped PackedScene (models) or ImageTexture (PNGs), dropped on unload.
 static var _assets := {}
 ## Rebuild callbacks of the tables built from the registry (watch()). The registry never names its readers, so loading
@@ -95,7 +113,8 @@ static func load_packs(dirs: Array, limits: Dictionary = ContentPacks.LIMITS, fo
 	var report := {"ok": false, "packs": [], "errors": PackedStringArray(), "hash": pack_hash()}
 	var read := []
 	for dir in dirs:
-		var pack := ContentPacks.read(String(dir), limits, folder_is_id)
+		# downloaded packs live in user://mods/.cache/<sha256>, so their folder is named by hash, not by pack id
+		var pack := ContentPacks.read(String(dir), limits, folder_is_id and not String(dir).contains("/.cache/"))
 		report["errors"].append_array(pack["errors"])
 		read.append(pack)
 	if report["errors"].is_empty():
@@ -157,6 +176,15 @@ static func pack_of(kind: String, id: String) -> String:
 	return String(_origin[kind].get(id, ""))
 
 
+## The definitions loaded packs ship for `kind`, in pack order (for readers with their own built-in data, e.g. grabs).
+static func pack_defs(kind: String) -> Array:
+	ensure_loaded()
+	var out := []
+	for pack in _packs:
+		out.append_array(pack["defs"].get(kind, []))
+	return out
+
+
 ## Ids that loaded packs added (not overrides), sorted.
 static func added_ids(kind: String) -> Array:
 	ensure_loaded()
@@ -173,6 +201,21 @@ static func pack_scene(path: String) -> PackedScene:
 	var scene := ContentPacks.load_scene(path)
 	_assets[path] = scene
 	return scene
+
+
+## A loaded pack's Ogg Vorbis file as a stream (`loop` for beds); null for anything outside a loaded pack.
+static func pack_audio(path: String, loop: bool = false) -> AudioStream:
+	var key := "%s|%s" % [path, loop]
+	if _assets.has(key):
+		return _assets[key]
+	if not _packs.any(func(pack: Dictionary): return path.begins_with(String(pack["dir"]) + "/")):
+		push_warning("ContentRegistry: %s is not part of a loaded pack" % path)
+		return null
+	var stream := AudioStreamOggVorbis.load_from_file(path)
+	if stream != null:
+		stream.loop = loop
+	_assets[key] = stream
+	return stream
 
 
 ## A loaded pack's PNG as a nearest-filtered texture; null for anything outside a loaded pack.
@@ -193,8 +236,8 @@ static func _apply(packs: Array) -> void:
 	_defs = {}
 	_origin = {}
 	_added = {}
-	for kind in KINDS:
-		_defs[kind] = _builtin[kind].duplicate()
+	for kind in PACK_KINDS:
+		_defs[kind] = _builtin.get(kind, {}).duplicate()
 		_origin[kind] = {}
 		_added[kind] = []
 	_families = {}
@@ -202,7 +245,7 @@ static func _apply(packs: Array) -> void:
 		_families[family] = _builtin_families[family].duplicate()
 	for pack in packs:
 		var pack_id := String(pack["manifest"]["id"])
-		for kind in KINDS:
+		for kind in PACK_KINDS:
 			for def in pack["defs"][kind]:
 				var id := String(def["id"])
 				_defs[kind][id] = def
@@ -211,7 +254,7 @@ static func _apply(packs: Array) -> void:
 					_added[kind].append(id)
 				if kind == "props":
 					_families.get_or_add(String(def["family"]), []).append(id)
-	for kind in KINDS:
+	for kind in PACK_KINDS:
 		_added[kind].sort()
 		_added[kind].make_read_only()
 
@@ -223,6 +266,7 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 	var seen := {}
 	var by_id := {}
 	var props := {}
+	var hunters := {}
 	for pack in packs:
 		var pack_id := String(pack["manifest"]["id"])
 		if by_id.has(pack_id):
@@ -230,9 +274,13 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 		by_id[pack_id] = pack["dir"]
 		for entry in pack["manifest"].get("overrides", []):
 			var parts := String(entry).split("/")
+			if SURFACE_LOCKED.get(parts[0], []).has(parts[1]):
+				errors.append("%s: %s cannot be replaced (a safe-zone marking or a slice of the runner strip)" % [
+					pack["dir"], entry])
+				continue
 			if not _is_builtin_id(parts[0], parts[1]):
 				errors.append("%s: overrides \"%s\", which the game does not have" % [pack["dir"], entry])
-		for kind in KINDS:
+		for kind in PACK_KINDS:
 			for def in pack["defs"][kind]:
 				var key := "%s/%s" % [kind, def["id"]]
 				if seen.has(key):
@@ -240,6 +288,13 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 				seen[key] = pack_id
 				if kind == "props":
 					props[def["id"]] = true
+				if kind == "hunters":
+					hunters[def["id"]] = true
+	for pack in packs:
+		# a grab pool belongs to a hunter: one the game has, or one these packs add
+		for def in pack["defs"]["grabs"]:
+			if not hunters.has(def["id"]) and not _is_builtin_id("hunters", String(def["id"])):
+				errors.append("%s: grabs for \"%s\", which is not a hunter" % [pack["dir"], def["id"]])
 	for pack in packs:
 		for def in pack["defs"]["regions"]:
 			for choice in def["prop_set"]:
@@ -251,6 +306,18 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 
 
 static func _is_builtin_id(kind: String, id: String) -> bool:
+	if kind == "sounds":
+		var sound := (Engine.get_main_loop() as SceneTree).root.get_node_or_null("Sound")
+		return sound != null and sound.knows_cue(id)
+	if kind == "ambience":
+		return not load(AMBIENCE_SCRIPT).layers(id).is_empty()
+	if SURFACE_KINDS.has(kind):
+		return load(SURFACE_SCRIPT).get_script_constant_map()[SURFACE_KINDS[kind]].has(id)
+	if kind == "grabs":
+		# every built-in hunter (and secret creature) can have its grab pool replaced
+		var grabs: GDScript = load(GRAB_SCRIPT)
+		grabs.ensure_loaded()
+		return grabs._pools.has(id) or _is_builtin_id("hunters", id)
 	if _builtin[kind].has(id):
 		return true
 	var source: Array = _CODE_IDS[kind]
@@ -362,6 +429,9 @@ static func _without_meta(def: Dictionary) -> Dictionary:
 
 ## Parse one file of `kind`: {"defs": [runtime dicts], "errors": [messages naming file and field]}.
 static func parse_file(path: String, kind: String) -> Dictionary:
+	if kind == "grabs":
+		var parsed: Dictionary = load(GRAB_SCRIPT).parse_file(path)
+		return {"defs": [] if parsed["def"].is_empty() else [parsed["def"]], "errors": parsed["errors"]}
 	var errors := PackedStringArray()
 	var defs := []
 	var text := FileAccess.get_file_as_string(path)
@@ -375,7 +445,23 @@ static func parse_file(path: String, kind: String) -> Dictionary:
 		return {"defs": [], "errors": ["%s: top level is not an object" % path]}
 	if root.get("schema", "") != SCHEMAS[kind]:
 		return {"defs": [], "errors": ["%s: schema must be \"%s\"" % [path, SCHEMAS[kind]]]}
-	if kind == "props":
+	if kind in ["sounds", "ambience"] or SURFACE_KINDS.has(kind):
+		# one list of entries per file: "sounds" for sound kinds, "surfaces" for surface kinds
+		var list := "sounds" if kind in ["sounds", "ambience"] else "surfaces"
+		for key in root:
+			if not key in ["schema", list]:
+				errors.append("%s: unknown key \"%s\"" % [path, key])
+		if typeof(root.get(list)) != TYPE_ARRAY:
+			errors.append("%s: this file needs \"%s\" (array)" % [path, list])
+			return {"defs": [], "errors": errors}
+		var index := 0
+		for entry in root[list]:
+			var def := _parse_entry(entry, SOUND_FIELDS if list == "sounds" else SURFACE_FIELDS,
+				"%s: %s[%d]" % [path, list, index], errors)
+			if not def.is_empty():
+				defs.append(def)
+			index += 1
+	elif kind == "props":
 		for key in root:
 			if not key in ["schema", "family", "props"]:
 				errors.append("%s: unknown key \"%s\"" % [path, key])
