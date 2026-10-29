@@ -17,7 +17,8 @@ pickups, relays or checkpoints use it.
 
 A violation rewrites the sample to the last good spot, sends the guest an `anticheat_snap` event that moves it back,
 and adds a strike. Strikes decay one per 30 s clean; 5 strikes kick the guest (`RemotePlayers.kick_guest`) with a
-system notice to the room. Authorised admin peers (`remote_admin_peer_allowed`) and spectators are exempt.
+system notice to the room. Authorised admin peers (`remote_admin_peer_allowed`) are exempt, and so is the death screen itself; a ghost (spectating) walks
+like a runner and is checked like one.
 
 Cost: a few comparisons per 20 Hz sample plus one shape cast when the guest moved.
 

@@ -527,7 +527,7 @@ func _local_state() -> Dictionary:
 		"capture_immune": GameState.is_capture_immune(),
 		"game_over": GameState.game_over or controller.spectator_mode,
 		"spectating": controller.spectator_mode,
-		"visible": not controller.hidden and not controller.spectator_mode,
+		"visible": not controller.hidden,   # a ghost (spectating) is drawn as one: _apply_ghost
 		# Read-only meter values let host-side targeting rules use the same inputs.
 		# The host diffs any hunter mutation against these values and returns the
 		# delta through a targeted reliable player event.
@@ -703,15 +703,36 @@ func _place(packet: Variant) -> void:
 				clip = "crouch"
 	elif body.has_meta("hide_started_usec"):
 		body.remove_meta("hide_started_usec")
-	body.visible = shown
+	var ghost := bool(state.get("spectating", false))
+	body.visible = shown and _ghost_shown(ghost)
 	_sync_remote_equipment(id, body, state)
 	_sync_sleep_tag(body, bool(state.get("asleep", false)))
 	body.set_meta("movement_clip", clip)
-	body.set_meta("fade_target", 0.55 if clip == "crouch" else 0.0)
+	body.set_meta("fade_target", _ghost_fade() if ghost else (0.55 if clip == "crouch" else 0.0))
+	if ghost != bool(body.get_meta("ghost", false)):
+		body.set_meta("ghost", ghost)
+		PlayerController3D._ghost_overlay(body, PlayerController3D.GHOST_OVERLAY if ghost else null)
 	ModelSlot.play_if_available(_players.get(id), "idle" if clip == "crouch" else clip)
 
 
 ## A sleeping teammate shows "z Z" over their head (docs/REST_AND_SLEEP.md).
+
+## A caught teammate's ghost (docs/SPECTATORS.md): another ghost always sees it; a living runner sees it faintly, unless
+## Settings.show_ghosts is off.
+func _ghost_shown(ghost: bool) -> bool:
+	if not ghost:
+		return true
+	return _local_is_ghost() or Settings.show_ghosts
+
+
+func _ghost_fade() -> float:
+	return PlayerController3D.GHOST_FADE if _local_is_ghost() else .8
+
+
+func _local_is_ghost() -> bool:
+	var own := local_player as PlayerController3D
+	return own != null and own.spectator_mode
+
 
 ## The guest's copy of runner `id`: the mannequin at PlayerModels.SCALE (the same size as the runner's own body), skinned and tagged.
 func _make_body(id: int, state: Dictionary, at: Vector3) -> Node3D:

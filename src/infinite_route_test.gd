@@ -6197,7 +6197,7 @@ func _update_spectating() -> void:
 	if _spectator_banner != null:
 		_spectator_banner.show_for(
 			RoomState.peer_display_name(int(watching.get("peer_id", 0))) \
-			if not watching.is_empty() else "", note)
+			if not watching.is_empty() and player.ghost_follow else "", note)
 	# Party wipe: the host was already spectating and the last guest just fell.
 	if RoomState.online and RoomState.is_host and not RoomState.public_route \
 			and not _death_screen_open and not _capture_resolving \
@@ -6235,13 +6235,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not player.spectator_mode or not (event is InputEventKey) \
 			or not event.pressed or event.echo:
 		return
+	# KT: a ghost walks; F looks over a living teammate's shoulder (the arrows pick who) and F again returns to the ghost
 	match (event as InputEventKey).physical_keycode:
-		KEY_E:
+		KEY_RIGHT:
 			_cycle_spectate_target(1)
-		KEY_Q:
+			player.set_ghost_follow(true)
+		KEY_LEFT:
 			_cycle_spectate_target(-1)
+			player.set_ghost_follow(true)
 		KEY_F:
-			_cycle_spectate_target(0)
+			player.set_ghost_follow(not player.ghost_follow)
 
 
 func _respawn_after_death() -> void:
