@@ -1052,7 +1052,7 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 		var host_state: Dictionary = (scene.get("_remotes").get("_states") as Dictionary).get(1, {}) if role == "guest" else {}
 		var host_at: Variant = host_state.get("position") if host_state.get("position") is Vector2 else null
 		if role == "guest" and adapter.has_method("follow"):
-			adapter.call("follow", host_at, 8.0)
+			adapter.call("follow", host_at, 8.0, int(opts["bot_seed"]))
 		var here := player.global_position
 		var far_from_host := host_at != null and Vector2(here.x, here.z).distance_to(host_at) > 8.0
 		if player.hidden or not (far_from_host or role == "host"):

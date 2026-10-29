@@ -12,6 +12,9 @@ const HUNTER_HEAD := 1.6
 const LOOK_RATE := 2.8          # PlayerController3D.CONTROLLER_LOOK_RADIANS_PER_SECOND
 const CHUNK := 45               # StreamedRouteGenerator.CHUNK_SIZE
 const INTERACT_RANGE := 2.1
+const SLOT_RADIUS := 2.2        # m from the teammate a following bot stands (its own angle per slot)
+const SEPARATION := 1.2         # m: closer than this to another runner and a bot steps away
+const MAX_TURN_STICK := .6      # look-stick cap: about 1.7 rad/s at the default sensitivity
 const USE_COOLDOWN := 120.0     # seconds before the same music box / switch / board is used again
 const THREAT_RANGE := 20.0
 const SAFE_ARRIVAL := 3.2
@@ -45,6 +48,10 @@ var _use_swings := 0
 var _dark_check := 0.0
 var _dark := false
 var _jump_ready := 0.0
+var _spin_clock := 0.0
+var _spin_samples: Array = []
+var _spin_until := -1.0
+var _spin_dir := 1.0
 var _interact_tries := 0
 var _relays_at_interact := 0
 var _hide_clear_time := 0.0
@@ -544,7 +551,25 @@ func _observe_interactables(facility: StreamedFacilityView3D, p: Vector3) -> Arr
 
 # --- decisions --------------------------------------------------------------
 
+## One frame of play: the goal logic (_decide_inner), then what keeps a group of bots apart and stops one turning on the spot
+## (KT saw several stacked inside each other in a lab corridor, spinning in place).
 func decide(obs: Dictionary, delta: float) -> Dictionary:
+	var act := _decide_inner(obs, delta)
+	var scene := tree.current_scene
+	if act.is_empty() or not _route_ready(scene):
+		return act
+	var player: PlayerController3D = scene.get("player")
+	if player.hidden:
+		return act
+	_separate(scene, player, act)
+	var look: Array = act.get("look", [0.0, 0.0])
+	if look.size() > 0:
+		look[0] = clampf(float(look[0]), -MAX_TURN_STICK, MAX_TURN_STICK)
+	_spin_check(player, act, delta)
+	return act
+
+
+func _decide_inner(obs: Dictionary, delta: float) -> Dictionary:
 	var scene := tree.current_scene
 	if not _route_ready(scene) or not bool(obs.get("run", {}).get("active", false)):
 		return {}
@@ -621,6 +646,8 @@ func decide(obs: Dictionary, delta: float) -> Dictionary:
 		return act
 	if _last_goal_kind != "safe":
 		_safe_wait = 0.0
+	if distance <= 1.0 and _last_goal_kind == "follow":
+		return act   # at the slot: a point under our feet is no heading to steer for
 	if distance <= 1.2 and _last_goal_kind in ["explore", "flee"]:
 		_blacklist[String(goal["key"])] = _clock + 1.0
 		_goal = {}
@@ -690,8 +717,9 @@ func _use_goal(obs: Dictionary, nav: StreamedHunterNavigation) -> Dictionary:
 
 
 ## The hotbar slot holding a crowbar or the rescue axe, or -1.
-## Co-op: keep within `radius` m of a teammate's grid position (null lets go). Walks there through the normal goal (forced_goal).
-func follow(target, radius: float) -> void:
+## Co-op: keep within `radius` m of a teammate's grid position (null lets go). Each bot walks to its own slot around them
+## (SLOT_RADIUS m out, at a golden-angle step per `slot`) so a group spreads out instead of piling onto one cell.
+func follow(target, radius: float, slot: int = 0) -> void:
 	var none := Vector2i(-99999, -99999)
 	var scene := tree.current_scene
 	if target == null or not _route_ready(scene):
@@ -699,11 +727,67 @@ func follow(target, radius: float) -> void:
 		return
 	var p: Vector3 = (scene.get("player") as PlayerController3D).global_position
 	var at: Vector2 = target
-	if Vector2(p.x, p.z).distance_to(at) > radius:
-		forced_goal = Vector2i(floori(at.x), floori(at.y))
+	var angle := float(slot) * 2.39996
+	var spot := at + Vector2(cos(angle), sin(angle)) * SLOT_RADIUS
+	var here := Vector2(p.x, p.z)
+	if here.distance_to(at) > radius:
+		var nav: StreamedHunterNavigation = scene.get("_navigation")
+		var open := _open_cell_near(nav, spot) if nav != null else Vector2i(floori(spot.x), floori(spot.y))
+		forced_goal = open if open != none else Vector2i(floori(at.x), floori(at.y))
 		forced_kind = "follow"
-	elif forced_goal != none and forced_kind == "follow":
+	elif forced_goal != none and forced_kind == "follow" and here.distance_to(spot) < 3.0:
 		forced_goal = none
+
+
+## Steps away from any other runner closer than SEPARATION m (bots following one host would otherwise stand inside each other).
+func _separate(scene: Node, player: PlayerController3D, act: Dictionary) -> void:
+	var remotes: Object = scene.get("_remotes")
+	if remotes == null:
+		return
+	var here := Vector2(player.global_position.x, player.global_position.z)
+	var push := Vector2.ZERO
+	for id in (remotes.get("_states") as Dictionary):
+		var at = ((remotes.get("_states") as Dictionary)[id] as Dictionary).get("position")
+		if not at is Vector2:
+			continue
+		var away: Vector2 = here - at
+		var d := away.length()
+		if d < SEPARATION:
+			push += (away.normalized() if d > .01 else Vector2.RIGHT.rotated(rng.randf() * TAU)) * (SEPARATION - d) / SEPARATION
+	if push.length() < .05:
+		return
+	var right := Vector2(player.global_basis.x.x, player.global_basis.x.z).normalized()
+	var forward := Vector2(-player.global_basis.z.x, -player.global_basis.z.z).normalized()
+	var move: Array = act.get("move", [0.0, 0.0])
+	act["move"] = [clampf(float(move[0]) + push.dot(right), -1.0, 1.0), clampf(float(move[1]) + push.dot(forward), -1.0, 1.0)]
+
+
+## Turning a lot without getting anywhere (over 4 rad in 3 s, under 0.7 m moved): plan again and sidestep for a second.
+func _spin_check(player: PlayerController3D, act: Dictionary, delta: float) -> void:
+	_spin_clock += delta
+	if _spin_clock >= .25:
+		_spin_clock = 0.0
+		_spin_samples.append([player.rotation.y, Vector2(player.global_position.x, player.global_position.z)])
+		while _spin_samples.size() > 12:
+			_spin_samples.pop_front()
+		if _spin_samples.size() == 12:
+			var turned := 0.0
+			for i in range(1, 12):
+				turned += absf(wrapf(float(_spin_samples[i][0]) - float(_spin_samples[i - 1][0]), -PI, PI))
+			var moved: float = (_spin_samples[11][1] as Vector2).distance_to(_spin_samples[0][1])
+			if turned > 4.0 and moved < .7:
+				_path = []
+				_path_age = 99.0
+				_goal = {}
+				_spin_until = _clock + 1.0
+				_spin_dir = -1.0 if rng.randf() < .5 else 1.0
+				_spin_samples.clear()
+				stats["spin_recoveries"] = int(stats.get("spin_recoveries", 0)) + 1
+				add_event("spin_recovery", {"turned_rad": snappedf(turned, .1), "moved_m": snappedf(moved, .01),
+					"at": [snappedf(player.global_position.x, .1), snappedf(player.global_position.z, .1)]})
+	if _clock < _spin_until:
+		act["look"] = [0.0, (act.get("look", [0.0, 0.0]) as Array)[1]]
+		act["move"] = [_spin_dir, .2]
 
 
 func _breach_tool(player: PlayerController3D) -> int:
@@ -992,7 +1076,7 @@ func _walk_pitch(player: PlayerController3D, rate: float, delta: float) -> float
 
 func _idle_look(player: PlayerController3D, act: Dictionary, delta: float) -> void:
 	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
-	act["look"] = [.35, _walk_pitch(player, LOOK_RATE * sens, delta)]
+	act["look"] = [.22 * sin(_clock * .6), _walk_pitch(player, LOOK_RATE * sens, delta)]
 
 
 func _aim_at_nearest(obs: Dictionary, player: PlayerController3D, p: Vector3, goal_pos: Vector2, kinds: Array,
