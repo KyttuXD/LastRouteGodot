@@ -14,3 +14,13 @@ static func report(host: Node, tag: String) -> void:
 ## Every Night Watch suite starts from a fresh save (progress, stars, custom values and key overrides all live in the one NightWatchSave file), so the single-process gate and any suite order behave like a suite run alone.
 static func fresh() -> void:
 	NightWatchSave.reset()
+	# and from an empty scene: a mode scene an earlier suite queued for freeing (or forgot) is still in the shared tree, standing on the next suite's spawn
+	# (the descent suite found "/root/Validate/NightWatchMixed/Player" in the way of its lift landing)
+	var root := (Engine.get_main_loop() as SceneTree).root
+	var host := root.get_node_or_null("Validate")
+	if host == null:
+		return
+	for child in host.get_children():
+		if child is Node3D:   # a mode scene (the suites' own helpers are never 3D nodes)
+			host.remove_child(child)
+			child.free()

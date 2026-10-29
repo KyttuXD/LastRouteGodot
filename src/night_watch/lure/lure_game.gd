@@ -160,7 +160,7 @@ func _prompt(id: String, text: String) -> void:
 
 func _spawn_hunters() -> void:
 	for id in LureData.CAST:
-		var model := ModelSlot.instantiate_hunter(HunterRoster.get_identity(id))
+		var model := NightWatchHunterScale.instantiate(HunterRoster.get_identity(id))
 		if model == null:
 			push_warning("Dead Air: no model for %s" % id)
 			model = Node3D.new()

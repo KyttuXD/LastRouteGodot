@@ -16,7 +16,7 @@ const HALL_FAR := 15.0        # the hall's far end where the hall walker comes i
 const RUSH_DOOR := 2.6        # where Umbriel stops
 const OFFICE_WALKER := Vector3(0.0, 0.0, -1.25)   # where the hall walker stands once she is in the office (just beyond the desk)
 const VENT_STAND := {"L": Vector3(-1.75, 0.0, 0.55), "R": Vector3(1.75, 0.0, 0.55)}
-const H := 3.2
+const H := 3.6
 const THICK := 0.2
 
 const CENTRES := {

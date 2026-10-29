@@ -11,9 +11,9 @@ extends NightWatchOfficeBase
 const A := preload("res://src/night_watch/night_watch_art.gd")
 const HALF_W := 3.0
 const HALF_D := 2.5
-const HEIGHT := 3.0
+const HEIGHT := 3.6
 const DOOR_W := 1.7
-const DOOR_H := 2.4
+const DOOR_H := 3.2
 const SLAB_OPEN_Y := DOOR_H + 1.3
 const SLAB_CLOSED_Y := DOOR_H * 0.5
 ## Where the player starts (in the room, facing the desk) and the desk seat.

@@ -567,13 +567,13 @@ func _portrait(hunter_id: String) -> Control:
 	env_node.environment = env
 	vp.add_child(env_node)
 	var identity := HunterRoster.get_identity(hunter_id) if not hunter_id.is_empty() else {}
-	var model: Node3D = ModelSlot.instantiate_hunter(identity) if not identity.is_empty() else null
+	var model: Node3D = NightWatchHunterScale.instantiate(identity) if not identity.is_empty() else null
 	if model != null:
 		vp.add_child(model)
 		var cam := Camera3D.new()
 		cam.fov = 28.0
 		vp.add_child(cam)
-		cam.look_at_from_position(Vector3(0, 1.5, -2.6), Vector3(0, 1.3, 0), Vector3.UP)
+		cam.look_at_from_position(Vector3(0, 2.2, -4.2), Vector3(0, 1.8, 0), Vector3.UP)   # a 1.5x hunter is about 2.6 m tall: further back and higher to frame the whole body
 	var rec := _label("● REC", 5, RED_TEXT)
 	rec.name = "Rec"
 	rec.position = Vector2(4, 3)
