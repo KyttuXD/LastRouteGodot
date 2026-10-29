@@ -1458,7 +1458,7 @@ func _canonical_world_event(event: Dictionary) -> Dictionary:
 const GUEST_INTERACTIONS := ["music_box", "ceryth_answer", "guardian_ping", "vent_used", "zellia_trade", "admin_auth",
 	"admin_custom_map", "admin_world", "stream_pickup", "stream_safe_repair", "stream_checkpoint", "stream_drop",
 	"stream_sabotage", "stream_waypoint", "stream_axe_rescue", "ravelle_disarm", "stream_room_light", "stream_booth",
-	"stream_carousel", "stream_breach_request", "stream_door", "signal_route_result", "stream_revive"]
+	"stream_carousel", "stream_valve", "stream_breach_request", "stream_door", "signal_route_result", "stream_revive"]
 
 
 ## Guest-owned input which needs host-owned hunter state. The request names an

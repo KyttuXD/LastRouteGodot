@@ -6129,9 +6129,15 @@ def make_sewer_pipe_run():
 
 
 ## The outflow main's underside sits at SewerRouteGenerator.CRAWL_CLEARANCE (the crouched capsule, 1.08 m x
-## PlayerModels.SCALE 1.236 for the 2.2 m runner, + 5 cm): a crouched runner passes under it, nothing taller does.
-## Rebuild sewer_outflow_pipe and sewer_outflow_pipe_broken whenever PlayerModels.SCALE changes.
-OUTFLOW_CLEARANCE = 1.08 * 1.236 + 0.05
+## PlayerModels.SCALE, read from src/config/player_models.gd, + 5 cm): a crouched runner passes under it, nothing taller
+## does. Rebuild sewer_outflow_pipe and sewer_outflow_pipe_broken whenever PlayerModels.SCALE changes (sewer_crawl checks).
+def _player_scale():
+    import re
+    with open(os.path.join(PROJECT_ROOT, "src", "config", "player_models.gd")) as handle:
+        return float(re.search(r"const SCALE := ([0-9.]+)", handle.read()).group(1))
+
+
+OUTFLOW_CLEARANCE = 1.08 * _player_scale() + 0.05
 OUTFLOW_VAULT = 3.2
 
 
