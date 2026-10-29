@@ -1129,8 +1129,9 @@ func _check_stairwells(host: Node) -> void:
 					_check_stairwell_ends(generator, x, z, well)
 					if not walk.has(well["kind"]):
 						walk[well["kind"]] = well.merged({"x": x, "z": z})
+	# the spawn ring has no deck over it (DeckPatches), so no way up; wells up exist where a patch is (deck_patches suite)
 	for upper in [1, 2, 3]:
-		_expect(not generator.stairwell_between(0, 0, upper).is_empty(), "no guaranteed stairwell up to +%d at chunk (0, 0)" % upper)
+		_expect(generator.stairwell_between(0, 0, upper).is_empty(), "the spawn chunk has a stairwell up to +%d" % upper)
 	_expect(int(counts[0]) >= 3 and int(counts[0]) <= 30, "%d maze <-> sewer stairwells in 81 chunks (want sparse)" % counts[0])
 	_expect(kinds.has("stairs") and kinds.has("spiral"), "only %s stairwell kinds generated" % [kinds.keys()])
 	for kind in walk:

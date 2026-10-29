@@ -132,8 +132,8 @@ func links_for(coord: Vector3i) -> Array:
 ## the lower level), connector (lower level, from the landing to its halls),
 ## top_x / bottom_x (where the slope starts and ends, chunk-local), row, link}.
 func ramp_between(x: int, z: int, upper_level: int) -> Dictionary:
-	if not RAMP_CHANCE.has(upper_level):
-		return {}
+	if not RAMP_CHANCE.has(upper_level) or surface.is_void_column(Vector3i(x, 0, z)):
+		return {}   # nothing of the sewers or the Inferno is built inside the Mezzanine void
 	var rng := SeededRandom.new("%s:RAMP:%d:%d:%d" % [world_seed, x, z, upper_level])
 	if rng.next_float() >= float(RAMP_CHANCE[upper_level]):
 		return {}
@@ -185,6 +185,8 @@ func ramp_between(x: int, z: int, upper_level: int) -> Dictionary:
 ## overlook (a railed ledge beside it), chamber + pool (the cistern on -2),
 ## edge_z / edge_x0 (the lip the water pours over), north}.
 func falls_between(x: int, z: int) -> Dictionary:
+	if surface.is_void_column(Vector3i(x, 0, z)):
+		return {}
 	var rng := SeededRandom.new("%s:FALLS:%d:%d" % [world_seed, x, z])
 	if rng.next_float() >= FALLS_CHANCE:
 		return {}

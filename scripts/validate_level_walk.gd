@@ -28,17 +28,11 @@ func run(host: Node) -> int:
 	var generator: StreamedRouteGenerator = facility.generator
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var checked := 0
+	var tower := VoidRegion.tower_chunk(generator.world_seed)
 	for level in [0, -1, 1, -2, -3, 0]:
-		# a column with a +1 well, and one without
-		for want_well in [true, false]:
-			var column := Vector2i(999, 999)
-			for dz in range(-6, 7):
-				for dx in range(-6, 7):
-					if column.x == 999 and not generator.is_chunk_allowed(Vector3i(dx, level, dz)):
-						continue
-					if column.x == 999 and (not generator.stairwell_between(dx, dz, 1).is_empty()) == want_well:
-						column = Vector2i(dx, dz)
-			if column.x == 999:
+		# inside the void (its stair tower) and in the ordinary maze beside it
+		for column in [tower, Vector2i(0, 0), Vector2i(-3, 2)]:
+			if not generator.is_chunk_allowed(Vector3i(column.x, level, column.y)):
 				continue
 			route._admin_teleport_to(Vector3(column.x * size + 22.5, float(level) * 4.0 + 0.3, column.y * size + 22.5))
 			for _i in 90:
@@ -59,5 +53,5 @@ func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	OS.remove_logger(log)
 	if _failures == 0:
-		print("  level_walk  %d loaded chunks over levels 0 / -1 / +1 / -2 / -3, with and without a +1 well: all have colliders and surface meshes, no errors" % checked)
+		print("  level_walk  %d loaded chunks over levels 0 / -1 / +1 / -2 / -3, in the void and in the maze: all have colliders and surface meshes, no errors" % checked)
 	return _failures

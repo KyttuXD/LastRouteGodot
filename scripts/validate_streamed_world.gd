@@ -16,11 +16,11 @@ func run(host: Node) -> int:
 	var world := StreamedRouteGenerator.new("STREAM-CHECK")
 	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
 		"Infinite corridors are no longer three cells wide")
-	_expect(world.stair_links(Vector3i.ZERO).is_empty() and world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.MEZZANINE_LEVEL, 0)) and not world.is_chunk_allowed(Vector3i(0, 2, 0)) \
+	_expect(world.stair_links(Vector3i.ZERO).is_empty() and not world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.MEZZANINE_LEVEL, 0)) and not world.is_chunk_allowed(Vector3i(0, 2, 0)) \
 		and world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(0, -2, 0)) \
 		and world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL, 0)) \
 		and not world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL - 1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
-		"the route is not one unbounded maze level under the Mezzanine and over the two sewers and the Inferno")
+		"the route is not one unbounded maze level (deck patches at +1) over the two sewers and the Inferno")
 	_expect(FacilityMap.RELAY_TEAL_BLUE.is_equal_approx(Color("32c9d8")),
 		"relay map markers are not the distinct teal-blue palette colour")
 	_expect(FacilityMap.STAIR_ICON_WHITE.is_equal_approx(Color("f4f7f6")),
@@ -157,8 +157,9 @@ func run(host: Node) -> int:
 		for z in range(-12, 13):
 			for x in range(-12, 13):
 				var sampled_coord := Vector3i(x, level, z)
-				if not world.is_chunk_allowed(sampled_coord) or (level != 0 and (absi(x) > 3 or absi(z) > 3)):
-					continue
+				if not world.is_chunk_allowed(sampled_coord) or world.is_void_column(sampled_coord) \
+						or (level != 0 and (absi(x) > 3 or absi(z) > 3)):
+					continue   # the Mezzanine void is checked by its own suite (scripts/validate_void.gd)
 				var data := world.chunk(sampled_coord)
 				regions[data["region"]] = true
 				var dual_contract: Dictionary = data.get("dual_level_room", {})

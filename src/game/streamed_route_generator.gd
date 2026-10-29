@@ -537,25 +537,27 @@ func adopt_chunk(coord: Vector3i, data: Dictionary) -> void:
 ## as the sewer's ladders are); +1..+3 are pure seed maths, planned here for the
 ## upper-levels lane, which builds around them.
 func stairwell_between(x: int, z: int, upper_level: int) -> Dictionary:
-	if upper_level == 0 or upper_level == MEZZANINE_LEVEL:
+	if VoidRegion.contains(world_seed, x, z):
+		# inside the void the only stairs are the tower's
+		var tower := VoidRegion.tower_chunk(world_seed)
+		return VoidRegion.tower_well(world_seed, upper_level) if x == tower.x and z == tower.y else {}
+	if upper_level == 0 or (upper_level == MEZZANINE_LEVEL and is_chunk_allowed(Vector3i(x, MEZZANINE_LEVEL, z))):
 		for well in chunk(Vector3i(x, 0, z)).get("stairwells", []):
 			if int(well["upper"]) == upper_level:
 				return well
 		return {}
-	var key := Vector3i(x, upper_level, z)
-	if not _stairwell_cache.has(key):
-		_stairwell_cache[key] = Stairwells.plan(world_seed, x, z, upper_level)
-	return _stairwell_cache[key]
+	return {}
 
 
 const MAX_STAIRWELL_DROPPED_ROOM_CELLS := 100
+const MAX_FORCED_STAIRWELL_DROPPED_ROOM_CELLS := 220
 
 
 ## The maze <-> sewer stairwell for a maze chunk being built: clear of the
 ## sewer's ramp and falls quadrants, and only where it fits the maze as built
 ## (_maze_stairwell_fits), so no suite or hall loses anything to it.
 func _plan_maze_stairwell(x: int, z: int, grid: Array, layout: Dictionary, circulation: Dictionary,
-		upper_level: int = 0, also_avoid: Array = []) -> Dictionary:
+		upper_level: int = 0, also_avoid: Array = [], force: bool = false) -> Dictionary:
 	var avoid := also_avoid.duplicate()
 	var ramp: Dictionary = sewer().ramp_between(x, z, SEWER_LEVEL)
 	if not ramp.is_empty():
@@ -564,14 +566,15 @@ func _plan_maze_stairwell(x: int, z: int, grid: Array, layout: Dictionary, circu
 	if not falls.is_empty():
 		avoid.append(int(falls["quadrant"]))
 	return Stairwells.plan(world_seed, x, z, upper_level, avoid,
-		func(well: Dictionary) -> bool: return _maze_stairwell_fits(grid, layout, circulation, well),
-		Stairwells.MAZE_AREAS if upper_level == 0 else Stairwells.MAZE_UP_AREAS)
+		func(well: Dictionary) -> bool: return _maze_stairwell_fits(grid, layout, circulation, well, force),
+		Stairwells.MAZE_AREAS if upper_level == 0 else Stairwells.MAZE_UP_AREAS, force)
 
 
 ## True when a stairwell's box (and a cell round it) touches no suite or main
 ## hall, it drops at most MAX_STAIRWELL_DROPPED_ROOM_CELLS of plain rooms, and a
 ## trial carve cuts no open area in two.
-static func _maze_stairwell_fits(grid: Array, layout: Dictionary, circulation: Dictionary, well: Dictionary) -> bool:
+static func _maze_stairwell_fits(grid: Array, layout: Dictionary, circulation: Dictionary, well: Dictionary,
+		relaxed: bool = false) -> bool:
 	var reach: Rect2i = (well["box"] as Rect2i).grow(1)
 	for suite_value in layout.get("suites", []):
 		if ((suite_value as Dictionary).get("rect", Rect2i()) as Rect2i).intersects(reach):
@@ -591,7 +594,8 @@ static func _maze_stairwell_fits(grid: Array, layout: Dictionary, circulation: D
 			if not String((room_value as Dictionary).get("suite_id", "")).is_empty():
 				return false
 			dropped += ((room_value as Dictionary).get("rect", Rect2i()) as Rect2i).get_area()
-	if dropped > MAX_STAIRWELL_DROPPED_ROOM_CELLS:
+	# a deck patch's only way up (relaxed) may take a second room's worth of floor
+	if dropped > (MAX_FORCED_STAIRWELL_DROPPED_ROOM_CELLS if relaxed else MAX_STAIRWELL_DROPPED_ROOM_CELLS):
 		return false
 	# the seams are carved later, so pockets may exist already: the carve must not add one
 	return _open_components(trial_grid) <= _open_components(grid)
@@ -638,6 +642,11 @@ func stairwells_at(x: int, z: int, level: int) -> Array:
 ## seed maths and always included).
 func vertical_links(coord: Vector3i, cached_only: bool = false) -> Array:
 	var out := []
+	if VoidRegion.contains(world_seed, coord.x, coord.z):
+		# the void has no ladders, ramps or maze stairwells: only the tower
+		for well in stairwells_at(coord.x, coord.z, coord.y):
+			out.append(well["link"])
+		return out
 	if coord.y == 0 or coord.y == SEWER_LEVEL:
 		var ladder_coord := Vector3i(coord.x, SEWER_LEVEL, coord.z)
 		if not cached_only or _chunk_cache.has(ladder_coord):
@@ -722,7 +731,7 @@ static func _ensure_pickups_reachable(data: Dictionary) -> void:
 
 
 func chunk(coord: Vector3i) -> Dictionary:
-	if coord.y == MEZZANINE_LEVEL and is_chunk_allowed(coord):
+	if VoidRegion.is_void_chunk(world_seed, coord) or (coord.y == MEZZANINE_LEVEL and is_chunk_allowed(coord)):
 		if _chunk_cache.has(coord):
 			return _chunk_cache[coord]
 		var mezzanine_data := mezzanine().chunk(coord)
@@ -919,10 +928,13 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		var down := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation)
 		if not down.is_empty():
 			wells.append(down)
-		if is_chunk_allowed(Vector3i(coord.x, MEZZANINE_LEVEL, coord.z)):
-			# the way up to the Mezzanine is decided here too, in a different quadrant from the way down
-			var up := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation, MEZZANINE_LEVEL,
-				[int(down["quadrant"])] if not down.is_empty() else [])
+		if is_chunk_allowed(Vector3i(coord.x, MEZZANINE_LEVEL, coord.z)) and not is_void_column(coord):
+			# the way up to the deck patch above this chunk is decided here too, in a different quadrant from the way down;
+			# a patch with no well yet forces one here (DeckPatches)
+			var avoid_down: Array = [int(down["quadrant"])] if not down.is_empty() else []
+			var up := _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation, MEZZANINE_LEVEL, avoid_down)
+			if up.is_empty() and _deck_needs_well(coord):
+				up = _plan_maze_stairwell(coord.x, coord.z, grid, layout, circulation, MEZZANINE_LEVEL, avoid_down, true)
 			if not up.is_empty():
 				wells.append(up)
 	var shaft_cells := {}
@@ -1129,7 +1141,7 @@ func biome_for(coord: Vector3i) -> String:
 	return region_for(coord)
 
 func region_for(coord: Vector3i) -> String:
-	if coord.y == MEZZANINE_LEVEL:
+	if VoidRegion.is_void_chunk(world_seed, coord):
 		return "mezzanine"
 	if coord.y == SEWER_LEVEL or coord.y == LOWER_SEWER_LEVEL:
 		return "sewer"
@@ -1331,8 +1343,57 @@ func spawn_cell() -> Vector2i:
 
 
 func is_chunk_allowed(coord: Vector3i) -> bool:
-	# One maze level (y == 0), unbounded horizontally, over the sewer layer and under the Mezzanine.
-	return coord.y <= MEZZANINE_LEVEL and coord.y >= INFERNO_LEVEL
+	# One maze level (y == 0), unbounded horizontally, over the sewer layer; level +1 only where a deck patch or the void is.
+	if coord.y == MEZZANINE_LEVEL:
+		return VoidRegion.contains(world_seed, coord.x, coord.z) or DeckPatches.is_deck(world_seed, coord.x, coord.z)
+	return coord.y <= 0 and coord.y >= INFERNO_LEVEL
+
+
+var _deck_component_cache := {}
+
+
+## The deck chunks joined to (x, z) through shared edges (4-neighbours), capped, in a fixed order: the patch it belongs to.
+func deck_component(x: int, z: int) -> Array:
+	var key := Vector2i(x, z)
+	if _deck_component_cache.has(key):
+		return _deck_component_cache[key]
+	var members: Array[Vector2i] = []
+	var seen := {key: true}
+	var queue: Array[Vector2i] = [key]
+	while not queue.is_empty() and members.size() < DECK_PATCH_CAP:
+		var cell: Vector2i = queue.pop_front()
+		members.append(cell)
+		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var next: Vector2i = cell + step
+			if not seen.has(next) and DeckPatches.is_deck(world_seed, next.x, next.y):
+				seen[next] = true
+				queue.append(next)
+	# a fixed per-chunk order (hash), the same from every member of the patch
+	members.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return SeededRandom.new("%s:DECKRANK:%d:%d" % [world_seed, a.x, a.y]).next_float() \
+			< SeededRandom.new("%s:DECKRANK:%d:%d" % [world_seed, b.x, b.y]).next_float())
+	for member in members:
+		_deck_component_cache[member] = members
+	return members
+
+
+const DECK_PATCH_CAP := 60
+
+
+## True when no earlier-ranked chunk of this chunk's deck patch has a way up: then this chunk must have one. Earlier chunks
+## are built first (strictly earlier ranks, so no cycle).
+func _deck_needs_well(coord: Vector3i) -> bool:
+	for member in deck_component(coord.x, coord.z):
+		if member == Vector2i(coord.x, coord.z):
+			return true
+		if not stairwell_between(member.x, member.y, MEZZANINE_LEVEL).is_empty():
+			return false
+	return true
+
+
+## True for a chunk column inside the Mezzanine void's footprint (VoidRegion): no maze, sewer or Inferno chunk is made there.
+func is_void_column(coord: Vector3i) -> bool:
+	return VoidRegion.contains(world_seed, coord.x, coord.z)
 
 
 func coordinates_around(world_xz: Vector2, level: int, radius: int = 2) -> Array:
