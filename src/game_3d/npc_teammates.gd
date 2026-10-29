@@ -18,7 +18,12 @@ const CATCH_RANGE := 1.3
 const CATCH_UP_SECONDS := 6.0
 const REPATH := .5
 const SEND_HZ := 12.0            # below a player's 20: an NPC's packets are the room's budget (docs/NPC_TEAMMATES.md)
-const GRACE := 4.0               # s after a revive before a hunter may take it again
+const GRACE := 4.0
+## Turning like a person (as the playtest bots, KT 2026-10-28): the heading eases toward the path over HEADING_SMOOTH s and the
+## body yaw follows through a critically damped spring capped at TURN_RATE, so guests never see an NPC snap or dither.
+const HEADING_SMOOTH := .3
+const TURN_SPRING := 60.0
+const TURN_RATE := 5.0          # rad/s               # s after a revive before a hunter may take it again
 
 var scene: Node
 var npcs: Array = []             # {id, name, at: Vector3, level, facing, path: Array, path_age, clip, down, out, grace, away}
@@ -158,14 +163,27 @@ func _think(npc: Dictionary, delta: float) -> void:
 	var target := Vector2(next_cell.x + .5, next_cell.y + .5)
 	var speed := (GameConfig.PLAYER_SPRINT_SPEED if running else GameConfig.PLAYER_WALK_SPEED) / GameConfig.TILE_SIZE
 	var step := target - here
+	var heading: Vector2 = npc.get("heading", step.normalized())
+	heading = heading.lerp(step.normalized(), 1.0 - exp(-delta / HEADING_SMOOTH)).normalized() if step.length() > .01 else heading
+	npc["heading"] = heading
 	if step.length() <= speed * delta:
 		path.pop_front()
 		here = target
 	else:
 		here += step.normalized() * speed * delta
-		npc["facing"] = atan2(-step.x, -step.y)
+	_turn(npc, atan2(-heading.x, -heading.y), delta)
 	npc["at"] = Vector3(here.x, _floor_y(int(npc["level"])), here.y)
 	npc["clip"] = "run" if running else "walk"
+
+
+## The body yaw toward `want` through a critically damped spring, rate capped.
+func _turn(npc: Dictionary, want: float, delta: float) -> void:
+	var facing := float(npc["facing"])
+	var v := float(npc.get("turn_v", 0.0))
+	var error := wrapf(want - facing, -PI, PI)
+	v = clampf(v + (TURN_SPRING * error - 2.0 * sqrt(TURN_SPRING) * v) * delta, -TURN_RATE, TURN_RATE)
+	npc["turn_v"] = v
+	npc["facing"] = wrapf(facing + v * delta, -PI, PI)
 
 
 ## Human runners (the host and every guest; never another NPC) with a fresh state: the nearest on the NPC's storey, else the

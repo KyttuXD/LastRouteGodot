@@ -35,6 +35,18 @@ const REVIVE_GIVE_UP := 10.0    # s holding at the spot before the bot leaves it
 ## Ladders (KT 2026-10-28): standing within LADDER_TRIGGER of a ladder's cell starts a climb, so a path through it is a climb.
 ## A smart bot routes around ladder cells (LADDER_AVOID) unless it means to climb; a less smart one sometimes walks onto one
 ## and climbs back off. smartness 0..100 (--smart, bots.sh), each bot varied by up to +-SMART_SPREAD.
+## Looking like a person (KT 2026-10-28): every look command goes through a critically damped spring (LookSpring), the path
+## heading is smoothed over AIM_SMOOTH s so it never flicks between two path points, the bot aims two cells ahead (it turns
+## into a corridor before it gets there), idle glances change every GLANCE_MIN..MAX s (sometimes a check behind), pitch stays
+## within PITCH_MIN..MAX of level. LookMeter measures the result per run (PlaytestReporter fails jerky runs).
+const LOOK_SPRING := 80.0       # 1/s^2: settles in about 0.25 s, no overshoot
+const LOOK_MAX_ACCEL := 5.0     # stick units/s^2 (x LOOK_RATE: about 800 deg/s^2): a turn ramps up instead of jumping
+const AIM_SMOOTH := .3
+const AIM_TAU := .25            # s: the look stick closes an angle error over about this long
+const GLANCE_MIN := .6
+const GLANCE_MAX := 2.0
+const PITCH_MIN := -8.0
+const PITCH_MAX := 10.0
 const LADDER_TRIGGER := .45
 const LADDER_AVOID := 1.6
 const SMART_SPREAD := 15
@@ -87,6 +99,13 @@ var _level_due := -1.0           # _clock when the bot next looks for a link (se
 var _link_hold := {}             # a link being taken: {"landing": Vector3, "to": int, "until": float, "id": String}
 var _regions := {}               # "level:region" -> first _clock seen
 var _revive_time := 0.0
+var _doing := ""                 # a sub-step worth telling apart in LookMeter this frame (e.g. "aim")
+var _yaw_spring := LookSpring.new()
+var _pitch_spring := LookSpring.new()
+var look_meter := LookMeter.new()
+var _aim_dir := Vector2.ZERO
+var _glance_next := 0.0
+var _glance_yaw := 0.0
 var smartness := 70              # 0..100: set_smartness() adds this bot's own variation
 var _climb_level := 999          # the storey a climb started from (999: not climbing)
 var _climb_time := 0.0
@@ -476,6 +495,10 @@ func _reset() -> void:
 	_regions.clear()
 	_revive_time = 0.0
 	_climb_level = 999
+	_yaw_spring = LookSpring.new()
+	_pitch_spring = LookSpring.new()
+	look_meter = LookMeter.new()
+	_aim_dir = Vector2.ZERO
 	_avoid.clear()
 	_claimed.clear()
 
@@ -591,6 +614,7 @@ func _observe_interactables(facility: StreamedFacilityView3D, p: Vector3) -> Arr
 ## One frame of play: the goal logic (_decide_inner), then what keeps a group of bots apart and stops one turning on the spot
 ## (KT saw several stacked inside each other in a lab corridor, spinning in place).
 func decide(obs: Dictionary, delta: float) -> Dictionary:
+	_doing = ""
 	var act := _decide_inner(obs, delta)
 	var scene := tree.current_scene
 	if act.is_empty() or not _route_ready(scene):
@@ -600,9 +624,21 @@ func decide(obs: Dictionary, delta: float) -> Dictionary:
 		return act
 	_separate(scene, player, act)
 	var look: Array = act.get("look", [0.0, 0.0])
-	if look.size() > 0:
-		look[0] = clampf(float(look[0]), -MAX_TURN_STICK, MAX_TURN_STICK)
+	if look.size() > 1:
+		# keep the pitch near level, then let both axes ease through the springs
+		var pitch_deg := rad_to_deg(player.first_person_pivot.rotation.x)
+		var raw_pitch := float(look[1])
+		if pitch_deg > PITCH_MAX:
+			raw_pitch = maxf(raw_pitch, .25)    # looking up too far: stick down (the pivot's x grows looking up)
+		elif pitch_deg < PITCH_MIN:
+			raw_pitch = minf(raw_pitch, -.25)
+		look[0] = _yaw_spring.step(clampf(float(look[0]), -MAX_TURN_STICK, MAX_TURN_STICK), delta)
+		look[1] = _pitch_spring.step(raw_pitch, delta)
 	_spin_check(player, act, delta)
+	look_meter.feed(player.rotation.y, player.first_person_pivot.rotation.x, delta,
+		"stuck" if _stuck_level > 0 else ("spin" if _clock < _spin_until else (_doing if not _doing.is_empty()
+			else (_last_goal_kind if not _goal.is_empty() else "idle"))))
+	stats["look"] = look_meter.result()
 	return act
 
 
@@ -914,6 +950,12 @@ func _climb_done(level: int) -> void:
 		_level_due = _clock + rng.randf_range(LEVEL_STAY_MIN, LEVEL_STAY_MAX)
 	_climb_level = 999
 	_ladder_walk = 0.0
+
+
+## The look stick for an angle error: proportional, closing the error over AIM_TAU s. (Full stick for any error a frame could
+## not close made the camera overshoot and swing back behind the look spring: 45 left-right flips a minute at relays.)
+func _turn_stick(error: float, rate: float) -> float:
+	return clampf(error / maxf(rate * AIM_TAU, .001), -1.0, 1.0)
 
 
 ## A path through a ladder's trigger area is a climb: walk round it instead (a cell beside the ladder, then on to the goal).
@@ -1295,14 +1337,21 @@ func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerControlle
 	# advance along the path, aim two cells ahead for smooth corners
 	while _path_index < _path.size() - 1 and Vector2(p.x, p.z).distance_to(_cell_centre(_path[_path_index])) < 0.9:
 		_path_index += 1
-	var ahead := mini(_path_index + 1, _path.size() - 1)
+	# two cells ahead: the turn into a corridor starts before the corner
+	var ahead := mini(_path_index + 2, _path.size() - 1)
 	var aim := _cell_centre(_path[ahead])
 	var to_aim := aim - Vector2(p.x, p.z)
 	if to_aim.length() < .05:
 		return
+	# the heading eases over AIM_SMOOTH s: no flicking between two path points
+	_aim_dir = to_aim.normalized() if _aim_dir == Vector2.ZERO else _aim_dir.lerp(to_aim.normalized(), 1.0 - exp(-delta / AIM_SMOOTH))
+	if _aim_dir.length() > .01:
+		to_aim = _aim_dir.normalized() * to_aim.length()
+		aim = Vector2(p.x, p.z) + to_aim
 	# a closed room door on the way: look at it and open it like a player would
 	var door := _closed_door_ahead(p, aim)
 	if not door.is_empty():
+		_doing = "door"
 		_handle_door(nav, player, p, door, goal, act, delta)
 		return
 	_door_tries = 0
@@ -1311,7 +1360,9 @@ func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerControlle
 	var error := wrapf(yaw_target - player.rotation.y, -PI, PI)
 	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
 	var rate := LOOK_RATE * sens
-	act["look"] = [-PlaytestInput.look_strength(error, rate, delta), _walk_pitch(player, rate, delta)]
+	act["look"] = [-_turn_stick(error, rate), _walk_pitch(player, rate, delta)]
+	if _path_age == 0.0:
+		_doing = "replan"
 	var forward := 1.0 if absf(error) < .7 else (.25 if absf(error) < 1.4 else 0.0)
 	act["move"] = [0.0, forward]
 	act["hold"]["sprint"] = sprint and forward > .9 and player.stamina > 15.0
@@ -1368,7 +1419,7 @@ func _steer_to(player: PlayerController3D, here: Vector2, point: Vector2, act: D
 	var error := wrapf(atan2(-to_point.x, -to_point.y) - player.rotation.y, -PI, PI)
 	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
 	var rate := LOOK_RATE * sens
-	act["look"] = [-PlaytestInput.look_strength(error, rate, delta), _walk_pitch(player, rate, delta)]
+	act["look"] = [-_turn_stick(error, rate), _walk_pitch(player, rate, delta)]
 	act["move"] = [0.0, speed if absf(error) < .6 else 0.0]
 
 
@@ -1407,12 +1458,19 @@ func _walk_pitch(player: PlayerController3D, rate: float, delta: float) -> float
 		if flat.length() > .5 and facing.angle_to(flat.normalized()) < deg_to_rad(55.0) and facing.angle_to(flat.normalized()) > deg_to_rad(-55.0):
 			target = clampf(atan2(player.global_position.y + HUNTER_HEAD - eye.y, flat.length()), deg_to_rad(-5.0), deg_to_rad(10.0))
 		break
-	return -PlaytestInput.look_strength(target - pitch, rate, delta)
+	return -_turn_stick(target - pitch, rate)
 
 
+## Standing about: a new glance every GLANCE_MIN..MAX s, mostly a little to either side, now and then a look behind.
 func _idle_look(player: PlayerController3D, act: Dictionary, delta: float) -> void:
 	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
-	act["look"] = [.22 * sin(_clock * .6), _walk_pitch(player, LOOK_RATE * sens, delta)]
+	if _clock >= _glance_next:
+		_glance_next = _clock + rng.randf_range(GLANCE_MIN, GLANCE_MAX)
+		var behind := rng.randf() < .12
+		_glance_yaw = wrapf(player.rotation.y + (rng.randf_range(2.4, 3.4) * (1.0 if rng.randf() < .5 else -1.0) if behind
+			else rng.randf_range(-.45, .45)), -PI, PI)
+	var error := wrapf(_glance_yaw - player.rotation.y, -PI, PI)
+	act["look"] = [-_turn_stick(error, LOOK_RATE * sens) * .5, _walk_pitch(player, LOOK_RATE * sens, delta)]
 
 
 func _aim_at_nearest(obs: Dictionary, player: PlayerController3D, p: Vector3, goal_pos: Vector2, kinds: Array,
@@ -1448,7 +1506,7 @@ func _aim_at(player: PlayerController3D, target: Vector3, act: Dictionary, delta
 	var rate := LOOK_RATE * sens
 	var yaw_error := wrapf(yaw_target - player.rotation.y, -PI, PI)
 	var pitch_error := pitch_target - player.first_person_pivot.rotation.x
-	act["look"] = [-PlaytestInput.look_strength(yaw_error, rate, delta), -PlaytestInput.look_strength(pitch_error, rate, delta)]
+	act["look"] = [-_turn_stick(yaw_error, rate), -_turn_stick(pitch_error, rate)]
 	return absf(yaw_error) < .1 and absf(pitch_error) < .14
 
 
@@ -1456,6 +1514,7 @@ func _interact(obs: Dictionary, scene: Node, player: PlayerController3D, p: Vect
 		delta: float) -> void:
 	var goal_pos := Vector2(float(goal["cell"].x) + .5, float(goal["cell"].y) + .5)
 	var kinds := ["RELAY"] if goal["kind"] == "relay" else ["BATTERY", "TOOL_PICKUP", "COIN"]
+	_doing = "aim"
 	var aimed := _aim_at_nearest(obs, player, p, goal_pos, kinds, act, delta)
 	if aimed and _interact_cooldown <= 0.0:
 		act["pulse"].append("interact")
@@ -1593,3 +1652,85 @@ func _recover(scene: Node, player: PlayerController3D, p: Vector3, act: Dictiona
 			if _stuck_level >= 5:
 				_blacklist[String(_goal.get("key", ""))] = _clock + 8.0
 				_goal = {}
+
+
+## A critically damped spring on a look-stick command: x follows the raw command with no overshoot and no step in its rate,
+## so turns ease in and out and a command that flickers frame to frame comes out as one smooth motion.
+class LookSpring:
+	var x := 0.0
+	var v := 0.0
+
+	func step(raw: float, delta: float) -> float:
+		if delta <= 0.0:
+			return x
+		var k := LastRouteBot.LOOK_SPRING
+		var accel := clampf(k * (raw - x) - 2.0 * sqrt(k) * v, -LastRouteBot.LOOK_MAX_ACCEL, LastRouteBot.LOOK_MAX_ACCEL)
+		v += accel * delta
+		x = clampf(x + v * delta, -1.0, 1.0)
+		return x
+
+
+## How jerky the camera was: the largest yaw / pitch acceleration (deg/s^2, over 0.1 s steps) and how often it dithered
+## (flips: the yaw rate going from above +FLIP_RATE to below -FLIP_RATE, or back, within FLIP_WINDOW s; a left turn and a
+## right turn seconds apart along a winding corridor is no flip).
+class LookMeter:
+	const STEP := .1
+	const FLIP_RATE := 40.0      # deg/s: a visible swing, not a path correction
+	const CUT_RATE := 720.0      # deg/s: faster than any look stick turns
+	const FLIP_WINDOW := .5
+	var _acc := 0.0
+	var _yaw := 0.0
+	var _pitch := 0.0
+	var _yaw_rate := 0.0
+	var _pitch_rate := 0.0
+	var _started := false
+	var _last_sign := 0
+	var _last_sign_at := -10.0
+	var seconds := 0.0
+	var yaw_acc_max := 0.0
+	var pitch_acc_max := 0.0
+	var flips := 0
+	var flips_by := {}           # what the bot was doing at each flip (goal kind, idle, stuck, spin)
+
+	func feed(yaw: float, pitch: float, delta: float, doing: String = "") -> void:
+		seconds += delta
+		_acc += delta
+		if not _started:
+			_started = true
+			_yaw = yaw
+			_pitch = pitch
+			_acc = 0.0
+			return
+		if _acc < STEP:
+			return
+		var yaw_rate := rad_to_deg(wrapf(yaw - _yaw, -PI, PI)) / _acc
+		var pitch_rate := rad_to_deg(pitch - _pitch) / _acc
+		if absf(yaw_rate) > CUT_RATE or absf(pitch_rate) > CUT_RATE:
+			# a cut, not a turn (spawn, revive, a camera the game set): start measuring again from here
+			_yaw = yaw
+			_pitch = pitch
+			_yaw_rate = 0.0
+			_pitch_rate = 0.0
+			_acc = 0.0
+			return
+		yaw_acc_max = maxf(yaw_acc_max, absf(yaw_rate - _yaw_rate) / _acc)
+		pitch_acc_max = maxf(pitch_acc_max, absf(pitch_rate - _pitch_rate) / _acc)
+		var sign := 1 if yaw_rate > FLIP_RATE else (-1 if yaw_rate < -FLIP_RATE else 0)
+		if sign != 0:
+			if _last_sign != 0 and sign != _last_sign and seconds - _last_sign_at <= FLIP_WINDOW:
+				flips += 1
+				flips_by[doing] = int(flips_by.get(doing, 0)) + 1
+			_last_sign = sign
+			_last_sign_at = seconds
+		_yaw = yaw
+		_pitch = pitch
+		_yaw_rate = yaw_rate
+		_pitch_rate = pitch_rate
+		_acc = 0.0
+
+	func result() -> Dictionary:
+		return {"yaw_acc_max": roundi(yaw_acc_max), "pitch_acc_max": roundi(pitch_acc_max), "flips": flips,
+			# stuck and spin recoveries wiggle on purpose: counted in flips, not in the rate the reporter judges
+			"flips_per_min": snappedf((flips - int(flips_by.get("stuck", 0)) - int(flips_by.get("spin", 0)))
+				/ maxf(seconds / 60.0, 1.0 / 60.0), .1), "seconds": snappedf(seconds, .1),
+			"flips_by": flips_by.duplicate()}

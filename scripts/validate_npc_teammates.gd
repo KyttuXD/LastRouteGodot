@@ -109,8 +109,14 @@ func run(host: Node) -> int:
 	if open.has("cell"):
 		player.global_position = Vector3((open["cell"] as Vector2i).x + .5, player.global_position.y, (open["cell"] as Vector2i).y + .5)
 		var before := (start as Vector3).distance_to(player.global_position)
+		var facing := float(npcs.npcs[0]["facing"])
+		var fastest := 0.0
 		for _i in 240:
 			await tree.physics_frame
+			var now := float(npcs.npcs[0]["facing"])
+			fastest = maxf(fastest, absf(wrapf(now - facing, -PI, PI)) * 60.0)
+			facing = now
+		_expect(fastest <= NpcTeammates.TURN_RATE + .05, "an NPC snapped round at %.1f rad/s (cap %.1f)" % [fastest, NpcTeammates.TURN_RATE])
 		var after := (npcs.npcs[0]["at"] as Vector3).distance_to(player.global_position)
 		_expect(after < before - 2.0, "the NPC did not follow its runner (%.1f m -> %.1f m)" % [before, after])
 	else:

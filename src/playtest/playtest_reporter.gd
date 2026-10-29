@@ -3,7 +3,8 @@ extends RefCounted
 
 ## Turns a finished scenario into report.json + report.md (and events.jsonl) and decides pass/fail against thresholds.
 
-const DEFAULT_LIMITS := {"max_stuck": 3, "max_soft_locks": 0, "max_errors": 0, "max_unreachable": 6, "min_fps": 0.0, "max_pitch_median_deg": 15.0}
+const DEFAULT_LIMITS := {"max_stuck": 3, "max_soft_locks": 0, "max_errors": 0, "max_unreachable": 6, "min_fps": 0.0, "max_pitch_median_deg": 15.0,
+	"max_look_acc_deg": 1500.0, "max_look_flips_per_min": 12.0}
 
 
 static func evaluate(report: Dictionary, limits: Dictionary) -> Array:
@@ -19,6 +20,14 @@ static func evaluate(report: Dictionary, limits: Dictionary) -> Array:
 	if log_errors > int(limits["max_errors"]):
 		failures.append("engine errors %d > %d" % [log_errors, int(limits["max_errors"])])
 	# a bot that walks looking at the floor or the ceiling draws a different game (KT: every tester stared down)
+	# a camera people watch: no snaps (yaw / pitch acceleration over 0.1 s) and no left-right dithering (direction flips)
+	var look: Dictionary = bot.get("look", {})
+	if float(look.get("seconds", 0.0)) >= 20.0:
+		var acc := maxf(float(look.get("yaw_acc_max", 0)), float(look.get("pitch_acc_max", 0)))
+		if acc > float(limits["max_look_acc_deg"]):
+			failures.append("camera jerk %d deg/s^2 > %d" % [int(acc), int(limits["max_look_acc_deg"])])
+		if float(look.get("flips_per_min", 0.0)) > float(limits["max_look_flips_per_min"]):
+			failures.append("camera direction flips %.1f/min > %.1f" % [float(look["flips_per_min"]), float(limits["max_look_flips_per_min"])])
 	var median: Variant = pitch_median(bot.get("pitch_hist", {}))
 	if median != null:
 		bot["pitch_median_deg"] = median
