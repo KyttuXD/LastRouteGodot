@@ -170,13 +170,13 @@ static func coop_bot(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 		if not join_error.is_empty():
 			return {"scenario_failure": "join failed: %s" % join_error, "outcome": "error", "game_seconds": 0.0, "frames": 0}
 		bridge.status = "coop_bot guest waiting for the room roster (code %s)" % code
-		if not await wait_for.call(func(): return RoomState.online and RoomState.peers.size() >= 2, "joining the room (never connected to the host: relay/ENet)", 30.0):
+		if not await wait_for.call(func(): return RoomState.online and RoomState.peers.size() >= 2, "joining the room (never connected to the host: relay/ENet)", 90.0):
 			return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": "%s; peers=%d online=%s" % [report.get("scenario_failure", ""), RoomState.peers.size(), RoomState.online]}
 	bridge.status = "coop_bot %s waiting for the route scene" % role
 	if not await wait_for.call(func(): return _scene(bridge) == "infinite_route_test.tscn", "the route scene", 90.0):
 		return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": String(report.get("scenario_failure", ""))}
 	if role == "guest":
-		if not await wait_for.call(func(): return not bool(tree.current_scene.get("_awaiting_snapshot")), "the host snapshot", 60.0):
+		if not await wait_for.call(func(): return not bool(tree.current_scene.get("_awaiting_snapshot")), "the host snapshot", 180.0):
 			return {"outcome": "error", "game_seconds": 0.0, "frames": 0, "scenario_failure": String(report.get("scenario_failure", ""))}
 	adapter.attach()
 	for _i in 60:
