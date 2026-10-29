@@ -1,0 +1,58 @@
+# Last Route region agent (docs/SERVER_HOSTING.md): spawns and stops dedicated headless hosts on this VPS for the
+# directory on VPS 3. Installed as /etc/systemd/system/lastroute-region-agent.service on vps1 / vps2 only.
+# It listens on no port; it reports out to the directory every 5 s (signed) and runs the game binary it is pointed at.
+[Unit]
+Description=Last Route region agent (dedicated headless hosts)
+Documentation=file:///opt/lastroute-region/current/docs/SERVER_HOSTING.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lastroute-region
+Group=lastroute-region
+WorkingDirectory=/opt/lastroute-region/current
+# region, directory URL, game binary -- and the agent token, which is generated on the server, mode 0600, never
+# in the repo (deploy/region-agent.env.example lists the names)
+EnvironmentFile=/etc/lastroute-agent/agent.env
+ExecStart=/usr/bin/node /opt/lastroute-region/current/backend/region_agent.mjs
+# SIGTERM stops every dedicated host it started (exact child PIDs) before the agent exits
+KillMode=mixed
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lastroute-region-agent
+
+# Dedicated hosts write their user:// (logs, CrashWatch) here
+StateDirectory=lastroute-region
+StateDirectoryMode=0750
+Environment=HOME=/var/lib/lastroute-region
+Environment=XDG_DATA_HOME=/var/lib/lastroute-region
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+# Ceilings for the agent and every room under it: keep one core and some RAM for the OS (capacity() uses the same
+# rule). Raise per VPS in a drop-in, not here.
+MemoryMax=90%
+TasksMax=4096
+LimitNOFILE=16384
+
+[Install]
+WantedBy=multi-user.target

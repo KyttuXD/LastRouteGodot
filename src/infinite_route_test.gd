@@ -318,6 +318,13 @@ func _ready() -> void:
 			Backend.admin_roster_changed.connect(_on_admin_roster_changed)
 	if RoomState.public_route:
 		_public_start()
+	if RoomState.dedicated:
+		# no runner on a dedicated host: the player node stays parked at the spawn (it still anchors local chunk
+		# streaming) with no physics, input or body; hunters, chunks and world state run around the guests
+		player.input_frozen = true
+		player.visible = false
+		player.set_physics_process(false)
+		player.set_process_unhandled_input(false)
 	if _awaiting_snapshot:
 		player.input_frozen = true
 		_begin_sync_gate()
@@ -3581,6 +3588,8 @@ func _target_protected(target: Dictionary) -> bool:
 
 
 func _hunter_target(in_safe_room: bool) -> Dictionary:
+	if RoomState.dedicated:
+		return {}   # a dedicated host has no runner: hunters only ever see guests
 	return {
 		"peer_id": multiplayer.get_unique_id() if RoomState.online else 1,
 		"at": player.global_position,
@@ -3884,7 +3893,7 @@ func _on_tool_used(item_id: String) -> void:
 func _streamed_state_overrides() -> Dictionary:
 	return {"depth": -facility.current_level(),
 		"in_safe_zone": _player_in_intact_safe_room(facility.current_chunk_data()),
-		"syncing": _sync_gate != null,
+		"syncing": _sync_gate != null or RoomState.dedicated,
 		"idle_s": snappedf(_party_afk_seconds, 0.1)}
 
 
