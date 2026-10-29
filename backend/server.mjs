@@ -154,6 +154,7 @@ function publicEnetRoom(room, timestamp, relayAddress = "", relayPort = 0) {
     players: room.players,
     sessionActive: room.sessionActive,
     daytime: Boolean(room.daytime),
+    protocol: room.protocol || "",   // the host build's NetProtocol fingerprint ("" from older builds)
     expiresIn: Math.max(0, Math.ceil((room.expiresAt - timestamp) / 1000)),
   };
 }
@@ -749,6 +750,7 @@ export function createLastRouteServer({
         game: publicCodes.has(code) ? Object.keys(PUBLIC_CODES).find((g) => PUBLIC_CODES[g] === code) : cleanGame(body.game),
         expiresAt: now() + (publicCodes.has(code) ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
         lastSeen: now(),
+        protocol: /^[a-f0-9]{8}$/.test(String(body.protocol || "")) ? String(body.protocol) : "",
       };
       if (reserved) {
         room.reserved = true;

@@ -37,6 +37,7 @@ func _expect(condition: bool, message: String) -> void:
 func run(host: Node) -> int:
 	_host = host
 	_requests_allowed()
+	_protocol()
 	_motion()
 	await _sync_gate()
 	await _lossy_link()
@@ -45,6 +46,19 @@ func run(host: Node) -> int:
 
 
 ## Every request_interaction({"what": ...}) in src/ is on RemotePlayers.GUEST_INTERACTIONS (doors were not).
+## Build/protocol handshake: a host on a different RPC set is refused with a clear message; an untagged host is allowed.
+func _protocol() -> void:
+	var mine := NetProtocol.fingerprint()
+	_expect(mine.length() == 8 and mine == NetProtocol.fingerprint(), "the protocol fingerprint is not a stable 8-hex value (%s)" % mine)
+	_expect(NetProtocol.mismatch(mine).is_empty(), "a host on this build was refused")
+	_expect(NetProtocol.mismatch("").is_empty(), "an older host with no protocol tag was refused (the fallback must apply)")
+	var refused := NetProtocol.mismatch("deadbeef")
+	_expect(refused == "BUILD MISMATCH // HOST DEADBEEF YOU %s // UPDATE" % mine.to_upper(), "mismatch message: %s" % refused)
+	# the fingerprint covers the RPC tables: a renamed / added RPC on RemotePlayers changes it
+	var config: Dictionary = (load("res://src/game_3d/remote_players.gd") as Script).get_rpc_config()
+	_expect(config.has("_place") and config.has("_wire_profile"), "the fingerprint is not reading RemotePlayers' RPC table")
+
+
 func _requests_allowed() -> void:
 	var call := RegEx.new()
 	call.compile("request_interaction\\(\\s*(\\{[^}]*\\}|[a-z_]+)")

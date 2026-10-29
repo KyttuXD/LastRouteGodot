@@ -947,6 +947,7 @@ func register_room(code: String, port: int, player_count: int,
 		"sessionToken": account_session_token,
 		"deviceId": moderation.device_id(),
 		"roomPassword": room_password,   # only a reserved code needs it
+		"protocol": NetProtocol.fingerprint(),   # guests on another build are refused before they connect
 	})
 	_heartbeat.start()
 
@@ -1168,6 +1169,9 @@ func _resolve_reserved(code: String) -> void:
 		reserved_join_ticket = String(payload.get("joinTicket", ""))
 		reserved_join_code = code
 		var room = payload.get("room", {})
+		if room is Dictionary and not NetProtocol.mismatch(String(room.get("protocol", ""))).is_empty():
+			room_resolved.emit(code, {}, NetProtocol.mismatch(String(room.get("protocol", ""))))
+			return
 		room_resolved.emit(code, room if room is Dictionary else {}, "" if room is Dictionary else "PRIVATE ROOM RETURNED NO ENDPOINT"))
 	if request.request(_url("/api/rooms/reserved/resolve"), _headers(), HTTPClient.METHOD_POST,
 			JSON.stringify({"code": code, "sessionToken": account_session_token, "password": room_password})) != OK:
@@ -1249,6 +1253,10 @@ func _on_resolve_response(result: int, response_code: int,
 	var room = payload.get("room", {})
 	if not room is Dictionary or String(room.get("address", "")).is_empty():
 		room_resolved.emit(code, {}, "DIRECTORY RETURNED AN INVALID ENDPOINT")
+		return
+	var refused := NetProtocol.mismatch(String(room.get("protocol", "")))
+	if not refused.is_empty():
+		room_resolved.emit(code, {}, refused)
 		return
 	room_resolved.emit(code, room, "")
 
