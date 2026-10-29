@@ -1,6 +1,10 @@
 extends Node
 
 const RELAY_TUNNEL_SCRIPT := preload("res://src/network/enet_relay_tunnel.gd")
+const WS_PEER_SCRIPT := preload("res://src/network/ws_room_peer.gd")
+## The persistent public route always uses the WebSocket relay, so web and native players share one route. (ENet/UDP
+## cannot be used from a browser.)
+const PUBLIC_ROUTE_USES_WS := true
 
 ## The room a session belongs to.
 ##
@@ -148,7 +152,10 @@ const RECONNECT_LOOKUP_INTERVAL_MSEC := 1_000
 ## before there is anything to connect to.
 const DEFAULT_ADDRESS := "127.0.0.1"
 
-var _peer: ENetMultiplayerPeer
+var _peer: MultiplayerPeer
+## Private rooms use the WebSocket relay too (so browser players can join them). Web builds always do; native builds
+## opt in with `-- --ws-rooms` (tests) until a setting exists.
+var prefer_ws_rooms := false
 var _host_port := DEFAULT_PORT
 var _connect_started_msec := 0
 var _relay: Node
@@ -168,7 +175,12 @@ var _scene_transitions_suppressed_for_tests := false
 var _packs_waiting := {}
 
 
+func uses_ws_transport() -> bool:
+	return OS.has_feature("web") or prefer_ws_rooms or (public_route and PUBLIC_ROUTE_USES_WS)
+
+
 func _ready() -> void:
+	prefer_ws_rooms = OS.get_cmdline_user_args().has("--ws-rooms")
 	Backend.registration_changed.connect(_on_directory_registration)
 	Backend.account_changed.connect(_on_account_changed)
 	Backend.room_resolved.connect(_on_room_resolved)
@@ -354,17 +366,23 @@ func prepare_route_checkpoint(checkpoint: Dictionary) -> String:
 ## singleplayer room you are already in becoming joinable.
 func host_room(port: int = DEFAULT_PORT,
 		fallback_to_solo_on_listing_failure: bool = false) -> String:
-	if OS.has_feature("web"):
-		return "WEB BUILD IS SOLO // ENET/UDP NEEDS A WEBSOCKET OR WEBRTC TRANSPORT"
 	GameState.clear_pending_route_checkpoint()
 	leave_network()
 	_primary_create_fallback_enabled = fallback_to_solo_on_listing_failure
-	_peer = ENetMultiplayerPeer.new()
-	var error := _peer.create_server(port, MAX_PLAYERS)
-	if error != OK:
-		_peer = null
-		_primary_create_fallback_enabled = false
-		return "COULD NOT CREATE ONLINE ROOM // NETWORK PORT UNAVAILABLE"
+	var use_ws := uses_ws_transport()
+	if use_ws:
+		var ws_peer = WS_PEER_SCRIPT.new()
+		ws_peer.create_host(code)
+		ws_peer.link_ready.connect(_on_relay_ready)
+		ws_peer.link_failed.connect(_on_relay_failed)
+		_peer = ws_peer
+	else:
+		var enet_peer := ENetMultiplayerPeer.new()
+		var error := enet_peer.create_server(port, MAX_PLAYERS)
+		if error != OK:
+			_primary_create_fallback_enabled = false
+			return "COULD NOT CREATE ONLINE ROOM // NETWORK PORT UNAVAILABLE"
+		_peer = enet_peer
 	multiplayer.multiplayer_peer = _peer
 	_host_port = port
 	online = true
@@ -378,7 +396,8 @@ func host_room(port: int = DEFAULT_PORT,
 	var pack_error := RoomPacks.host_load(public_route)
 	if not pack_error.is_empty():
 		status_message = pack_error
-	Backend.register_room(code, port, peers.size(), session_active)
+	Backend.register_room(code, 0 if use_ws else port, peers.size(), session_active,
+		"ws" if use_ws else "enet")
 	changed.emit()
 	return ""
 
@@ -476,30 +495,43 @@ func host_primary_room(port: int = DEFAULT_PORT) -> String:
 func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT,
 		transport: String = "direct", room_code: String = "",
 		preserve_session: bool = false) -> String:
-	if OS.has_feature("web"):
-		return "WEB BUILD IS SOLO // ENET/UDP NEEDS A WEBSOCKET OR WEBRTC TRANSPORT"
+	var use_ws := transport == "ws"
+	if OS.has_feature("web") and not use_ws:
+		return "THIS ROOM IS NATIVE-ONLY // ASK THE HOST FOR A WEB-COMPATIBLE ROOM"
 	if preserve_session:
 		_close_transport_only(false)
 	else:
 		GameState.clear_pending_route_checkpoint()
 		leave_network()
 	var trimmed := address.strip_edges()
-	if trimmed.is_empty():
-		return "ENTER A HOST ADDRESS"
-	var connect_address := trimmed
-	var connect_port := port
-	if transport == "relay":
-		var ticket := Backend.take_join_ticket(room_code)
-		reserved = not ticket.is_empty()   # only a reserved private room hands out join tickets
-		connect_port = _relay.start_guest(room_code, trimmed, port, ticket)
-		if connect_port <= 0:
-			return "COULD NOT OPEN GAMEPLAY RELAY TUNNEL"
-		connect_address = DEFAULT_ADDRESS
-	_peer = ENetMultiplayerPeer.new()
-	var error := _peer.create_client(connect_address, connect_port)
-	if error != OK:
-		_peer = null
-		return "COULD NOT REACH GAMEPLAY RELAY"
+	if use_ws:
+		if room_code.strip_edges().is_empty():
+			return "ENTER A ROOM CODE"
+		var ws_ticket := Backend.take_join_ticket(room_code)
+		reserved = not ws_ticket.is_empty()   # only a reserved private room hands out join tickets
+		var ws_peer = WS_PEER_SCRIPT.new()
+		ws_peer.link_failed.connect(_on_ws_guest_link_failed)
+		var ws_error: int = ws_peer.create_guest(WS_PEER_SCRIPT.relay_url(Backend.base_url), room_code, ws_ticket)
+		if ws_error != OK:
+			return "COULD NOT REACH THE WEB RELAY"
+		_peer = ws_peer
+	else:
+		if trimmed.is_empty():
+			return "ENTER A HOST ADDRESS"
+		var connect_address := trimmed
+		var connect_port := port
+		if transport == "relay":
+			var ticket := Backend.take_join_ticket(room_code)
+			reserved = not ticket.is_empty()   # only a reserved private room hands out join tickets
+			connect_port = _relay.start_guest(room_code, trimmed, port, ticket)
+			if connect_port <= 0:
+				return "COULD NOT OPEN GAMEPLAY RELAY TUNNEL"
+			connect_address = DEFAULT_ADDRESS
+		var enet_peer := ENetMultiplayerPeer.new()
+		var error := enet_peer.create_client(connect_address, connect_port)
+		if error != OK:
+			return "COULD NOT REACH GAMEPLAY RELAY"
+		_peer = enet_peer
 	multiplayer.multiplayer_peer = _peer
 	online = false
 	connecting = true
@@ -653,6 +685,16 @@ func _on_directory_registration(listed: bool, message: String) -> void:
 		_primary_create_fallback_enabled = false
 	_directory_status = message if listed else "PRIMARY SERVER LISTING FAILED // %s" % message
 	status_message = _directory_status
+	if listed and _peer != null and _peer.get_script() == WS_PEER_SCRIPT:
+		var ws_endpoint := Backend.host_endpoint()
+		if String(ws_endpoint.get("transport", "")) != "ws":
+			_on_relay_failed("PRIMARY SERVER DID NOT ACCEPT A WEB-COMPATIBLE ROOM")
+			return
+		_peer.start_host_link(WS_PEER_SCRIPT.relay_url(Backend.base_url), Backend.host_token())
+		_relay_status = "CONNECTING WEB RELAY"
+		status_message += " // %s" % _relay_status
+		changed.emit()
+		return
 	if listed:
 		var endpoint := Backend.host_endpoint()
 		var relay_address := String(endpoint.get("address", ""))
@@ -674,6 +716,11 @@ func _on_directory_registration(listed: bool, message: String) -> void:
 	changed.emit()
 
 
+func _on_ws_guest_link_failed(message: String) -> void:
+	if connecting:
+		_close_failed_connection(message)
+
+
 func _on_relay_ready() -> void:
 	_relay_status = "GAMEPLAY RELAY READY // NO PORT FORWARDING REQUIRED"
 	if online and is_host:
@@ -686,6 +733,10 @@ func _on_relay_ready() -> void:
 
 
 func _on_relay_failed(message: String) -> void:
+	# A web-relay host whose link dropped may be talking to a restarted server that forgot the room: ask the
+	# directory right away (the next heartbeat re-lists the room and re-opens the link) instead of waiting for the timer.
+	if online and is_host and _peer != null and _peer.get_script() == WS_PEER_SCRIPT:
+		Backend.update_room(peers.size(), session_active)
 	_relay_status = "GAMEPLAY RELAY WAITING // %s" % message
 	if online and is_host:
 		status_message = _directory_status if not _directory_status.is_empty() \

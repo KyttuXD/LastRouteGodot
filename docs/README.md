@@ -34,6 +34,7 @@ Branch `ref-look` (Godot 4.7, Compatibility renderer). Everything below is curre
 
 Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [HUNTER_PATHING.md](HUNTER_PATHING.md) — real-play hunter stuck causes, stuck telemetry, hunter_real validator
+- [Web build](WEB_BUILD.md): export, hosting on kyttuslab.org, the WebSocket room relay and its limits.
 - [HUNTER_PARITY.md](HUNTER_PARITY.md) — 2D vs 3D hunter mechanics audit and what was ported
 - [DEATH_SCENES.md](DEATH_SCENES.md) — death lines catalog, the death moment, wipe variant
 - [GAME_SCHEMES.md](GAME_SCHEMES.md) — per-game colour/style schemes for the shared menus (Last Route vs the City)

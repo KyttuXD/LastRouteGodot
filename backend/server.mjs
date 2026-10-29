@@ -8,6 +8,7 @@ import { CITY_MAP_TICKET_HEADER, createCityMaps } from "./city_maps.mjs";
 import { SKIN_ACCOUNT_PATH, SKIN_ARMS_HEADER, SKIN_MAX_BYTES, SKIN_TOKEN_HEADER, createSkins } from "./skins.mjs";
 import { SAVE_MAX_BYTES, SAVE_PATH, createGameSaves } from "./game_saves.mjs";
 import { createEnetRelay } from "./enet_relay.mjs";
+import { createWsRelay, WS_PATH } from "./ws_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
 import { createPublicRoute, PUBLIC_CODES } from "./public_route.mjs";
 import { createModeration } from "./moderation.mjs";
@@ -126,7 +127,10 @@ function cleanAddress(value) {
 }
 
 function requesterAddress(request, trustProxy) {
-  if (trustProxy) {
+  // A proxy running on this machine (the site's same-origin /godot2-api forwarder) is trusted for the real client
+  // address: only local processes can connect from loopback, so a remote caller cannot forge the header.
+  const direct = cleanAddress(request.socket.remoteAddress);
+  if (trustProxy || direct === "127.0.0.1") {
     const forwarded = String(request.headers["x-forwarded-for"] || "").split(",")[0].trim();
     if (forwarded) return cleanAddress(forwarded);
   }
@@ -145,13 +149,9 @@ function cleanGame(value) {
 }
 
 function publicEnetRoom(room, timestamp, relayAddress = "", relayPort = 0) {
-  const relayed = Boolean(relayAddress && relayPort);
-  return {
+  const common = {
     code: room.code,
     game: room.game || "last_route",
-    transport: relayed ? "relay" : "direct",
-    address: relayed ? relayAddress : room.address,
-    port: relayed ? relayPort : room.port,
     players: room.players,
     sessionActive: room.sessionActive,
     daytime: Boolean(room.daytime),
@@ -159,6 +159,17 @@ function publicEnetRoom(room, timestamp, relayAddress = "", relayPort = 0) {
     dedicated: Boolean(room.dedicated),
     region: room.region || "",
     expiresIn: Math.max(0, Math.ceil((room.expiresAt - timestamp) / 1000)),
+  };
+  if (room.transport === "ws") {
+    // Browser-capable room: players connect to this server's WebSocket relay over the same origin they already use.
+    return { ...common, transport: "ws", address: "", port: 0, wsPath: WS_PATH };
+  }
+  const relayed = Boolean(relayAddress && relayPort);
+  return {
+    ...common,
+    transport: relayed ? "relay" : "direct",
+    address: relayed ? relayAddress : room.address,
+    port: relayed ? relayPort : room.port,
   };
 }
 
@@ -359,6 +370,14 @@ export function createLastRouteServer({
   const requestRates = new Map();
   let enetRelay = null;
   let reloadId = 0;
+  const wsRelay = createWsRelay({
+    roomByCode: (code) => {
+      pruneEnetRooms();
+      return enetRooms.get(code) || null;
+    },
+    now,
+    logger,
+  });
 
   function currentUpdates() {
     if (typeof updatesProvider !== "function") return updates;
@@ -376,10 +395,18 @@ export function createLastRouteServer({
     for (const [game, route] of Object.entries(publicRoutes)) {
       if (route.authorityStale()) {
         enetRooms.delete(PUBLIC_CODES[game]);
+        wsRelay.closeRoom(PUBLIC_CODES[game]);
         route.resetAuthority();
       }
     }
-    for (const [code, room] of enetRooms) if (room.expiresAt <= timestamp) enetRooms.delete(code);
+    for (const [code, room] of enetRooms) {
+      // A web room whose host still holds its relay socket is alive even if the browser tab stopped sending heartbeats
+      // (a hidden tab pauses the game loop); the WebSocket is answered by the browser itself.
+      if (room.transport === "ws" && wsRelay.hasHost(code)) room.expiresAt = Math.max(room.expiresAt, timestamp + enetRoomTtlMs);
+      if (room.expiresAt > timestamp) continue;
+      enetRooms.delete(code);
+      wsRelay.closeRoom(code);
+    }
     for (const [ticket, proof] of adminTickets) {
       if (proof.expiresAt <= timestamp || !enetRooms.has(proof.code)) adminTickets.delete(ticket);
     }
@@ -389,6 +416,7 @@ export function createLastRouteServer({
     const room = enetRooms.get(code);
     if (!room) return;
     enetRooms.delete(code);
+    wsRelay.closeRoom(code);
     for (const [ticket, proof] of adminTickets) {
       if (proof.code === code && safeEqual(proof.hostToken, room.token)) adminTickets.delete(ticket);
     }
@@ -470,6 +498,7 @@ export function createLastRouteServer({
         port: request.socket.localPort,
         rooms: enetRooms.size,
         relay: enetRelay?.relayStatus() || { enabled: false },
+        wsRelay: wsRelay.status(),
         webRooms: roomService.rooms.size,
         reloadId,
         updates: updateStatus,
@@ -771,9 +800,10 @@ export function createLastRouteServer({
 
     if (url.pathname === "/api/enet/rooms/register") {
       const code = normalizeEnetCode(body.code);
-      const port = Number(body.port);
+      const webRoom = body.transport === "ws";
+      const port = webRoom ? 0 : Number(body.port);
       if (!code) return json(response, 400, { ok: false, error: "INVALID ROOM CODE" });
-      if (!Number.isInteger(port) || port < 1 || port > 65_535) return json(response, 400, { ok: false, error: "INVALID ENET PORT" });
+      if (!webRoom && (!Number.isInteger(port) || port < 1 || port > 65_535)) return json(response, 400, { ok: false, error: "INVALID ENET PORT" });
       const hostUser = body.sessionToken ? accountService.sessionUsername(body.sessionToken) || "" : "";
       const reserved = Boolean(reservedRooms?.isReserved(code));
       const spawn = spawnTickets.get(code);
@@ -801,6 +831,7 @@ export function createLastRouteServer({
         token,
         address: requesterAddress(request, trustProxy),
         port,
+        transport: webRoom ? "ws" : "enet",
         hostUser,                                   // reporting identity for moderation (may be empty)
         instance: randomBytes(9).toString("base64url"),
         players: Math.trunc(finitePlayers(body.players, 1)),
@@ -851,6 +882,7 @@ export function createLastRouteServer({
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
       // an explicit quit: guests are told now and the code stops resolving now
       enetRelay?.closeRoom(code);
+      wsRelay.closeRoom(code);
       forgetEnetRoom(code);
       return json(response, 200, { ok: true, removed: true });
     }
@@ -860,8 +892,11 @@ export function createLastRouteServer({
       const room = enetRooms.get(code);
       if (!room) return json(response, 200, { ok: true, migrating: false });
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
-      const migrating = Boolean(enetRelay?.requestHostMigration(code));
-      if (!migrating) enetRooms.delete(code);
+      const migrating = room.transport === "ws" ? false : Boolean(enetRelay?.requestHostMigration(code));
+      if (!migrating) {
+        enetRooms.delete(code);
+        wsRelay.closeRoom(code);
+      }
       return json(response, 200, { ok: true, migrating });
     }
 
@@ -1051,8 +1086,12 @@ export function createLastRouteServer({
     enetRelay.bind(port, host);
     return enetRelay;
   };
+  server.on("upgrade", (request, socket, head) => {
+    if (!wsRelay.handleUpgrade(request, socket, head)) socket.destroy();
+  });
   server.on("close", () => {
     if (enetRelay) enetRelay.close();
+    wsRelay.close();
   });
   return server;
 }

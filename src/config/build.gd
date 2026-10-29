@@ -133,7 +133,7 @@ static func is_beta() -> bool:
 
 static func requires_update_gate() -> bool:
 	# TEST SERVER builds (run_multi / export_test_multiplayer) are play-test builds: they never wait for an update.
-	if OS.has_feature("test_server") or is_beta():
+	if OS.has_feature("test_server") or OS.has_feature("web") or is_beta():
 		return false
 	return OS.is_debug_build() and revision() != SOURCE_REVISION
 

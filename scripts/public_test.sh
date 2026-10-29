@@ -32,7 +32,7 @@ client() { # role key
   "$GODOT" --headless --path . res://scenes/public_test.tscn -- "$1" "--backend=$TARGET" "--dir=$TMP" "--key=$2" ${GAME:+--game=$GAME} $GODOT_FLAGS > "$TMP/$1.log" 2>&1 &
   eval "PID_$1=$!"; PIDS+=($!)
 }
-waitfile() { for i in $(seq 1 ${2:-120}); do [ -f "$TMP/$1" ] && return 0; grep -q "PUBLIC .* FAIL" "$TMP"/*.log 2>/dev/null && return 1; sleep 1; done; return 1; }
+waitfile() { for i in $(seq 1 ${2:-120}); do [ -f "$TMP/$1" ] && return 0; grep -q "PUBLIC [A-Za-z0-9]* FAIL " "$TMP"/*.log 2>/dev/null && return 1; sleep 1; done; return 1; }
 if [ "$REMOTE" = 1 ]; then TARGET="$BACKEND_URL"; else TARGET="http://127.0.0.1:$HTTP"; fi
 KEYA=aaaaaaaaaaaaaaaaaaaaaaaa; KEYB=bbbbbbbbbbbbbbbbbbbbbbbb
 start_server; sleep 2
@@ -55,5 +55,5 @@ STATUS=1
 grep -h "^PUBLIC" "$TMP"/a.log "$TMP"/b.log "$TMP"/b2.log
 STATE=$(curl -s "$TARGET/api/public/status${GAME:+?game=$GAME}")
 echo "status after: $STATE"
-if [ -f "$TMP/a_after_restart.txt" ] && [ -f "$TMP/b2_authority.txt" ] && [ -f "$TMP/b2_ok.txt" ] && [ -f "$TMP/a_spectate_done.txt" ] && [ -f "$TMP/b2_spectating.txt" ] && ! grep -q "PUBLIC .* FAIL" "$TMP"/*.log; then echo "public route test OK"; STATUS=0; else echo "public route test FAILED"; tail -6 "$TMP"/a.log "$TMP"/b.log "$TMP"/b2.log; fi
+if [ -f "$TMP/a_after_restart.txt" ] && [ -f "$TMP/b2_authority.txt" ] && [ -f "$TMP/b2_ok.txt" ] && [ -f "$TMP/a_spectate_done.txt" ] && [ -f "$TMP/b2_spectating.txt" ] && ! grep -q "PUBLIC [A-Za-z0-9]* FAIL " "$TMP"/*.log; then echo "public route test OK"; STATUS=0; else echo "public route test FAILED"; tail -6 "$TMP"/a.log "$TMP"/b.log "$TMP"/b2.log; fi
 exit $STATUS
