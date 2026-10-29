@@ -16,15 +16,20 @@ const REMOTE_HELD_MODELS := {
 	"crowbar": "res://art/props-3d/interactables/crowbar.glb",
 	"rescue_axe": "res://art/props-3d/interactables/rescue_axe.glb",
 	"battery": "res://art/props-3d/interactables/battery.glb",
+	"stim_pack": "res://art/props-3d/interactables/stim_pack.glb",
+	"revive_kit": "res://art/props-3d/interactables/revive_kit.glb",
 }
 const REMOTE_HELD_SCALES := {
 	"flashlight": .34, "taser": .32, "lockpick": .29,
 	"crowbar": .58, "rescue_axe": .62, "battery": .40,
+	"stim_pack": .40, "revive_kit": .52,
 }
 const REMOTE_BEAM_HAND_OFFSET := .38
 const SEND_HZ := 20.0
 const INTERPOLATION_SPEED := 14.0
 const REMOTE_STATE_TIMEOUT_USEC := 2_000_000
+## The maps keep a quiet teammate at their last known spot (dimmed) this long instead of dropping them on one late packet.
+const MAP_STALE_GRACE_USEC := 60_000_000
 const SNAPSHOT_RETRY_SECONDS := 0.5
 const CAPTURE_PENDING_TIMEOUT_USEC := 15_000_000
 const MAX_CHAT_LENGTH := 80   # spoken aloud (text to speech): short lines
@@ -40,6 +45,8 @@ var _bodies := {}
 ## id -> the skin hash that body shows (or is waiting for); peers' skins live in PlayerSkin's memory cache only.
 var _peer_skin := {}
 var _peer_slim := {}   # id -> whether that body has the slim (Alex) arms
+var _peer_state_skin := {}   # id -> the skin hash the peer's own state last carried (an account lookup may differ)
+var _peer_state_slim := {}
 var _players := {}
 var _positions := {}
 var _facings := {}
@@ -96,7 +103,7 @@ var guard := GuestGuard.new()
 ## Emitted on the host when a guest's sample was corrected (and when it was kicked).
 signal guest_violation(peer_id: int, reason: String, strikes: int, kicked: bool)
 ## Host events that move the guest a long way; the guard lets the next jump through (GuestGuard.allow_jump).
-const HOST_MOVES := ["revive", "axe_rescue", "hide_found"]
+const HOST_MOVES := ["revive", "revive_at", "axe_rescue", "hide_found"]
 const INTERACTION_RATE_WINDOW_MS := 1000
 ## Per guest, all kinds together. 8 was reachable in normal play (mashing a door, sweeping up a pile of pickups) and
 ## dropped requests without a word; this only stops a flood.
@@ -356,6 +363,7 @@ func _process(delta: float) -> void:
 		if _lookup_elapsed >= PEER_LOOKUP_SECONDS and not _states.is_empty():
 			_lookup_elapsed = 0.0
 			_lookup_peers()
+	_tick_pings(delta)
 	_since_send += delta
 	if _since_send < 1.0 / SEND_HZ:
 		return
@@ -399,6 +407,57 @@ func _check_hot_size(hot: Array, state: Dictionary) -> void:
 		hot[-1].keys() if hot[-1] is Dictionary else []])
 
 
+## Host: measure each guest's round trip and tell everyone once a second, so every client's player list can show pings.
+const PING_BROADCAST_SECONDS := 1.0
+var _peer_pings := {}
+var _ping_elapsed := 0.0
+
+
+func _tick_pings(delta: float) -> void:
+	if not RoomState.is_host:
+		return
+	_ping_elapsed += delta
+	if _ping_elapsed < PING_BROADCAST_SECONDS:
+		return
+	_ping_elapsed = 0.0
+	var pings := {1: 0}
+	for id in RoomState.peers:
+		if int(id) > 1 and peer_is_live(int(id)):
+			pings[int(id)] = int(_peer_rtt_ms(int(id)))
+	_peer_pings = pings
+	_receive_pings.rpc(pings)
+
+
+@rpc("authority", "call_remote", "unreliable")
+func _receive_pings(pings: Dictionary) -> void:
+	var clean := {}
+	for id in pings:
+		clean[int(id)] = clampi(int(pings[id]), 0, 9999)
+	_peer_pings = clean
+
+
+## The replicated state of one peer ({} when unknown); the host's answer to an admin pulse reads it.
+func peer_state(id: int) -> Dictionary:
+	return (_states.get(id, {}) as Dictionary)
+
+
+func peer_body(id: int) -> Node3D:
+	return _bodies.get(id) as Node3D
+
+
+func peer_pings() -> Dictionary:
+	return _peer_pings
+
+
+## Rows for the player list: the room roster joined with each peer's replicated state, the host's ping figures and who is talking.
+func player_list_rows(can_pulse: bool) -> Array:
+	var controller := local_player as PlayerController3D
+	var local := {"depth": GameState.depth, "spectating": controller != null and controller.spectator_mode,
+		"game_over": GameState.game_over, "escape_active": GameState.escape_active}
+	return RoomPlayerList.build(RoomState.roster_rows(), _states, local, _peer_pings,
+		voice.talking_peers() if voice != null else {}, can_pulse, Time.get_ticks_usec())
+
+
 func _local_state() -> Dictionary:
 	var controller := local_player as PlayerController3D
 	if controller == null:
@@ -435,6 +494,8 @@ func _local_state() -> Dictionary:
 		"sprinting": controller.movement_mode == "sprint" and controller.noise > 0.0,
 		"facing": controller.facing,
 		"lamp_charge": controller.lamp_charge,
+		"stim_boost": controller.stim_boost,
+		"stim_crash": controller.stim_crash,
 		"selected_item": controller.selected_inventory_item(),
 		"tool_swing_seq": controller.tool_swing_seq,
 		"tool_swing_item": controller.tool_swing_item,
@@ -609,7 +670,10 @@ func _place(packet: Variant) -> void:
 	if received.get("seat_at") is Vector2:
 		at = (at as Vector3) + Vector3.UP * maxf(0.0, float(received.get("seat_top", 0.0)) - PlayerController3D.SIT_CLIP_SEAT)
 	_positions[id] = (at as Vector3) + Vector3(0.0, _grab_lift(state), 0.0)
-	if String(state.get("skin", "")) != String(_peer_skin.get(id, "")) or bool(state.get("skin_slim", false)) != bool(_peer_slim.get(id, false)):
+	if String(state.get("skin", "")) != String(_peer_state_skin.get(id, "x")) \
+			or bool(state.get("skin_slim", false)) != bool(_peer_state_slim.get(id, false)):
+		_peer_state_skin[id] = String(state.get("skin", ""))
+		_peer_state_slim[id] = bool(state.get("skin_slim", false))
 		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
 	var vr_pose := VRPoseSync.decode(state.get("vr"))
@@ -993,6 +1057,15 @@ func _own_skin_hash() -> String:
 func _apply_peer_skin(id: int, body: Node3D, hash: String, slim: bool = false) -> void:
 	if not PlayerSkin.valid_hash(hash):
 		hash = ""
+	# A signed-in peer whose state carries no skin hash yet (their upload is still going): ask the server for their ACCOUNT's skin.
+	var account := String(_states.get(id, {}).get("account", ""))
+	if hash.is_empty() and not account.is_empty():
+		if not Backend.skin_sync.account_resolved.is_connected(_on_account_skin_resolved):
+			Backend.skin_sync.account_resolved.connect(_on_account_skin_resolved)
+		var found: Dictionary = Backend.skin_sync.account_skin(account)
+		if not found.is_empty() and PlayerSkin.valid_hash(String(found.get("hash", ""))):
+			hash = String(found["hash"])
+			slim = slim or String(found.get("arms", "auto")) == "slim"
 	var previous := String(_peer_skin.get(id, ""))
 	_peer_skin[id] = hash
 	_peer_slim[id] = slim
@@ -1010,6 +1083,13 @@ func _apply_peer_skin(id: int, body: Node3D, hash: String, slim: bool = false) -
 	if not Backend.skin_sync.fetched.is_connected(_on_skin_fetched):
 		Backend.skin_sync.fetched.connect(_on_skin_fetched)
 	Backend.skin_sync.fetch(hash)
+
+
+func _on_account_skin_resolved(account: String, hash: String, arms: String) -> void:
+	for id in _bodies:
+		if String(_states.get(id, {}).get("account", "")).to_upper() == account and String(_peer_skin.get(id, "")).is_empty() \
+				and PlayerSkin.valid_hash(hash):
+			_apply_peer_skin(id, _bodies[id], hash, arms == "slim" or bool(_peer_slim.get(id, false)))
 
 
 func _on_skin_fetched(hash: String) -> void:
@@ -1030,6 +1110,8 @@ func _drop(id: int) -> void:
 	var gone := String(_peer_skin.get(id, ""))
 	_peer_skin.erase(id)
 	_peer_slim.erase(id)
+	_peer_state_skin.erase(id)
+	_peer_state_slim.erase(id)
 	PlayerSkin.forget_peer(id)
 	if not gone.is_empty():
 		PlayerSkin.release_peer(gone, _peer_skin.values())
@@ -1181,14 +1263,18 @@ func target_states(local_target: Dictionary) -> Array[Dictionary]:
 ## Map-safe view of fresh remote transforms. The caller supplies the same
 ## depth value that is replicated in movement packets, preventing teammates on
 ## upper/lower floors from leaking onto the current floor's map.
-func remote_player_marks(depth: int) -> Array:
+## include_other_floors: teammates on a different storey also come back, flagged "other_floor" (the maps show them as an up/down marker).
+func remote_player_marks(depth: int, include_other_floors: bool = false) -> Array:
 	var result := []
 	var now := Time.get_ticks_usec()
 	for id_value in _states:
 		var id := int(id_value)
 		var state: Dictionary = _states[id]
-		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC \
-				or int(state.get("depth", -999999)) != depth:
+		var age := now - int(state.get("received_usec", 0))
+		if age > MAP_STALE_GRACE_USEC:
+			continue
+		var other_floor := int(state.get("depth", -999999)) != depth
+		if other_floor and not include_other_floors:
 			continue
 		var marker_position = state.get("position")
 		if not marker_position is Vector2:
@@ -1198,8 +1284,13 @@ func remote_player_marks(depth: int) -> Array:
 			"at": marker_position,
 			"facing": state.get("facing", Vector2.UP),
 			"name": String(state.get("display_name", RoomState.peer_display_name(id))),
-			"level": -depth,
+			"level": -int(state.get("depth", depth)),
 			"colour": peer_colour(id),
+			"spectating": bool(state.get("spectating", false)) or bool(state.get("game_over", false)),
+			"other_floor": other_floor,
+			"stale": age > REMOTE_STATE_TIMEOUT_USEC,
+			"age_ms": int(age / 1000),
+			"caught": bool(state.get("escape_active", false)) and not bool(state.get("spectating", false)),
 		})
 	for id_value in _floor_exit_marks.keys().duplicate():
 		var id := int(id_value)
@@ -1367,7 +1458,7 @@ func _canonical_world_event(event: Dictionary) -> Dictionary:
 const GUEST_INTERACTIONS := ["music_box", "ceryth_answer", "guardian_ping", "vent_used", "zellia_trade", "admin_auth",
 	"admin_custom_map", "admin_world", "stream_pickup", "stream_safe_repair", "stream_checkpoint", "stream_drop",
 	"stream_sabotage", "stream_waypoint", "stream_axe_rescue", "ravelle_disarm", "stream_room_light", "stream_booth",
-	"stream_carousel", "stream_breach_request", "stream_door", "signal_route_result"]
+	"stream_carousel", "stream_breach_request", "stream_door", "signal_route_result", "stream_revive"]
 
 
 ## Guest-owned input which needs host-owned hunter state. The request names an
@@ -1432,11 +1523,13 @@ func _request_interaction(event: Dictionary) -> void:
 				"stun_hunters", "wake_hunters", "calm_hunters",
 				"damage_checkpoint", "repair_checkpoint", "lights_on",
 				"lights_off", "summon_hunter", "remove_hunter",
-				"story_start", "story_stop", "story_reset"].has(action):
+				"story_start", "story_stop", "story_reset", "pulse_player"].has(action):
 			return
 		accepted = {"what": what, "action": action,
 			"admin_ticket": _clean_admin_ticket(event.get("admin_ticket", ""))}
-		if action in ["summon_hunter", "remove_hunter"]:
+		if action == "pulse_player":
+			accepted["target"] = clampi(int(event.get("target", 0)), 1, 2147483647)
+		elif action in ["summon_hunter", "remove_hunter"]:
 			var hunter_id := String(event.get("hunter_id", ""))
 			if not HunterRoster.A_Z_IDS.has(hunter_id) \
 					and not HunterRoster.VOID_IDS.has(hunter_id):

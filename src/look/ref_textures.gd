@@ -16,6 +16,42 @@ const WALL_H := 128
 static var _images := {}
 static var _textures := {}
 static var _materials := {}
+## Content packs' replacement images (docs/modding/content-types.md, "Surfaces"), "floor:<kind>" / "wall:<kind>" -> a
+## loaded pack's PNG path. Empty without packs, so every kind is painted as before.
+static var _pack_images: Dictionary = _collect_pack_images()
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
+
+
+## Packs changed (ContentRegistry.load_packs / unload_packs): drop every cached image, texture, material and array so
+## they are rebuilt from the current packs. Packs change between rooms, so no world mixes old and new layers.
+static func rebuild_from_registry() -> void:
+	_pack_images = _collect_pack_images()
+	for cache in [_images, _textures, _materials, _array_textures, _array_layers, _array_materials]:
+		cache.clear()
+
+
+static func _collect_pack_images() -> Dictionary:
+	var out := {}
+	for def in ContentRegistry.pack_defs("floors"):
+		out["floor:" + String(def["id"])] = String(def["image"])
+	for def in ContentRegistry.pack_defs("walls"):
+		out["wall:" + String(def["id"])] = String(def["image"])
+	return out
+
+
+## One kind's image: a loaded pack's replacement (RGBA8, nearest-scaled to this group's size, so the shared arrays stay
+## uniform), else the painter's.
+static func _paint(group: String, kind: String, entry: Array) -> Image:
+	var path := String(_pack_images.get("%s:%s" % [group, kind], ""))
+	if not path.is_empty():
+		var img := Image.load_from_file(path)
+		if img != null and not img.is_empty():
+			if img.is_compressed():
+				img.decompress()
+			img.convert(Image.FORMAT_RGBA8)
+			img.resize(PX, WALL_H if group == "wall" else PX, Image.INTERPOLATE_NEAREST)
+			return img
+	return Callable(RefTextures, entry[0]).call(entry[1])
 
 # -- tiny painter --------------------------------------------------------------
 
@@ -950,8 +986,9 @@ static func texture(group: String, kind: String) -> Texture2D:
 		return _textures[key]
 	var table: Dictionary = {"floor": FLOOR_PAINTERS, "wall": WALL_PAINTERS,
 		"ceiling": CEILING_PAINTERS}[group]
-	var entry: Array = table.get(kind, table[table.keys()[0]])
-	var img: Image = Callable(RefTextures, entry[0]).call(entry[1])
+	var known := table.has(kind)
+	var entry: Array = table[kind] if known else table[table.keys()[0]]
+	var img: Image = _paint(group, kind if known else String(table.keys()[0]), entry)
 	img.generate_mipmaps()
 	var tex := ImageTexture.create_from_image(img)
 	_textures[key] = tex
@@ -1016,7 +1053,8 @@ static func _build_array(group: String) -> void:
 		var table: Dictionary = WALL_PAINTERS if group == "wall" else (
 			FLOOR_PAINTERS if FLOOR_PAINTERS.has(kind) else CEILING_PAINTERS)
 		var entry: Array = table[kind]
-		var img: Image = Callable(RefTextures, entry[0]).call(entry[1])
+		var img: Image = _paint("wall" if group == "wall" else ("floor" if FLOOR_PAINTERS.has(kind) else "ceiling"), kind,
+			entry)
 		img.generate_mipmaps()
 		images.append(img)
 	var arr := Texture2DArray.new()

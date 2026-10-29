@@ -98,7 +98,11 @@ func _password_prompt(host: Node) -> void:
 	if field != null:
 		field.text = "room pass 1"
 		menu._join_input.text = "KTPRV"
+		# a headless run cannot reach the server, so HUB's offline mode would stop the join before the lookup
+		var was_offline: bool = Backend.offline_mode
+		Backend.offline_mode = false
 		menu._submit_join()
+		Backend.offline_mode = was_offline
 		_expect(Backend.room_password == "room pass 1", "the typed password was not used for the lookup")
 	Backend.room_password = ""
 	menu._close_modal()

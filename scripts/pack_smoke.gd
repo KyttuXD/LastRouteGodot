@@ -10,7 +10,7 @@ extends Node
 ##
 ## Live end-to-end (real VPS 3 index and VPS 2 files; the pack must be published):
 ##   godot4 --headless --path . res://scenes/pack_smoke.tscn -- host  download <pack dir>
-##   godot4 --headless --path . res://scenes/pack_smoke.tscn -- client download
+##   godot4 --headless --path . res://scenes/pack_smoke.tscn -- client download [host address]
 ## The host loads <pack dir> (e.g. examples/mods/ember); the guest starts with no packs, and a stand-in for the lobby's
 ## ModJoinDialog (auto-download on) fetches them through the real provider before RoomState lets it start.
 
@@ -49,7 +49,7 @@ func _run() -> void:
 		await _run_host()
 	else:
 		if args[1] == "download":
-			await _run_live_client()
+			await _run_live_client(args[2] if args.size() > 2 else RoomState.DEFAULT_ADDRESS)
 		else:
 			await _run_client(args[1] == "match")
 
@@ -73,18 +73,21 @@ class AutoJoin extends Control:
 			print("PACK CLIENT DOWNLOAD // %s %d/%d" % [name, done, total]),
 			func(ok: bool, reason: String):
 				result = "ok" if ok else reason
+				print("PACK CLIENT DOWNLOAD %s" % ("OK" if ok else "FAILED // " + reason))
 				if ok:
 					join_allowed.emit()
 				else:
-					cancelled.emit())
+					# a refused download returns RoomState to staging, which replaces this scene: report and stop here
+					print("PACK SMOKE FAIL // download refused: %s" % reason)
+					get_tree().quit(1))
 
 
-func _run_live_client() -> void:
+func _run_live_client(address: String) -> void:
 	var dialog := AutoJoin.new()
 	dialog.name = "ModJoinDialog"
 	get_tree().root.add_child(dialog)
 	RoomState.create_local(RoomState.Mode.DEFAULT)
-	var error := RoomState.join_room(RoomState.DEFAULT_ADDRESS, PORT)
+	var error := RoomState.join_room(address, PORT)
 	if not error.is_empty():
 		_finish(false, error)
 		return

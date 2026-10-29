@@ -178,6 +178,7 @@ func _ready() -> void:
 	_relay.name = "GameplayRelayTunnel"
 	_relay.relay_ready.connect(_on_relay_ready)
 	_relay.relay_failed.connect(_on_relay_failed)
+	_relay.host_left.connect(_on_relay_host_left)
 	add_child(_relay)
 	PackDownloads.install(self)
 	# A room always exists, so nothing has to null-check it. Landing straight
@@ -644,10 +645,10 @@ func _on_server_disconnected() -> void:
 	if session_active and not is_host and not reconnect_active:
 		_start_reconnect_grace()
 		return
-	_close_failed_connection("HOST DISCONNECTED // RETURNED TO STAGING")
+	_close_failed_connection(HOST_LEFT_NOTICE, true)
 
 
-func _close_failed_connection(reason: String) -> void:
+func _close_failed_connection(reason: String, to_menu: bool = false) -> void:
 	var was_public := public_route
 	_close_transport_only(true)
 	_clear_reconnect_state()
@@ -660,6 +661,9 @@ func _close_failed_connection(reason: String) -> void:
 		# may make this client the new authority (see PublicRoute).
 		public_route = true
 		PublicRoute.on_connection_lost()
+		return
+	if to_menu:
+		call_deferred("leave_room_to_menu", reason)
 		return
 	call_deferred("_return_to_staging")
 
@@ -677,7 +681,7 @@ func _start_reconnect_grace() -> void:
 func _tick_reconnect() -> void:
 	var now := Time.get_ticks_msec()
 	if now >= _reconnect_deadline_msec:
-		_close_failed_connection("HOST DISCONNECTED // RETURNED TO STAGING")
+		_close_failed_connection(HOST_LEFT_NOTICE, true)
 		return
 	if connecting or _reconnect_request_in_flight or now < _reconnect_next_lookup_msec:
 		return
@@ -1183,6 +1187,76 @@ func _receive_end(reason: String) -> void:
 		Backend.update_room(peers.size(), session_active)
 	changed.emit()
 	call_deferred("_return_to_staging")
+
+
+## Validators set this so a leave can be checked without swapping out the validation scene.
+var skip_scene_changes_for_test := false
+const HOST_LEFT_NOTICE := "HOST LEFT THE ROOM // BACK AT THE MAIN MENU"
+## One-shot line the main menu shows after a guest left a room (their own exit, or the host going away).
+var menu_notice := ""
+
+
+## The host leaving or quitting CLOSES the room (ending a run only returns to staging): guests are told, the server is told to drop
+## it (leave_network -> Backend.unregister_room, sent before ENet closes), and the host's own room state is replaced by a fresh local one.
+## The relay says the host quit or crashed (a HOST_LEFT frame): a guest goes to the main menu at once, without the reconnect grace
+## that a plain connection drop gets.
+func _on_relay_host_left(_message: String) -> void:
+	if is_host or not online:
+		return
+	leave_room_to_menu(HOST_LEFT_NOTICE)
+
+
+func close_room() -> void:
+	if online and is_host and _peer != null:
+		_receive_room_closed.rpc(HOST_LEFT_NOTICE)
+		_peer.poll()
+	reset_after_leaving("")
+
+
+@rpc("authority", "call_remote", "reliable")
+func _receive_room_closed(reason: String) -> void:
+	if is_host:
+		return
+	leave_room_to_menu(reason if not reason.is_empty() else HOST_LEFT_NOTICE)
+
+
+## Quitting while hosting: the same close, then a short wait so the server really receives it before the process ends.
+func close_room_for_quit() -> void:
+	if online and is_host:
+		close_room()
+		await Backend.wait_for_room_close()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and online and is_host:
+		close_room()
+
+
+## A guest's way out of a co-op room: unregister from the host, close ENet/relay, unload the room's packs, replace the joined room
+## with a fresh local one (no stale code, seed or roster) and land on the main menu with `notice`. The host keeps the staging flow.
+func leave_room_to_menu(notice: String = "") -> void:
+	reset_after_leaving(notice)
+	if skip_scene_changes_for_test:
+		return
+	var tree := get_tree()
+	if tree == null:
+		return
+	XRFade.change_scene(tree, menu_scene_path())
+
+
+## The state half of leave_room_to_menu (no scene change), so it can be checked on its own.
+func reset_after_leaving(notice: String = "") -> void:
+	var for_mode := mode
+	leave_network()
+	create_local(for_mode)
+	menu_notice = notice
+	status_message = ""
+
+
+func consume_menu_notice() -> String:
+	var notice := menu_notice
+	menu_notice = ""
+	return notice
 
 
 func _return_to_staging() -> void:
