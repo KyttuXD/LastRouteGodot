@@ -124,7 +124,7 @@ its own `.ogg` recordings. Both folders use the same file shape:
   same way: `"ambience/room:chapel"`). Ambience ids are the only ids that may contain `:`. Make the recording loop
   seamlessly.
 
-## Surfaces (floors and walls)
+## Surfaces (floors, walls and ceilings)
 
 The game paints its floor and wall patterns itself at a deliberately low resolution. A pack can replace any of them
 with an image:
@@ -135,7 +135,7 @@ with an image:
 
 | field | required | meaning |
 |---|---|---|
-| `id` | yes | the floor or wall kind, listed in `overrides` as `"floors/<kind>"` or `"walls/<kind>"` |
+| `id` | yes | the kind, listed in `overrides` as `"floors/<kind>"`, `"walls/<kind>"` or `"ceilings/<kind>"` |
 | `image` | yes | a `.png` under `assets/`. Floors are shown at 32x32 pixels and walls at 32x128 (one wall tile, floor to ceiling); other sizes are scaled to that with no smoothing, so draw at that size or an exact multiple. |
 
 - Floor kinds are the list under [Regions](#regions) (`terrazzo0`, `parquet1`, `stone2`, `metal0`, `grate`, `hazard`,
@@ -144,5 +144,6 @@ with an image:
   (`stone0`); the folder says which one you mean.
 - Not replaceable: the safe-room floors (`safe`, `safe_plain`, `safe_mark`), which tell players where the safe zone
   is, and the pieces of the hall runner (`runner_l`, `runner_c`, ...); replace `runner` / `runnerz` as a whole.
-  Ceilings are not replaceable yet.
-- Only the picture changes. How shiny a floor looks comes from its kind, so a replaced metal floor still shines.
+  Ceiling kinds: `ceil0`, `ceil1`, `glass`, `rockceil`, `vault` (32x32 like floors, `ceilings/` folder).
+- Only the picture changes. How shiny a floor looks, and the glow of the `glass` and `vault` ceilings (the sewer relies
+  on it), come from the kind, so they stay whatever image you supply.

@@ -15,9 +15,9 @@ Packs are played in **private rooms only**. Public routes are always the unmodde
 | **Regions** | yes: floors, doors, shop names, room roles, dressing | loads and validates, but no level places a new region yet |
 | **Grabs** (how a hunter takes hold of a caught runner) | yes: any hunter's pool of grab styles | yes: give your own hunters a pool |
 | **Sounds** (cues and ambience beds) | yes: replace a sound effect or a region's background bed with your own recordings | no: only built-in sounds are played |
-| **Surfaces** (floor and wall textures) | yes: replace any floor or wall pattern with your own image | no: regions name the built-in kinds |
+| **Surfaces** (floor, wall and ceiling textures) | yes: replace any floor, wall or ceiling pattern with your own image | no: regions name the built-in kinds |
 
-Not yet moddable: hunter abilities and AI, new grab animations, footstep sounds, ceiling textures, player skins (they
+Not yet moddable: hunter abilities and AI, new grab animations, footstep sounds, player skins (they
 have their own sharing system), levels and room furniture recipes. Those are planned as further pack types.
 
 ## Quick start

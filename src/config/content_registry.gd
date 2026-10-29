@@ -19,10 +19,10 @@ const ROOT := "res://data"
 const KINDS := ["props", "regions", "hunters"]
 ## What packs may ship: the built-in kinds plus kinds whose built-in data has its own reader (grabs: GrabStyles, which
 ## reads res://data/grabs itself and takes pack definitions through pack_defs()).
-const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls"]
-## Surface replacements (pack-only kinds): a floor or wall kind RefTextures paints, replaced by a pack PNG. Ceilings are
-## left out for now (glass and vault carry emission the sewer depends on).
-const SURFACE_KINDS := {"floors": "FLOOR_PAINTERS", "walls": "WALL_PAINTERS"}
+const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings"]
+## Surface replacements (pack-only kinds): a floor, wall or ceiling kind RefTextures paints, replaced by a pack PNG. Only
+## the picture changes: roughness, metal and the glow of glass/vault ceilings come from the kind (RefTextures.params).
+const SURFACE_KINDS := {"floors": "FLOOR_PAINTERS", "walls": "WALL_PAINTERS", "ceilings": "CEILING_PAINTERS"}
 ## Kinds packs may not replace: the safe-room floors mark the safe zone (gameplay information), and the runner_*/runnerz_*
 ## pieces are slices of one continuous strip (a pack replaces "runner"/"runnerz" whole).
 const SURFACE_LOCKED := {"floors": ["safe", "safe_plain", "safe_mark", "runner_l", "runner_c", "runner_r", "runnerz_l",
@@ -45,7 +45,7 @@ const REGION_FIELDS := {"hall_floor": "strings", "hall_runner": "bool", "room_de
 ## (AmbienceTable keys). `files`: .ogg variants, one picked per play; `gain_db`: volume offset.
 const SOUND_FIELDS := {"files": "strings", "gain_db": "float?"}
 const SCHEMAS := {"hunters": "lr.hunter/1", "props": "lr.prop/1", "regions": "lr.region/1", "sounds": "lr.sound/1",
-	"ambience": "lr.sound/1", "floors": "lr.surface/1", "walls": "lr.surface/1"}
+	"ambience": "lr.sound/1", "floors": "lr.surface/1", "walls": "lr.surface/1", "ceilings": "lr.surface/1"}
 const AMBIENCE_SCRIPT := "res://src/audio/ambience_table.gd"
 
 static var _loaded := false

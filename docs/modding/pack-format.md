@@ -13,6 +13,7 @@ mypack/
   ambience/<anything>.json  ambience beds   (lr.sound/1)
   floors/<anything>.json    floor textures  (lr.surface/1)
   walls/<anything>.json     wall textures   (lr.surface/1)
+  ceilings/<anything>.json  ceiling textures (lr.surface/1)
   assets/...                .glb models, .png images, .ogg sounds (any sub-folders, lower-case extensions)
 ```
 
