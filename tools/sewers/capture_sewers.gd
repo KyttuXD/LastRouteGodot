@@ -298,8 +298,8 @@ func _run() -> void:
 			continue
 		var pivot := held as Node3D
 		var hub := pivot.global_position
-		# out from the wall the wheel is fixed to, toward the walkway (the hub's local -z faces into the room)
-		var facing := (-pivot.global_transform.basis.z).normalized()
+		# out from the wall the wheel is fixed to, into the room (the authored model's +z, Blender -y, faces away from the wall)
+		var facing := pivot.global_transform.basis.z.normalized()
 		await _shot("valve_wheel", hub + facing * 1.3 + Vector3(.35, .25, 0), hub)
 		_view.apply_valve(String(valve_key))
 		for _frame in 25:
