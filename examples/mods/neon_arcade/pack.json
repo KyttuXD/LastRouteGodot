@@ -1,0 +1,16 @@
+{
+	"schema": "lr.pack/1",
+	"id": "neon_arcade",
+	"name": "Neon Arcade",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (example)",
+	"description": "Example pack: dark tile floors, walls and ceilings with neon trim for the mall, and an ARCADE room (cabinet rows, token changer, prize counter) that joins the mall's shop cycle.",
+	"overrides": [
+		"regions/mall",
+		"floors/terrazzo0",
+		"floors/terrazzo1",
+		"walls/mall0",
+		"walls/mall1",
+		"ceilings/ceil1"
+	]
+}

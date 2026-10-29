@@ -1,0 +1,13 @@
+{
+	"schema": "lr.surface/1",
+	"surfaces": [
+		{
+			"id": "mall0",
+			"image": "assets/arcade_wall_a.png"
+		},
+		{
+			"id": "mall1",
+			"image": "assets/arcade_wall_b.png"
+		}
+	]
+}
