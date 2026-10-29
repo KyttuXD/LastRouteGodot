@@ -232,6 +232,7 @@ func begin(seed_text: String, player: PlayerController3D,
 	clear()
 	generator = StreamedRouteGenerator.new(seed_text)
 	generator.public_route = RoomState.public_route
+	generator.coop = RoomState.online
 	_gen_worker = generator.make_worker_copy()
 	tracked_player = player
 	world_state = state if state != null else StreamedWorldState.new()

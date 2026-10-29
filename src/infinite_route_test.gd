@@ -206,6 +206,8 @@ func _ready() -> void:
 	player.ladder_climb_finished.connect(_on_player_ladder_finished)
 	player.tool_context_probe = _tool_context_available
 	player.item_drop_requested.connect(_on_item_drop_requested)
+	player.revive_hold_changed.connect(_on_revive_hold_changed)
+	player.revive_hold_done.connect(func(peer: int) -> void: _request_revive(peer, "finish"))
 	player.plunge_finished.connect(_on_player_plunge_finished)
 	player.interaction_veto = _stream_guardian_blocking
 	player.vent_resolver = _use_streamed_vent
@@ -373,6 +375,7 @@ func _process(delta: float) -> void:
 	if not _slammed_doors.is_empty() and _remotes.simulates():
 		_tick_slammed_doors(delta)
 	_update_spectating()
+	_update_revives(delta)
 	if _admin_show_collision and _collision_overlay != null:
 		_collision_overlay.refresh(facility.loaded_chunk_data(), StreamedFacilityView3D.LEVEL_HEIGHT)
 	if RoomState.online and not RoomState.is_host and Backend.admin_authorized():
@@ -3108,7 +3111,7 @@ func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionar
 	var centre := Vector2(spot) + Vector2(.5, .5)
 	if not HunterBrain.hide_check_triggers(brain.state, brain.has_last_known, brain.last_known, brain.position, centre,
 			GameConfig.profile_value(RoomState.difficulty_id(), "hide_trail")):
-		_maybe_inspect_spot(brain, navigation, spot, centre)
+		_maybe_inspect_spot(brain, navigation, spot, centre, 2.0 if float(target.get("stim_crash", 0.0)) > 0.0 else 1.0)
 		return
 	_hide_checks[entity_id] = {"cell": spot, "left": GameConfig.profile_value(RoomState.difficulty_id(), "hide_tell"),
 		"peer": int(target.get("peer_id", 1))}
@@ -3120,7 +3123,9 @@ func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionar
 
 ## She did not see them go in (no hide check): maybe a close look through the slats instead (HunterInspect), which never
 ## finds them. Only slatted spots; the same spot is left alone for SPOT_COOLDOWN.
-func _maybe_inspect_spot(brain: HunterBrain, navigation: StreamedHunterNavigation, cell: Vector2i, centre: Vector2) -> void:
+## `chance_scale`: a hider with a Stim Pack heartbeat (GameConfig.STIM_HEARTBEAT_NOISE) is looked in on twice as often.
+func _maybe_inspect_spot(brain: HunterBrain, navigation: StreamedHunterNavigation, cell: Vector2i, centre: Vector2,
+		chance_scale: float = 1.0) -> void:
 	if HunterInspect.chance(brain.hunter_id, RoomState.difficulty_id()) <= 0.0 or _inspect_cooldowns.has(cell) \
 			or not HunterInspect.qualifies(brain, centre, false) or navigation == null:
 		return
@@ -3129,7 +3134,7 @@ func _maybe_inspect_spot(brain: HunterBrain, navigation: StreamedHunterNavigatio
 		if Vector2i(int(spot.get("x", 0)), int(spot.get("y", 0))) != cell or not HunterInspect.slatted(String(spot.get("style", ""))):
 			continue
 		var at: Vector2 = spot.get("prop_at", centre)
-		if brain.maybe_inspect(at, HunterInspect.door_direction(float(spot.get("yaw", 0.0))), navigation):
+		if brain.maybe_inspect(at, HunterInspect.door_direction(float(spot.get("yaw", 0.0))), navigation, chance_scale):
 			_inspect_cooldowns[cell] = HunterInspect.SPOT_COOLDOWN
 		return
 
@@ -3405,6 +3410,8 @@ func _hunter_target(in_safe_room: bool) -> Dictionary:
 		"sprinting": player.movement_mode == "sprint" and player.noise > 0.0,
 		"facing": player.facing,
 		"lamp_charge": player.lamp_charge,
+		"stim_boost": player.stim_boost,
+		"stim_crash": player.stim_crash,
 		"owned_items": player.inventory_owned_snapshot(),
 		"item_durability": player.inventory_durability_snapshot(),
 		"inventory_order": player.inventory_order_snapshot(),
@@ -4098,6 +4105,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 	match what:
 		"stream_pickup":
 			_accept_streamed_pickup(peer_id, event)
+		"stream_revive":
+			_accept_revive(peer_id, event)
 		"stream_safe_repair":
 			_accept_safe_repair(peer_id, event)
 		"stream_axe_rescue":
@@ -4178,6 +4187,9 @@ func _accept_stream_drop(peer_id: int, event: Dictionary) -> void:
 			var durability := int(slot_durability[slot]) \
 				if slot_durability is Array and slot < slot_durability.size() \
 				else int(event.get("durability", 0))
+			if PlayerController3D.STACK_MAX.has(item_id):
+				# a stack drops one (a tap) or all of it: never more than the slot holds, never past the cap
+				durability = clampi(int(event.get("durability", 1)), 1, clampi(durability, 1, PlayerController3D.stack_max(item_id)))
 			var at = target.get("at")
 			var facing = target.get("facing")
 			if not at is Vector3 or not facing is Vector2:
@@ -4202,7 +4214,7 @@ func _accept_stream_drop(peer_id: int, event: Dictionary) -> void:
 					or int(record.get("level", 999999)) != -int(target.get("depth", 0)) \
 					or (at as Vector3).distance_to(record.get("position", Vector3.ZERO)) \
 						> STREAM_INTERACT_DISTANCE \
-					or int(target.get("inventory_free_slots", 0)) <= 0:
+					or not _target_can_take(target, String(record.get("item", "")), int(record.get("durability", 1))):
 				return
 			world_state.claim_drop(drop_id)
 			_publish_stream_event({"what": "stream_drop_claim", "drop": record,
@@ -4260,7 +4272,7 @@ func _accept_streamed_pickup(peer_id: int, event: Dictionary) -> void:
 				or item_id != String(event.get("item", "")))):
 		return
 	if kind in ["tool", "battery"]:
-		if int(target.get("inventory_free_slots", 0)) <= 0:
+		if not _target_can_take(target, "battery" if kind == "battery" else item_id, 1):
 			return
 	elif kind == "backpack":
 		var target_order = target.get("inventory_order", [])
@@ -4269,6 +4281,18 @@ func _accept_streamed_pickup(peer_id: int, event: Dictionary) -> void:
 			return
 	_publish_stream_event({"what": "stream_pickup", "entity_id": entity_id,
 		"kind": kind, "item": item_id, "winner_peer_id": peer_id})
+
+
+## Host check before granting a pickup or a dropped item: it all fits the runner's reported inventory (a stack only up to
+## PlayerController3D.STACK_MAX). Stackables count by `count`; anything else needs one free slot.
+func _target_can_take(target: Dictionary, item_id: String, count: int) -> bool:
+	var order = target.get("inventory_order", [])
+	var slot_durability = target.get("inventory_slot_durability", [])
+	if not order is Array or not slot_durability is Array:
+		return int(target.get("inventory_free_slots", 0)) > 0
+	if not PlayerController3D.STACK_MAX.has(item_id):
+		count = 1
+	return PlayerController3D.can_accept_item(order, slot_durability, item_id, count)
 
 
 func _accept_stream_sabotage(peer_id: int, event: Dictionary) -> void:
@@ -4458,6 +4482,8 @@ func _publish_stream_event(event: Dictionary, _state_already_applied: bool = fal
 
 func _apply_stream_world_event(event: Dictionary) -> void:
 	match String(event.get("what", "")):
+		"stream_down", "stream_revive_hold", "stream_revived", "stream_revive_refused":
+			_apply_revive_event(event)
 		"stream_music_box":
 			_music_boxes.wind(String(event.get("id", "")))
 		"stream_respawn":
@@ -4572,8 +4598,9 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			world_state.apply_drop(record)
 			var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 			if int(record.get("source_peer_id", 0)) == local_id:
-				player.remove_inventory_item(String(record.get("item", "")),
-					int(record.get("source_inventory_slot", -1)))
+				var dropped_item := String(record.get("item", ""))
+				player.remove_inventory_item(dropped_item, int(record.get("source_inventory_slot", -1)),
+					int(record.get("durability", 1)) if PlayerController3D.STACK_MAX.has(dropped_item) else -1)
 			_spawn_drop(record)
 		"stream_drop_claim":
 			var record = event.get("drop", {})
@@ -4684,9 +4711,12 @@ func _apply_public_resume() -> void:
 		if slot < 0 or slot >= order.size() or not PlayerController3D.INVENTORY_ITEMS.has(item_id):
 			continue
 		order[slot] = item_id
-		var maximum := int(PlayerController3D.INVENTORY_MAX_DURABILITY.get(item_id, 0))
+		var maximum := int(PlayerController3D.INVENTORY_MAX_DURABILITY.get(item_id,
+			PlayerController3D.STACK_MAX.get(item_id, 0)))
 		durability[slot] = mini(int(entry.get("durability", 0)), maximum) if maximum > 0 \
 			else int(entry.get("durability", 0))
+		if PlayerController3D.STACK_MAX.has(item_id):
+			durability[slot] = maxi(1, int(durability[slot]))
 		restored = true
 	if restored:
 		player.inventory_order = order
@@ -5032,6 +5062,7 @@ func _apply_player_event(event: Dictionary) -> void:
 			if facility.apply_pickup_claim(String(event.get("entity_id", ""))):
 				hud.show_message("IT SLIPS AWAY")
 		"revive":
+			_clear_revives()
 			if player.spectator_mode and not RoomState.is_host:
 				_end_spectating()
 				_death_screen_open = true
@@ -5063,6 +5094,12 @@ func _begin_escape_struggle(entity_id: String, hunter_id: String) -> void:
 		hud.show_message("AXE // CLICK TO CUT FREE")
 	if jumpscare != null:
 		jumpscare.start_hold(player.active_camera(), hunter_id)
+	# Solo, a Revive Kit is a second wind (docs/REVIVE.md): used up on the spot, the hold breaks the way the axe cuts it
+	# (her stagger doubled) and a revive's grace follows. Void and other inescapable grabs never reach this.
+	if not RoomState.online and player.consume_stack("revive_kit"):
+		_resolve_escape_success(true, "REVIVE KIT // SECOND WIND")
+		_capture_cooldown = maxf(_capture_cooldown, GameConfig.REVIVE_GRACE_SECONDS)
+		GameState.escape_grace = maxf(GameState.escape_grace, GameConfig.REVIVE_GRACE_SECONDS)
 
 
 func _update_escape_struggle(delta: float) -> void:
@@ -5167,6 +5204,7 @@ func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void
 	# Host caught while a guest still lives: keep the host-authoritative hunter
 	# simulation running and watch instead of ending the session.
 	if RoomState.online and RoomState.is_host and not _living_runners().is_empty():
+		_host_record_down(_local_peer_id(), player.global_position, -facility.current_level())
 		_begin_spectating()
 		_death_screen_open = false
 		_capture_cooldown = 0.0
@@ -5272,6 +5310,10 @@ func _apply_hunter_event(event: Dictionary) -> void:
 				multiplayer.get_unique_id() if RoomState.online else 1)))
 		"caught":
 			_hunters_gloat(int(event.get("peer_id", 0)), "")
+			var caught_peer := int(event.get("peer_id", 0))
+			var caught := _target_state_for_peer(caught_peer)
+			if caught.get("at") is Vector3:
+				_host_record_down(caught_peer, caught["at"], int(caught.get("depth", 0)))
 		"escaped":
 			var view := _hunter_views.get(String(event.get("entity_id", ""))) \
 				as HunterView3D
@@ -5373,6 +5415,201 @@ func _living_runners() -> Array[Dictionary]:
 	return result
 
 
+# ------------------------------------------------------------------------------------------------ revives
+# docs/REVIVE.md. Records live in world_state.downs (ReviveDowns); every peer draws a marker per down teammate; the host
+# times the holds and decides.
+
+var _revive_markers := {}
+var _revive_progress_note := ""
+
+
+func _revives_enabled() -> bool:
+	return RoomState.online and not RoomState.public_route
+
+
+## Host: a runner went down at `at` (where the hunter took them); their revive window opens for everyone.
+func _host_record_down(peer: int, at: Vector3, depth: int) -> void:
+	if not _revives_enabled() or not RoomState.is_host or peer == 0:
+		return
+	# "down_depth", not "depth": relayed world events carry the host's GameState.depth under that key
+	_publish_stream_event({"what": "stream_down", "peer": peer, "at": at, "down_depth": depth,
+		"name": RoomState.peer_display_name(peer), "left": GameConfig.REVIVE_WINDOW_SECONDS})
+
+
+func _apply_revive_event(event: Dictionary) -> void:
+	var downs: ReviveDowns = world_state.downs
+	var peer := int(event.get("peer", 0))
+	var local := _local_peer_id()
+	match String(event.get("what", "")):
+		"stream_down":
+			if not event.get("at") is Vector3:
+				return
+			downs.down(peer, event["at"], int(event.get("down_depth", 0)), String(event.get("name", "")),
+				float(event.get("left", GameConfig.REVIVE_WINDOW_SECONDS)))
+			_sync_revive_markers()
+		"stream_revive_hold":
+			downs.set_reviver(peer, int(event.get("by", 0)) if bool(event.get("on", false)) else 0)
+		"stream_revive_refused":
+			if int(event.get("by", 0)) == local:
+				hud.show_message(String(event.get("message", "REVIVE FAILED")))
+		"stream_revived":
+			var at = event.get("at")
+			downs.clear(peer)
+			_sync_revive_markers()
+			if int(event.get("by", 0)) == local:
+				player.consume_stack("revive_kit")
+				Sound.recharge(GameConfig.REVIVE_STAMINA)
+				hud.show_message("%s REVIVED" % RoomState.peer_display_name(peer).to_upper())
+			if peer == local and at is Vector3:
+				_revived_here(at)
+
+
+## One marker per open window except our own, kept in step with world_state.downs.
+func _sync_revive_markers() -> void:
+	var downs: ReviveDowns = world_state.downs
+	for peer in _revive_markers.keys():
+		if not downs.is_down(int(peer)):
+			var gone = _revive_markers[peer]
+			if is_instance_valid(gone):
+				(gone as Node).queue_free()
+			_revive_markers.erase(peer)
+	for peer in downs.downs:
+		if int(peer) == _local_peer_id() or _revive_markers.has(peer):
+			continue
+		var record: Dictionary = downs.downs[peer]
+		var marker := RouteInteractable3D.new()
+		marker.name = "Revive_%d" % int(peer)
+		marker.kind = RouteInteractable3D.Kind.REVIVE_SPOT
+		marker.revive_peer = int(peer)
+		marker.revive_name = String(record.get("name", "")).to_upper()
+		marker.position = record["at"]
+		add_child(marker)
+		_revive_markers[peer] = marker
+
+
+## For the maps (HUB): every open revive window but our own, {"peer", "at": Vector3, "depth": int (as a runner state's),
+## "name", "left": seconds}.
+func downed_map_marks() -> Array:
+	var out := []
+	var downs: ReviveDowns = world_state.downs
+	for peer in downs.downs:
+		if int(peer) == _local_peer_id():
+			continue
+		var record: Dictionary = downs.downs[peer]
+		out.append({"peer": int(peer), "at": record["at"], "depth": int(record["depth"]), "name": String(record["name"]),
+			"left": float(record["left"])})
+	return out
+
+
+func _clear_revives() -> void:
+	world_state.downs.clear_all()
+	_sync_revive_markers()
+
+
+func _update_revives(delta: float) -> void:
+	var downs: ReviveDowns = world_state.downs
+	if downs.downs.is_empty():
+		return
+	var was_down := downs.is_down(_local_peer_id())
+	if not downs.tick(delta).is_empty():
+		_sync_revive_markers()
+		if was_down and player.spectator_mode:
+			hud.show_message("REVIVE WINDOW CLOSED")
+	for peer in _revive_markers:
+		var marker = _revive_markers[peer]
+		if is_instance_valid(marker) and downs.downs.has(peer):
+			(marker as RouteInteractable3D).set_revive_left(float(downs.downs[peer]["left"]))
+
+
+## The spectator's line while their window is open: who is reviving them, else whether anyone could.
+func _revive_note() -> String:
+	var downs: ReviveDowns = world_state.downs
+	var mine: Dictionary = downs.downs.get(_local_peer_id(), {})
+	if mine.is_empty():
+		return ""
+	var left := ceili(float(mine["left"]))
+	if int(mine.get("by", 0)) != 0:
+		return "%s IS REVIVING YOU" % RoomState.peer_display_name(int(mine["by"])).to_upper()
+	for target in _living_runners():
+		if ReviveDowns._carries_kit(target):
+			return "A TEAMMATE HAS A REVIVE KIT // %ds" % left
+	return "WAITING FOR A REVIVE KIT // %ds" % left
+
+
+func _on_revive_hold_changed(peer: int, holding: bool) -> void:
+	_request_revive(peer, "start" if holding else "stop")
+
+
+func _request_revive(peer: int, action: String) -> void:
+	var event := {"what": "stream_revive", "action": action, "peer": peer}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_revive(_local_peer_id(), event)
+
+
+## Host: a reviver's hold started, broke off or finished. Starts and finishes are checked against the reviver's own
+## replicated state (kit, floor, range) and the downed runner's (still spectating); a finish also needs a hold started
+## REVIVE_HOLD_SECONDS ago. The kit is used up on the reviver's side when the result comes back.
+func _accept_revive(reviver: int, event: Dictionary) -> void:
+	if not _revives_enabled() or not RoomState.is_host:
+		return
+	var downs: ReviveDowns = world_state.downs
+	var peer := int(event.get("peer", 0))
+	var now := Time.get_ticks_msec() / 1000.0
+	var action := String(event.get("action", ""))
+	if action == "stop":
+		if downs.stop_hold(reviver) == peer and peer != 0:
+			_publish_stream_event({"what": "stream_revive_hold", "peer": peer, "by": reviver, "on": false})
+		return
+	var reviver_state := _target_state_for_peer(reviver)
+	var downed_state := _target_state_for_peer(peer)
+	var why := downs.refusal(reviver, peer, reviver_state, bool(downed_state.get("spectating", false)), now,
+		action == "finish")
+	if not why.is_empty():
+		downs.stop_hold(reviver)
+		_publish_stream_event({"what": "stream_revive_refused", "peer": peer, "by": reviver, "message":
+			{"window": "REVIVE WINDOW CLOSED", "no_kit": "NO REVIVE KIT", "range": "TOO FAR TO REVIVE",
+			"hold": "HOLD [E] TO REVIVE"}.get(why, "REVIVE FAILED")})
+		return
+	if action == "start":
+		downs.start_hold(reviver, peer, now)
+		_publish_stream_event({"what": "stream_revive_hold", "peer": peer, "by": reviver, "on": true})
+		return
+	if action != "finish":
+		return
+	var at: Vector3 = downs.downs[peer]["at"]
+	var depth := int(downs.downs[peer]["depth"])
+	if peer != _local_peer_id():
+		_remotes.send_player_event(peer, {"what": "revive_at"})   # a host move: GuestGuard lets the jump back pass
+	_publish_stream_event({"what": "stream_revived", "peer": peer, "by": reviver, "at": at, "down_depth": depth})
+
+
+## Back on our feet where we went down: out of the spectator camera, a little stamina, REVIVE_GRACE_SECONDS untouchable.
+func _revived_here(at: Vector3) -> void:
+	if not player.spectator_mode:
+		return
+	_end_spectating()
+	grab.release()
+	hud.set_death_flow(false)
+	GameState.game_over = false
+	_death_screen_open = false
+	_capture_resolving = false
+	_capture_cooldown = GameConfig.REVIVE_GRACE_SECONDS
+	GameState.escape_grace = maxf(GameState.escape_grace, GameConfig.REVIVE_GRACE_SECONDS)   # a guest's replicated immunity
+	player.global_position = at
+	player.velocity = Vector3.ZERO
+	player.stun_timer = 0.0
+	player.input_frozen = false
+	player.look_frozen = false
+	player.stamina = GameConfig.REVIVE_STAMINA
+	player.exhausted = false
+	pause_menu.set_process(true)
+	pause_menu.set_process_unhandled_input(true)
+	facility.refresh_at_tracked_player()
+	hud.show_message("REVIVED // BACK ON YOUR FEET")
+
+
 func _begin_spectating() -> void:
 	grab.release()   # the hold ends when the caught runner starts spectating (it was drawn on every peer)
 	player.enter_spectator()
@@ -5422,7 +5659,7 @@ func _update_spectating() -> void:
 		and watching.get("at") is Vector3
 	if player.spectator_follow_valid:
 		player.spectator_follow_at = watching["at"]
-	var note := "REJOINING SHORTLY" if RoomState.public_route else ""
+	var note := "REJOINING SHORTLY" if RoomState.public_route else _revive_note()
 	if _spectator_banner != null:
 		_spectator_banner.show_for(
 			RoomState.peer_display_name(int(watching.get("peer_id", 0))) \
@@ -5490,6 +5727,7 @@ func _respawn_after_death() -> void:
 			if peer != 0 and bool((target_value as Dictionary).get("spectating", false)):
 				_remotes.send_player_event(peer, {"what": "revive"})
 	_death_screen_open = false
+	_clear_revives()
 	Sound.reset_run_effects()
 	if player.xr_active:
 		player.xr_camera.current = true   # the listener follows the current camera; the jumpscare borrowed it

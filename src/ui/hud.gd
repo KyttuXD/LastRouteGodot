@@ -93,6 +93,8 @@ const ITEM_TEXTURES := {
 	"crowbar": preload("res://assets/ui/inventory/crowbar.png"),
 	"rescue_axe": preload("res://assets/ui/inventory/rescue_axe.png"),
 	"battery": preload("res://assets/ui/inventory/battery.png"),
+	"stim_pack": preload("res://assets/ui/inventory/stim_pack.png"),
+	"revive_kit": preload("res://assets/ui/inventory/revive_kit.png"),
 }
 
 ## Margin every HUD panel keeps from the window edge, and the gap between neighbouring panels (HUD units).
@@ -388,6 +390,8 @@ func _apply_inventory_slot(slot: PanelContainer, bar: ProgressBar, index: int,
 	caption.text = str(index + 1)
 	slot.tooltip_text = String(PlayerController3D.INVENTORY_LABELS.get(
 		item_id, "EMPTY SLOT")).to_upper()
+	_apply_stack_badge(slot, int(slot_durability[index]) if has_item and index < slot_durability.size() \
+		and PlayerController3D.STACK_MAX.has(item_id) else 0)
 	bar.visible = has_item and (item_id == "taser" or maximums.has(item_id))
 	if item_id == "taser":
 		bar.value = clampf(1.0 - taser_cooldown / GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown"),
@@ -398,6 +402,26 @@ func _apply_inventory_slot(slot: PanelContainer, bar: ProgressBar, index: int,
 			if index < slot_durability.size() else int(durability.get(item_id, 0))
 		bar.value = clampf(float(remaining) / max_value,
 			0.0, 1.0) * 100.0
+
+
+## "xN" in the slot's bottom-right corner for a stack of two or more (PlayerController3D.STACK_MAX); hidden otherwise.
+func _apply_stack_badge(slot: PanelContainer, count: int) -> void:
+	var badge := slot.get_node_or_null("StackCount") as Label
+	if badge == null:
+		if count < 2:
+			return
+		badge = Label.new()
+		badge.name = "StackCount"
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		badge.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		badge.add_theme_font_size_override("font_size", 9)
+		badge.add_theme_color_override("font_color", Color(1.0, .94, .72))
+		badge.add_theme_color_override("font_outline_color", Color(0, 0, 0, .9))
+		badge.add_theme_constant_override("outline_size", 3)
+		slot.add_child(badge)
+	badge.text = "x%d" % count
+	badge.visible = count >= 2
 
 
 func _prepare_inventory_slots() -> void:

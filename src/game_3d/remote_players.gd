@@ -16,10 +16,13 @@ const REMOTE_HELD_MODELS := {
 	"crowbar": "res://art/props-3d/interactables/crowbar.glb",
 	"rescue_axe": "res://art/props-3d/interactables/rescue_axe.glb",
 	"battery": "res://art/props-3d/interactables/battery.glb",
+	"stim_pack": "res://art/props-3d/interactables/stim_pack.glb",
+	"revive_kit": "res://art/props-3d/interactables/revive_kit.glb",
 }
 const REMOTE_HELD_SCALES := {
 	"flashlight": .34, "taser": .32, "lockpick": .29,
 	"crowbar": .58, "rescue_axe": .62, "battery": .40,
+	"stim_pack": .40, "revive_kit": .52,
 }
 const REMOTE_BEAM_HAND_OFFSET := .38
 const SEND_HZ := 20.0
@@ -98,7 +101,7 @@ var guard := GuestGuard.new()
 ## Emitted on the host when a guest's sample was corrected (and when it was kicked).
 signal guest_violation(peer_id: int, reason: String, strikes: int, kicked: bool)
 ## Host events that move the guest a long way; the guard lets the next jump through (GuestGuard.allow_jump).
-const HOST_MOVES := ["revive", "axe_rescue", "hide_found"]
+const HOST_MOVES := ["revive", "revive_at", "axe_rescue", "hide_found"]
 const INTERACTION_RATE_WINDOW_MS := 1000
 const INTERACTION_RATE_MAX := 8
 var _interaction_times := {}
@@ -446,6 +449,8 @@ func _local_state() -> Dictionary:
 		"sprinting": controller.movement_mode == "sprint" and controller.noise > 0.0,
 		"facing": controller.facing,
 		"lamp_charge": controller.lamp_charge,
+		"stim_boost": controller.stim_boost,
+		"stim_crash": controller.stim_crash,
 		"selected_item": controller.selected_inventory_item(),
 		"tool_swing_seq": controller.tool_swing_seq,
 		"tool_swing_item": controller.tool_swing_item,
@@ -1348,7 +1353,7 @@ func _request_interaction(event: Dictionary) -> void:
 			"vent_used", "zellia_trade", "admin_auth", "admin_custom_map",
 			"admin_world", "stream_pickup", "stream_safe_repair",
 			"stream_checkpoint", "stream_drop", "stream_sabotage",
-			"stream_waypoint", "stream_axe_rescue", "ravelle_disarm", "stream_room_light", "stream_booth", "stream_carousel", "stream_breach_request"].has(what):
+			"stream_waypoint", "stream_axe_rescue", "stream_revive", "ravelle_disarm", "stream_room_light", "stream_booth", "stream_carousel", "stream_breach_request"].has(what):
 		return
 	if not _interaction_allowed(sender):
 		return
