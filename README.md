@@ -326,3 +326,8 @@ Original game — **KYTTU: The Last Route** by [KyttuXD](https://github.com/Kytt
 Third-party assets vendored into `third_party/`, each under its own license:
 
 - **[Cupcakes Framework](https://github.com/Oplexitie/Cupcakes-Framework)** by Oplexitie — MIT. The retained shader source is documented in [`third_party/cupcakes-framework/`](third_party/cupcakes-framework/); its former Office-mode presentation code is no longer part of the runtime.
+
+## Player skins
+
+A signed-in player's skin is stored on their account (see `docs/PLAYER_SKINS.md`, "Account skins") and follows them to any
+computer; `user://skin.png` is only the offline fallback. Co-op peers look each other's skins up by account on the server.

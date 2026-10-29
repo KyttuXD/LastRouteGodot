@@ -169,6 +169,11 @@ names from the original deployment remain accepted as compatibility aliases.
   `last-route-godot/run` exists; `PUT {data, updatedAt}` with `data: null` deletes it, an
   older `updatedAt` than the stored one gets `409 STALE`, bodies over 64 KB get `413`, and
   each account may write 30 times a minute (`game_saves.mjs`).
+- `GET`, `PUT /api/v1/skins/:account`: account skins (`skins.mjs`). `PUT` is the raw PNG (64x64 or the old 64x32,
+  PNG only, at most 64 KB) with the owner's `x-session-token` and `x-skin-arms: auto|classic|slim`; another account
+  gets `403`, 5 uploads per account per 10 minutes. `GET` is public: `{hash|"", arms, updatedAt, versions}`; the PNG
+  comes from `GET /api/skins/files/<hash>.png`. The last 5 versions are kept. The older `POST /api/skins/upload`,
+  `mine`, `clear`, `remove` routes still work. Files live under `<data>/skins` (`LASTROUTE_SKINS_DIR`).
 
 `GET /api/health` reports the exact Git commit currently published for each
 update channel under `updates.<channel>.revision`, together with its version

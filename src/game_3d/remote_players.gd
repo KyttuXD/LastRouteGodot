@@ -45,6 +45,8 @@ var _bodies := {}
 ## id -> the skin hash that body shows (or is waiting for); peers' skins live in PlayerSkin's memory cache only.
 var _peer_skin := {}
 var _peer_slim := {}   # id -> whether that body has the slim (Alex) arms
+var _peer_state_skin := {}   # id -> the skin hash the peer's own state last carried (an account lookup may differ)
+var _peer_state_slim := {}
 var _players := {}
 var _positions := {}
 var _facings := {}
@@ -583,7 +585,10 @@ func _place(state: Dictionary) -> void:
 	if received.get("seat_at") is Vector2:
 		at = (at as Vector3) + Vector3.UP * maxf(0.0, float(received.get("seat_top", 0.0)) - PlayerController3D.SIT_CLIP_SEAT)
 	_positions[id] = (at as Vector3) + Vector3(0.0, _grab_lift(state), 0.0)
-	if String(state.get("skin", "")) != String(_peer_skin.get(id, "")) or bool(state.get("skin_slim", false)) != bool(_peer_slim.get(id, false)):
+	if String(state.get("skin", "")) != String(_peer_state_skin.get(id, "x")) \
+			or bool(state.get("skin_slim", false)) != bool(_peer_state_slim.get(id, false)):
+		_peer_state_skin[id] = String(state.get("skin", ""))
+		_peer_state_slim[id] = bool(state.get("skin_slim", false))
 		_apply_peer_skin(id, body, String(state.get("skin", "")), bool(state.get("skin_slim", false)))
 	_facings[id] = float(state.get("facing_y", body.rotation.y))
 	var vr_pose := VRPoseSync.decode(state.get("vr"))
@@ -956,6 +961,15 @@ func _own_skin_hash() -> String:
 func _apply_peer_skin(id: int, body: Node3D, hash: String, slim: bool = false) -> void:
 	if not PlayerSkin.valid_hash(hash):
 		hash = ""
+	# A signed-in peer whose state carries no skin hash yet (their upload is still going): ask the server for their ACCOUNT's skin.
+	var account := String(_states.get(id, {}).get("account", ""))
+	if hash.is_empty() and not account.is_empty():
+		if not Backend.skin_sync.account_resolved.is_connected(_on_account_skin_resolved):
+			Backend.skin_sync.account_resolved.connect(_on_account_skin_resolved)
+		var found: Dictionary = Backend.skin_sync.account_skin(account)
+		if not found.is_empty() and PlayerSkin.valid_hash(String(found.get("hash", ""))):
+			hash = String(found["hash"])
+			slim = slim or String(found.get("arms", "auto")) == "slim"
 	var previous := String(_peer_skin.get(id, ""))
 	_peer_skin[id] = hash
 	_peer_slim[id] = slim
@@ -973,6 +987,13 @@ func _apply_peer_skin(id: int, body: Node3D, hash: String, slim: bool = false) -
 	if not Backend.skin_sync.fetched.is_connected(_on_skin_fetched):
 		Backend.skin_sync.fetched.connect(_on_skin_fetched)
 	Backend.skin_sync.fetch(hash)
+
+
+func _on_account_skin_resolved(account: String, hash: String, arms: String) -> void:
+	for id in _bodies:
+		if String(_states.get(id, {}).get("account", "")).to_upper() == account and String(_peer_skin.get(id, "")).is_empty() \
+				and PlayerSkin.valid_hash(hash):
+			_apply_peer_skin(id, _bodies[id], hash, arms == "slim" or bool(_peer_slim.get(id, false)))
 
 
 func _on_skin_fetched(hash: String) -> void:
@@ -993,6 +1014,8 @@ func _drop(id: int) -> void:
 	var gone := String(_peer_skin.get(id, ""))
 	_peer_skin.erase(id)
 	_peer_slim.erase(id)
+	_peer_state_skin.erase(id)
+	_peer_state_slim.erase(id)
 	PlayerSkin.forget_peer(id)
 	if not gone.is_empty():
 		PlayerSkin.release_peer(gone, _peer_skin.values())

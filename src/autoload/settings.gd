@@ -142,6 +142,9 @@ var hub_last_game := ""
 var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
 ## The custom player skin (PlayerSkin): sha256 of its canonical PNG in user://skins, "" = the default mannequin skin.
 var skin_hash := ""
+## A skin applied on this device that the account does not hold yet (offline or signed out when it was picked). While set, the next
+## sign-in uploads it instead of adopting the account's skin from the server.
+var skin_pending_upload := false
 ## Whether other players may COPY your skin in co-op (SKIN tab). Honoured by their game; the skin itself is visible either way.
 var skin_copyable := true
 ## In-world ads (flavour, TrollAds): "off" (default), "gentle" or "annoying". Troll mode overrides it for cheaters.
@@ -431,6 +434,12 @@ func set_skin_copyable(value: bool) -> void:
 	_save()
 
 
+func set_skin_pending_upload(value: bool) -> void:
+	if skin_pending_upload != value:
+		skin_pending_upload = value
+		_save()
+
+
 func set_skin_hash(hash: String) -> void:
 	skin_hash = hash if PlayerSkin.valid_hash(hash) else ""
 	_save()
@@ -638,6 +647,7 @@ func _load() -> void:
 	player_hue_degrees = clampf(config.get_value("player",
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	skin_hash = String(config.get_value("player", "skin_hash", ""))
+	skin_pending_upload = bool(config.get_value("player", "skin_pending_upload", false))
 	skin_copyable = bool(config.get_value("player", "skin_copyable", true))
 	ads_mode = String(config.get_value("gameplay", "ads_mode", "off"))
 	if ads_mode not in TrollAds.MODES:
@@ -766,6 +776,7 @@ func _save() -> void:
 	config.set_value("display", "pixel_effect_percent", pixel_effect_percent)
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("player", "skin_hash", skin_hash)
+	config.set_value("player", "skin_pending_upload", skin_pending_upload)
 	config.set_value("player", "skin_copyable", skin_copyable)
 	config.set_value("gameplay", "ads_mode", ads_mode)
 	config.set_value("player", "skin_slim", skin_slim)

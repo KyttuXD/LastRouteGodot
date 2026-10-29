@@ -5,7 +5,7 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account_service.mjs";
 import { CITY_MAP_TICKET_HEADER, createCityMaps } from "./city_maps.mjs";
-import { SKIN_MAX_BYTES, SKIN_TOKEN_HEADER, createSkins } from "./skins.mjs";
+import { SKIN_ACCOUNT_PATH, SKIN_ARMS_HEADER, SKIN_MAX_BYTES, SKIN_TOKEN_HEADER, createSkins } from "./skins.mjs";
 import { SAVE_MAX_BYTES, SAVE_PATH, createGameSaves } from "./game_saves.mjs";
 import { createEnetRelay } from "./enet_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
@@ -69,7 +69,7 @@ function responseHeaders() {
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, HEAD, POST, PUT, OPTIONS",
-    "access-control-allow-headers": `content-type, ${CITY_MAP_TICKET_HEADER}, ${SKIN_TOKEN_HEADER}`,
+    "access-control-allow-headers": `content-type, ${CITY_MAP_TICKET_HEADER}, ${SKIN_TOKEN_HEADER}, ${SKIN_ARMS_HEADER}`,
   };
 }
 
@@ -476,6 +476,30 @@ export function createLastRouteServer({
     if (request.method === "GET" && modPackPath) {
       const result = modPacks.get(modPackPath[1], url.searchParams.get("version"));
       return json(response, result[0], result[1], { "cache-control": "public, max-age=60" });
+    }
+
+    const skinAccount = SKIN_ACCOUNT_PATH.exec(url.pathname);
+    if (skinAccount && new Set(["GET", "PUT"]).has(request.method)) {
+      // account skins (skins.mjs): GET is public metadata, PUT is the owner's raw PNG (session + arms style in headers)
+      if (request.method === "GET") {
+        const found = skins.get(skinAccount[1]);
+        return json(response, found[0], found[1], { "cache-control": "public, max-age=15" });
+      }
+      const chunks = [];
+      let received = 0;
+      for await (const chunk of request) {
+        received += chunk.length;
+        if (received > 1024 * 1024) { request.destroy(); return; }
+        if (received <= SKIN_MAX_BYTES) chunks.push(chunk);
+      }
+      if (received > SKIN_MAX_BYTES) {
+        return json(response, 413, { ok: false, code: "BAD_SKIN", error: "Skin refused: the file is too large" });
+      }
+      const putToken = String(request.headers[SKIN_TOKEN_HEADER] || "");
+      const putRefused = moderation.checkSkinUpload(accountService.sessionUsername(putToken) || "");
+      if (putRefused) return json(response, putRefused[0], putRefused[1]);
+      const stored = skins.put(putToken, skinAccount[1], Buffer.concat(chunks), String(request.headers[SKIN_ARMS_HEADER] || "auto").toLowerCase());
+      return json(response, stored[0], stored[1]);
     }
 
     const savePath = SAVE_PATH.exec(url.pathname);
