@@ -1696,6 +1696,10 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 				and not (build["open_above"] as Dictionary).has(cell):
 			surface.add_ceiling(x, z, height, RefTextures.layer("floor", ceiling_kind),
 				RefTextures.params("ceiling", ceiling_kind))
+		# a room door standing in this open cell: wall over its frame up to both sides' ceilings (no air gap above it)
+		var door_header: Dictionary = (build["door_headers"] as Dictionary).get(cell, {})
+		if not door_header.is_empty():
+			_add_header_faces(build, cell, door_header)
 		# Where a taller room meets a lower cell (a doorway or corridor mouth) the
 		# lower cell's ceiling stops short: close the gap above it with a lintel
 		# face on the taller side.
@@ -1759,11 +1763,7 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		# a room door's cell: wall over the frame up to both rooms' ceilings, and a soffit on the frame (no see-through)
 		var header: Dictionary = (build["door_headers"] as Dictionary).get(cell, {})
 		if not header.is_empty():
-			var across: Vector2i = header["normal"]
-			var front_kind := _ref_wall_kind(build, x, z, x + across.x, z + across.y)
-			var back_kind := _ref_wall_kind(build, x, z, x - across.x, z - across.y)
-			add_door_header(surface, cell, header, [RefTextures.layer("wall", front_kind), RefTextures.params("wall", front_kind)],
-				[RefTextures.layer("wall", back_kind), RefTextures.params("wall", back_kind)])
+			_add_header_faces(build, cell, header)
 		for step_value in RefDecor.DIRS:
 			var step: Vector2i = step_value
 			var nx: int = x + step.x
@@ -2718,6 +2718,16 @@ static func add_door_header(surface: RefSurfaceMesh, cell: Vector2i, header: Dic
 		if top > soffit:
 			surface.add_wall(cell.x, cell.y, side, float(look[0]), look[1], top, soffit, top)
 	surface.add_ceiling(cell.x, cell.y, float(header.get("header_y", DoorwayFrames.HEADER_Y)), float(front[0]), front[1])
+
+
+## add_door_header in the wall theme each side of `cell` shows.
+func _add_header_faces(build: Dictionary, cell: Vector2i, header: Dictionary) -> void:
+	var across: Vector2i = header["normal"]
+	var front_kind := _ref_wall_kind(build, cell.x, cell.y, cell.x + across.x, cell.y + across.y)
+	var back_kind := _ref_wall_kind(build, cell.x, cell.y, cell.x - across.x, cell.y - across.y)
+	add_door_header(build["surface"] as RefSurfaceMesh, cell, header,
+		[RefTextures.layer("wall", front_kind), RefTextures.params("wall", front_kind)],
+		[RefTextures.layer("wall", back_kind), RefTextures.params("wall", back_kind)])
 
 
 static func _is_wall_at(grid: Array, x: int, z: int) -> bool:
