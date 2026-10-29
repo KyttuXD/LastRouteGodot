@@ -1721,9 +1721,9 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 const WARREN_SHARE := .55
 ## The dense regions whose chunks can be warrens (KT: "the other regions need this change too"). The rest keep their banks;
 ## each region's special rooms (carousel big top, music wing, maze office suite) live in its bank chunks.
-const WARREN_REGIONS := ["maze", "hospital"]
+const WARREN_REGIONS := ["maze", "hospital", "lab"]
 ## Room types whose recipes are tuned to bank shapes (rows of beds): they stay in the bank chunks.
-const WARREN_ROOM_EXCLUDE := ["ward"]
+const WARREN_ROOM_EXCLUDE := ["ward", "pod_room"]
 ## Warren macro cells: each quadrant beside the spine is 3 x 3 cells of WARREN_CELL x WARREN_CELL.
 const WARREN_CELL := 6
 
@@ -1731,8 +1731,8 @@ const WARREN_CELL := 6
 ## KT: "re-do the maze hallway styles, with twists and turns, scattered rooms". A maze chunk is either the bank layout or,
 ## WARREN_SHARE of the time, a warren. Never the spawn chunk; deterministic per seed.
 func is_warren_chunk(coord: Vector3i) -> bool:
-	if coord.y != 0 or not WARREN_REGIONS.has(region_for(coord)) or is_safe_room(coord):
-		return false
+	if coord.y != 0 or not WARREN_REGIONS.has(region_for(coord)) or is_safe_room(coord) or is_pod_room_chunk(coord):
+		return false   # the dive lab's pod room needs its bank
 	return SeededRandom.new("%s:WARREN:%s" % [world_seed, chunk_id(coord)]).next_float() < WARREN_SHARE
 
 
@@ -3498,7 +3498,10 @@ static func _vary_specs(specs: Array, side_span: int, depth_span: int, rng: Seed
 	for spec_value in specs:
 		var spec: Dictionary = (spec_value as Dictionary).duplicate()
 		var mounted := bool(spec.get("wall_mount", false)) or bool(spec.get("wall_mounted", false))
-		if (mounted or not bool(spec.get("solid", true))) and rng.next_float() < .75:
+		# wall pieces that are only decoration move along their wall; a working wall fixture (a headset shelf) stays
+		var decor_on_wall := mounted and ["Frame", "Painting", "Sign", "Clock", "Poster"].any(
+			func(word: String) -> bool: return word in String(spec.get("type", "")))
+		if (decor_on_wall or (not mounted and not bool(spec.get("solid", true)))) and rng.next_float() < .75:
 			var step := 1 + rng.next_index(2)
 			spec["side"] = int(spec.get("side", 0)) + (step if rng.next_float() < .5 else -step)
 			if not mounted and int(spec.get("depth", 0)) > 0 and rng.next_float() < .5:
