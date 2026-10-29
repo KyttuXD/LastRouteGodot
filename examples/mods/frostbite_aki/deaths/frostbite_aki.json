@@ -1,0 +1,11 @@
+{
+	"schema": "lr.deaths/1",
+	"id": "frostbite_aki_aki",
+	"lines": [
+		"Sorry, my hands are cold.. they were warm when I started.",
+		"I'll put a blanket over the chapter, so it isn't so cold.",
+		"Please don't shiver, it makes me want to apologise twice.",
+		"It's only frost, it melts.. in the spring."
+	],
+	"lore_line": "Sorry about the cold.. it follows me."
+}

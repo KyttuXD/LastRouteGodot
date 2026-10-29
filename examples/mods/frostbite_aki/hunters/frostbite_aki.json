@@ -1,0 +1,15 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "frostbite_aki_aki",
+	"name": "Frostbite Aki",
+	"tier": "easy",
+	"speed": 0.8,
+	"chase": 3.3,
+	"prog": 0.2,
+	"sight": 7.8,
+	"hearing": 1.0,
+	"spawn": 11,
+	"model": "assets/frostbite_aki.glb",
+	"portrait": "assets/frostbite_aki.png",
+	"chase_style": "reach1"
+}
