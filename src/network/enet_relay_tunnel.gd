@@ -13,10 +13,12 @@ extends Node
 
 signal relay_ready
 signal relay_failed(message: String)
+## Guest: the relay closed the room because its host quit, crashed or was killed ("HOST LEFT // ROOM CLOSED").
+signal host_left(message: String)
 
 enum Mode { CLOSED, HOST, GUEST }
 enum Frame { HOST_REGISTER = 1, HOST_ACK = 2, GUEST_JOIN = 3, GUEST_ACK = 4,
-	GUEST_DATA = 5, HOST_DATA = 6, ERROR = 7 }
+	GUEST_DATA = 5, HOST_DATA = 6, ERROR = 7, HOST_LEFT = 10, HOST_ALIVE = 11 }
 
 const HEADER_BYTES := 14
 const MAX_DATAGRAM_BYTES := 1472
@@ -28,6 +30,10 @@ const HOST_REGISTER_INTERVAL_MSEC := 3000
 const GUEST_JOIN_INTERVAL_MSEC := 750
 const BRIDGE_TTL_MSEC := 60_000
 const MAX_PENDING_PACKETS := 64
+# KT: a host that quits or dies must drop its room within about a second. The relay times a host out 1 s after its
+# last HOST_ALIVE, so these go out every 250 ms from a thread with its own socket: a 10-45 s main-thread stall
+# (CrashWatch saw them while loading) keeps the room, and only a dead process stops them.
+const HOST_ALIVE_INTERVAL_MSEC := 250
 # PacketPeerUDP's ring buffer defaults to 64 KB and is drained once per frame. A 4-player room pushes ~400 KB/s
 # through the host's relay socket, so any frame over ~160 ms overflowed it ("Buffer full, dropping packets!" in
 # VIDEO's co-op logs, 2026-10-28) and dropped ENet fragments. 1 MB rides out multi-second hitches.
@@ -51,6 +57,12 @@ var _client_address := ""
 var _client_port := 0
 var _pending: Array[PackedByteArray] = []
 var _bridges := {}
+var _alive_thread: Thread
+var _alive_stop := false
+var _alive_mutex := Mutex.new()
+var _alive_frame := PackedByteArray()
+## HOST_ALIVE frames the keep-alive thread has sent (validators read it).
+var alive_sent := 0
 
 
 func start_host(code: String, token: String, enet_port: int,
@@ -63,6 +75,7 @@ func start_host(code: String, token: String, enet_port: int,
 	_host_token = token
 	_host_enet_port = enet_port
 	_send_host_registration()
+	_start_keep_alive()
 	return ""
 
 
@@ -72,6 +85,7 @@ func update_host_token(token: String) -> void:
 	_host_token = token
 	_next_control_msec = 0
 	_send_host_registration()
+	_set_alive_frame()
 
 
 ## Returns the loopback UDP port an ENet client should connect to, or zero on
@@ -98,6 +112,7 @@ func last_error() -> String:
 
 
 func close() -> void:
+	_stop_keep_alive()
 	for entry in _bridges.values():
 		var peer = entry.get("peer") as PacketPeerUDP
 		if peer != null:
@@ -189,6 +204,9 @@ func _handle_relay_frame(frame: Dictionary) -> void:
 			_last_error = message
 			relay_failed.emit(message)
 		return
+	if kind == Frame.HOST_LEFT:
+		host_left.emit((frame.get("payload", PackedByteArray()) as PackedByteArray).get_string_from_utf8())
+		return
 	if mode == Mode.HOST:
 		if kind == Frame.HOST_ACK:
 			_mark_ready()
@@ -203,6 +221,52 @@ func _handle_relay_frame(frame: Dictionary) -> void:
 				_flush_pending()
 		elif kind == Frame.HOST_DATA and int(frame.get("session", 0)) == _session_id:
 			_send_to_local_client(frame.get("payload", PackedByteArray()))
+
+
+func _set_alive_frame() -> void:
+	_alive_mutex.lock()
+	_alive_frame = encode_frame(Frame.HOST_ALIVE, 0, room_code, _host_token.to_utf8_buffer()) \
+		if not _host_token.is_empty() else PackedByteArray()
+	_alive_mutex.unlock()
+
+
+func _start_keep_alive() -> void:
+	_stop_keep_alive()
+	_set_alive_frame()
+	_alive_stop = false
+	_alive_thread = Thread.new()
+	_alive_thread.start(_keep_alive.bind(relay_address, relay_port))
+
+
+func _stop_keep_alive() -> void:
+	_alive_stop = true
+	if _alive_thread != null and _alive_thread.is_started():
+		_alive_thread.wait_to_finish()
+	_alive_thread = null
+
+
+## Keep-alive thread: its own socket, so it never touches the main loop's (PacketPeerUDP is not thread-safe).
+func _keep_alive(address: String, port: int) -> void:
+	var socket := PacketPeerUDP.new()
+	if socket.bind(0, "0.0.0.0") != OK:
+		return
+	socket.set_dest_address(address, port)
+	while not _alive_stop:
+		_alive_mutex.lock()
+		var frame := _alive_frame
+		_alive_mutex.unlock()
+		if not frame.is_empty():
+			socket.put_packet(frame)
+			alive_sent += 1
+		var waited := 0
+		while waited < HOST_ALIVE_INTERVAL_MSEC and not _alive_stop:
+			OS.delay_msec(25)
+			waited += 25
+	socket.close()
+
+
+func _exit_tree() -> void:
+	_stop_keep_alive()
 
 
 func _mark_ready() -> void:

@@ -15,6 +15,13 @@ Native ENet packets are wrapped through the UDP relay, so hosts and guests
 make only outbound connections. Player routers do not need UPnP, a manual port
 forward, or a publicly reachable UDP socket.
 
+A room lives exactly as long as its host. An explicit quit (`/api/enet/rooms/unregister`) closes it at once; a host
+whose process crashes or is killed is dropped within about a second: current clients send `HOST_ALIVE` every 250 ms
+from a background thread (a frozen main loop keeps the room), and the relay times such a host out 1 s after the last
+one (hosts from older builds keep the 15 s timeout). Either way every guest gets `HOST_LEFT` (and an `ERROR` for older
+clients), the code stops resolving (`ROOM NOT FOUND`), and a reserved private room keeps its reservation. Host
+migration happens only when a host hands over on purpose (`/api/enet/rooms/release-host`).
+
 ## Local run
 
 Node 18 or newer is the only dependency.

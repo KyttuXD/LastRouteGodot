@@ -367,6 +367,15 @@ export function createLastRouteServer({
     }
   }
 
+  function forgetEnetRoom(code) {
+    const room = enetRooms.get(code);
+    if (!room) return;
+    enetRooms.delete(code);
+    for (const [ticket, proof] of adminTickets) {
+      if (proof.code === code && safeEqual(proof.hostToken, room.token)) adminTickets.delete(ticket);
+    }
+  }
+
   function promoteEnetRoomHost(code) {
     const room = enetRooms.get(code);
     if (!room) return null;
@@ -675,10 +684,9 @@ export function createLastRouteServer({
       const room = enetRooms.get(code);
       if (!room) return json(response, 200, { ok: true, removed: false });
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
-      enetRooms.delete(code);
-      for (const [ticket, proof] of adminTickets) {
-        if (proof.code === code && safeEqual(proof.hostToken, room.token)) adminTickets.delete(ticket);
-      }
+      // an explicit quit: guests are told now and the code stops resolving now
+      enetRelay?.closeRoom(code);
+      forgetEnetRoom(code);
       return json(response, 200, { ok: true, removed: true });
     }
 
@@ -870,6 +878,8 @@ export function createLastRouteServer({
         return enetRooms.get(code) || null;
       },
       promoteRoomHost: promoteEnetRoomHost,
+      // the host quit, crashed or was killed: the code is invalid at once (a reserved room keeps its reservation)
+      onRoomClosed: (code) => forgetEnetRoom(code),
       now,
       logger,
     });

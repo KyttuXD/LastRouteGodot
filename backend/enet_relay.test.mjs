@@ -141,7 +141,7 @@ test("relay protocol rejects malformed and oversized frames", () => {
   assert.equal(decodeRelayFrame(oversized), null);
 });
 
-test("oldest active guest is promoted and remaining relay sessions survive host loss", async () => {
+test("a host handing over on purpose promotes the oldest guest; the other sessions survive", async () => {
   let timestamp = 0;
   const room = { code: "ABCDE", token: "host-secret" };
   const relay = createEnetRelay({
@@ -174,10 +174,10 @@ test("oldest active guest is promoted and remaining relay sessions survive host 
       RelayFrame.GUEST_JOIN, 0, room.code, Buffer.from("second-guest")));
     const secondSession = (await receive(secondGuest)).frame.sessionId;
 
-    timestamp = 200;
+    timestamp = 50;
     const promotionPromise = receive(firstGuest);
     const migrationPromise = receive(secondGuest);
-    relay.pruneNow();
+    relay.requestHostMigration(room.code);   // release-host: the only path to migration now
     const promotion = (await promotionPromise).frame;
     assert.equal(promotion.type, RelayFrame.HOST_PROMOTE);
     assert.equal(promotion.sessionId, firstSession);
@@ -207,5 +207,136 @@ test("oldest active guest is promoted and remaining relay sessions survive host 
     relay.close();
     await Promise.all([once(host, "close"), once(firstGuest, "close"),
       once(secondGuest, "close"), once(relay, "close")]);
+  }
+});
+
+
+test("a host that quits or dies closes the room: guests get HOST_LEFT, the directory forgets the code", async () => {
+  let timestamp = 0;
+  const closed = [];
+  const room = { code: "ABCDE", token: "host-secret" };
+  const relay = createEnetRelay({
+    roomByCode: (code) => (code === room.code && !closed.includes(code) ? room : null),
+    onRoomClosed: (code, reason) => closed.push(code, reason),
+    promoteRoomHost: () => ({ token: "never" }),
+    now: () => timestamp,
+    hostTtlMs: 15_000,
+    hostAliveTtlMs: 1_000,
+    logger: { log() {}, error() {} },
+  });
+  relay.bind(0, "127.0.0.1");
+  await once(relay, "listening");
+  const relayPort = relay.address().port;
+  const host = await udpSocket();
+  const keepAlive = await udpSocket();   // the host's background thread uses its own socket
+  const guest = await udpSocket();
+  try {
+    send(host, relayPort, encodeRelayFrame(RelayFrame.HOST_REGISTER, 0, room.code, Buffer.from("host-secret")));
+    assert.equal((await receive(host)).frame.type, RelayFrame.HOST_ACK);
+    send(guest, relayPort, encodeRelayFrame(RelayFrame.GUEST_JOIN, 0, room.code, Buffer.from("guest-nonce")));
+    assert.equal((await receive(guest)).frame.type, RelayFrame.GUEST_ACK);
+
+    // the main loop freezes for 5 s, but the keep-alive thread goes on every 250 ms: the room stays
+    for (let ms = 250; ms <= 5000; ms += 250) {
+      timestamp = ms;
+      send(keepAlive, relayPort, encodeRelayFrame(RelayFrame.HOST_ALIVE, 0, room.code, Buffer.from("host-secret")));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      relay.pruneNow();
+    }
+    assert.deepEqual(closed, [], "a frozen host whose keep-alive kept going lost its room");
+    assert.equal(relay.relayStatus().hosts, 1);
+    // a forged keep-alive (wrong token) keeps nothing alive
+    send(keepAlive, relayPort, encodeRelayFrame(RelayFrame.HOST_ALIVE, 0, room.code, Buffer.from("guess")));
+
+    // killed: the keep-alive stops; within 1 s (plus one 250 ms prune) the room is closed
+    const leftPromise = receive(guest);
+    timestamp = 5000 + 1001;
+    relay.pruneNow();
+    const left = (await leftPromise).frame;
+    assert.equal(left.type, RelayFrame.HOST_LEFT);
+    assert.equal(left.payload.toString(), "HOST LEFT // ROOM CLOSED");
+    assert.equal(closed[0], "ABCDE", "the directory was not told to forget the code");
+    assert.equal(relay.relayStatus().sessions, 0);
+    // a later join with that code finds nothing
+    send(guest, relayPort, encodeRelayFrame(RelayFrame.GUEST_JOIN, 0, room.code, Buffer.from("guest-nonce-2")));
+    const after = await receive(guest);
+    assert.ok(after.frame.type === RelayFrame.ERROR || after.frame.type === RelayFrame.HOST_LEFT,
+      `a join after the host left got frame ${after.frame.type}`);
+  } finally {
+    for (const socket of [host, keepAlive, guest]) socket.close();
+    relay.close();
+    await once(relay, "close");
+  }
+});
+
+test("an older host (no keep-alive) keeps the long timeout, and closeRoom ends a room at once", async () => {
+  let timestamp = 0;
+  const closed = [];
+  const room = { code: "ABCDE", token: "host-secret" };
+  const relay = createEnetRelay({
+    roomByCode: (code) => (code === room.code ? room : null),
+    onRoomClosed: (code) => closed.push(code),
+    now: () => timestamp, hostTtlMs: 15_000, hostAliveTtlMs: 1_000, logger: { log() {}, error() {} },
+  });
+  relay.bind(0, "127.0.0.1");
+  await once(relay, "listening");
+  const host = await udpSocket();
+  try {
+    send(host, relay.address().port, encodeRelayFrame(RelayFrame.HOST_REGISTER, 0, room.code, Buffer.from("host-secret")));
+    assert.equal((await receive(host)).frame.type, RelayFrame.HOST_ACK);
+    timestamp = 5_000;
+    relay.pruneNow();
+    assert.deepEqual(closed, [], "an older build's host (registers every 3 s) was dropped on the 1 s timeout");
+    assert.ok(relay.closeRoom("ABCDE"));
+    assert.deepEqual(closed, ["ABCDE"]);
+  } finally {
+    host.close();
+    relay.close();
+    await once(relay, "close");
+  }
+});
+
+test("server: an explicit quit invalidates the code at once; a killed relay host's code is gone within ~1 s", async () => {
+  const { createLastRouteServer } = await import("./server.mjs");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const root = await mkdtemp(join(tmpdir(), "host-left-"));
+  const server = createLastRouteServer({ accountStorePath: join(root, "a.json"), moderationStorePath: join(root, "m.json"),
+    accountRateLimitMax: 10_000, apiRateLimitMax: 10_000, logger: { log() {}, warn() {}, error() {} } });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const relay = server.startEnetRelay({ host: "127.0.0.1", port: 0 });
+  await once(relay, "listening");
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const post = async (path, body) => {
+    const response = await fetch(url + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json() };
+  };
+  const host = await udpSocket();
+  try {
+    const first = await post("/api/enet/rooms/register", { code: "ABCDE", port: 7000 });
+    assert.equal(first.status, 201);
+    assert.equal((await post("/api/enet/rooms/unregister", { code: "ABCDE", token: first.body.token })).status, 200);
+    assert.equal((await fetch(`${url}/api/enet/rooms/ABCDE`)).status, 404, "a quit room still resolved");
+
+    const second = await post("/api/enet/rooms/register", { code: "BCDEF", port: 7001 });
+    send(host, relay.address().port, encodeRelayFrame(RelayFrame.HOST_REGISTER, 0, "BCDEF", Buffer.from(second.body.token)));
+    assert.equal((await receive(host)).frame.type, RelayFrame.HOST_ACK);
+    send(host, relay.address().port, encodeRelayFrame(RelayFrame.HOST_ALIVE, 0, "BCDEF", Buffer.from(second.body.token)));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal((await fetch(`${url}/api/enet/rooms/BCDEF`)).status, 200);
+    const killedAt = Date.now();   // no more keep-alives from here: the process is gone
+    let gone = 0;
+    while (Date.now() - killedAt < 3000) {
+      if ((await fetch(`${url}/api/enet/rooms/BCDEF`)).status === 404) { gone = Date.now() - killedAt; break; }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.ok(gone > 0 && gone <= 1400, `a killed host's room took ${gone || ">3000"} ms to drop (want about 1 s)`);
+  } finally {
+    host.close();
+    server.close();
+    await once(server, "close");
+    await rm(root, { recursive: true });
   }
 });

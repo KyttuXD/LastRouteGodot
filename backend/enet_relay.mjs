@@ -18,7 +18,13 @@ export const RelayFrame = Object.freeze({
   ERROR: 7,
   HOST_PROMOTE: 8,
   HOST_MIGRATING: 9,
+  // The room is gone (its host quit, crashed or was killed): guests leave to the menu. Older clients also get ERROR.
+  HOST_LEFT: 10,
+  // The host is alive: payload = host token. Sent every ~250 ms from a background thread (EnetRelayTunnel), so a
+  // frozen main loop does not drop a live room; a host that sends it is timed out after hostAliveTtlMs.
+  HOST_ALIVE: 11,
 });
+export const HOST_LEFT_MESSAGE = "HOST LEFT // ROOM CLOSED";
 
 const ROOM_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
 
@@ -77,6 +83,11 @@ export function createEnetRelay({
   now = Date.now,
   logger = console,
   hostTtlMs = 15_000,
+  // KT: "make the room drop 1s or no delay". Hosts that send HOST_ALIVE (every 250 ms) are gone after this long;
+  // older hosts (HOST_REGISTER every 3 s) keep hostTtlMs.
+  hostAliveTtlMs = 1_000,
+  // Called when a room's live session ends here (host quit, timed out, or closeRoom): the directory forgets it.
+  onRoomClosed = null,
   sessionTtlMs = 45_000,
   maximumGuestsPerRoom = 15,
   guestAllocationWindowMs = 10_000,
@@ -107,6 +118,7 @@ export function createEnetRelay({
     droppedNoHost: 0,
     droppedWrongEndpoint: 0,
     sendErrors: 0,
+    roomsClosed: 0,
   };
 
   function send(type, sessionId, code, payload, endpoint) {
@@ -196,11 +208,34 @@ export function createEnetRelay({
     return true;
   }
 
+  function hostTtl(host) {
+    return host?.alive ? hostAliveTtlMs : hostTtlMs;
+  }
+
+  // The live session is over: every guest is told (HOST_LEFT, plus ERROR for older clients) and dropped, and the
+  // directory forgets the room. Host migration happens only when a host hands over on purpose (release-host).
+  function closeRoom(code, reason = HOST_LEFT_MESSAGE) {
+    let told = 0;
+    for (const [sessionId, session] of sessions) {
+      if (session.code !== code) continue;
+      send(RelayFrame.HOST_LEFT, sessionId, code, Buffer.from(reason), session.guest);
+      sendError(code, session.guest, reason);
+      removeSession(sessionId);
+      told += 1;
+    }
+    const known = hosts.has(code) || migrations.has(code);
+    hosts.delete(code);
+    migrations.delete(code);
+    counters.roomsClosed += 1;
+    if (typeof onRoomClosed === "function") onRoomClosed(code, reason);
+    return known || told > 0;
+  }
+
   function prune() {
     const timestamp = now();
     for (const [code, host] of hosts) {
       if (!roomByCode(code)) removeHost(code);
-      else if (timestamp - host.lastSeen > hostTtlMs) beginHostMigration(code);
+      else if (timestamp - host.lastSeen > hostTtl(host)) closeRoom(code);
     }
     for (const [sessionId, session] of sessions) {
       if (!roomByCode(session.code) || timestamp - session.lastSeen > sessionTtlMs) {
@@ -240,7 +275,7 @@ export function createEnetRelay({
         sendError(frame.code, endpoint, "HOST AUTHORIZATION FAILED");
         return;
       }
-      hosts.set(frame.code, { ...endpoint, lastSeen: now() });
+      hosts.set(frame.code, { ...endpoint, lastSeen: now(), alive: Boolean(hosts.get(frame.code)?.alive) });
       const migration = migrations.get(frame.code);
       if (migration) {
         removeSession(migration.sessionId);
@@ -256,9 +291,18 @@ export function createEnetRelay({
       return;
     }
 
+    if (frame.type === RelayFrame.HOST_ALIVE) {
+      // from the host's keep-alive thread, on its own socket: proves the token, never moves the host endpoint
+      const host = hosts.get(frame.code);
+      if (!room || !host || !safeEqual(frame.payload.toString("utf8"), room.token)) return;
+      host.lastSeen = now();
+      host.alive = true;
+      return;
+    }
+
     if (frame.type === RelayFrame.GUEST_JOIN) {
       const host = hosts.get(frame.code);
-      if (!room || !host || now() - host.lastSeen > hostTtlMs) {
+      if (!room || !host || now() - host.lastSeen > hostTtl(host)) {
         sendError(frame.code, endpoint, "ROOM HOST HAS NOT REACHED THE RELAY");
         return;
       }
@@ -319,7 +363,7 @@ export function createEnetRelay({
         return;
       }
       const host = hosts.get(frame.code);
-      if (!host || now() - host.lastSeen > hostTtlMs) {
+      if (!host || now() - host.lastSeen > hostTtl(host)) {
         counters.droppedNoHost += 1;
         return;
       }
@@ -369,7 +413,8 @@ export function createEnetRelay({
     migrations.clear();
   });
 
-  const pruneTimer = setInterval(prune, Math.max(1000, Math.min(hostTtlMs, sessionTtlMs) / 3));
+  // every 250 ms: a killed host's room must be gone within about a second (hostAliveTtlMs + one tick)
+  const pruneTimer = setInterval(prune, Math.max(100, Math.min(250, hostAliveTtlMs / 4)));
   pruneTimer.unref();
   socket.once("close", () => clearInterval(pruneTimer));
 
@@ -384,6 +429,7 @@ export function createEnetRelay({
     error: lastError || undefined,
   });
   socket.requestHostMigration = (code) => beginHostMigration(String(code || "").trim().toUpperCase());
+  socket.closeRoom = (code, reason) => closeRoom(String(code || "").trim().toUpperCase(), reason);
   socket.pruneNow = prune;
   return socket;
 }
