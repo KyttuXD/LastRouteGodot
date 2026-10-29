@@ -294,7 +294,10 @@ func _fill_section(column: VBoxContainer, rows: Array) -> void:
 	var plain := []
 	for entry_value in rows:
 		var entry: Dictionary = entry_value
-		if entry.has("hunter_tool"):
+		if entry.has("build"):
+			# a section that draws itself (the NPC panel): handed the page's column
+			(entry["build"] as Callable).call(column)
+		elif entry.has("hunter_tool"):
 			_add_hunter_tool(column, entry)
 		elif entry.has("items"):
 			_add_items_dropdown(column, entry)

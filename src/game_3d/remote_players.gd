@@ -1309,6 +1309,7 @@ func best_target(origin: Vector2, local_target: Dictionary, depth: int) -> Dicti
 			if candidate_id == local_id \
 			else remote_admin_peer_allowed(candidate_id, "player")
 		if (candidate_tools and bool(candidate.get("no_target", false))) \
+				or (is_npc(candidate_id) and bool(candidate.get("no_target", false))) \
 				or bool(candidate.get("game_over", false)) \
 				or bool(candidate.get("escape_active", false)) \
 				or bool(candidate.get("capture_immune", false)) \
@@ -1625,12 +1626,25 @@ func _request_interaction(event: Dictionary) -> void:
 				"stun_hunters", "wake_hunters", "calm_hunters",
 				"damage_checkpoint", "repair_checkpoint", "lights_on",
 				"lights_off", "summon_hunter", "remove_hunter",
-				"story_start", "story_stop", "story_reset", "pulse_player"].has(action):
+				"story_start", "story_stop", "story_reset", "pulse_player", "npc"].has(action):
 			return
 		accepted = {"what": what, "action": action,
 			"admin_ticket": _clean_admin_ticket(event.get("admin_ticket", ""))}
 		if action == "pulse_player":
 			accepted["target"] = clampi(int(event.get("target", 0)), 1, 2147483647)
+		elif action == "npc":
+			# an NPC admin command (AdminMenu NPCS): only known ops, an NPC id, bounded numbers and a nearby point
+			var op := String(event.get("op", ""))
+			if not op in NpcTeammates.OPS and not op in ["spawn", "remove_nearest", "remove_all"]:
+				return
+			accepted["op"] = op
+			accepted["id"] = clampi(int(event.get("id", 0)), NpcTeammates.ID_BASE, NpcTeammates.ID_BASE + 100000)
+			accepted["count"] = clampi(int(event.get("count", 1)), 1, NpcTeammates.MAX_COUNT)
+			accepted["smart"] = clampi(int(event.get("smart", 70)), 0, 100)
+			accepted["value"] = clampi(int(event.get("value", 0)), 0, 100)
+			var at = event.get("at")
+			if at is Vector3 and absf((at as Vector3).x) < 1.0e6 and absf((at as Vector3).y) < 1.0e4 and absf((at as Vector3).z) < 1.0e6:
+				accepted["at"] = at
 		elif action in ["summon_hunter", "remove_hunter"]:
 			var hunter_id := String(event.get("hunter_id", ""))
 			if not HunterRoster.A_Z_IDS.has(hunter_id) \
@@ -1959,3 +1973,38 @@ func _xnpc_place(id: int, state: Dictionary) -> void:
 		return
 	_last_seq[id] = seq
 	receive_state(id, state)
+
+
+## Host: an NPC left the run (an admin removed it): gone here and on every guest at once (not after its state goes stale).
+func forget_npc(id: int) -> void:
+	if not is_npc(id):
+		return
+	_forget_npc_here(id)
+	if RoomState.online and RoomState.is_host:
+		for peer_id in multiplayer.get_peers():
+			if peer_is_live(peer_id):
+				_xnpc_remove.rpc_id(peer_id, id)
+
+
+func _forget_npc_here(id: int) -> void:
+	_drop(id)
+	_states.erase(id)
+	_last_seq.erase(id)
+
+
+## Sorts after _xnpc_place, so it too leaves every older RPC id alone.
+@rpc("authority", "call_remote", "reliable")
+func _xnpc_remove(id: int) -> void:
+	if multiplayer.get_remote_sender_id() == 1 and is_npc(id):
+		_forget_npc_here(id)
+
+
+## Host: a line said by NPC `id` (NpcTeammates._talk), delivered like a runner's so every peer's TTS reads it with that NPC's
+## own voice (RoomChat.voice_for(id)).
+func npc_chat(id: int, display_name: String, text: String, at: Vector3) -> void:
+	if not is_npc(id) or (RoomState.online and not RoomState.is_host):
+		return
+	var clean := sanitize_payload({"text": text, "channel": "nearby", "preset": "npc", "at": Vector2(at.x, at.z), "world": at}, false)
+	if String(clean["text"]).is_empty() or not accept_line(id, clean):
+		return
+	_deliver_payload(id, display_name, clean)

@@ -33,7 +33,9 @@ func _unit() -> void:
 		if lines[i].begins_with("@rpc("):
 			names.append(lines[i + 1].get_slice("func ", 1).get_slice("(", 0))
 	names.sort()
-	_expect(not names.is_empty() and names[-1] == "_xnpc_place", "the NPC RPC does not sort last: %s" % [names])
+	var npc_rpcs := names.filter(func(n: String) -> bool: return n.begins_with("_xnpc_"))
+	_expect(npc_rpcs.size() >= 2 and names.slice(names.size() - npc_rpcs.size()) == npc_rpcs,
+		"the NPC RPCs do not sort after every other RPC: %s" % [names])
 
 
 ## The staging screen: no NPC row for a player; an admin host gets the ◀ N ▶ scroller, which steps and stops at 0 and MAX_COUNT.
@@ -140,6 +142,7 @@ func run(host: Node) -> int:
 	scene.world_state.downs.clear(a)
 	await tree.physics_frame
 	_expect(bool(npcs.npcs[0]["out"]), "an NPC whose window closed is not out of the run")
+	await _admin_tools(scene, npcs, remotes)
 	return _finish(scene)
 
 
@@ -175,6 +178,63 @@ func _hunter_hunts_npc(scene: Node, npcs: NpcTeammates, remotes: RemotePlayers) 
 	scene.world_state.downs.clear(b)
 	npcs.revived(b)
 	player.admin_no_target = false
+
+
+## The admin NPCS page's commands, on the host: spawn more, act on one (freeze, hunters ignore, follow, teleport, kill,
+## remove); a guest admin's request is applied, a normal guest's refused, and the panel lists the NPCs.
+func _admin_tools(scene: Node, npcs: NpcTeammates, remotes: RemotePlayers) -> void:
+	var tree := scene.get_tree()
+	var before := npcs.npcs.size()
+	scene._admin_world_action("npc", {"op": "spawn", "count": 3, "smart": 90})
+	_expect(npcs.npcs.size() == before + 3, "admin spawn of 3 gave %d" % (npcs.npcs.size() - before))
+	var id := int(npcs.npcs[-1]["id"])
+	_expect(int(npcs.npcs[-1]["smart"]) == 90, "the spawn smartness was not kept")
+	for _i in 8:
+		await tree.physics_frame
+	var panel := AdminNpcPanel.new(scene)
+	scene.add_child(panel)
+	await tree.process_frame
+	_expect(panel.rows().size() == npcs.npcs.size(), "the admin list shows %d NPCs, there are %d" % [panel.rows().size(), npcs.npcs.size()])
+	scene._admin_world_action("npc", {"op": "freeze", "id": id})
+	scene._admin_world_action("npc", {"op": "ignore", "id": id})
+	for _i in 8:
+		await tree.physics_frame
+	var state := remotes.peer_state(id)
+	_expect(int((state.get("npc_admin", [0]) as Array)[0]) & 1 and bool(state.get("no_target", false)), "freeze / ignore did not reach the NPC's state")
+	var picked := remotes.best_target(state.get("position", Vector2.ZERO), {}, int(state.get("depth", 0)))
+	_expect(int(picked.get("peer_id", 0)) != id, "a hunter still picks an NPC the admin made them ignore")
+	var far: Vector3 = scene.player.global_position + Vector3(0, 0, 0)
+	scene._admin_world_action("npc", {"op": "teleport", "id": id})
+	_expect((npcs.find(id)["at"] as Vector3).distance_to(far) < 3.0, "teleport to me left the NPC %.1f m away" % (npcs.find(id)["at"] as Vector3).distance_to(far))
+	scene._admin_world_action("npc", {"op": "follow", "id": id})
+	_expect(int(npcs.find(id)["follow_peer"]) == 1, "follow me did not bind the NPC to the admin")
+	scene._admin_world_action("npc", {"op": "kill", "id": id})
+	_expect(bool(npcs.find(id)["out"]), "kill did not take the NPC out")
+	scene._admin_world_action("npc", {"op": "remove", "id": id})
+	await tree.physics_frame
+	_expect(npcs.find(id).is_empty() and remotes.peer_state(id).is_empty(), "remove left the NPC in the run")
+	# a guest admin (checked by the host) vs a normal guest: only the admin's spawn lands, the other is refused
+	Build.deny_admin_for_test = true
+	var admin := 7
+	var plain := 8
+	RoomState.peers[admin] = "ADMIN-GUEST"
+	RoomState.peers[plain] = "PLAIN-GUEST"
+	for peer in [admin, plain]:
+		remotes._states[peer] = {"peer_id": peer, "at": scene.player.global_position, "position": scene.player.grid_position(),
+			"depth": -int(scene.facility.current_level()), "received_usec": Time.get_ticks_usec(), "display_name": "G%d" % peer}
+	remotes.authorize_admin_peer(admin, 600, PackedStringArray(["world"]))
+	var count := npcs.npcs.size()
+	scene._on_remote_interaction_request(plain, {"what": "admin_world", "action": "npc", "op": "spawn", "count": 1, "admin_ticket": ""})
+	_expect(npcs.npcs.size() == count, "a normal guest spawned an NPC")
+	scene._on_remote_interaction_request(admin, {"what": "admin_world", "action": "npc", "op": "spawn", "count": 1, "admin_ticket": ""})
+	_expect(npcs.npcs.size() == count + 1, "a guest admin's spawn was not applied")
+	scene._on_remote_interaction_request(admin, {"what": "admin_world", "action": "npc", "op": "remove_all", "admin_ticket": ""})
+	_expect(npcs.npcs.is_empty(), "a guest admin's remove all left %d" % npcs.npcs.size())
+	Build.deny_admin_for_test = false
+	for peer in [admin, plain]:
+		RoomState.peers.erase(peer)
+		remotes._states.erase(peer)
+	panel.queue_free()
 
 
 func _finish(scene: Node) -> int:
