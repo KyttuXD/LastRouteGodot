@@ -842,23 +842,24 @@ static func down_map_mark(down: Dictionary, current_level: int) -> Dictionary:
 	var world: Vector3 = down.get("at", Vector3.ZERO)
 	var level := -int(down.get("depth", 0))
 	return {"peer_id": int(down.get("peer", 0)), "at": Vector2(world.x, world.z), "level": level, "name": String(down.get("name", "")),
-		"down_left": float(down.get("left", 0.0)), "other_floor": level != current_level, "colour": Color("e2515d")}
+		"down_left": float(down.get("left", 0.0)), "other_floor": level != current_level, "colour": RouteInteractable3D.REVIVE_COLOR}
 
 
-## Red ring with a cross and the name + seconds left: someone to revive. Another floor shows the up/down triangle; off the map it is
+## Revive-green ring with a heartbeat line (never a red cross: that emblem is protected) and the name + seconds left: someone to revive. Another floor shows the up/down triangle; off the map it is
 ## clamped to the edge like a teammate.
 func _draw_down_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
 	var radius := maxf(3.4 if interactive else 3.0, cell * .5)
 	var layout := teammate_layout(at, radius, mark)
 	var shown: Vector2 = layout["shown"]
 	var pulse := 0.65 + 0.35 * sin(float(Time.get_ticks_msec()) / 180.0)
-	var red := Color(Palette.ALERT, pulse)
+	var red := Color(RouteInteractable3D.REVIVE_COLOR, pulse)
 	var ink := Color(0.01, 0.04, 0.05, .95)
 	draw_circle(shown, radius + 1.2, Color(ink, .8))
 	draw_arc(shown, radius, 0.0, TAU, 16, red, maxf(1.3, cell * .13), true)
-	var arm := radius * .55
-	draw_line(shown + Vector2(-arm, -arm), shown + Vector2(arm, arm), red, 1.3, true)
-	draw_line(shown + Vector2(-arm, arm), shown + Vector2(arm, -arm), red, 1.3, true)
+	var beat := PackedVector2Array([shown + Vector2(-radius * .8, 0), shown + Vector2(-radius * .3, 0),
+		shown + Vector2(-radius * .1, -radius * .7), shown + Vector2(radius * .15, radius * .6),
+		shown + Vector2(radius * .35, 0), shown + Vector2(radius * .8, 0)])
+	draw_polyline(beat, red, 1.2, true)
 	if layout["kind"] == "updown":
 		var dir := -1.0 if layout["up"] else 1.0
 		var tri := PackedVector2Array([shown + Vector2(0, dir * radius * .9) + Vector2(radius + 3.5, 0),
@@ -873,7 +874,7 @@ func _draw_down_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
 	if label_at.x + width > size.x - 1.0:
 		label_at.x = shown.x - radius - 2.0 - width
 	draw_string_outline(font, label_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, 3, ink)
-	draw_string(font, label_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, Color(Palette.ALERT.lightened(.3), pulse))
+	draw_string(font, label_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, Color(RouteInteractable3D.REVIVE_COLOR.lightened(.25), pulse))
 
 
 func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
