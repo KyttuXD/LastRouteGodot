@@ -120,8 +120,7 @@ func _rebuild() -> void:
 	column.add_child(_seed_block())
 	column.add_child(_config_block())
 	column.add_child(_label(Palette.track("CONNECTED PLAYERS"), Palette.AMBER, 7))
-	for row in RoomState.roster_rows():
-		column.add_child(_player_row(row))
+	column.add_child(_player_list())
 	var notice := _notice if not _notice.is_empty() else RoomState.status_message
 	if not notice.is_empty():
 		column.add_child(_label(notice, Palette.ALERT, 7))
@@ -287,24 +286,15 @@ func _toggles(labels: Dictionary, selected: int, on_pick: Callable,
 
 ## One seat. Every part of this used to be hardcoded, so a guest's window
 ## showed itself as the host.
-func _player_row(entry: Dictionary) -> Control:
-	var box := PanelContainer.new()
-	box.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET,
-		Palette.PANEL_EDGE, 4))
-	var row := HBoxContainer.new()
-	box.add_child(row)
-	var you: bool = entry["you"]
-	var label: String = String(entry["name"])
-	if you:
-		label += "  //  YOU"
-	row.add_child(_label(label, Palette.INK if you else Palette.BODY, 7))
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(spacer)
-	var role: String = "HOST" if entry["host"] else "GUEST"
-	row.add_child(_label("%s // STAGING" % role,
-		Palette.AMBER if entry["host"] else Palette.MUTED, 6))
-	return box
+## The same list as in a run (name, ping, status, floor, host badge, voice), live with joins and leaves because the staging screen
+## rebuilds on RoomState.changed. Before the route there is no replicated state, so status reads IN LOBBY.
+func _player_list() -> Control:
+	var list := PlayerListPanel.new()
+	list.name = "LobbyPlayerList"
+	var rows := RoomPlayerList.build(RoomState.roster_rows(), {}, {}, {}, {}, false, Time.get_ticks_usec(), false)
+	list.custom_minimum_size = Vector2(0, mini(26 + 14 * rows.size(), 100))
+	list.set_rows(rows)
+	return list
 
 
 func _actions() -> Control:

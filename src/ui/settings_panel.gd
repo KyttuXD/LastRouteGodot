@@ -25,6 +25,7 @@ const ACTION_LABELS := {
 	"drop_item": "DROP HELD ITEM",
 	"chat": "ROOM CHAT",
 	"toggle_map": "TOGGLE MAP",
+	"player_list": "PLAYER LIST (HOLD)",
 	"pause": "PAUSE",
 	"office_left_door": "OFFICE — LEFT DOOR",
 	"office_right_door": "OFFICE — RIGHT DOOR",
@@ -69,6 +70,7 @@ var SECTIONS: Array = ControlsRegistry.tabs_for(GameRegistry.active_game_id)
 @onready var close_button: Button = %CloseButton
 
 var _focus_pause_button: Button
+var _waypoint_button: Button
 var _listening_action := ""
 var _listening_button: Button = null
 var _listening_append := false
@@ -101,6 +103,7 @@ func _ready() -> void:
 	Settings.display_changed.connect(_refresh_from_settings)
 	close_button.pressed.connect(close)
 	_build_focus_pause_row()
+	_build_waypoint_toggle_row()
 	_build_voice_rows()
 	_apply_palette()
 	_build_settings_tabs()
@@ -288,6 +291,9 @@ func _apply_palette() -> void:
 		Palette.style_state_toggle(fullscreen, "FULLSCREEN", Settings.fullscreen)
 	Palette.style_state_toggle(vsync_button, "VSYNC", Settings.vsync_enabled)
 	Palette.style_state_toggle(_focus_pause_button, "PAUSE WHEN WINDOW LOSES FOCUS", Settings.pause_on_focus_loss)
+	if _waypoint_button != null:
+		_waypoint_button.set_pressed_no_signal(Settings.teammate_waypoints)
+		Palette.style_state_toggle(_waypoint_button, "TEAMMATE WAYPOINTS", Settings.teammate_waypoints)
 
 
 func _build_control_rows() -> void:
@@ -299,6 +305,27 @@ func _build_control_rows() -> void:
 	_section_tabs.tab_changed.connect(_show_control_section)
 	controls_list.add_child(_section_tabs)
 	_show_control_section(0)
+
+
+## DISPLAY: teammate waypoints on the HUD (and on the maps), on by default.
+func _build_waypoint_toggle_row() -> void:
+	var row := HBoxContainer.new()
+	row.name = "TeammateWaypointsRow"
+	row.offset_left = 20.0
+	row.offset_top = 226.0
+	row.offset_right = 420.0
+	row.offset_bottom = 240.0
+	var button := Button.new()
+	button.name = "TeammateWaypointsButton"
+	button.toggle_mode = true
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.tooltip_text = "Name and distance markers for your co-op teammates, also shown on the minimap and map."
+	button.toggled.connect(func(enabled: bool) -> void:
+		Settings.set_teammate_waypoints(enabled)
+		Palette.set_state_toggle(button, enabled))
+	row.add_child(button)
+	add_child(row)
+	_waypoint_button = button
 
 
 func _build_focus_pause_row() -> void:
@@ -448,7 +475,7 @@ func _show_settings_category(index: int) -> void:
 	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow", "VoiceVolumeRow", "VoiceToggleRow"]:
 		get_node(name).visible = _active_settings_category == 0
 	for name in ["DisplayRow", "VsyncRow", "FpsLimitRow", "FovRow",
-			"PixelEffectRow", "PlayerHueRow", "SensitivityRow", "FocusPauseRow"]:
+			"PixelEffectRow", "PlayerHueRow", "SensitivityRow", "FocusPauseRow", "TeammateWaypointsRow"]:
 		get_node(name).visible = _active_settings_category == 1
 	$ControlsScroll.visible = _active_settings_category == 2
 	if _skin_panel != null:

@@ -175,6 +175,48 @@ func accounts_available() -> bool:
 	)
 
 
+## True when offline mode was chosen for ONE run (Create Room -> Offline). Leaving to a menu clears it (end_run_offline); a boot
+## fallback or --offline stays until GO ONLINE.
+var offline_for_run := false
+
+
+## Create Room -> "Offline (solo, no server)": offline for this run only.
+func enter_run_offline() -> void:
+	if offline_mode and not offline_for_run:
+		return   # already offline for the session (boot fallback / --offline): leave that to GO ONLINE
+	offline_for_run = true
+	enable_offline_mode()
+	UpdateManager.enable_offline_mode()
+
+
+## A menu is showing again: a run-scoped offline mode ends here. Returns true when it cleared (the caller re-runs the online checks).
+func end_run_offline() -> bool:
+	if not offline_for_run:
+		return false
+	offline_for_run = false
+	if "--offline" in OS.get_cmdline_user_args():
+		return false
+	go_online()
+	UpdateManager.go_online()
+	return true
+
+
+const OFFLINE_NOTE := "OFFLINE MODE IS ON // THE SERVER IS NOT BEING CONTACTED. GO ONLINE TO PLAY WITH FRIENDS."
+const OFFLINE_JOIN_MESSAGE := "OFFLINE MODE // GO ONLINE TO JOIN ROOMS"
+
+
+## Leaves offline mode without a restart (the menu's GO ONLINE): clears the flag, re-runs the health check and, when a login is
+## stored, the account session check. The caller re-runs UpdateManager.check() and whatever lookup it was waiting on.
+func go_online() -> void:
+	offline_mode = false
+	offline_for_run = false
+	check_health()
+	if not account_session_token.is_empty() and accounts_available() and not account_busy:
+		_send_account("session", "/api/account/session", {
+			"sessionToken": account_session_token,
+		})
+
+
 func enable_offline_mode() -> void:
 	offline_mode = true
 	_heartbeat.stop()
@@ -935,6 +977,9 @@ func unregister_room() -> void:
 
 func resolve_room(code: String) -> void:
 	var clean := code.strip_edges().to_upper()
+	if offline_mode:
+		room_resolved.emit(clean, {}, OFFLINE_JOIN_MESSAGE)
+		return
 	if not configured():
 		room_resolved.emit(clean, {}, "ROOM DIRECTORY IS NOT CONFIGURED")
 		return

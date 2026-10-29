@@ -26,7 +26,147 @@ func _expect(condition: bool, message: String) -> void:
 		_fail(message)
 
 
+## A guest leaving a co-op run (their own exit, or the host going away) ends up on the MAIN MENU with the room fully cleared.
+func _check_guest_leaves_to_menu(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.code = "ZZZZZ"
+	RoomState.is_host = false
+	RoomState.session_active = true
+	RoomState.peers = {1: "HOSTNAME", 2: "GUESTNAME"}
+	RoomState.reset_after_leaving("YOU LEFT THE ROOM")
+	_expect(RoomState.code != "ZZZZZ" and RoomState.is_host and not RoomState.online and not RoomState.connecting,
+		"leaving a room kept its code or the guest role")
+	_expect(not RoomState.session_active and not RoomState.reconnect_active, "leaving a room left its session or a reconnect running")
+	_expect(not RoomState.peers.has(1) or RoomState.peers.size() <= 1, "leaving a room kept the host's roster (%s)" % [RoomState.peers])
+	_expect(RoomState.menu_notice == "YOU LEFT THE ROOM", "the leave notice was not queued for the main menu")
+	_expect(RoomState.status_message.is_empty(), "a stale staging status survived the leave")
+	_expect(RoomState.HOST_LEFT_NOTICE.begins_with("HOST LEFT"), "the host-left notice does not say HOST LEFT")
+	# the main menu shows the notice once
+	RoomState.menu_notice = RoomState.HOST_LEFT_NOTICE
+	var menu := (load("res://scenes/main_menu.tscn") as PackedScene).instantiate()
+	host.add_child(menu)
+	await host.get_tree().process_frame
+	var notice := menu.find_child("RoomNotice", true, false) as Label
+	_expect(notice != null and notice.text.begins_with("HOST LEFT"), "the main menu did not show HOST LEFT after the host went away")
+	_expect(RoomState.menu_notice.is_empty(), "the menu notice was not consumed")
+	menu.queue_free()
+	await host.get_tree().process_frame
+	# the three guest exits and the host-gone paths all use it (not the staging screen)
+	var route_source := FileAccess.get_file_as_string("res://src/infinite_route_test.gd")
+	var main_source := FileAccess.get_file_as_string("res://src/main_3d.gd")
+	var state_source := FileAccess.get_file_as_string("res://src/autoload/room_state.gd")
+	_expect(route_source.contains('RoomState.leave_room_to_menu("YOU LEFT THE ROOM")'), "the streamed route's guest leave does not go to the main menu")
+	_expect(main_source.count('RoomState.leave_room_to_menu("YOU LEFT THE ROOM")') == 2, "main_3d guest exits do not all go to the main menu")
+	_expect(state_source.count("_close_failed_connection(HOST_LEFT_NOTICE, true)") == 2, "a lost or timed-out host does not send guests to the main menu")
+
+
+## Offline mode: a clear join message, GO ONLINE (menu + join dialog) without a restart, an OFFLINE badge, and a boot that retries the
+## server a few times before it gives up and starts offline.
+func _check_offline_mode(host: Node) -> void:
+	Backend.suppress_requests_for_tests()
+	var offline_before := Backend.offline_mode
+	var update_offline_before := UpdateManager.offline_mode
+	Backend.offline_mode = true
+	var result := []
+	var capture := func(_code: String, _endpoint: Dictionary, error: String) -> void: result.append(error)
+	Backend.room_resolved.connect(capture)
+	Backend.resolve_room("abc12")
+	Backend.room_resolved.disconnect(capture)
+	_expect(result == ["OFFLINE MODE // GO ONLINE TO JOIN ROOMS"], "an offline join lookup says %s" % [result])
+
+	var menu := (load("res://scenes/main_menu.tscn") as PackedScene).instantiate()
+	host.add_child(menu)
+	await host.get_tree().process_frame
+	var badge := menu.find_child("OfflineBadge", true, false) as Label
+	var go_button := menu.find_child("GoOnlineButton", true, false) as Button
+	_expect(badge != null and badge.visible and badge.text == "OFFLINE", "the main menu shows no OFFLINE badge while offline")
+	_expect(go_button != null and go_button.visible, "the main menu shows no GO ONLINE button while offline")
+	menu.call("_on_join_pressed")
+	await host.get_tree().process_frame
+	(menu.find_child("RoomCodeInput", true, false) as LineEdit).text = RoomState._make_code()
+	menu.call("_submit_join")
+	var status := menu.find_child("JoinStatus", true, false) as Label
+	var dialog_go := menu.find_child("JoinGoOnline", true, false) as Button
+	_expect(status != null and status.text == Backend.OFFLINE_JOIN_MESSAGE, "the join dialog does not explain offline mode")
+	_expect(dialog_go != null and dialog_go.visible, "the join dialog has no GO ONLINE button while offline")
+	dialog_go.pressed.emit()
+	await host.get_tree().process_frame
+	_expect(not Backend.offline_mode and not UpdateManager.offline_mode, "GO ONLINE did not leave offline mode")
+	_expect(not go_button.visible and not badge.visible, "the offline badge and GO ONLINE stay up after going online")
+	menu.queue_free()
+	await host.get_tree().process_frame
+
+	# Create Room carries the Offline option: off normally, on (with a note) when offline, and a failed server check turns it on
+	Backend.offline_mode = false
+	var create_menu := (load("res://scenes/main_menu.tscn") as PackedScene).instantiate()
+	host.add_child(create_menu)
+	await host.get_tree().process_frame
+	_expect(create_menu.find_child("OfflineButton", true, false) == null, "the old PLAY OFFLINE button is still on the menu")
+	create_menu.call("_on_play_pressed")
+	await host.get_tree().process_frame
+	var toggle := create_menu.find_child("CreateOfflineToggle", true, false) as Button
+	_expect(toggle != null, "Create Room has no Offline (solo, no server) option")
+	_expect(not bool(create_menu.get("_create_offline")), "the Offline option should start off while the server is fine")
+	create_menu.set("_creating_room", true)
+	create_menu.call("_on_create_health_checked", false, "DIRECTORY UNAVAILABLE")
+	var create_note := create_menu.find_child("CreateNote", true, false) as Label
+	_expect(bool(create_menu.get("_create_offline")) and create_note != null and create_note.text.contains("SERVER NOT REACHABLE"),
+		"a failed server check did not turn the Offline option on with a note")
+	create_menu.call("_close_modal")
+	Backend.offline_mode = true
+	create_menu.call("_on_play_pressed")
+	await host.get_tree().process_frame
+	_expect(bool(create_menu.get("_create_offline")) and (create_menu.find_child("CreateNote", true, false) as Label).text == Backend.OFFLINE_NOTE,
+		"opening Create Room while offline did not start with Offline on and a note")
+	create_menu.queue_free()
+	await host.get_tree().process_frame
+	Backend.offline_mode = false
+
+	# offline for one run ends at the menu: leave the room, then joining works again without a restart
+	Backend.enter_run_offline()
+	_expect(Backend.offline_mode and Backend.offline_for_run and UpdateManager.offline_mode, "an offline run did not start offline")
+	var after_run := (load("res://scenes/main_menu.tscn") as PackedScene).instantiate()
+	host.add_child(after_run)
+	await host.get_tree().process_frame
+	_expect(not Backend.offline_mode and not Backend.offline_for_run and not UpdateManager.offline_mode,
+		"offline mode survived leaving the offline run (the menu must clear it)")
+	_expect(not (after_run.find_child("OfflineBadge", true, false) as Label).visible, "the OFFLINE badge stayed up after leaving the offline run")
+	var after_result := []
+	var after_capture := func(_code: String, _endpoint: Dictionary, error: String) -> void: after_result.append(error)
+	Backend.room_resolved.connect(after_capture)
+	Backend.resolve_room("abc12")
+	Backend.room_resolved.disconnect(after_capture)
+	_expect(not after_result.has(Backend.OFFLINE_JOIN_MESSAGE), "joining after an offline run still says offline")
+	after_run.queue_free()
+	await host.get_tree().process_frame
+	# a boot-time or --offline mode is NOT run-scoped: the menu keeps it until GO ONLINE
+	Backend.enable_offline_mode()
+	_expect(not Backend.end_run_offline() and Backend.offline_mode, "a session offline mode was cleared like a run-scoped one")
+	Backend.offline_mode = false
+
+	# the boot sequence retries the server before falling back
+	var boot := (load("res://scenes/boot_loading.tscn") as PackedScene).instantiate()
+	boot.set("auto_start", false)
+	host.add_child(boot)
+	await host.get_tree().process_frame
+	for attempt in 3:
+		boot.call("_on_update_check_finished", false, false)
+		_expect(not UpdateManager.offline_mode and not bool(boot.get("_may_open_menu")),
+			"the boot went offline after only %d failed check(s)" % (attempt + 1))
+		_expect(String((boot.get("_status") as Label).text).contains("RETRYING (%d/3)" % (attempt + 1)),
+			"the boot does not say it is retrying (%s)" % (boot.get("_status") as Label).text)
+	boot.call("_on_update_check_finished", false, false)
+	_expect(UpdateManager.offline_mode and Backend.offline_mode and bool(boot.get("_may_open_menu")),
+		"the boot did not fall back to offline mode after its retries")
+	boot.queue_free()
+	await host.get_tree().process_frame
+	Backend.offline_mode = offline_before
+	UpdateManager.offline_mode = update_offline_before
+
+
 func run(host: Node) -> int:
+	await _check_offline_mode(host)
+	await _check_guest_leaves_to_menu(host)
 	_expect(Backend.PRIMARY_BASE_URL == "http://lastroute.kyttuslab.org:8105",
 		"the built-in room directory is %s" % Backend.PRIMARY_BASE_URL)
 	var backend_url_before := Backend.base_url

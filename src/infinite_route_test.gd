@@ -293,6 +293,7 @@ func _ready() -> void:
 			"The run saves as you leave. CONTINUE on the title screen resumes it."
 	pause_menu.save_status_source = _save_status_line
 	pause_menu.statistics_source = _pause_statistics
+	_build_player_list()
 	pause_menu.abandoned.connect(_leave_test)
 	pause_menu.opened.connect(_on_pause_opened)
 	pause_menu.resumed.connect(_on_pause_resumed)
@@ -359,6 +360,10 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 func _process(delta: float) -> void:
 	_tick_sync_gate(delta)
 	_expire_predictions()
+	_update_player_list(delta)
+	_update_teammate_waypoints()
+	if not _admin_pulses.is_empty():
+		_apply_pulses_to_maps()
 	_update_troll_ads(delta)
 	_music_boxes.tick(delta)
 	_tick_seat_occupancy()
@@ -1799,8 +1804,9 @@ func _update_streamed_maps() -> void:
 	# Region boundaries expose generation information, so they follow the same
 	# authenticated visual-admin permission as hunter/map reveal controls.
 	var show_admin_regions := Build.admin_permission("visual") and _admin_region_map
-	var remote_map_players := _remotes.remote_player_marks(-level) \
-		if _remotes != null else []
+	# the teammate setting governs the maps too, so the HUD markers and the minimap never disagree
+	var remote_map_players := _remotes.remote_player_marks(-level, true) \
+		if _remotes != null and Settings.teammate_waypoints else []
 	var dropped_tool_marks := _dropped_tool_marks(level)
 	var discovered_map_chunks := _map_chunks_with_available_pickups(_discovered_chunks)
 	var safe_room_marks := _safe_room_map_marks(level, discovered_map_chunks)
@@ -5257,6 +5263,8 @@ func _apply_player_event(event: Dictionary) -> void:
 				_rollback_door(String(event["door_id"]))
 			if _predicted_pickups.has(String(event.get("entity_id", ""))):
 				_rollback_pickup(String(event["entity_id"]))
+		"admin_pulse":
+			_show_admin_pulse(event)
 		"troll_pickup":
 			# The host refused it; it vanishes for this client only.
 			if facility.apply_pickup_claim(String(event.get("entity_id", ""))):
@@ -5890,6 +5898,8 @@ func _accept_stream_admin(peer_id: int, event: Dictionary) -> void:
 				if view != null and view.brain != null:
 					view.brain.calm_reset(2.0)
 					view.sync_from_brain()
+		"pulse_player":
+			_admin_pulse_authoritative(peer_id, int(event.get("target", 0)))
 		"hunter_emote":
 			_admin_hunter_emote_authoritative(peer_id, String(event.get("emote", "")))
 		"summon_hunter":
@@ -5918,6 +5928,8 @@ func _accept_stream_admin(peer_id: int, event: Dictionary) -> void:
 
 
 func _admin_action_permission(action: String) -> String:
+	if action == "pulse_player":
+		return "visual"
 	if action in ["grant_relay", "all_relays", "damage_checkpoint",
 			"repair_checkpoint", "story_start", "story_stop", "story_reset"]:
 		return "world"
@@ -5931,6 +5943,151 @@ func _admin_action_permission(action: String) -> String:
 func _admin_hunter_id_allowed(hunter_id: String) -> bool:
 	return HunterRoster.A_Z_IDS.has(hunter_id) \
 		or HunterRoster.VOID_IDS.has(hunter_id) or SecretCreatures.has(hunter_id)
+
+
+## ---- Active player list and the admin pulse ---------------------------------------------------------------------------------------
+
+const PULSE_SECONDS := 6.0
+var _player_list_overlay: PlayerListPanel
+var _player_list_elapsed := 0.0
+var _admin_pulses := {}   # target peer id -> {until_msec, name, at: Vector2, level: int}
+
+
+## Teammate markers on the HUD, from the replicated states (so they reach beyond chunk range), refreshed every frame.
+func _update_teammate_waypoints() -> void:
+	if hud == null:
+		return
+	if _remotes == null or not RoomState.online:
+		hud.update_teammate_waypoints(null, Vector3.ZERO, [])
+		return
+	var camera := get_viewport().get_camera_3d()
+	hud.update_teammate_waypoints(camera, player.global_position,
+		_remotes.remote_player_marks(-facility.current_level(), true))
+
+
+func _build_player_list() -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "PlayerListLayer"
+	layer.layer = 40
+	add_child(layer)
+	_player_list_overlay = PlayerListPanel.new()
+	_player_list_overlay.visible = false
+	_player_list_overlay.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_player_list_overlay.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_player_list_overlay.offset_top = 30.0
+	_player_list_overlay.custom_minimum_size = Vector2(300, 60)
+	layer.add_child(_player_list_overlay)
+	pause_menu.players_source = _player_list_rows
+	pause_menu.players_admin = _admin_can_pulse
+	pause_menu.pulse_requested.connect(_request_admin_pulse)
+
+
+## Only a verified admin with the visual permission sees the button; the host re-checks every request.
+func _admin_can_pulse() -> bool:
+	return Build.admin_permission("visual")
+
+
+func _player_list_rows() -> Array:
+	if _remotes != null and RoomState.online:
+		return _remotes.player_list_rows(_admin_can_pulse())
+	var local := {"depth": GameState.depth, "spectating": player.spectator_mode, "game_over": GameState.game_over,
+		"escape_active": GameState.escape_active}
+	return RoomPlayerList.build(RoomState.roster_rows(), {}, local, {}, {}, false, Time.get_ticks_usec())
+
+
+func _update_player_list(delta: float) -> void:
+	if _player_list_overlay == null:
+		return
+	var typing := (_room_chat != null and _room_chat.is_open()) or (_admin_menu != null and _admin_menu.is_open()) \
+		or pause_menu.is_open()
+	var hold := Input.is_action_pressed("player_list") and not typing
+	if hold != _player_list_overlay.visible:
+		_player_list_overlay.visible = hold
+		_player_list_elapsed = 99.0
+	if hold:
+		_player_list_elapsed += delta
+		if _player_list_elapsed >= 0.25:
+			_player_list_elapsed = 0.0
+			_player_list_overlay.set_rows(_player_list_rows())
+
+
+func _request_admin_pulse(target_peer: int) -> void:
+	var event := {"what": "admin_world", "action": "pulse_player", "target": target_peer}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_stream_admin(multiplayer.get_unique_id() if RoomState.online else 1, event)
+
+
+## Host: the requester is already verified (permission "visual"). Their position data comes from here, never from the client.
+func _admin_pulse_authoritative(requester: int, target: int) -> void:
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	var at := Vector2.ZERO
+	var level := 0
+	if target == local_id:
+		at = player.grid_position()
+		level = facility.current_level()
+	else:
+		var state: Dictionary = _remotes.peer_state(target)
+		var position = state.get("position")
+		if not RoomState.peers.has(target) or not position is Vector2:
+			_admin_feedback(requester, "PULSE // NO SIGNAL FROM THAT PLAYER")
+			return
+		at = position
+		level = -int(state.get("depth", 0))
+	var event := {"what": "admin_pulse", "target": target, "name": RoomState.peer_display_name(target),
+		"at": at, "level": level, "seconds": PULSE_SECONDS}
+	if requester == local_id:
+		_show_admin_pulse(event)
+	else:
+		_remotes.send_player_event(requester, event)
+
+
+## Admin client: draws the host's pulse in the world, on the minimap and on the full map. Ignored unless this player is a verified admin.
+func _show_admin_pulse(event: Dictionary) -> void:
+	if not _admin_can_pulse():
+		return
+	var target := int(event.get("target", 0))
+	var seconds := clampf(float(event.get("seconds", PULSE_SECONDS)), 1.0, 15.0)
+	var at: Vector2 = event.get("at", Vector2.ZERO)
+	var level := int(event.get("level", 0))
+	_admin_pulses[target] = {"until_msec": Time.get_ticks_msec() + int(seconds * 1000.0),
+		"name": String(event.get("name", "")), "at": at, "level": level}
+	var old := get_node_or_null("AdminPulse_%d" % target)
+	if old != null:
+		old.queue_free()
+	var node := AdminPulse3D.new()
+	node.name = "AdminPulse_%d" % target
+	add_child(node)
+	node.setup(Vector3(at.x, float(level) * StreamedFacilityView3D.LEVEL_HEIGHT, at.y), seconds,
+		func() -> Vector3: return _pulse_target_position(target))
+	hud.show_message("PULSE // %s" % String(event.get("name", "PLAYER")).to_upper())
+	_apply_pulses_to_maps()
+
+
+func _pulse_target_position(target: int) -> Vector3:
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	if target == local_id:
+		return player.global_position
+	var body: Node3D = _remotes.peer_body(target) if _remotes != null else null
+	return body.global_position if body != null else Vector3.INF
+
+
+func _apply_pulses_to_maps() -> void:
+	var marks := []
+	var now := Time.get_ticks_msec()
+	for target in _admin_pulses.keys():
+		var pulse: Dictionary = _admin_pulses[target]
+		if int(pulse["until_msec"]) <= now:
+			_admin_pulses.erase(target)
+			continue
+		var live := _pulse_target_position(int(target))
+		var at: Vector2 = pulse["at"]
+		if live != Vector3.INF:
+			at = Vector2(live.x, live.z)
+		marks.append({"at": at, "level": int(pulse["level"]), "until_msec": int(pulse["until_msec"]), "name": pulse["name"]})
+	hud.minimap.set_pulses(marks)
+	hud.plan.set_pulses(marks)
 
 
 func _admin_feedback(peer_id: int, message: String) -> void:
@@ -6151,11 +6308,8 @@ func _leave_test() -> void:
 		# staging screen. RoomState owns the authoritative reliable RPC.
 		RoomState.end_session("HOST ENDED THE ROUTE // BACK IN STAGING")
 	elif RoomState.online:
-		# A guest cannot end the host's route. Disconnect only this peer and leave a
-		# local staging room ready rather than dropping all the way to the title.
-		RoomState.status_message = "LEFT THE ROUTE // BACK IN STAGING"
-		RoomState.leave_network()
-		XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
+		# A guest cannot end the host's route: they leave the room completely and land on the main menu.
+		RoomState.leave_room_to_menu("YOU LEFT THE ROOM")
 	else:
 		RoomState.session_active = false
 		RoomState.status_message = "ROUTE SUSPENDED // BACK IN STAGING"

@@ -73,6 +73,7 @@ void fragment() {
 ## remains usable while the HUD is hidden.
 const GAMEPLAY_HUD_NODE_PATHS := [
 	NodePath("ObjectivePanel"),
+	NodePath("TeammateWaypoints"),
 	NodePath("MetersPanel"),
 	NodePath("HotbarPanel"),
 	NodePath("CompactStaminaBar"),
@@ -113,6 +114,8 @@ func _ready() -> void:
 	_build_zone_panel()
 	TestServerBadge.attach(self)
 	_build_thermal_warning()
+	teammate_waypoints = TeammateWaypoints.new()
+	add_child(teammate_waypoints)
 	_cache_gameplay_hud_surfaces()
 	_prepare_inventory_slots()
 	_build_inventory_overlay()
@@ -182,6 +185,8 @@ var _thermal_material: ShaderMaterial
 var _thermal_time := 0.0
 var _hud_hidden := false
 var _gameplay_hud_surfaces: Array[CanvasItem] = []
+## On-screen teammate markers (TeammateWaypoints); fed once per frame by the route.
+var teammate_waypoints: TeammateWaypoints
 var _gameplay_hud_modulates: Array[Color] = []
 
 
@@ -803,7 +808,25 @@ func set_public_line(text: String) -> void:
 	status_bar.set_segment("public", text, "line")
 
 
+## Admin room-proof status lines (READY / VERIFYING / VERIFIED / REQUESTING) repeat on every ticket renewal and re-verification.
+## Each one shows once per room on this client; rejections and errors are never held back.
+const ADMIN_PROOF_PREFIXES := ["ADMIN ROOM PROOF", "ADMIN // VERIFYING ROOM PROOF", "ADMIN // REQUESTING ROOM PROOF"]
+var _admin_proof_seen := {}
+
+
+static func is_admin_proof_notice(text: String) -> bool:
+	for prefix in ADMIN_PROOF_PREFIXES:
+		if text.begins_with(prefix) and not text.contains("DISABLED") and not text.contains("COULD NOT"):
+			return true
+	return false
+
+
 func show_message(text: String) -> void:
+	if is_admin_proof_notice(text):
+		var key := "%s|%s" % [RoomState.code, text]
+		if _admin_proof_seen.has(key):
+			return
+		_admin_proof_seen[key] = true
 	message_label.remove_theme_color_override("font_color")
 	# toast treatment: letter-spaced amber line with a dark outline
 	message_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, .85))
@@ -913,6 +936,11 @@ func update_minimap(generator: FacilityGenerator, at: Vector2, facing: Vector2,
 		marks: Array, player_marks: Array = [], drop_marks: Array = [],
 		safe_room_marks: Array = []) -> void:
 	minimap.show_state(generator, at, facing, marks, player_marks, drop_marks, safe_room_marks)
+
+
+func update_teammate_waypoints(camera: Camera3D, viewer: Vector3, marks: Array) -> void:
+	if teammate_waypoints != null:
+		teammate_waypoints.update_marks(camera, viewer, marks)
 
 
 func update_streamed_map(chunks: Dictionary, level: int, chunk_size: int,

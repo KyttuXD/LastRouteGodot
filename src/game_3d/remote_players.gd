@@ -25,6 +25,8 @@ const REMOTE_BEAM_HAND_OFFSET := .38
 const SEND_HZ := 20.0
 const INTERPOLATION_SPEED := 14.0
 const REMOTE_STATE_TIMEOUT_USEC := 2_000_000
+## The maps keep a quiet teammate at their last known spot (dimmed) this long instead of dropping them on one late packet.
+const MAP_STALE_GRACE_USEC := 60_000_000
 const SNAPSHOT_RETRY_SECONDS := 0.5
 const CAPTURE_PENDING_TIMEOUT_USEC := 15_000_000
 const MAX_CHAT_LENGTH := 80   # spoken aloud (text to speech): short lines
@@ -356,6 +358,7 @@ func _process(delta: float) -> void:
 		if _lookup_elapsed >= PEER_LOOKUP_SECONDS and not _states.is_empty():
 			_lookup_elapsed = 0.0
 			_lookup_peers()
+	_tick_pings(delta)
 	_since_send += delta
 	if _since_send < 1.0 / SEND_HZ:
 		return
@@ -397,6 +400,57 @@ func _check_hot_size(hot: Array, state: Dictionary) -> void:
 	push_warning("RemotePlayers: hot state packet is %d B (budget %d, MTU ~1392); unclassified keys %s, extras %s" % [
 		size, PlayerStateWire.HOT_MAX_BYTES, PlayerStateWire.unclassified(state),
 		hot[-1].keys() if hot[-1] is Dictionary else []])
+
+
+## Host: measure each guest's round trip and tell everyone once a second, so every client's player list can show pings.
+const PING_BROADCAST_SECONDS := 1.0
+var _peer_pings := {}
+var _ping_elapsed := 0.0
+
+
+func _tick_pings(delta: float) -> void:
+	if not RoomState.is_host:
+		return
+	_ping_elapsed += delta
+	if _ping_elapsed < PING_BROADCAST_SECONDS:
+		return
+	_ping_elapsed = 0.0
+	var pings := {1: 0}
+	for id in RoomState.peers:
+		if int(id) > 1 and peer_is_live(int(id)):
+			pings[int(id)] = int(_peer_rtt_ms(int(id)))
+	_peer_pings = pings
+	_receive_pings.rpc(pings)
+
+
+@rpc("authority", "call_remote", "unreliable")
+func _receive_pings(pings: Dictionary) -> void:
+	var clean := {}
+	for id in pings:
+		clean[int(id)] = clampi(int(pings[id]), 0, 9999)
+	_peer_pings = clean
+
+
+## The replicated state of one peer ({} when unknown); the host's answer to an admin pulse reads it.
+func peer_state(id: int) -> Dictionary:
+	return (_states.get(id, {}) as Dictionary)
+
+
+func peer_body(id: int) -> Node3D:
+	return _bodies.get(id) as Node3D
+
+
+func peer_pings() -> Dictionary:
+	return _peer_pings
+
+
+## Rows for the player list: the room roster joined with each peer's replicated state, the host's ping figures and who is talking.
+func player_list_rows(can_pulse: bool) -> Array:
+	var controller := local_player as PlayerController3D
+	var local := {"depth": GameState.depth, "spectating": controller != null and controller.spectator_mode,
+		"game_over": GameState.game_over, "escape_active": GameState.escape_active}
+	return RoomPlayerList.build(RoomState.roster_rows(), _states, local, _peer_pings,
+		voice.talking_peers() if voice != null else {}, can_pulse, Time.get_ticks_usec())
 
 
 func _local_state() -> Dictionary:
@@ -1181,14 +1235,18 @@ func target_states(local_target: Dictionary) -> Array[Dictionary]:
 ## Map-safe view of fresh remote transforms. The caller supplies the same
 ## depth value that is replicated in movement packets, preventing teammates on
 ## upper/lower floors from leaking onto the current floor's map.
-func remote_player_marks(depth: int) -> Array:
+## include_other_floors: teammates on a different storey also come back, flagged "other_floor" (the maps show them as an up/down marker).
+func remote_player_marks(depth: int, include_other_floors: bool = false) -> Array:
 	var result := []
 	var now := Time.get_ticks_usec()
 	for id_value in _states:
 		var id := int(id_value)
 		var state: Dictionary = _states[id]
-		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC \
-				or int(state.get("depth", -999999)) != depth:
+		var age := now - int(state.get("received_usec", 0))
+		if age > MAP_STALE_GRACE_USEC:
+			continue
+		var other_floor := int(state.get("depth", -999999)) != depth
+		if other_floor and not include_other_floors:
 			continue
 		var marker_position = state.get("position")
 		if not marker_position is Vector2:
@@ -1198,8 +1256,13 @@ func remote_player_marks(depth: int) -> Array:
 			"at": marker_position,
 			"facing": state.get("facing", Vector2.UP),
 			"name": String(state.get("display_name", RoomState.peer_display_name(id))),
-			"level": -depth,
+			"level": -int(state.get("depth", depth)),
 			"colour": peer_colour(id),
+			"spectating": bool(state.get("spectating", false)) or bool(state.get("game_over", false)),
+			"other_floor": other_floor,
+			"stale": age > REMOTE_STATE_TIMEOUT_USEC,
+			"age_ms": int(age / 1000),
+			"caught": bool(state.get("escape_active", false)) and not bool(state.get("spectating", false)),
 		})
 	for id_value in _floor_exit_marks.keys().duplicate():
 		var id := int(id_value)
@@ -1432,11 +1495,13 @@ func _request_interaction(event: Dictionary) -> void:
 				"stun_hunters", "wake_hunters", "calm_hunters",
 				"damage_checkpoint", "repair_checkpoint", "lights_on",
 				"lights_off", "summon_hunter", "remove_hunter",
-				"story_start", "story_stop", "story_reset"].has(action):
+				"story_start", "story_stop", "story_reset", "pulse_player"].has(action):
 			return
 		accepted = {"what": what, "action": action,
 			"admin_ticket": _clean_admin_ticket(event.get("admin_ticket", ""))}
-		if action in ["summon_hunter", "remove_hunter"]:
+		if action == "pulse_player":
+			accepted["target"] = clampi(int(event.get("target", 0)), 1, 2147483647)
+		elif action in ["summon_hunter", "remove_hunter"]:
 			var hunter_id := String(event.get("hunter_id", ""))
 			if not HunterRoster.A_Z_IDS.has(hunter_id) \
 					and not HunterRoster.VOID_IDS.has(hunter_id):
