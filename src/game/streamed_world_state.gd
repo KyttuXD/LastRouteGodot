@@ -247,6 +247,7 @@ func store_hunter(entity_id: String, brain: HunterBrain, level: int,
 		origin_chunk: Vector3i) -> void:
 	if entity_id.is_empty() or brain == null:
 		return
+	var previous: Dictionary = hunters.get(entity_id, {})
 	hunters[entity_id] = {
 		"hunter_id": brain.hunter_id,
 		"position": brain.position,
@@ -280,6 +281,10 @@ func store_hunter(entity_id: String, brain: HunterBrain, level: int,
 		"inspect_stand": brain.inspect_stand,
 		"inspect_face": brain.inspect_face,
 	}
+	# Gray's binding to the one runner she may catch (InfiniteRouteTest anti-idle) is not brain state: keep it.
+	for key in ["gray_peer", "gray_reason"]:
+		if previous.has(key):
+			hunters[entity_id][key] = previous[key]
 
 
 func restore_hunter(brain: HunterBrain, state: Dictionary) -> void:

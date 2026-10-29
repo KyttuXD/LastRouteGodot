@@ -105,7 +105,9 @@ signal guest_violation(peer_id: int, reason: String, strikes: int, kicked: bool)
 ## Host events that move the guest a long way; the guard lets the next jump through (GuestGuard.allow_jump).
 const HOST_MOVES := ["revive", "revive_at", "axe_rescue", "hide_found"]
 const INTERACTION_RATE_WINDOW_MS := 1000
-const INTERACTION_RATE_MAX := 8
+## Per guest, all kinds together. 8 was reachable in normal play (mashing a door, sweeping up a pile of pickups) and
+## dropped requests without a word; this only stops a flood.
+const INTERACTION_RATE_MAX := 20
 var _interaction_times := {}
 ## Troll mode (docs/ANTI_CHEAT.md): guests the host has caught cheating this room, or the server says are flagged /
 ## owner-trolled. Hunters take only them while they are on the floor; the guest's own client adds the scares.
@@ -114,6 +116,14 @@ const PEER_LOOKUP_SECONDS := 30.0
 var _lookup_elapsed := PEER_LOOKUP_SECONDS - 2.0
 var _flag_noticed := {}
 var _send_seq := 0
+## PlayerStateWire: peer id -> wire version it has shown; its last profile; the profile hash last sent to it.
+var _wire_peers := {}
+var _profiles := {}
+var _profile_sent := {}
+var _hot_size_warned := false
+## Peer id -> RemoteMotion (the body's interpolation buffer) and the newest sample sequence taken from it.
+var _motion := {}
+var _last_seq := {}
 ## Proximity voice chat (created with the online room; null offline).
 var voice: VoiceChat
 
@@ -361,7 +371,40 @@ func _process(delta: float) -> void:
 	var state := _local_state()
 	_send_seq += 1
 	state["seq"] = _send_seq   # lets the host drop duplicated / reordered samples (GuestGuard)
-	_send_to_live(_place, [state])
+	state["sent_ms"] = Time.get_ticks_msec()   # the sender's clock: receivers interpolate on it (RemoteMotion)
+	_send_state(state)
+
+
+## Peers that have shown they read PlayerStateWire.VERSION get the small hot packet plus a reliable profile when it
+## changes; anyone else (an older build in the same room) keeps getting the full Dictionary, tagged so it can tell.
+func _send_state(state: Dictionary) -> void:
+	state["wire"] = PlayerStateWire.VERSION
+	var profile := PlayerStateWire.profile_of(state)
+	var profile_hash := profile.hash()
+	var hot: Array = []
+	for peer_id in multiplayer.get_peers():
+		if not peer_is_live(peer_id):
+			continue
+		if int(_wire_peers.get(peer_id, 0)) < PlayerStateWire.VERSION:
+			_place.rpc_id(peer_id, state)
+			continue
+		if int(_profile_sent.get(peer_id, 0)) != profile_hash:
+			_profile_sent[peer_id] = profile_hash
+			_wire_profile.rpc_id(peer_id, profile)
+		if hot.is_empty():
+			hot = PlayerStateWire.encode_hot(state)
+			_check_hot_size(hot, state)
+		_place.rpc_id(peer_id, hot)
+
+
+func _check_hot_size(hot: Array, state: Dictionary) -> void:
+	var size := PlayerStateWire.size_of(hot)
+	if size <= PlayerStateWire.HOT_MAX_BYTES or _hot_size_warned:
+		return
+	_hot_size_warned = true
+	push_warning("RemotePlayers: hot state packet is %d B (budget %d, MTU ~1392); unclassified keys %s, extras %s" % [
+		size, PlayerStateWire.HOT_MAX_BYTES, PlayerStateWire.unclassified(state),
+		hot[-1].keys() if hot[-1] is Dictionary else []])
 
 
 ## Host: measure each guest's round trip and tell everyone once a second, so every client's player list can show pings.
@@ -543,11 +586,53 @@ func _visible_from_state(state: Dictionary, fallback: bool = true) -> bool:
 	return fallback
 
 
-@rpc("any_peer", "call_remote", "unreliable_ordered")
-func _place(state: Dictionary) -> void:
+## A sample as the long-key Dictionary every reader expects: a hot packet plus that peer's last profile, or an older
+## build's full Dictionary (whose `wire` tag, when present, says the peer reads the hot packet too). {} = drop it.
+func _unpack_state(id: int, packet: Variant) -> Dictionary:
+	if packet is Array:
+		var state := PlayerStateWire.decode_hot(packet)
+		if state.is_empty():
+			return {}
+		_wire_peers[id] = PlayerStateWire.VERSION
+		state.merge(_profiles.get(id, {}), false)
+		return state
+	if packet is Dictionary:
+		var full: Dictionary = packet
+		if int(full.get("wire", 0)) >= PlayerStateWire.VERSION:
+			_wire_peers[id] = PlayerStateWire.VERSION
+		_profiles[id] = PlayerStateWire.profile_of(full)
+		return full
+	return {}
+
+
+## Reliable, sent only when it changes: a peer's identity / skin / inventory / admin flags (PlayerStateWire).
+## The name sorts after every other RPC here, so older builds keep the same RPC ids for the rest.
+@rpc("any_peer", "call_remote", "reliable")
+func _wire_profile(profile: Dictionary) -> void:
 	var id := multiplayer.get_remote_sender_id()
 	if id <= 0 or id == multiplayer.get_unique_id():
 		return
+	var kept := PlayerStateWire.profile_of(profile)
+	_profiles[id] = kept
+	if _states.has(id):
+		(_states[id] as Dictionary).merge(kept, true)
+
+
+@rpc("any_peer", "call_remote", "unreliable_ordered", NetChannels.STATE)
+func _place(packet: Variant) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	if id <= 0 or id == multiplayer.get_unique_id():
+		return
+	var state := _unpack_state(id, packet)
+	if state.is_empty():
+		return
+	# Through the host's relay, a guest's samples can arrive late or reordered: never let an old one move a body back.
+	var seq := int(state.get("seq", 0))
+	var last_seq := int(_last_seq.get(id, 0))
+	if seq > 0 and seq <= last_seq and last_seq - seq < 10_000:
+		return
+	if seq > 0:
+		_last_seq[id] = seq
 	var at = state.get("at")
 	var grid = state.get("position")
 	if not at is Vector3 or not grid is Vector2:
@@ -598,10 +683,16 @@ func _place(state: Dictionary) -> void:
 	else:
 		_vr_targets[id] = vr_pose
 		_facings[id] = float(_facings[id]) + VRPoseSync.body_follow(vr_pose)
+	if not _motion.has(id):
+		_motion[id] = RemoteMotion.new()
+	var now_ms := float(Time.get_ticks_msec())
+	var sent_ms = state.get("sent_ms")   # an older build sends none: its arrival time stands in (jitter and all)
+	(_motion[id] as RemoteMotion).push(float(sent_ms) if sent_ms is int else now_ms, now_ms, _positions[id],
+		float(_facings[id]))
 	var clip := String(state.get("clip", "idle"))
 	# A runner going into hiding stays visible while their body slides into the spot (the local camera move,
 	# PlayerController3D.HIDE_MOVE_SECONDS), crouched for a bed, then disappears.
-	var shown := _visible_from_state(state, true)
+	var shown := _visible_from_state(state, true) and not bool(state.get("syncing", false))
 	if not shown:
 		var now := Time.get_ticks_usec()
 		if not body.has_meta("hide_started_usec"):
@@ -667,8 +758,13 @@ func _interpolate_bodies(delta: float) -> void:
 		if body == null or not _positions.has(id):
 			continue
 		var previous := body.global_position
-		body.global_position = body.global_position.lerp(_positions[id], weight)
-		body.rotation.y = lerp_angle(body.rotation.y, float(_facings.get(id, body.rotation.y)), weight)
+		var pose: Dictionary = (_motion[id] as RemoteMotion).sample(Time.get_ticks_msec()) if _motion.has(id) else {}
+		if pose.is_empty():
+			body.global_position = body.global_position.lerp(_positions[id], weight)
+			body.rotation.y = lerp_angle(body.rotation.y, float(_facings.get(id, body.rotation.y)), weight)
+		else:
+			body.global_position = pose["at"]
+			body.rotation.y = float(pose["facing"])
 		var fade := move_toward(float(body.get_meta("fade_current", 0.0)),
 			float(body.get_meta("fade_target", 0.0)), delta * 2.8)
 		body.set_meta("fade_current", fade)
@@ -1035,6 +1131,11 @@ func _drop(id: int) -> void:
 	_remote_swing_seq.erase(id)
 	_remote_swing_tweens.erase(id)
 	_states.erase(id)
+	_motion.erase(id)
+	_last_seq.erase(id)
+	_wire_peers.erase(id)
+	_profiles.erase(id)
+	_profile_sent.erase(id)
 	troll_peers.erase(id)
 	guard.forget(id)
 	_interaction_times.erase(id)
@@ -1108,7 +1209,8 @@ func best_target(origin: Vector2, local_target: Dictionary, depth: int) -> Dicti
 		if (candidate_tools and bool(candidate.get("no_target", false))) \
 				or bool(candidate.get("game_over", false)) \
 				or bool(candidate.get("escape_active", false)) \
-				or bool(candidate.get("capture_immune", false)):
+				or bool(candidate.get("capture_immune", false)) \
+				or bool(candidate.get("syncing", false)):
 			continue
 		fallback.append(candidate)
 		if not bool(candidate.get("hidden", false)) \
@@ -1149,6 +1251,8 @@ func target_states(local_target: Dictionary) -> Array[Dictionary]:
 		var state: Dictionary = _states[id]
 		if now - int(state.get("received_usec", 0)) > REMOTE_STATE_TIMEOUT_USEC:
 			continue
+		if bool(state.get("syncing", false)):
+			continue   # still on its loading screen (RouteSyncGate): not a target, not grabbable, not in reach
 		var copy := state.duplicate(true)
 		if not copy.has("peer_id"):
 			copy["peer_id"] = int(id)
@@ -1233,20 +1337,16 @@ func stream_centers() -> Array[Vector3i]:
 ## A peer we may still send to: its ENet connection is up. Between a guest dropping and the host noticing (the ENet
 ## timeout), the peer is still listed but every send fails with "Unable to send packet ... max channels: 0" (the playtest
 ## party logged ~1,200 of them); skip it instead.
+## A sample from `peer_id` arrived within REMOTE_STATE_TIMEOUT_USEC (the host link is carrying state).
+func has_fresh_state(peer_id: int) -> bool:
+	var state: Dictionary = _states.get(peer_id, {})
+	return not state.is_empty() and Time.get_ticks_usec() - int(state.get("received_usec", 0)) <= REMOTE_STATE_TIMEOUT_USEC
+
+
 func peer_is_live(peer_id: int) -> bool:
-	if not multiplayer.has_multiplayer_peer() or peer_id == multiplayer.get_unique_id():
-		return false
-	if not peer_id in multiplayer.get_peers():
-		return false
-	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
-	if enet == null:
-		return true
 	# A guest's ENet link is to the host only; other guests are reached through the host's relay, so their ids have no
-	# ENet peer here (asking for one logged `!peers.has(p_id)` ~20 times a second on every guest).
-	if not RoomState.is_host and peer_id != 1:
-		return true
-	var packet_peer := enet.get_peer(peer_id)
-	return packet_peer == null or packet_peer.get_state() == ENetPacketPeer.STATE_CONNECTED
+	# ENet peer there (asking for one logged `!peers.has(p_id)` ~20 times a second on every guest): NetPeers handles it.
+	return NetPeers.is_live(multiplayer, peer_id)
 
 
 ## Sends an RPC to every live peer (instead of .rpc(), which also targets peers that are already gone).
@@ -1273,12 +1373,12 @@ func broadcast_hunters(data: Array) -> void:
 const HUNTERS_UNRELIABLE_MAX_BYTES := 1100
 
 
-@rpc("authority", "call_remote", "reliable")
+@rpc("authority", "call_remote", "reliable", NetChannels.HUNTERS_LARGE)
 func _hunters_large(data: Array) -> void:
 	_hunters(data)
 
 
-@rpc("authority", "call_remote", "unreliable_ordered")
+@rpc("authority", "call_remote", "unreliable_ordered", NetChannels.HUNTERS)
 func _hunters(data: Array) -> void:
 	hunters_received.emit(data)
 
@@ -1352,17 +1452,34 @@ func _canonical_world_event(event: Dictionary) -> Dictionary:
 	return canonical
 
 
+## Every "what" a guest may send through request_interaction(); the host drops anything else. Doors and the Void
+## route result were missing here, so a guest's door never opened in co-op (validate_coop_lossy checks every
+## request_interaction() call site in src/ against this list).
+const GUEST_INTERACTIONS := ["music_box", "ceryth_answer", "guardian_ping", "vent_used", "zellia_trade", "admin_auth",
+	"admin_custom_map", "admin_world", "stream_pickup", "stream_safe_repair", "stream_checkpoint", "stream_drop",
+	"stream_sabotage", "stream_waypoint", "stream_axe_rescue", "ravelle_disarm", "stream_room_light", "stream_booth",
+	"stream_carousel", "stream_breach_request", "stream_door", "signal_route_result", "stream_revive"]
+
+
 ## Guest-owned input which needs host-owned hunter state. The request names an
 ## intent only; main_3d validates range/state and decides the actual result.
 func request_interaction(event: Dictionary) -> void:
 	var request := event.duplicate(true)
 	var what := String(request.get("what", ""))
+	CrashWatch.crumb("interact", "%s %s" % [what, request.get("door_id", request.get("entity_id", request.get("id", "")))])
 	if what in ["admin_auth", "admin_custom_map", "admin_world"]:
 		request["admin_ticket"] = Backend.admin_ticket_for_room(RoomState.code)
 	if not RoomState.online or RoomState.is_host:
 		interaction_requested.emit(multiplayer.get_unique_id() if RoomState.online else 1,
 			request)
 	else:
+		# Requests (reliable, channel 0) can overtake the latest 20 Hz sample (unreliable, its own channel), so the
+		# host would range-check a stale position; send where the runner is now (host bounds it, _freshen_from_request).
+		if local_player != null:
+			var now_state := _local_state()
+			request["_at"] = now_state.get("at")
+			request["_pos"] = now_state.get("position")
+			request["_depth"] = now_state.get("depth")
 		_request_interaction.rpc_id(1, request)
 
 
@@ -1372,18 +1489,21 @@ func _request_interaction(event: Dictionary) -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	var what := String(event.get("what", ""))
-	if sender <= 1 or not ["music_box", "ceryth_answer", "guardian_ping",
-			"vent_used", "zellia_trade", "admin_auth", "admin_custom_map",
-			"admin_world", "stream_pickup", "stream_safe_repair",
-			"stream_checkpoint", "stream_drop", "stream_sabotage",
-			"stream_waypoint", "stream_axe_rescue", "stream_revive", "ravelle_disarm", "stream_room_light", "stream_booth", "stream_carousel", "stream_breach_request"].has(what):
+	if sender <= 1:
+		return
+	if not GUEST_INTERACTIONS.has(what):
+		refuse_interaction(sender, event, "not a guest interaction")
 		return
 	if not _interaction_allowed(sender):
+		refuse_interaction(sender, event, "rate limit (%d in %d ms)" % [INTERACTION_RATE_MAX, INTERACTION_RATE_WINDOW_MS])
 		return
+	_freshen_from_request(sender, event)
 	if what == "vent_used":
 		guard.allow_jump(sender, Time.get_ticks_msec() / 1000.0)
 	if what == "stream_pickup" and troll_peers.has(sender):
 		# It slips away from a trolled guest only: the pickup stays for everyone else.
+		print("[coop] host refused stream_pickup from peer %d (%s): troll mode (server flag)" % [sender,
+			RoomState.peer_display_name(sender)])
 		_player_event.rpc_id(sender, {"what": "troll_pickup", "entity_id": String(event.get("entity_id", ""))})
 		return
 	var accepted: Dictionary
@@ -1427,6 +1547,53 @@ func _request_interaction(event: Dictionary) -> void:
 		accepted = event.duplicate(true)
 	accepted["peer_id"] = sender
 	interaction_requested.emit(sender, accepted)
+
+
+## How far a request's own position may be from the host's last sample of that guest (~0.5 s of sprinting).
+const REQUEST_FRESHEN_METRES := 3.0
+
+
+## Host: move a guest's last sample to the position its request carried, if that is a plausible step from it (a
+## wild one is ignored: the old sample stands, and GuestGuard still judges every real sample).
+func _freshen_from_request(sender: int, event: Dictionary) -> void:
+	var at = event.get("_at")
+	var pos = event.get("_pos")
+	var depth = event.get("_depth")
+	for key in ["_at", "_pos", "_depth"]:
+		event.erase(key)
+	var stored: Dictionary = _states.get(sender, {})
+	var last = stored.get("position")
+	if stored.is_empty() or not at is Vector3 or not pos is Vector2 or not depth is int or not last is Vector2:
+		return
+	if (pos as Vector2).distance_to(last) > REQUEST_FRESHEN_METRES or absi(int(depth) - int(stored.get("depth", 0))) > 1:
+		return
+	stored["at"] = at
+	stored["position"] = pos
+	stored["depth"] = depth
+	stored["received_usec"] = Time.get_ticks_usec()
+
+
+## Host: a guest's interaction was turned down. Printed to the host log (the reason used to be silent) and sent back,
+## so the guest's predicted door or pickup rolls back at once (InfiniteRouteTest "interaction_refused").
+func refuse_interaction(peer_id: int, event: Dictionary, reason: String) -> void:
+	var what := String(event.get("what", ""))
+	CrashWatch.crumb("refused", "%s peer %d: %s" % [what, peer_id, reason])
+	_log_limited("%d|%s|%s" % [peer_id, what, reason], "[coop] host refused %s from peer %d (%s): %s" % [what, peer_id,
+		RoomState.peer_display_name(peer_id), reason])
+	if peer_id > 1 and peer_is_live(peer_id):
+		_player_event.rpc_id(peer_id, {"what": "interaction_refused", "kind": what, "reason": reason,
+			"door_id": String(event.get("door_id", "")), "entity_id": String(event.get("entity_id", ""))})
+
+
+var _logged_at := {}
+
+
+## One host-log line a second per key (a lagging guest can trip the same check 20 times a second).
+func _log_limited(key: String, line: String) -> void:
+	var now := Time.get_ticks_msec()
+	if now - int(_logged_at.get(key, -100_000)) >= 1000:
+		_logged_at[key] = now
+		print(line)
 
 
 static func _clean_admin_ticket(value) -> String:
@@ -1512,7 +1679,7 @@ func _player_event(event: Dictionary) -> void:
 
 
 ## Host only. Runs the guard over one guest sample: a bad one is rewritten to the last good spot (so targeting,
-## pickups and relays use it) and the guest is snapped back; STRIKE_KICK strikes kick it. False drops the sample.
+## pickups and relays use it) and the guest is snapped back. False drops the sample.
 func _guard_sample(id: int, received: Dictionary) -> bool:
 	if not guard.exempt.is_valid():
 		guard.exempt = func(peer_id: int) -> bool: return remote_admin_peer_allowed(peer_id)
@@ -1526,16 +1693,15 @@ func _guard_sample(id: int, received: Dictionary) -> bool:
 	var snap: Vector3 = verdict["snap_to"]
 	received["at"] = snap
 	received["position"] = Vector2(snap.x, snap.z)
-	var kicked := bool(verdict["kick"])
 	var lag := bool(verdict.get("lag", false))
-	if not lag:
-		set_troll(id, true)   # a lag-only snap never trolls
-	guest_violation.emit(id, String(verdict["reason"]), int(verdict["strikes"]), kicked)
+	# No automatic restriction (KT's rule, 2026-10-28): a verdict snaps the sample back and is logged, but never
+	# puts a guest in troll mode or kicks it -- dropped packets read as "speed"/"teleport" and trolled real players.
+	# Troll mode and removal come only from the server's review queue (_on_peers_looked_up) or an admin.
+	guest_violation.emit(id, String(verdict["reason"]), int(verdict["strikes"]), false)
+	_log_limited("guard|%d|%s" % [id, verdict["reason"]], "[coop] guard snapped peer %d (%s): %s, %d strikes%s" % [
+		id, RoomState.peer_display_name(id), String(verdict["reason"]), int(verdict["strikes"]), " (lag)" if lag else ""])
 	if peer_is_live(id):
 		_player_event.rpc_id(id, {"what": "anticheat_snap", "at": snap, "reason": String(verdict["reason"]), "lag": lag})
-	if kicked:
-		kick_guest(id, String(verdict["reason"]))
-		return false
 	return true
 
 
@@ -1640,8 +1806,8 @@ func _lookup_peers() -> void:
 	Backend.moderation.lookup_peers(names, devices)
 
 
-## Server verdicts: flagged or owner-trolled accounts (and devices kicked lately) get troll mode; a guest the host
-## itself caught this room keeps it either way.
+## Server verdicts: flagged or owner-trolled accounts (and devices kicked lately) get troll mode. The host's own
+## GuestGuard strikes no longer do (no automatic restriction outside the review queue).
 func _on_peers_looked_up(players: Dictionary, devices: Dictionary) -> void:
 	for id in _states:
 		var state: Dictionary = _states[id]
@@ -1650,7 +1816,7 @@ func _on_peers_looked_up(players: Dictionary, devices: Dictionary) -> void:
 		var server_troll := (player is Dictionary and (bool(player.get("troll", false)) \
 				or bool(player.get("flagged", false)))) or (device is Dictionary and bool(device.get("troll", false)))
 		var ads: bool = not (player is Dictionary and player.has("ads")) or bool(player.get("ads", true))
-		set_troll(int(id), server_troll or guard.strikes(int(id)) > 0, ads)
+		set_troll(int(id), server_troll, ads)
 		if player is Dictionary and bool(player.get("flagged", false)) and not _flag_noticed.has(id):
 			_flag_noticed[id] = true
 			send_system("NOTICE // %s IS FLAGGED BY ANTI-CHEAT" % RoomState.peer_display_name(int(id)))

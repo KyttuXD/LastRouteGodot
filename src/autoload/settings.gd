@@ -110,6 +110,8 @@ var short_death_scenes := false
 ## Open the pause menu when the window loses focus. Default ON only in release builds; always OFF in debug, BETA and
 ## TEST SERVER builds so two windows can be played side by side. focus_loss_pauses() also refuses with other players.
 var pause_on_focus_loss := false
+## CrashWatch sends a crash / freeze report on the next launch (build, device, log tail, breadcrumbs; never credentials).
+var send_crash_reports := true
 ## Spoken chat (RoomChat): text-to-speech volume 0..100, voices on/off (off = subtitles only), subtitles, locally muted
 ## players (by callsign, upper case).
 var voice_volume := 80.0
@@ -223,6 +225,11 @@ func set_vsync(enabled: bool) -> void:
 
 static func default_pause_on_focus_loss() -> bool:
 	return not (OS.is_debug_build() or Build.is_beta() or OS.has_feature("test_server"))
+
+
+func set_send_crash_reports(enabled: bool) -> void:
+	send_crash_reports = enabled
+	_save()
 
 
 func set_pause_on_focus_loss(enabled: bool) -> void:
@@ -684,6 +691,7 @@ func _load() -> void:
 	short_death_scenes = bool(config.get_value("accessibility", "short_death_scenes", false))
 	hub_last_game = String(config.get_value("hub", "last_game", ""))
 	pause_on_focus_loss = bool(config.get_value("gameplay", "pause_on_focus_loss", default_pause_on_focus_loss()))
+	send_crash_reports = bool(config.get_value("privacy", "send_crash_reports", true))
 	voice_volume = clampf(float(config.get_value("voice", "volume", 80.0)), 0.0, 100.0)
 	voice_enabled = bool(config.get_value("voice", "enabled", true))
 	voice_subtitles = bool(config.get_value("voice", "subtitles", true))
@@ -801,6 +809,7 @@ func _save() -> void:
 	config.set_value("accessibility", "short_death_scenes", short_death_scenes)
 	config.set_value("hub", "last_game", hub_last_game)
 	config.set_value("gameplay", "pause_on_focus_loss", pause_on_focus_loss)
+	config.set_value("privacy", "send_crash_reports", send_crash_reports)
 	config.set_value("voice", "volume", voice_volume)
 	config.set_value("voice", "enabled", voice_enabled)
 	config.set_value("voice", "subtitles", voice_subtitles)

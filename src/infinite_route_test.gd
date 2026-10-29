@@ -311,7 +311,7 @@ func _ready() -> void:
 		_public_start()
 	if _awaiting_snapshot:
 		player.input_frozen = true
-		hud.show_message("SYNCING ROUTE WITH HOST...")
+		_begin_sync_gate()
 	else:
 		if _loaded_from_save:
 			_sync_stream_progress()
@@ -364,6 +364,8 @@ func _process(delta: float) -> void:
 	_update_teammate_waypoints()
 	if not _admin_pulses.is_empty():
 		_apply_pulses_to_maps()
+	_tick_sync_gate(delta)
+	_expire_predictions()
 	_update_troll_ads(delta)
 	_music_boxes.tick(delta)
 	_tick_seat_occupancy()
@@ -388,6 +390,7 @@ func _process(delta: float) -> void:
 	var story_open: bool = _story != null and _story.is_active()
 	if RoomState.reconnect_active:
 		_awaiting_snapshot = true
+		_begin_sync_gate()
 		if not _reconnect_notice_shown:
 			_reconnect_notice_shown = true
 			hud.show_message("HOST SIGNAL LOST // RECONNECTING...")
@@ -2078,43 +2081,129 @@ func _update_anti_idle_pressure(delta: float) -> void:
 	# still gets CAUGHT BY GRAY while SIGNAL SUSPENDED is up.
 	if pause_menu != null and pause_menu.is_open():
 		return
-	var relay_count := GameState.relays_collected
-	if relay_count != _anti_idle_last_relay_count:
-		_anti_idle_last_relay_count = relay_count
-		_relay_inactivity_seconds = 0.0
-		_party_afk_seconds = 0.0
-		_afk_void_warning_shown = false
-		return
-	_relay_inactivity_seconds += delta
 	var local_target := _hunter_target(
 		_player_in_intact_safe_room(facility.current_chunk_data()))
-	var targets := _remotes.target_states(local_target) if _remotes != null else []
-	if _party_moved_since_pressure_sample(targets):
+	# Every peer times only its own runner (AntiIdle: walking or turning) and reports it with its state ("idle_s").
+	# _party_afk_seconds is this runner's own idle time: it drives this screen's warning and, on the host, its AFK.
+	if _party_moved_since_pressure_sample([local_target] if not local_target.is_empty() else []):
 		_party_afk_seconds = 0.0
 		_afk_void_warning_shown = false
 	else:
 		_party_afk_seconds += delta
+	var relay_count := GameState.relays_collected
+	if relay_count != _anti_idle_last_relay_count:
+		_anti_idle_last_relay_count = relay_count
+		_relay_inactivity_seconds = 0.0
+		return
+	_relay_inactivity_seconds += delta
+	if _remotes == null or not _remotes.simulates():
+		return
+	var idle := _peer_idle_seconds(local_target)
+	_release_gray_from_active_peers(idle)
 	var relay_delay := GameConfig.anti_idle_hunter_seconds(
 		RoomState.difficulty_id())
 	var afk_delay := GameConfig.anti_afk_hunter_seconds(
 		RoomState.difficulty_id())
-	var relay_pressure := _relay_inactivity_seconds >= relay_delay
-	var afk_pressure := _party_afk_seconds >= afk_delay
-	if not relay_pressure and not afk_pressure:
+	# Gray is bound to one runner and only that one (KT, 2026-10-28: she was catching active guests). AFK: the runner
+	# idle longest past the delay. A stalled relay hunt only ever binds when there is a single runner to bind to.
+	var afk_peer := 0
+	for peer_id in idle:
+		if float(idle[peer_id]) >= afk_delay and not _gray_bound_to(int(peer_id)) \
+				and (afk_peer == 0 or float(idle[peer_id]) > float(idle[afk_peer])):
+			afk_peer = int(peer_id)
+	var relay_peer := int(idle.keys()[0]) if idle.size() == 1 and _relay_inactivity_seconds >= relay_delay else 0
+	var peer := afk_peer if afk_peer != 0 else relay_peer
+	if peer == 0:
 		return
-	if _remotes == null or not _remotes.simulates():
-		return
-	if _spawn_anti_idle_hunter():
-		_relay_inactivity_seconds = 0.0
-		_party_afk_seconds = 0.0
-		_afk_void_warning_shown = false
-	else:
+	var reason := "afk" if afk_peer != 0 else "relay"
+	if _spawn_anti_idle_hunter(peer, reason, float(idle[peer])):
+		if reason == "relay":
+			_relay_inactivity_seconds = 0.0
+	elif reason == "relay":
 		# Generation may briefly have no eligible candidate while a new floor is
 		# streaming. Retry soon without firing once per frame.
-		if relay_pressure:
-			_relay_inactivity_seconds = maxf(0.0, relay_delay - 5.0)
-		if afk_pressure:
-			_party_afk_seconds = maxf(0.0, afk_delay - 5.0)
+		_relay_inactivity_seconds = maxf(0.0, relay_delay - 5.0)
+
+
+## Host: how long each runner has been idle, by its own report. A runner with no fresh sample (late, lost, syncing,
+## dead) is simply absent -- never AFK on missing data -- and an older build that reports nothing is never judged AFK.
+func _peer_idle_seconds(local_target: Dictionary) -> Dictionary:
+	var result := {}
+	if not local_target.is_empty() and not bool(local_target.get("game_over", false)):
+		result[multiplayer.get_unique_id() if RoomState.online else 1] = _party_afk_seconds
+	if _remotes == null:
+		return result
+	for target_value in _remotes.target_states({}):
+		var target: Dictionary = target_value
+		var reported = target.get("idle_s")
+		if (reported is float or reported is int) and not bool(target.get("game_over", false)) \
+				and not bool(target.get("spectating", false)):
+			result[int(target.get("peer_id", 0))] = float(reported)
+	return result
+
+
+## Seconds of reported idle below which a runner counts as active again (Gray lets go of them).
+const GRAY_RELEASE_IDLE_SECONDS := 2.0
+
+
+func _gray_bound_to(peer_id: int) -> bool:
+	for state_value in world_state.hunters.values():
+		var state: Dictionary = state_value
+		if String(state.get("hunter_id", "")) == "void_gray" and int(state.get("gray_peer", 0)) == peer_id:
+			return true
+	return false
+
+
+## An AFK Gray leaves when her runner moves again or is gone from the route; a relay-stall Gray leaves on relay
+## progress (_sync_stream_progress) instead.
+func _release_gray_from_active_peers(idle: Dictionary) -> void:
+	for entity_id_value in world_state.hunters.keys().duplicate():
+		var entity_id := String(entity_id_value)
+		var state: Dictionary = world_state.hunters[entity_id]
+		if String(state.get("hunter_id", "")) != "void_gray" or String(state.get("gray_reason", "")) != "afk":
+			continue
+		var peer_id := int(state.get("gray_peer", 0))
+		if idle.has(peer_id) and float(idle[peer_id]) >= GRAY_RELEASE_IDLE_SECONDS:
+			continue
+		print("[coop] GRAY released peer %d (%s): %s" % [peer_id, RoomState.peer_display_name(peer_id),
+			"active again" if idle.has(peer_id) else "no longer on the route"])
+		_unload_hunter(entity_id, false)
+		world_state.hunters.erase(entity_id)
+		_hunter_stream_signature = ""
+		_refresh_hunter_stream()
+		_collect_hunter_report()
+		_remotes.broadcast_hunters(_hunter_report)
+		_remotes.broadcast_snapshot()
+
+
+## The target Gray may chase: her bound runner only (on her level, catchable), else none -- never whoever is nearest.
+func _gray_target(entity_id: String, local_target: Dictionary, depth: int) -> Dictionary:
+	var peer_id := int((world_state.hunters.get(entity_id, {}) as Dictionary).get("gray_peer", 0))
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	var target := {}
+	if peer_id == 0:
+		return {}   # an unbound Gray (one the population spawned) hunts nobody until anti-idle binds her
+	if peer_id == local_id:
+		target = local_target
+	else:
+		for candidate_value in _remotes.target_states({}):
+			if int((candidate_value as Dictionary).get("peer_id", 0)) == peer_id:
+				target = candidate_value
+	if target.is_empty() or int(target.get("depth", -999999)) != depth or bool(target.get("game_over", false)) \
+			or bool(target.get("escape_active", false)) or bool(target.get("capture_immune", false)):
+		return {}
+	if not target.has("peer_id"):
+		target = target.duplicate()
+		target["peer_id"] = local_id
+	return target
+
+
+## best_target for every hunter but Gray, who only ever gets the runner anti-idle bound her to (or nobody).
+func _target_for_hunter(entity_id: String, position: Vector2, local_target: Dictionary, depth: int) -> Dictionary:
+	var state: Dictionary = world_state.hunters.get(entity_id, {})
+	if String(state.get("hunter_id", "")) == "void_gray":
+		return _gray_target(entity_id, local_target, depth)
+	return _remotes.best_target(position, local_target, depth)
 
 
 func _reset_gray_void_pressure(despawn_gray: bool) -> bool:
@@ -2198,18 +2287,22 @@ func _lock_gray_on(entity_id: String, brain: HunterBrain) -> void:
 	_gray_hunts.erase(entity_id)
 
 
-func _spawn_anti_idle_hunter() -> bool:
+func _spawn_anti_idle_hunter(peer_id: int = 0, reason: String = "relay", idle_seconds: float = 0.0) -> bool:
 	var local_target := _hunter_target(
 		_player_in_intact_safe_room(facility.current_chunk_data()))
-	var targets := _remotes.target_states(local_target)
-	targets = targets.filter(func(candidate: Dictionary) -> bool:
-		return candidate.get("position") is Vector2 \
-			and not bool(candidate.get("game_over", false)))
-	if targets.is_empty():
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	if peer_id == 0:
+		peer_id = local_id
+	var target := {}
+	for candidate_value in _remotes.target_states(local_target):
+		var candidate: Dictionary = candidate_value
+		if int(candidate.get("peer_id", local_id)) == peer_id and candidate.get("position") is Vector2 \
+				and not bool(candidate.get("game_over", false)):
+			target = candidate
+	if target.is_empty():
 		return false
-	targets.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return int(a.get("peer_id", 1)) < int(b.get("peer_id", 1)))
-	var target: Dictionary = targets[_anti_idle_spawn_sequence % targets.size()]
+	print("[coop] GRAY %s for peer %d (%s): %s %.0f s" % ["woken", peer_id, RoomState.peer_display_name(peer_id),
+		"idle" if reason == "afk" else "no relay progress, idle", idle_seconds])
 	var target_position: Vector2 = target["position"]
 	var level := -int(target.get("depth", 0))
 	# Gray is one persistent anti-idle hunter, not a new clone every time the
@@ -2220,6 +2313,8 @@ func _spawn_anti_idle_hunter() -> bool:
 		if String(existing.get("hunter_id", "")) != "void_gray":
 			continue
 		existing["active"] = true
+		existing["gray_peer"] = peer_id
+		existing["gray_reason"] = reason
 		existing["state"] = HunterBrain.State.SEARCH
 		existing["has_last_known"] = true
 		existing["last_known"] = target_position
@@ -2231,7 +2326,7 @@ func _spawn_anti_idle_hunter() -> bool:
 			existing_view.brain.activate_at(target_position)
 			_gray_hunts[existing_id] = target_position
 			_lock_gray_on(existing_id, existing_view.brain)
-			existing_view.target_peer_id = int(target.get("peer_id", 1))
+			existing_view.target_peer_id = peer_id
 			existing_view.sync_from_brain()
 			_store_hunter(existing_id, existing_view)
 		_collect_hunter_report()
@@ -2282,6 +2377,8 @@ func _spawn_anti_idle_hunter() -> bool:
 	if state.is_empty():
 		return false
 	state["active"] = true
+	state["gray_peer"] = peer_id
+	state["gray_reason"] = reason
 	state["state"] = HunterBrain.State.SEARCH
 	state["has_last_known"] = true
 	state["last_known"] = target_position
@@ -2294,7 +2391,7 @@ func _spawn_anti_idle_hunter() -> bool:
 	if view != null and view.brain != null:
 		view.brain.activate_at(target_position)
 		_lock_gray_on(entity_id, view.brain)
-		view.target_peer_id = int(target.get("peer_id", 1))
+		view.target_peer_id = peer_id
 		view.sync_from_brain()
 		_store_hunter(entity_id, view)
 	_collect_hunter_report()
@@ -2654,7 +2751,7 @@ func _direct_hunters(delta: float, local_target: Dictionary) -> void:
 		if not by_level.has(level):
 			by_level[level] = []
 		by_level[level].append({"id": str(entity_id_value), "brain": view.brain,
-			"target": _remotes.best_target(view.brain.position, local_target, -level)})
+			"target": _target_for_hunter(str(entity_id_value), view.brain.position, local_target, -level)})
 	for level in by_level:
 		var navigation := _navigations.get(level) as StreamedHunterNavigation
 		if navigation == null:
@@ -2691,7 +2788,7 @@ func _update_hunters(delta: float, _data: Dictionary) -> void:
 		var navigation := _navigations.get(level) as StreamedHunterNavigation
 		if navigation == null:
 			continue
-		var target := _remotes.best_target(view.brain.position, local_target, -level)
+		var target := _target_for_hunter(entity_id, view.brain.position, local_target, -level)
 		if _hunter_ladder_step(entity_id, view, level, navigation, target, local_target, delta):
 			view.sync_from_brain()
 			_store_hunter(entity_id, view)
@@ -3702,7 +3799,101 @@ func _on_tool_used(item_id: String) -> void:
 
 func _streamed_state_overrides() -> Dictionary:
 	return {"depth": -facility.current_level(),
-		"in_safe_zone": _player_in_intact_safe_room(facility.current_chunk_data())}
+		"in_safe_zone": _player_in_intact_safe_room(facility.current_chunk_data()),
+		"syncing": _sync_gate != null,
+		"idle_s": snappedf(_party_afk_seconds, 0.1)}
+
+
+# --- join / rejoin sync gate (RouteSyncGate) ----------------------------------------------------------------------------
+var _sync_gate: RouteSyncGate
+var _sync_overlay: RouteLoadingScreen
+
+
+## A guest (or a guest whose host link dropped) waits on the loading screen, frozen in place with physics off so it
+## cannot fall through floor that is not built yet, until RouteSyncGate's steps all hold.
+func _begin_sync_gate() -> void:
+	if _sync_gate != null or not RoomState.online or RoomState.is_host:
+		return
+	_sync_gate = RouteSyncGate.new()
+	if _sync_overlay == null:
+		var layer := CanvasLayer.new()
+		layer.name = "SyncLoadingLayer"
+		layer.layer = 90
+		add_child(layer)
+		_sync_overlay = (load(RoomState.ROUTE_LOADING_SCENE) as PackedScene).instantiate() as RouteLoadingScreen
+		_sync_overlay.auto_start = false
+		layer.add_child(_sync_overlay)
+	_sync_overlay.show_sync_step(0, RouteSyncGate.STEPS.size())
+	player.input_frozen = true
+	player.velocity = Vector3.ZERO
+	player.set_physics_process(false)
+
+
+func _tick_sync_gate(delta: float) -> void:
+	if _sync_gate == null:
+		return
+	_sync_gate.tick(delta)
+	var checks := [
+		RoomState.run_seed() != 0,
+		not _awaiting_snapshot and not RoomState.reconnect_active,
+		facility.loaded_chunk_count() > 0 and not facility.is_streaming(),
+		_remotes != null and _remotes.has_fresh_state(1),
+	]
+	# The spawn step lets physics run again (still frozen for input) so the runner settles onto the built floor.
+	var others_ready := checks.all(func(ok) -> bool: return bool(ok))
+	player.set_physics_process(others_ready)
+	player.input_frozen = true
+	if not others_ready:
+		player.velocity = Vector3.ZERO
+	var step := _sync_gate.first_unmet(checks, others_ready and player.is_on_floor(), delta)
+	if step >= RouteSyncGate.STEPS.size():
+		_finish_sync_gate()
+		return
+	_sync_overlay.show_sync_step(step, RouteSyncGate.STEPS.size())
+	if _sync_gate.timed_out():
+		_sync_overlay.show_sync_stuck()
+
+
+func _finish_sync_gate() -> void:
+	_sync_gate = null
+	_sync_overlay.dismiss()
+	player.set_physics_process(true)
+	player.input_frozen = (pause_menu != null and pause_menu.is_open()) or hud.inventory_is_open() \
+		or (_admin_menu != null and _admin_menu.is_open()) or (_story != null and _story.is_active())
+	hud.show_message("ROUTE SYNCED")
+
+
+## Guest prediction (docs: COOP-PACKETS note): a guest's own door or pickup shows at once instead of after a host round
+## trip. The host's world event confirms it (idempotent); a request it refused -- or one lost on the way -- rolls back
+## after PREDICTION_TIMEOUT_MS.
+const PREDICTION_TIMEOUT_MS := 2000
+var _predicted_doors := {}     # door_id -> {"open": bool, "until": msec}
+var _predicted_pickups := {}   # entity_id -> msec
+
+
+func _expire_predictions() -> void:
+	if _predicted_doors.is_empty() and _predicted_pickups.is_empty():
+		return
+	var now := Time.get_ticks_msec()
+	for door_id in _predicted_doors.keys():
+		if now >= int(_predicted_doors[door_id].get("until", 0)):
+			_rollback_door(door_id)
+	for entity_id in _predicted_pickups.keys():
+		if now >= int(_predicted_pickups[entity_id]):
+			_rollback_pickup(entity_id)
+
+
+func _rollback_door(door_id: String) -> void:
+	_predicted_doors.erase(door_id)
+	facility.show_room_door_state(door_id)
+	Sound.interaction_fail()
+
+
+func _rollback_pickup(entity_id: String) -> void:
+	_predicted_pickups.erase(entity_id)
+	if world_state.pickup_available(entity_id):
+		facility.predict_pickup_taken(entity_id, false)
+		Sound.interaction_fail()
 
 
 func _request_streamed_pickup(_requesting_player: PlayerController3D,
@@ -3719,6 +3910,9 @@ func _request_streamed_pickup(_requesting_player: PlayerController3D,
 	var event := {"what": "stream_pickup", "entity_id": entity_id,
 		"kind": kind, "item": item_id}
 	if RoomState.online and not RoomState.is_host:
+		# Predicted: it vanishes now; the host's claim hands it over (or to whoever won it), else it reappears.
+		if facility.predict_pickup_taken(entity_id, true):
+			_predicted_pickups[entity_id] = Time.get_ticks_msec() + PREDICTION_TIMEOUT_MS
 		_remotes.request_interaction(event)
 		return ""
 	_accept_streamed_pickup(multiplayer.get_unique_id() if RoomState.online else 1,
@@ -3734,6 +3928,11 @@ func _request_streamed_door(_requesting_player: PlayerController3D,
 		return ""
 	var event := {"what": "stream_door", "door_id": door_id}
 	if RoomState.online and not RoomState.is_host:
+		# Predicted: the leaf swings now; the host's stream_door settles it, or it swings back (_expire_predictions).
+		var open := not bool(status.get("open", false))
+		facility.predict_room_door(door_id, open)
+		Sound.door(open)
+		_predicted_doors[door_id] = {"open": open, "until": Time.get_ticks_msec() + PREDICTION_TIMEOUT_MS}
 		_remotes.request_interaction(event)
 		return ""
 	_accept_stream_door(multiplayer.get_unique_id() if RoomState.online else 1,
@@ -4255,7 +4454,11 @@ func _accept_stream_waypoint(peer_id: int, event: Dictionary) -> void:
 func _accept_streamed_pickup(peer_id: int, event: Dictionary) -> void:
 	var entity_id := String(event.get("entity_id", ""))
 	var pickup := _stream_pickup_data(entity_id)
-	if pickup.is_empty() or not world_state.pickup_available(entity_id):
+	if pickup.is_empty():
+		_refuse_interaction(peer_id, event, "no such pickup %s" % entity_id)
+		return
+	if not world_state.pickup_available(entity_id):
+		_refuse_interaction(peer_id, event, "already taken")
 		return
 	var coord: Vector3i = pickup.get("coord", Vector3i(999999, 999999, 999999))
 	var target := _target_state_for_peer(peer_id)
@@ -4264,23 +4467,26 @@ func _accept_streamed_pickup(peer_id: int, event: Dictionary) -> void:
 	var pickup_position := Vector2(
 		coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5,
 		coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)
-	if target.is_empty() or not position is Vector2 \
-			or -int(target.get("depth", 999999)) != coord.y \
-			or position.distance_to(pickup_position) > STREAM_INTERACT_DISTANCE:
+	var refusal := _range_refusal(target, coord.y, pickup_position)
+	if not refusal.is_empty():
+		_refuse_interaction(peer_id, event, refusal)
 		return
 	var item_id := String(pickup.get("item", ""))
 	var kind := String(pickup.get("kind", "tool"))
 	if kind != String(event.get("kind", "")) \
 			or (kind in ["tool", "backpack"] and (item_id.is_empty() \
 				or item_id != String(event.get("item", "")))):
+		_refuse_interaction(peer_id, event, "pickup is %s %s here" % [kind, item_id])
 		return
 	if kind in ["tool", "battery"]:
 		if not _target_can_take(target, "battery" if kind == "battery" else item_id, 1):
+			_refuse_interaction(peer_id, event, "inventory full")
 			return
 	elif kind == "backpack":
 		var target_order = target.get("inventory_order", [])
 		if not target_order is Array \
 				or not PlayerController3D.can_accept_backpack(target_order, item_id):
+			_refuse_interaction(peer_id, event, "cannot take this backpack")
 			return
 	_publish_stream_event({"what": "stream_pickup", "entity_id": entity_id,
 		"kind": kind, "item": item_id, "winner_peer_id": peer_id})
@@ -4322,20 +4528,23 @@ func _accept_stream_sabotage(peer_id: int, event: Dictionary) -> void:
 func _accept_stream_door(peer_id: int, event: Dictionary) -> void:
 	var door_id := String(event.get("door_id", ""))
 	var target := _target_state_for_peer(peer_id)
-	var position = target.get("position")
 	var door_data := _stream_room_door_data(door_id, target)
-	if target.is_empty() or not position is Vector2 or door_data.is_empty():
+	if door_data.is_empty():
+		_refuse_interaction(peer_id, event, "no such door %s near the runner" % door_id
+			if not target.is_empty() else "no recent position for the runner")
 		return
 	var coord: Vector3i = door_data.get("coord", Vector3i.ZERO)
 	var cell: Vector2i = door_data.get("cell", Vector2i.ZERO)
 	var door_position := Vector2(
 		coord.x * StreamedRouteGenerator.CHUNK_SIZE + cell.x + .5,
 		coord.z * StreamedRouteGenerator.CHUNK_SIZE + cell.y + .5)
-	if coord.y != -int(target.get("depth", 999999)) \
-			or (position as Vector2).distance_to(door_position) > STREAM_INTERACT_DISTANCE:
+	var refusal := _range_refusal(target, coord.y, door_position)
+	if not refusal.is_empty():
+		_refuse_interaction(peer_id, event, refusal)
 		return
 	var status := world_state.room_door_status(door_id)
 	if bool(status.get("broken", false)):
+		_refuse_interaction(peer_id, event, "door is broken")
 		return
 	_publish_stream_event({"what": "stream_door", "door_id": door_id,
 		"open": not bool(status.get("open", false)), "broken": false,
@@ -4426,6 +4635,25 @@ func _safe_room_for_peer(peer_id: int, room_id: String,
 	return data
 
 
+func _refuse_interaction(peer_id: int, event: Dictionary, reason: String) -> void:
+	if _remotes != null and RoomState.online:
+		_remotes.refuse_interaction(peer_id, event, reason)
+
+
+## Why the host's latest sample of a runner is not in reach of a thing at `level` / `at`, or "" when it is.
+func _range_refusal(target: Dictionary, level: int, at: Vector2) -> String:
+	var position = target.get("position")
+	if target.is_empty() or not position is Vector2:
+		return "no recent position for the runner (state older than %.1f s or missing)" % (
+			RemotePlayers.REMOTE_STATE_TIMEOUT_USEC / 1_000_000.0)
+	if -int(target.get("depth", 999999)) != level:
+		return "runner is on level %d, the target on %d" % [-int(target.get("depth", 999999)), level]
+	var distance := (position as Vector2).distance_to(at)
+	if distance > STREAM_INTERACT_DISTANCE:
+		return "runner is %.1f m away (reach %.1f)" % [distance, STREAM_INTERACT_DISTANCE]
+	return ""
+
+
 func _target_state_for_peer(peer_id: int) -> Dictionary:
 	var local_target := _hunter_target(
 		_player_in_intact_safe_room(facility.current_chunk_data()))
@@ -4496,6 +4724,7 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			facility.refresh_mutations()
 		"stream_pickup":
 			var entity_id := String(event.get("entity_id", ""))
+			_predicted_pickups.erase(entity_id)
 			if not facility.apply_pickup_claim(entity_id):
 				return
 			_sync_stream_progress()
@@ -4587,13 +4816,15 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 				return
 			var open := bool(event.get("open", false))
 			var broken := bool(event.get("broken", false))
+			var predicted: Dictionary = _predicted_doors.get(door_id, {})
+			_predicted_doors.erase(door_id)
 			var changed := facility.apply_room_door_state(door_id, open, broken)
 			if not changed:
 				return
 			if broken:
 				Sound.door_breach()
-			else:
-				Sound.door(open)
+			elif predicted.is_empty() or bool(predicted.get("open", false)) != open:
+				Sound.door(open)   # a predicted swing already played its sound
 		"stream_drop_create":
 			var record = event.get("drop", {})
 			if not record is Dictionary:
@@ -4886,7 +5117,8 @@ func _apply_stream_snapshot(state: Dictionary) -> void:
 		or (_admin_menu != null and _admin_menu.is_open()) \
 		or (_story != null and _story.is_active())
 	_remotes.confirm_snapshot_applied()
-	hud.show_message("ROUTE SYNCED")
+	if _sync_gate == null:
+		hud.show_message("ROUTE SYNCED")
 	if RoomState.public_route:
 		_apply_public_resume()
 
@@ -5060,6 +5292,12 @@ func _apply_player_event(event: Dictionary) -> void:
 			_troll_ads_muted = player.troll_active and not bool(event.get("ads", true))
 		"admin_pulse":
 			_show_admin_pulse(event)
+		"interaction_refused":
+			# The host said no to our own door or pickup: undo the prediction now rather than at its timeout.
+			if _predicted_doors.has(String(event.get("door_id", ""))):
+				_rollback_door(String(event["door_id"]))
+			if _predicted_pickups.has(String(event.get("entity_id", ""))):
+				_rollback_pickup(String(event["entity_id"]))
 		"troll_pickup":
 			# The host refused it; it vanishes for this client only.
 			if facility.apply_pickup_claim(String(event.get("entity_id", ""))):

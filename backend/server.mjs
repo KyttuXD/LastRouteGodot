@@ -12,6 +12,7 @@ import { createRoomService } from "./room_service.mjs";
 import { createPublicRoute, PUBLIC_CODES } from "./public_route.mjs";
 import { createModeration } from "./moderation.mjs";
 import { createModPacks } from "./mod_packs.mjs";
+import { CRASH_MAX_BODY_BYTES, createCrashReports } from "./crash_reports.mjs";
 
 // Which deployment this is (production, test): shown in /api/health so nobody mistakes one for the other.
 const instanceName = String(process.env.LASTROUTE_INSTANCE || "production").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) || "production";
@@ -291,6 +292,7 @@ export function createLastRouteServer({
   publicRouteSeed = "PUBLIC-ROUTE",
   publicItemRespawnMs,
   modPackStorePath = null,
+  crashReportDirectory = null,
   modDownloadBase = "",
   modPackLimits,
   rateLimitWindowMs = DEFAULT_RATE_LIMIT_WINDOW_MS,
@@ -330,6 +332,7 @@ export function createLastRouteServer({
     isOwner: (name) => accountService.isAdminOwner(name),
     accountExists: (name) => accountService.accountExists(name),
     updatesProvider: () => currentUpdates() });
+  const crashReports = crashReportDirectory ? createCrashReports({ directory: crashReportDirectory, now }) : null;
   const modPacks = createModPacks({ storePath: modPackStorePath, downloadBase: modDownloadBase, now, logger,
     ...(modPackLimits ? { limits: modPackLimits } : {}) });
   const skins = createSkins({ directory: skinDirectory, accountService, now, logger, ...skinOptions });
@@ -361,6 +364,15 @@ export function createLastRouteServer({
     for (const [code, room] of enetRooms) if (room.expiresAt <= timestamp) enetRooms.delete(code);
     for (const [ticket, proof] of adminTickets) {
       if (proof.expiresAt <= timestamp || !enetRooms.has(proof.code)) adminTickets.delete(ticket);
+    }
+  }
+
+  function forgetEnetRoom(code) {
+    const room = enetRooms.get(code);
+    if (!room) return;
+    enetRooms.delete(code);
+    for (const [ticket, proof] of adminTickets) {
+      if (proof.code === code && safeEqual(proof.hostToken, room.token)) adminTickets.delete(ticket);
     }
   }
 
@@ -597,9 +609,27 @@ export function createLastRouteServer({
     let body;
     try {
       body = await readJson(request,
-        url.pathname === "/api/admin/mods/register" ? MOD_REGISTER_MAX_BODY_BYTES : MAX_BODY_BYTES);
+        url.pathname === "/api/admin/mods/register" ? MOD_REGISTER_MAX_BODY_BYTES
+          : url.pathname === "/api/v1/crash-reports" ? CRASH_MAX_BODY_BYTES : MAX_BODY_BYTES);
     } catch (error) {
       return json(response, error.status || 400, { ok: false, error: error.message });
+    }
+
+    // Crash / freeze reports (CrashWatch): store and echo only; per-client rate limit and field caps in crash_reports.mjs.
+    if (url.pathname === "/api/v1/crash-reports") {
+      if (!crashReports) return json(response, 404, { ok: false, code: "UNKNOWN_ENDPOINT", error: "Unknown endpoint" });
+      const client = `${requesterAddress(request, trustProxy) || "unknown"}|${String(body.device_id || "").slice(0, 64)}`;
+      const result = crashReports.submit(body, client);
+      return json(response, result[0], result[1]);
+    }
+    if (url.pathname === "/api/admin/crash-reports") {
+      const owner = accountService.sessionUsername(body.sessionToken);
+      if (!owner || !accountService.isAdminOwner(owner)) {
+        return json(response, 403, { ok: false, code: "ADMIN_OWNER_REQUIRED", error: "Full admin account required" });
+      }
+      if (!crashReports) return json(response, 200, { ok: true, reports: [], total: 0 });
+      const result = crashReports.list({ since: body.since, limit: body.limit });
+      return json(response, result[0], result[1]);
     }
 
     if (url.pathname === "/api/public/join" || url.pathname === "/api/public/state"
@@ -678,10 +708,9 @@ export function createLastRouteServer({
       const room = enetRooms.get(code);
       if (!room) return json(response, 200, { ok: true, removed: false });
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
-      enetRooms.delete(code);
-      for (const [ticket, proof] of adminTickets) {
-        if (proof.code === code && safeEqual(proof.hostToken, room.token)) adminTickets.delete(ticket);
-      }
+      // an explicit quit: guests are told now and the code stops resolving now
+      enetRelay?.closeRoom(code);
+      forgetEnetRoom(code);
       return json(response, 200, { ok: true, removed: true });
     }
 
@@ -873,6 +902,8 @@ export function createLastRouteServer({
         return enetRooms.get(code) || null;
       },
       promoteRoomHost: promoteEnetRoomHost,
+      // the host quit, crashed or was killed: the code is invalid at once (a reserved room keeps its reservation)
+      onRoomClosed: (code) => forgetEnetRoom(code),
       now,
       logger,
     });
@@ -963,6 +994,7 @@ export function startLastRouteServerFromEnvironment() {
     skinDirectory: environmentPath("LASTROUTE_SKINS_DIR") || join(dataDirectory, "skins"),
     saveDirectory: environmentPath("LASTROUTE_SAVES_DIR") || join(dataDirectory, "saves"),
     modPackStorePath: environmentPath("LASTROUTE_MOD_INDEX_STORE") || join(dataDirectory, "mod_packs.json"),
+    crashReportDirectory: environmentPath("LASTROUTE_CRASH_REPORTS_DIR") || join(dataDirectory, "crash-reports"),
     // public URL of the VPS 2 mod folder, e.g. https://<vps2>/lr3d/mods (the index never serves pack files itself)
     modDownloadBase: String(process.env.LASTROUTE_MOD_DOWNLOAD_BASE || "").trim(),
     publicDirectory: publicDirectory && existsSync(publicDirectory) ? publicDirectory : null,

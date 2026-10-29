@@ -183,6 +183,22 @@ func _check_host_closes_room(host: Node) -> void:
 	_expect(RoomState.menu_notice == RoomState.HOST_LEFT_NOTICE and RoomState.code != "ZZZZZ" and RoomState.is_host,
 		"a guest told the room closed did not leave to the main menu with HOST LEFT")
 	RoomState.consume_menu_notice()
+	# the relay's HOST_LEFT frame (host quit or crashed) sends a guest to the menu at once, with no reconnect grace; a host ignores it
+	_expect(RoomState._relay != null and RoomState._relay.host_left.is_connected(RoomState._on_relay_host_left), "the relay's host_left signal is not wired")
+	RoomState.is_host = false
+	RoomState.online = true
+	RoomState.code = "WWWWW"
+	RoomState.session_active = true
+	RoomState._on_relay_host_left("HOST LEFT // ROOM CLOSED")
+	_expect(RoomState.menu_notice == RoomState.HOST_LEFT_NOTICE and not RoomState.reconnect_active and RoomState.code != "WWWWW" and not RoomState.online,
+		"HOST_LEFT from the relay did not send the guest to the menu without a reconnect grace")
+	RoomState.consume_menu_notice()
+	RoomState.is_host = true
+	RoomState.online = true
+	RoomState.code = "VVVVV"
+	RoomState._on_relay_host_left("x")
+	_expect(RoomState.code == "VVVVV", "a host reacted to HOST_LEFT")
+	RoomState.online = false
 	# a host ignores a close message (it cannot close itself)
 	RoomState.is_host = true
 	RoomState.code = "YYYYY"

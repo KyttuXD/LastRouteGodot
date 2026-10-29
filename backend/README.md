@@ -15,6 +15,13 @@ Native ENet packets are wrapped through the UDP relay, so hosts and guests
 make only outbound connections. Player routers do not need UPnP, a manual port
 forward, or a publicly reachable UDP socket.
 
+A room lives exactly as long as its host. An explicit quit (`/api/enet/rooms/unregister`) closes it at once; a host
+whose process crashes or is killed is dropped within about a second: current clients send `HOST_ALIVE` every 250 ms
+from a background thread (a frozen main loop keeps the room), and the relay times such a host out 1 s after the last
+one (hosts from older builds keep the 15 s timeout). Either way every guest gets `HOST_LEFT` (and an `ERROR` for older
+clients), the code stops resolving (`ROOM NOT FOUND`), and a reserved private room keeps its reservation. Host
+migration happens only when a host hands over on purpose (`/api/enet/rooms/release-host`).
+
 ## Local run
 
 Node 18 or newer is the only dependency.
@@ -363,6 +370,23 @@ LASTROUTE_OWNER_SESSION=... node backend/deploy_mod_pack.mjs path/to/pack --vps2
 The script hashes every file and enforces the caps. It copies the pack to `<id>/<version>.uploading-<pid>` on VPS 2
 and re-hashes the files there with `sha256sum`. Only if every hash matches does it rename the folder into place and
 register the pack in the index. A bad upload is deleted, and nothing is registered.
+
+## Crash reports
+
+The game's `CrashWatch` autoload (`src/autoload/crash_watch.gd`) notices a session that crashed, was killed or froze
+(a sentinel file left in `user://logs`, a freeze watchdog) and sends one `lr.crash/1` report on the next launch, when
+the player's "CRASH REPORTS" setting is on (default) and the run is a real game run (never headless, editor or
+playtest bots, which leave reports queued for the test harness instead).
+
+- `POST /api/v1/crash-reports` with the report. Store and echo only: `201 { ok, id, report }` returns exactly what was
+  stored. Body cap 96 KB; `log_tail` 32 KB, 50 breadcrumbs, 50 recent errors, 400 chars a line, 120 a field. Anything
+  credential-shaped (bearer/basic auth, `token=`/`password:`/`admin_ticket` values, 40+ hex digits) is replaced
+  before storage, on the client and again here. The requester address is a rate-limit key only (6 reports an hour per
+  address and device id) and is never stored.
+- `POST /api/admin/crash-reports` with `{ sessionToken, since?, limit? }` (full admin owner): newest first, at most
+  200; `since` is a report id.
+- Storage: one JSON file per report in `$LASTROUTE_CRASH_REPORTS_DIR` (default `<data dir>/crash-reports`), newest
+  5000 kept. Operators read them with `~/Developer/Claude-Setup/crash-reports.sh` (over SSH, no credentials).
 
 ## Moderation
 
