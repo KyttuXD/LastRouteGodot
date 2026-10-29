@@ -3881,18 +3881,22 @@ func _tick_sync_gate(delta: float) -> void:
 	if step >= RouteSyncGate.STEPS.size():
 		_finish_sync_gate()
 		return
+	# the handshake: a current host tags its state with the wire version (RemotePlayers._wire_peers)
+	if _sync_gate.old_host(_remotes != null and int(_remotes._wire_peers.get(1, 0)) >= PlayerStateWire.VERSION):
+		_finish_sync_gate("HOST ON AN OLDER BUILD")
+		return
 	_sync_overlay.show_sync_step(step, RouteSyncGate.STEPS.size())
 	if _sync_gate.timed_out():
 		_sync_overlay.show_sync_stuck()
 
 
-func _finish_sync_gate() -> void:
+func _finish_sync_gate(notice: String = "ROUTE SYNCED") -> void:
 	_sync_gate = null
 	_sync_overlay.dismiss()
 	player.set_physics_process(true)
 	player.input_frozen = (pause_menu != null and pause_menu.is_open()) or hud.inventory_is_open() \
 		or (_admin_menu != null and _admin_menu.is_open()) or (_story != null and _story.is_active())
-	hud.show_message("ROUTE SYNCED")
+	hud.show_message(notice)
 
 
 ## Guest prediction (docs: COOP-PACKETS note): a guest's own door or pickup shows at once instead of after a host round

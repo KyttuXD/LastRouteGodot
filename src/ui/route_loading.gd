@@ -30,6 +30,10 @@ var _leave_button: Button
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# KT: the mouse must be free on every load / sync screen (the LEAVE button has to be clickable); gameplay takes
+	# it back when this screen goes away. A claim per instance: Main3D and the Infinite route each own one.
+	visibility_changed.connect(_claim_cursor)
+	_claim_cursor()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_build_ui()
@@ -95,6 +99,14 @@ func show_sync_stuck() -> void:
 	_status.text = "STILL SYNCING // THE HOST IS SLOW TO ANSWER"
 	_status.add_theme_color_override("font_color", Palette.ALERT)
 	_leave_button.visible = true
+
+
+func _claim_cursor() -> void:
+	MouseLock.claim("route_loading_%d" % get_instance_id(), is_visible_in_tree())
+
+
+func _exit_tree() -> void:
+	MouseLock.claim("route_loading_%d" % get_instance_id(), false)
 
 
 func dismiss() -> void:

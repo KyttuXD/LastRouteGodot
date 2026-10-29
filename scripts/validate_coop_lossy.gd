@@ -38,7 +38,7 @@ func run(host: Node) -> int:
 	_host = host
 	_requests_allowed()
 	_motion()
-	_sync_gate()
+	await _sync_gate()
 	await _lossy_link()
 	await _gray_binding()
 	return _failures
@@ -171,6 +171,16 @@ func _sync_gate() -> void:
 	gate.tick(0.2)
 	_expect(gate.timed_out(), "the gate never times out")
 
+	# a host on an older build (no wire tag): the guest gets in after OLD_HOST_SECONDS instead of waiting forever
+	var old := RouteSyncGate.new()
+	old.tick(RouteSyncGate.OLD_HOST_SECONDS - 0.5)
+	_expect(not old.old_host(false), "an older host was given up on too early")
+	old.tick(1.0)
+	_expect(old.old_host(false), "a guest of an older host waits forever (KTMXN)")
+	_expect(not old.old_host(true), "a current host's slow sync was cut short by the older-host fallback")
+
+	MouseLock.release_all()
+	MouseLock.set_gameplay_capture(true)
 	var screen := (load(RoomState.ROUTE_LOADING_SCENE) as PackedScene).instantiate() as RouteLoadingScreen
 	screen.auto_start = false
 	_host.add_child(screen)
@@ -179,12 +189,19 @@ func _sync_gate() -> void:
 	var leave := screen.find_child("SyncLeaveButton", true, false) as Button
 	_expect(screen.visible and phase != null and phase.text == RouteSyncGate.label(2),
 		"the loading screen does not show the sync step (%s)" % (phase.text if phase != null else "no phase label"))
+	_expect(MouseLock.cursor_visible(), "the mouse stays locked on the loading / sync screen (LEAVE cannot be clicked)")
 	_expect(leave != null and not leave.visible, "LEAVE is offered before the sync timeout")
 	screen.show_sync_stuck()
 	_expect(leave != null and leave.visible and leave.text == "STILL SYNCING // LEAVE", "no STILL SYNCING // LEAVE after the timeout")
 	screen.dismiss()
 	_expect(not screen.visible and not leave.visible, "the loading screen stayed up after the sync finished")
+	_expect(not MouseLock.cursor_visible(), "the mouse was not handed back to gameplay after the loading screen")
+	screen.show_waiting_for_snapshot()   # rejoin / route load use the same screen
+	_expect(MouseLock.cursor_visible(), "the mouse stays locked while waiting for the host snapshot")
 	screen.queue_free()
+	await _host.get_tree().process_frame
+	_expect(not MouseLock.cursor_visible(), "a freed loading screen kept its claim on the mouse")
+	MouseLock.release_all()
 
 	var remotes := RemotePlayers.new()
 	var now := Time.get_ticks_usec()
