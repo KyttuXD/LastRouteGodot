@@ -72,6 +72,15 @@ func _check_layout(host: Node) -> void:
 	var up := map.teammate_layout(Vector2(20, 20), 3.0, {"other_floor": true, "level": -1})
 	var down := map.teammate_layout(Vector2(20, 20), 3.0, {"other_floor": true, "level": -5})
 	_expect(up["kind"] == "updown" and up["up"] and down["kind"] == "updown" and not down["up"], "up/down markers do not follow the floor order")
+	# a revive window: same floor in place, another floor as the up/down marker, off the map clamped to the edge, always kept by the map
+	var down_here := FacilityMap.down_map_mark({"peer": 4, "at": Vector3(12.0, 0.0, 7.0), "depth": 3, "name": "Cy", "left": 17.5}, -3)
+	var down_below := FacilityMap.down_map_mark({"peer": 5, "at": Vector3(1.0, 0.0, 2.0), "depth": 4, "name": "Di", "left": 9.0}, -3)
+	_expect(not down_here["other_floor"] and down_here["at"] == Vector2(12, 7) and is_equal_approx(down_here["down_left"], 17.5), "a revive window on this floor is mapped wrongly (%s)" % [down_here])
+	_expect(down_below["other_floor"] and down_below["level"] == -4, "a revive window on another floor should be flagged and carry its level")
+	map.show_streamed_state({}, -3, 16, Vector2.ZERO, Vector2.DOWN, [], false, 0, [down_here, down_below])
+	_expect(map.players.size() == 2, "the map should keep both revive windows, not %d" % map.players.size())
+	var down_far := map.teammate_layout(Vector2(900, 41), 3.4, down_here)
+	_expect(down_far["off_view"] and Rect2(Vector2.ZERO, map.size).has_point(down_far["shown"]), "a revive window off the map is not clamped to the edge")
 	var gone := map.teammate_layout(Vector2(20, 20), 3.0, {"spectating": true})
 	_expect(gone["kind"] == "downed", "a spectating teammate should get the downed icon")
 	# the maps keep other-floor marks and drop other-floor marks that are not flagged

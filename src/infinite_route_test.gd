@@ -1807,6 +1807,9 @@ func _update_streamed_maps() -> void:
 	# the teammate setting governs the maps too, so the HUD markers and the minimap never disagree
 	var remote_map_players := _remotes.remote_player_marks(-level, true) \
 		if _remotes != null and Settings.teammate_waypoints else []
+	# revive windows always show (a teammate to save is not optional information)
+	for down in downed_map_marks():
+		remote_map_players.append(FacilityMap.down_map_mark(down, level))
 	var dropped_tool_marks := _dropped_tool_marks(level)
 	var discovered_map_chunks := _map_chunks_with_available_pickups(_discovered_chunks)
 	var safe_room_marks := _safe_room_map_marks(level, discovered_map_chunks)
