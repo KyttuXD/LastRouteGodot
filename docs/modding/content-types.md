@@ -119,8 +119,10 @@ its own `.ogg` recordings. Both folders use the same file shape:
   the Night Watch cues (`nw_ring`, `nw_door`, ...) and the rest of the game's named sounds. An unknown name is refused.
   A cue's in-game loudness still scales your file; left/right placement is not applied to recordings. Footsteps and a
   few queued office cues are not replaceable yet.
-- `ambience/` replaces **beds**: the region beds (`maze`, `mansion`, `hotel`, `mall`, `sewer`, `inferno`, ...) and room
-  beds. Make the recording loop seamlessly.
+- `ambience/` replaces **beds**: the region beds (`maze`, `mansion`, `hotel`, `mall`, `sewer`, `inferno`, ...) and the
+  room beds, whose ids carry a colon: `room:chapel`, `room:kitchen`, `room:big_top`, ... (list them in `overrides` the
+  same way: `"ambience/room:chapel"`). Ambience ids are the only ids that may contain `:`. Make the recording loop
+  seamlessly.
 
 ## Surfaces (floors and walls)
 
