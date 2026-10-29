@@ -1,0 +1,152 @@
+name: Build
+
+# One compile run per push (every commit that lands on any branch gets its own run, named by its short SHA) and per
+# pull request. It exports the debug builds and uploads each as a single downloadable file (no extra zip wrapper) named
+# KyttusLab-<platform>-Debug-<label>-<short sha>.<ext>, where <label> is the branch ("staging" for builds from staging,
+# "pr-<n>" for pull requests). Linux downloads need `chmod +x` (GitHub does not keep file modes).
+# Builds are workflow ARTIFACTS only: nothing is added to the Releases page and no git tag is created or moved, so
+# nothing piles up there; artifacts expire on their own (14 days for staging, 5 for other branches). It never edits
+# version names (AGENTS.md: releases, tags and versions need KT's explicit say-so). Builds for release still come from main.
+#
+# Godot and the export templates are pinned in ONE place: GODOT_VERSION in scripts/setup_godot.sh.
+# Android / Quest / iOS presets need SDKs and signing keys and are not built here.
+
+run-name: ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} @ ${{ github.sha }}
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Never cancel a run for an older commit: each commit keeps its own compile result.
+concurrency:
+  group: build-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  LASTROUTE_BUILD_REVISION: ${{ github.sha }}
+
+jobs:
+  export:
+    name: ${{ matrix.name }} (${{ github.sha }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            preset: Linux Debug Tools
+            output: KyttusLab-Linux-Debug.x86_64
+          - name: Windows
+            preset: Windows Debug Tools
+            output: KyttusLab-Windows-Debug.exe
+          - name: Windows Legacy
+            preset: Windows Legacy Debug
+            output: KyttusLab-Windows-Legacy-Debug.exe
+          - name: Windows SteamVR
+            preset: Windows SteamVR Debug
+            output: KyttusLab-Windows-SteamVR-Debug.exe
+          - name: macOS
+            preset: macOS Debug Tools
+            output: KyttusLab-macOS-Debug.zip
+          - name: Web
+            preset: Web Debug Tools
+            output: web/index.html
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the build number is the commit count up to this revision (scripts/generate_build_revision.mjs)
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Read pinned Godot version
+        id: pin
+        run: echo "version=$(sed -n 's/^GODOT_VERSION="\${GODOT_VERSION:-\(.*\)}"/\1/p' scripts/setup_godot.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Godot and export templates
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/godot
+          key: godot-${{ steps.pin.outputs.version }}-${{ runner.os }}
+
+      - name: Install Godot and export templates
+        run: scripts/setup_godot.sh --templates
+
+      - name: Cache Godot import data
+        uses: actions/cache@v4
+        with:
+          path: .godot
+          key: godot-import-${{ steps.pin.outputs.version }}-${{ hashFiles('project.godot', '**/*.import') }}
+          restore-keys: godot-import-${{ steps.pin.outputs.version }}-
+
+      - name: Import project
+        run: ~/.local/bin/godot4 --headless --path . --import || true
+
+      - name: Stamp build revision
+        run: node scripts/generate_build_revision.mjs
+
+      - name: Export ${{ matrix.preset }}
+        run: |
+          set -euo pipefail
+          out="build/${{ matrix.output }}"
+          mkdir -p "$(dirname "$out")"
+          ~/.local/bin/godot4 --headless --path . --export-debug "${{ matrix.preset }}" "$PWD/$out" 2>&1 | tee export.log
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR: Failed to export|Export failed' export.log; then
+            echo "::error::export of ${{ matrix.preset }} reported errors"
+            exit 1
+          fi
+          test -e "$out"
+
+      - name: Pre-compress web build
+        if: matrix.name == 'Web'
+        run: |
+          rm -f build/web/*.import build/web/*.uid
+          node scripts/compress_web.mjs build/web
+
+      # Every artifact is ONE file uploaded as-is (archive: false), so a download is the runnable itself, not a zip of it.
+      # Exceptions the platforms force: the macOS build is the zip Godot exports (a .app folder inside); the web build is
+      # many files, so it is one zip you unpack and serve.
+      - name: Name the file after the branch and commit
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA::7}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then label="pr-${{ github.event.number }}"
+          else label="$(printf '%s' "${GITHUB_REF_NAME}" | tr -c 'A-Za-z0-9._-' '-')"; fi
+          mkdir -p dist
+          case "${{ matrix.name }}" in
+            Web) (cd build && zip -qr "../dist/KyttusLab-Web-Debug-${label}-${short}.zip" web) ;;
+            *)
+              file="${{ matrix.output }}"
+              base="${file%.*}"; ext="${file##*.}"
+              if [ "$base" = "$file" ] || [ "${file#*.}" = "x86_64" ]; then base="${file%.x86_64}"; ext="x86_64"; fi
+              cp "build/${file}" "dist/${base}-${label}-${short}.${ext}"
+              ;;
+          esac
+          ls -la dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/*
+          archive: false
+          if-no-files-found: error
+          retention-days: ${{ github.ref_name == 'staging' && 14 || 5 }}
+
+  summary:
+    name: Build summary
+    needs: export
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "### ${GITHUB_SHA::7}: ${{ needs.export.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifacts are attached to this run and expire on their own. No release or git tag was created." >> "$GITHUB_STEP_SUMMARY"
+      - if: needs.export.result != 'success'
+        run: exit 1

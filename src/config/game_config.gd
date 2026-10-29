@@ -169,7 +169,10 @@ const FACILITY_SAFE_ZONE_AT_SPAWN := true
 const PLAYER_RADIUS := 0.24   # 0.74x of the hunter's 0.33 (the runner is 1.9 m beside a 2.58 m hunter)
 ## Brain footprint: 0.22 m at the old size, times HunterRoster.MODEL_SCALE (1.5). Still inside one cell, so cell walkability is unchanged.
 const HUNTER_RADIUS := 0.33
-## Capture reach uses the tuned footprint from before the 1.5x scale, so difficulty catch distances are unchanged.
+## Capture reach uses the tuned footprints from before the hunter 1.5x and runner rescale, so difficulty catch
+## distances are unchanged: (0.20 + 0.22) x the profile's capture_distance. PLAYER_RADIUS is the collision capsule and
+## grew with the runner (0.2 -> 0.28 -> 0.24); it must not feed the catch reach (a bigger body must not catch from further away).
+const PLAYER_CATCH_RADIUS := 0.2
 const HUNTER_CATCH_RADIUS := 0.22
 const MOVEMENT_STEP := 0.11
 

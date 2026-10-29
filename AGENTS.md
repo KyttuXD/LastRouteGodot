@@ -105,3 +105,41 @@ When Godot is available, verify office suites and prison cafeterias visually
 in single-player and co-op host/client runs. Streamed/prop validators already
 lock `office_job` generation, surface-parent sharing, and the prison dressing
 set; do not weaken those contracts.
+
+### Region rules
+
+Full reference with file anchors, checklist and validators: `docs/REGION_RULES.md`.
+Read it before adding a region or touching region floors, walls, ceilings or heights.
+
+- A region id lives in about twenty tables (`REGIONS`, `region_for`, `FloorSets`,
+  `RefLook.REGION_STYLE`/`ARCH_ACCENT`, `RefDecor.STYLE`, ambience, map colours,
+  swatch PNGs, validators). Follow the numbered checklist; do not add a region
+  half-wired.
+- Data vs code: `data/regions/<id>.json` (`lr.region/1`) holds only `hall_floor`,
+  `hall_runner`, `room_default_floor`, `room_roles`, `shop_names`, `room_door`,
+  `double_room_door`, `prop_set`. Algorithms stay code and are named, never
+  scripted. Unknown keys are errors; packs never carry code. Only `mall` is
+  migrated (`_CODE_*` + `ContentRegistry.DATA` + `resolve()` + `watch()`).
+- Same seed, same world on every peer: only `SeededRandom` with a new tag or
+  `RefLook.pick` with a new salt. Append new entries at the END of ordered
+  tables. A longer table still re-rolls `% size` draws, so a hash change must be
+  deliberate and stated.
+- Surfaces are procedural: 32 texels/m, nearest-filtered, `_rng("<unique key>")`
+  per painter; floors 32x32, walls 32x128 (one 4 m storey with cornice 10 / rail
+  70 / skirt 8 px bands), ceilings 32x32. Append to `FLOOR_/WALL_/CEILING_PAINTERS`
+  (layer = key order). No imported textures for built-in surfaces; unknown kinds
+  fall back silently to layer 0.
+- Matte only: values from `MaterialLook` (roughness >= .55, metallic <= .4,
+  specular <= .35). Each new floor kind needs a `SurfaceSounds.FLOOR_KINDS` entry.
+- Floors: one kind per room, one per hall chunk (`FloorSets`); `REGION_STYLE`
+  floor lists are unread. Walls follow the space they face. Coordinated colour
+  sets never mix palettes in one room.
+- Heights: `ROOM_RANGE` 3.7-4.4, `CORRIDOR_RANGE` 4.0-4.6, `HALL_ROOMS` 4.8-6.0,
+  glasshouses 6.4-7.5, `MAX_HEIGHT` 7.5. Keep ordinary ceilings <= 4.6 m
+  (`TALL_ROOM`): vent ducts hang at `VentNetwork.DUCT_FLOOR` 2.7 m, and taller
+  halls show them.
+- Props and dressing need real authored assets (chain above). Hunter-scale aisles
+  >= 1.4 m. Region names stay admin-only (`RegionNames`).
+- Validators: texture change `material_look wall_themes ambience data_packs
+  streamed_world coplanar`; new region add `regions_<id> data_regions room_sizes
+  hallways connectivity density door_clearance ceiling_gaps`.

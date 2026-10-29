@@ -56,6 +56,7 @@ Never put secrets (admin setup key, tokens, passwords) in any of these files.
 - [WAYPOINTS.md](WAYPOINTS.md) — one waypoint per player, crosshair placement, HUD pin and edge arrow, guidance modes, City support, co-op, audit of the old system
 - [MATERIAL_LOOK.md](MATERIAL_LOOK.md) — matte-by-default material and light look: audit, the shared MaterialLook constants, validator, before/after
 - [HUNTER_SCALE.md](HUNTER_SCALE.md) — tall hunter variants removed, one shared 1.5x hunter scale and what follows it, validator, before/after
+- [REGION_RULES.md](REGION_RULES.md) — making and re-texturing a region: every table to touch, the data-driven rules, painter and matte rules, heights and ducts, validators, gotchas
 - [WALL_THEMES.md](WALL_THEMES.md) — per-face wall themes (no room bleed onto halls), floor sets per district and room purpose, validator
 - [AMBIENCE.md](AMBIENCE.md) — ambient beds per district and room purpose (AmbienceTable), footsteps by floor surface (SurfaceSounds), validator
 - [LIGHT_SIGHT.md](LIGHT_SIGHT.md) — mutual light sight: LightField exposure, lit hunters see the runner, validator
