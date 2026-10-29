@@ -113,9 +113,9 @@ static func validate(kind: String, def: Dictionary, path: String) -> PackedStrin
 			for cue in def["cues"]:
 				var c = def["cues"][cue]
 				if typeof(c) != TYPE_DICTIONARY or not ((c as Dictionary).has("synth") or (c as Dictionary).has("file")):
-					errors.append("%s: cues.%s needs 'synth' (a recipe) or 'file' (a pack .ogg/.wav)" % [path, cue])
-				elif (c as Dictionary).has("file") and not String(c["file"]).get_extension().to_lower() in ["ogg", "wav"]:
-					errors.append("%s: cues.%s.file must be .ogg or .wav" % [path, cue])
+					errors.append("%s: cues.%s needs 'synth' (a recipe) or 'file' (a pack .ogg)" % [path, cue])
+				elif (c as Dictionary).has("file") and String(c["file"]).get_extension().to_lower() != "ogg":
+					errors.append("%s: cues.%s.file must be .ogg" % [path, cue])
 		"nw_scares":
 			for hunter in def["scares"]:
 				var s = def["scares"][hunter]

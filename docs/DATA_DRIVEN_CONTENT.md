@@ -331,8 +331,8 @@ with no cache hit.
 ### Safety rules (the loader enforces them, and the server does too on upload)
 
 - **Data plus assets only.** Allowed extensions are `.json`, `.glb`, `.png`,
-  `.ogg` and `.wav`. Any other file, including `.gd`, `.tres`, `.res`,
-  `.tscn`, `.gdextension`, `.so`, `.dll` and `.pck`, causes the **whole
+  and `.ogg` (`ContentPacks.ASSET_EXTENSIONS`). Any other file, including `.gd`, `.tres`, `.res`,
+  `.wav`, `.tscn`, `.gdextension`, `.so`, `.dll` and `.pck`, causes the **whole
   pack to be rejected**. GLBs load through `GLTFDocument`, and any scripts or
   extensions inside them are dropped.
 - **Hash first.** The archive's sha256 must match the handshake hash
