@@ -941,6 +941,9 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	var gate_ok := false           # every expected peer's live state seen in the route
 	var overlay := _coop_overlay(tree)
 	# the bots talk in the real room chat (TTS reads them aloud): --chat=off|quiet|on, quiet by default
+	# the host roams between storeys on its own (stairwells, ladders); guests keep with the host, so its storey is theirs
+	if "roam_levels" in adapter:
+		adapter.set("roam_levels", role == "host")
 	var chat := BotChat.new(String(opts.get("chat", "quiet")), int(opts["bot_seed"]) * 7919 + me)
 	var next_shot := 30.0
 	var host_catch := String(opts.get("host_catch", "true")) != "false"
