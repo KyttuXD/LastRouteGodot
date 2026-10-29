@@ -101,7 +101,9 @@ func _check_sewer_seed(seed_text: String) -> void:
 					_expect(not (spec["tools"] as Array).is_empty(), "%s: sewer seal opens with no tool" % coord)
 					for cell in extras["cells"]:
 						gate_cells[cell] = true
-						_expect(int(grid[cell.y][cell.x]) == 0, "%s: sewer gate cell %s is not floor" % [coord, cell])
+						# a framed door seal (SewerRouteGenerator._frame_door_seal) bricks its two outer cells as jambs
+						var jamb: bool = extras.has("door_frame") and cell != (extras["cells"] as Array)[1]
+						_expect((int(grid[cell.y][cell.x]) != 0) == jamb, "%s: sewer gate cell %s is not %s" % [coord, cell, "a brick jamb" if jamb else "floor"])
 				# the junction reaches everything that is not sealed or gate: flood with the gates closed
 				var middle := Vector2i(StreamedRouteGenerator.CHUNK_SIZE / 2 - 6, StreamedRouteGenerator.CHUNK_SIZE / 2 - 6)
 				var seen := {middle: true}

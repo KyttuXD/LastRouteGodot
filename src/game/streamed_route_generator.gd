@@ -1120,7 +1120,14 @@ func breakable_by_id(id: String) -> Dictionary:
 		return {}
 	var list: Array = chunk(parsed["chunk"]).get("breakables", [])
 	var index := int(parsed["index"])
-	return list[index] if index >= 0 and index < list.size() else {}
+	if index >= 0 and index < list.size() and String((list[index] as Dictionary).get("id", "")) == id:
+		return list[index]
+	# the index is an id, not a position: a sewer chunk lists its pipes (ids from 0) before its seals (ids from 100), so a
+	# seal's index ran off the end of the list and the host dropped every hit on it (KT: "with crowbar, doesnt work")
+	for spec in list:
+		if String((spec as Dictionary).get("id", "")) == id:
+			return spec
+	return {}
 
 
 ## The caverns carved into a level -3 chunk ({"rect", "cells", "halls", "crevices"} each); [] elsewhere.

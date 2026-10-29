@@ -44,9 +44,55 @@ func _check_secret_prompt() -> void:
 		item.free()
 
 
+## Every sewer breakable is found by its id (seal ids count from 100 after the pipes, so the index is not a position), a
+## locked door takes the crowbar and the lockpick the prompt names, and a crowbar press is a hit that wears only the
+## crowbar (KT: "with crowbar, doesnt work").
+func _check_seal_lookup(host: Node) -> void:
+	var generator := StreamedRouteGenerator.new("SEWER-FLOODS")
+	var seals := 0
+	var door: Dictionary = {}
+	for z in range(-4, 5):
+		for x in range(-4, 5):
+			for level in [SewerRouteGenerator.LEVEL, SewerRouteGenerator.LOWER_LEVEL]:
+				for spec in generator.chunk(Vector3i(x, level, z)).get("breakables", []):
+					var found := generator.breakable_by_id(String(spec["id"]))
+					_expect(found == spec, "breakable %s is not found by its id" % spec["id"])
+					if String(spec["kind"]) == Breach.KIND_SEAL:
+						seals += 1
+						if bool(spec.get("locked", false)) and door.is_empty():
+							door = spec
+	_expect(seals >= 5, "only %d sewer seals to look up" % seals)
+	_expect(not door.is_empty(), "no locked sewer door seal to try the tools on")
+	if door.is_empty():
+		return
+	for tool in ["crowbar", "lockpick"]:
+		_expect(Breach.damage_for(door, tool, int(door["hp"])) > 0, "the %s does nothing to a locked door" % tool)
+	var player := (load("res://scenes/night_watch_player.tscn") as PackedScene).instantiate() as PlayerController3D
+	host.add_child(player)
+	player.inventory_enabled = true
+	player.grant_inventory_item("lockpick")
+	player.grant_inventory_item("crowbar")
+	player.select_inventory_slot(player.inventory_order.find("crowbar"))
+	var item := RouteInteractable3D.new()
+	item.kind = RouteInteractable3D.Kind.BREAKABLE
+	item.breakable_spec = door
+	var hits := []
+	item.changed.connect(func(event: Dictionary) -> void: hits.append(event))
+	var pick_before := player.item_durability("lockpick")
+	var bar_before := player.item_durability("crowbar")
+	var message := item.activate(player)
+	_expect(message == "HIT" and hits.size() == 1 and String(hits[0].get("tool", "")) == "crowbar",
+		"E with the crowbar on a locked door: \"%s\", %d hits" % [message, hits.size()])
+	_expect(player.item_durability("crowbar") < bar_before and player.item_durability("lockpick") == pick_before,
+		"the press wore the wrong tool (crowbar %d -> %d, lockpick %d -> %d)" % [bar_before, player.item_durability("crowbar"), pick_before, player.item_durability("lockpick")])
+	item.free()
+	player.queue_free()
+
+
 func run(host: Node) -> int:
 	_check_timeline()
 	_check_secret_prompt()
+	_check_seal_lookup(host)
 	_check_valve_state()
 	var pipes := _check_specs()
 	_check_wading(host)
