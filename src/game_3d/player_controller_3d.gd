@@ -34,7 +34,7 @@ const CAMERA_HEIGHT := 1.6 * PlayerModels.SCALE
 const CAMERA_HEIGHT_MIN := 1.35 * PlayerModels.SCALE
 const CAMERA_HEIGHT_MAX := 1.78 * PlayerModels.SCALE
 const CONTROLLER_LOOK_RADIANS_PER_SECOND := 2.8
-## Capsule, eye, crouch and step all follow the runner's size (PlayerModels.SCALE); the radius is 0.28 (0.85x of the hunter's).
+## Capsule, eye, crouch and step all follow the runner's size (PlayerModels.SCALE); the radius is 0.24 (0.74x of the hunter's).
 const STANDING_COLLISION_HEIGHT := 1.7 * PlayerModels.SCALE
 const CROUCH_COLLISION_HEIGHT := 1.08 * PlayerModels.SCALE
 const STANDING_COLLISION_CENTER_Y := STANDING_COLLISION_HEIGHT * .5
@@ -346,15 +346,15 @@ const MODEL_EYE_NEAR := .02
 var resting_pose := ""
 ## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
 ## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
-const SIT_EYE := 1.58   # 1.15 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
+const SIT_EYE := 1.36   # 1.15 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
 ## How far short of an aim box a solid may be hit and still count as the box itself (its frame, its wall).
 const AIM_RAY_SLACK := .06
-## The 2.2 m runner's seated eye above the seat pan (eye 1.87 standing, hip 1.11, plus the thigh under her).
-const SIT_EYE_ABOVE_SEAT := .96
+## The 1.9 m runner's seated eye above the seat pan (eye 1.61 standing, hip 0.96, plus the thigh under her).
+const SIT_EYE_ABOVE_SEAT := .83
 ## Seat height the mannequin's "sit" clip is authored for (at PlayerModels.SCALE): peers lift a seated runner by the rest.
-const SIT_CLIP_SEAT := .577
-const LAY_EYE_ABOVE_MATTRESS := .30
-const REST_EASE_SECONDS := 0.45   # the 2.2 m runner, from the face (in front of the head) to a bed: a longer way than it was
+const SIT_CLIP_SEAT := .498
+const LAY_EYE_ABOVE_MATTRESS := .26
+const REST_EASE_SECONDS := 0.45   # from the face (in front of the head) to a bed: a longer way than from the centre line
 const SIT_YAW_LIMIT := deg_to_rad(75.0)
 const LAY_YAW_LIMIT := deg_to_rad(55.0)
 const SIT_PITCH := Vector2(-0.95, 0.6)
