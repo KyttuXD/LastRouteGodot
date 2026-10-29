@@ -1,7 +1,7 @@
 class_name NpcTeammates
 extends Node
 
-## Host-simulated AI teammates (room setting NPC TEAMMATES 0-4, docs/NPC_TEAMMATES.md, KT 2026-10-28). The host runs each NPC
+## Host-simulated AI teammates (admin/dev room setting NPC TEAMMATES 0-16, docs/NPC_TEAMMATES.md, KT 2026-10-28). The host runs each NPC
 ## here and publishes it as a remote runner (RemotePlayers.npc_state), so every peer draws it, lists it as "NPC · name", and the
 ## host's hunters target it through the same target list as a real runner. Caught, it goes down where it stood (the co-op revive
 ## window, ReviveDowns); a teammate's Revive Kit hold brings it back, else it stays out like a caught player.
@@ -9,7 +9,7 @@ extends Node
 ## runner is on another storey for CATCH_UP_SECONDS it rejoins them there (out of their sight: it does not walk stairs yet).
 
 const ID_BASE := 2_000_000_000   # above any id ENet hands out in practice; RemotePlayers.is_npc()
-const MAX_COUNT := 4
+const MAX_COUNT := 16
 ## NPC names follow the guest style ("R-4821", GuestNames), seeded by the room so every peer agrees; the player list adds the NPC tag.
 const SLOT_RADIUS := 2.4
 const FOLLOW_RADIUS := 5.0       # m from the runner before the NPC walks to its slot again
@@ -18,27 +18,137 @@ const CATCH_RANGE := 1.3
 const CATCH_UP_SECONDS := 6.0
 const REPATH := .5
 const SEND_HZ := 12.0            # below a player's 20: an NPC's packets are the room's budget (docs/NPC_TEAMMATES.md)
-const GRACE := 4.0               # s after a revive before a hunter may take it again
+const GRACE := 4.0
+## Turning like a person (as the playtest bots, KT 2026-10-28): the heading eases toward the path over HEADING_SMOOTH s and the
+## body yaw follows through a critically damped spring capped at TURN_RATE, so guests never see an NPC snap or dither.
+const HEADING_SMOOTH := .3
+const TURN_SPRING := 60.0
+const TURN_RATE := 5.0          # rad/s
+## Admin control (KT 2026-10-28, AdminMenu "NPCS"): spawn mid-run, remove, and per NPC: teleport to / go to / follow the admin,
+## smartness, chat, freeze, hunters ignore it, down / revive / kill. The host applies every command (a guest admin's arrive as
+## requests the host checks first, _accept_stream_admin) and the flags ride the NPC's state, so every peer lists the same.
+const OPS := ["teleport", "goto", "follow", "unfollow", "smart", "chat", "freeze", "resume", "ignore", "target", "down",
+	"revive", "kill", "remove"]
+const CHAT_COOLDOWN := 30.0     # s between one NPC's lines
 
 var scene: Node
 var npcs: Array = []             # {id, name, at: Vector3, level, facing, path: Array, path_age, clip, down, out, grace, away}
 var _send_clock := 0.0
 var _seq := 0
+var _next := 0                   # the next NPC's index (ids and names are never reused within a run)
 
 
 func setup(p_scene: Node, count: int) -> void:
 	scene = p_scene
 	npcs.clear()
-	var spawn: Vector3 = (scene.get("player") as Node3D).global_position
-	for i in clampi(count, 0, MAX_COUNT):
-		var angle := float(i + 1) * 2.39996
-		npcs.append({"id": ID_BASE + i, "name": GuestNames.from_seed(RoomState.run_seed() + i), "at": spawn + Vector3(cos(angle), 0.0, sin(angle)) * SLOT_RADIUS,
-			"level": _level_of(spawn.y), "facing": 0.0, "path": [], "path_age": 99.0, "clip": "idle", "down": false,
-			"out": false, "grace": 0.0, "away": 0.0, "slot": i + 1})
+	_next = 0
+	spawn(count, (scene.get("player") as Node3D).global_position)
+
+
+## `count` more NPCs round `at` (each in its own slot), up to MAX_COUNT in all; their ids.
+func spawn(count: int, at: Vector3, smart: int = 70) -> Array:
+	var ids := []
+	for i in clampi(count, 0, MAX_COUNT - npcs.size()):
+		var slot := _next + 1
+		var angle := float(slot) * 2.39996
+		npcs.append({"id": ID_BASE + _next, "name": GuestNames.from_seed(RoomState.run_seed() + _next),
+			"at": at + Vector3(cos(angle), 0.0, sin(angle)) * SLOT_RADIUS * (0.0 if count == 1 else 1.0),
+			"level": _level_of(at.y), "facing": 0.0, "path": [], "path_age": 99.0, "clip": "idle", "down": false,
+			"out": false, "grace": 0.0, "away": 0.0, "slot": slot, "smart": clampi(smart, 0, 100), "chat": true,
+			"frozen": false, "ignored": false, "follow_peer": 0, "goto": null, "said_at": -100.0})
+		ids.append(ID_BASE + _next)
+		_next += 1
+	return ids
+
+
+func find(id: int) -> Dictionary:
+	for npc in npcs:
+		if int(npc["id"]) == id:
+			return npc
+	return {}
+
+
+## Gone from the run: no more state packets (peers drop the body when its state goes stale) and no revive window.
+func remove(id: int) -> bool:
+	var npc := find(id)
+	if npc.is_empty():
+		return false
+	npcs.erase(npc)
+	var downs: ReviveDowns = scene.get("world_state").downs
+	downs.clear(id)
+	var remotes: Node = scene.get("_remotes")
+	if remotes != null and remotes.has_method("forget_npc"):
+		remotes.call("forget_npc", id)
+	return true
+
+
+## One admin command on NPC `id` (see OPS); `at` is the admin's position (teleport, go to), `peer` the admin (follow).
+func command(id: int, op: String, at: Vector3 = Vector3.INF, peer: int = 0, value: int = 0) -> bool:
+	var npc := find(id)
+	if npc.is_empty() or not op in OPS:
+		return false
+	match op:
+		"teleport":
+			if at == Vector3.INF:
+				return false
+			var spot := _open_near(at, int(npc["slot"]), _level_of(at.y))
+			npc["level"] = _level_of(at.y)
+			npc["at"] = spot
+			npc["path"] = []
+		"goto":
+			if at == Vector3.INF:
+				return false
+			npc["goto"] = Vector2(at.x, at.z)
+			npc["follow_peer"] = 0
+			npc["path"] = []
+		"follow":
+			npc["follow_peer"] = peer
+			npc["goto"] = null
+		"unfollow":
+			npc["follow_peer"] = 0
+		"smart":
+			npc["smart"] = clampi(value, 0, 100)
+		"chat":
+			npc["chat"] = value != 0
+		"freeze":
+			npc["frozen"] = true
+			npc["path"] = []
+		"resume":
+			npc["frozen"] = false
+		"ignore":
+			npc["ignored"] = true
+		"target":
+			npc["ignored"] = false
+		"down":
+			npc["grace"] = 0.0
+			down(id)
+		"revive":
+			var downs: ReviveDowns = scene.get("world_state").downs
+			downs.clear(id)
+			revived(id)
+		"kill":
+			npc["down"] = false
+			npc["out"] = true
+			var downs: ReviveDowns = scene.get("world_state").downs
+			downs.clear(id)
+		"remove":
+			return remove(id)
+	return true
+
+
+func _open_near(at: Vector3, slot: int, level: int) -> Vector3:
+	var spot := Vector2(at.x, at.z) + Vector2(cos(float(slot) * 2.39996), sin(float(slot) * 2.39996)) * 1.5
+	var nav := _nav(level)
+	if nav != null:
+		var open: Dictionary = nav.nearest_open_position(spot.x, spot.y, .23)
+		if open.has("cell"):
+			spot = Vector2((open["cell"] as Vector2i).x + .5, (open["cell"] as Vector2i).y + .5)
+	return Vector3(spot.x, _floor_y(level), spot.y)
 
 
 func _physics_process(delta: float) -> void:
-	if scene == null or npcs.is_empty() or not RoomState.online or not RoomState.is_host:
+	# co-op: the host simulates; solo (an admin's spawn) runs them locally
+	if scene == null or npcs.is_empty() or (RoomState.online and not RoomState.is_host):
 		return
 	for npc in npcs:
 		_think(npc, delta)
@@ -58,9 +168,18 @@ func state_of(npc: Dictionary) -> Dictionary:
 	var gone := bool(npc["down"]) or bool(npc["out"])
 	return {"at": at, "position": Vector2(at.x, at.z), "facing_y": float(npc["facing"]), "clip": String(npc["clip"]),
 		"depth": -int(npc["level"]), "display_name": String(npc["name"]), "npc": true, "seq": _seq,
-		"sent_ms": Time.get_ticks_msec(), "hidden": false, "visible": not gone, "spectating": gone, "game_over": gone,
-		"capture_immune": float(npc["grace"]) > 0.0, "noise": .3 if String(npc["clip"]) == "run" else .1,
-		"player_skin": "mannequin", "skin": "", "flashlight_on": false, "in_safe_zone": false}
+		"sent_ms": Time.get_ticks_msec(), "visible": not gone, "spectating": gone, "game_over": gone,
+		# what a runner moving like this gives the hunters to sense: footstep noise as a player's (GameConfig.NOISE_*), and a
+		# torch on, as players carry one (hunters see a lit runner further; a dark, near-silent NPC went unnoticed: KT 2026-10-28)
+		"capture_immune": float(npc["grace"]) > 0.0, "noise": _noise(String(npc["clip"])) if not gone else 0.0,
+		"facing": Vector2(-sin(float(npc["facing"])), -cos(float(npc["facing"]))),
+		# hidden, in_safe_zone, skin are left out: their defaults (false, false, the mannequin) are what an NPC is
+		"flashlight_on": not gone,
+		# admin flags, for every peer's admin list; no_target keeps the hunters off it (RemotePlayers.best_target)
+		# npc_admin: [frozen | chat << 1, smartness, followed peer] (one key: the packet stays in its budget)
+		"no_target": bool(npc.get("ignored", false)),
+		"npc_admin": [(1 if bool(npc.get("frozen", false)) else 0) | (2 if bool(npc.get("chat", true)) else 0),
+			int(npc.get("smart", 70)), int(npc.get("follow_peer", 0))]}
 
 
 ## A hunter's capture reached NPC `id` (RemotePlayers.npc_captured): down where it stands.
@@ -70,6 +189,15 @@ func down(id: int) -> void:
 			npc["down"] = true
 			npc["path"] = []
 			scene.call("_host_record_down", id, npc["at"], -int(npc["level"]))
+
+
+static func _noise(clip: String) -> float:
+	match clip:
+		"run":
+			return GameConfig.NOISE_SPRINT
+		"walk":
+			return GameConfig.NOISE_WALK
+	return 0.0
 
 
 func is_down(id: int) -> bool:
@@ -100,11 +228,23 @@ func _think(npc: Dictionary, delta: float) -> void:
 		return
 	var at: Vector3 = npc["at"]
 	var hunter := _nearest_hunter(npc)
-	if not hunter.is_empty() and float(hunter["dist"]) < CATCH_RANGE and String(hunter["state"]) == "CHASE":
+	if not hunter.is_empty() and float(hunter["dist"]) < CATCH_RANGE and String(hunter["state"]) == "CHASE" \
+			and not bool(npc.get("ignored", false)):
 		down(int(npc["id"]))
 		return
+	if bool(npc.get("frozen", false)):
+		npc["clip"] = "idle"
+		return
+	_talk(npc, hunter)
 	var nav := _nav(int(npc["level"]))
 	var leader := _leader(npc)
+	if npc.get("goto") is Vector2:
+		# go to a point once (an admin's "go to me"), then stand there
+		var dest: Vector2 = npc["goto"]
+		if Vector2(at.x, at.z).distance_to(dest) < 1.5:
+			npc["goto"] = null
+		else:
+			leader = {"at": Vector3(dest.x, at.y, dest.y), "level": int(npc["level"])}
 	if leader.is_empty() or nav == null:
 		npc["clip"] = "idle"
 		return
@@ -119,7 +259,10 @@ func _think(npc: Dictionary, delta: float) -> void:
 	var here := Vector2(at.x, at.z)
 	var goal := Vector2.INF
 	var running := false
-	if not hunter.is_empty() and float(hunter["dist"]) < THREAT_RANGE and String(hunter["state"]) == "CHASE":
+	# smarter NPCs notice a chasing hunter sooner (smartness 0: half the range, 100: one and a half)
+	var threat_range := THREAT_RANGE * (.5 + float(npc.get("smart", 70)) / 100.0)
+	if not hunter.is_empty() and float(hunter["dist"]) < threat_range and String(hunter["state"]) == "CHASE" \
+			and not bool(npc.get("ignored", false)):
 		var away: Vector2 = here - (hunter["pos"] as Vector2)
 		goal = here + (away.normalized() if away.length() > .1 else Vector2.RIGHT) * 12.0
 		running = true
@@ -145,14 +288,27 @@ func _think(npc: Dictionary, delta: float) -> void:
 	var target := Vector2(next_cell.x + .5, next_cell.y + .5)
 	var speed := (GameConfig.PLAYER_SPRINT_SPEED if running else GameConfig.PLAYER_WALK_SPEED) / GameConfig.TILE_SIZE
 	var step := target - here
+	var heading: Vector2 = npc.get("heading", step.normalized())
+	heading = heading.lerp(step.normalized(), 1.0 - exp(-delta / HEADING_SMOOTH)).normalized() if step.length() > .01 else heading
+	npc["heading"] = heading
 	if step.length() <= speed * delta:
 		path.pop_front()
 		here = target
 	else:
 		here += step.normalized() * speed * delta
-		npc["facing"] = atan2(-step.x, -step.y)
+	_turn(npc, atan2(-heading.x, -heading.y), delta)
 	npc["at"] = Vector3(here.x, _floor_y(int(npc["level"])), here.y)
 	npc["clip"] = "run" if running else "walk"
+
+
+## The body yaw toward `want` through a critically damped spring, rate capped.
+func _turn(npc: Dictionary, want: float, delta: float) -> void:
+	var facing := float(npc["facing"])
+	var v := float(npc.get("turn_v", 0.0))
+	var error := wrapf(want - facing, -PI, PI)
+	v = clampf(v + (TURN_SPRING * error - 2.0 * sqrt(TURN_SPRING) * v) * delta, -TURN_RATE, TURN_RATE)
+	npc["turn_v"] = v
+	npc["facing"] = wrapf(facing + v * delta, -PI, PI)
 
 
 ## Human runners (the host and every guest; never another NPC) with a fresh state: the nearest on the NPC's storey, else the
@@ -160,6 +316,17 @@ func _think(npc: Dictionary, delta: float) -> void:
 func _leader(npc: Dictionary) -> Dictionary:
 	var at: Vector3 = npc["at"]
 	var runners: Array = []
+	var follow := int(npc.get("follow_peer", 0))
+	if follow != 0:
+		# an admin's "follow me": that runner only, while it is in the run
+		var local_id := scene.multiplayer.get_unique_id() if RoomState.online else 1
+		var player_node: Node3D = scene.get("player")
+		if follow == local_id and player_node != null:
+			return {"at": player_node.global_position, "level": _level_of(player_node.global_position.y)}
+		var followed: Dictionary = (scene.get("_remotes").call("peer_state", follow) as Dictionary) if scene.get("_remotes") != null else {}
+		if followed.get("at") is Vector3:
+			return {"at": followed["at"], "level": -int(followed.get("depth", 0))}
+		npc["follow_peer"] = 0
 	var player: Node3D = scene.get("player")
 	if player != null and not GameState.game_over:
 		runners.append({"at": player.global_position, "level": _level_of(player.global_position.y)})
@@ -179,6 +346,21 @@ func _leader(npc: Dictionary) -> Dictionary:
 			best_d = d
 			best = runner
 	return best
+
+
+## A short line now and then (chat on): a chasing hunter close, as the playtest bots say it, spoken by the TTS with the NPC's
+## own voice. The host delivers it as the NPC's line (RemotePlayers.npc_chat).
+func _talk(npc: Dictionary, hunter: Dictionary) -> void:
+	if not bool(npc.get("chat", true)) or hunter.is_empty() or String(hunter["state"]) != "CHASE" or float(hunter["dist"]) > 12.0:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - float(npc.get("said_at", -100.0)) < CHAT_COOLDOWN:
+		return
+	npc["said_at"] = now
+	var remotes: Node = scene.get("_remotes")
+	if remotes != null and remotes.has_method("npc_chat"):
+		var lines: Array = ["Hunter! Run!", "It's on me, help!", "Something's chasing me!", "Hunter close, watch out!"]
+		remotes.call("npc_chat", int(npc["id"]), String(npc["name"]), String(lines[randi() % lines.size()]), npc["at"])
 
 
 func _nearest_hunter(npc: Dictionary) -> Dictionary:

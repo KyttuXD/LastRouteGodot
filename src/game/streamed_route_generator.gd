@@ -598,8 +598,41 @@ static func _maze_stairwell_fits(grid: Array, layout: Dictionary, circulation: D
 	# a deck patch's only way up (relaxed) may take a second room's worth of floor
 	if dropped > (MAX_FORCED_STAIRWELL_DROPPED_ROOM_CELLS if relaxed else MAX_STAIRWELL_DROPPED_ROOM_CELLS):
 		return false
+	# the well's walls must not pinch a hall or warren lane beside it under three wide
+	var around := reach.grow(3).intersection(Rect2i(0, 0, CHUNK_SIZE, CHUNK_SIZE))
+	if _narrow_open_cells(trial_grid, around, well["box"]) > _narrow_open_cells(grid, around, well["box"]):
+		return false
+	# nor leave a notch: a hall cell beside the box that was three wide must stay so without counting the well
+	for z in range(around.position.y, around.end.y):
+		for x in range(around.position.x, around.end.x):
+			var cell := Rect2i(x, z, 1, 1)
+			if _narrow_open_cells(trial_grid, cell, well["box"], well["box"]) > 0 \
+					and (int(grid[z][x]) != 0 or _narrow_open_cells(grid, cell, Rect2i()) == 0):
+				return false
 	# the seams are carved later, so pockets may exist already: the carve must not add one
 	return _open_components(trial_grid) <= _open_components(grid)
+
+
+## Open cells in `area` (outside `box`) whose straight open run, `wall` counted as wall, is under three along either axis.
+static func _narrow_open_cells(grid: Array, area: Rect2i, box: Rect2i, wall: Rect2i = Rect2i()) -> int:
+	var count := 0
+	for z in range(area.position.y, area.end.y):
+		for x in range(area.position.x, area.end.x):
+			if int(grid[z][x]) != 0 or box.has_point(Vector2i(x, z)):
+				continue
+			var runs := []
+			for step in [Vector2i(1, 0), Vector2i(0, 1)]:
+				var run := 1
+				for sign in [1, -1]:
+					var at: Vector2i = Vector2i(x, z) + step * sign
+					while run < 3 and at.x >= 0 and at.y >= 0 and at.x < CHUNK_SIZE and at.y < CHUNK_SIZE and int(grid[at.y][at.x]) == 0 \
+							and not wall.has_point(at):
+						run += 1
+						at += step * sign
+				runs.append(run)
+			if mini(runs[0], runs[1]) < 3:
+				count += 1
+	return count
 
 
 static func _open_components(grid: Array) -> int:
@@ -1074,6 +1107,9 @@ static func _carve_stairwell(grid: Array, layout: Dictionary, circulation: Dicti
 			if int(grid[row][x]) == 0:
 				open = true
 		if open:
+			# the row it meets is opened all three wide, so no wall cell is left in front of the door
+			_carve_rect(grid, step)
+			_mark_rect_cells(circulation, step)
 			break
 		lane = lane.merge(step)
 		row += outward
@@ -1729,9 +1765,9 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 const WARREN_SHARE := .55
 ## The dense regions whose chunks can be warrens (KT: "the other regions need this change too"). The rest keep their banks;
 ## each region's special rooms (carousel big top, music wing, maze office suite) live in its bank chunks.
-const WARREN_REGIONS := ["maze", "hospital"]
+const WARREN_REGIONS := ["maze", "hospital", "lab", "greenhouse", "mall", "carnival", "hotel", "prison", "mansion", "beach", "gothic"]
 ## Room types whose recipes are tuned to bank shapes (rows of beds): they stay in the bank chunks.
-const WARREN_ROOM_EXCLUDE := ["ward"]
+const WARREN_ROOM_EXCLUDE := ["ward", "pod_room"]
 ## Warren macro cells: each quadrant beside the spine is 3 x 3 cells of WARREN_CELL x WARREN_CELL.
 const WARREN_CELL := 6
 
@@ -1739,8 +1775,8 @@ const WARREN_CELL := 6
 ## KT: "re-do the maze hallway styles, with twists and turns, scattered rooms". A maze chunk is either the bank layout or,
 ## WARREN_SHARE of the time, a warren. Never the spawn chunk; deterministic per seed.
 func is_warren_chunk(coord: Vector3i) -> bool:
-	if coord.y != 0 or not WARREN_REGIONS.has(region_for(coord)) or is_safe_room(coord):
-		return false
+	if coord.y != 0 or not WARREN_REGIONS.has(region_for(coord)) or is_safe_room(coord) or is_pod_room_chunk(coord):
+		return false   # the dive lab's pod room needs its bank
 	return SeededRandom.new("%s:WARREN:%s" % [world_seed, chunk_id(coord)]).next_float() < WARREN_SHARE
 
 
@@ -1766,12 +1802,12 @@ func _maze_warren_layout(coord: Vector3i, grid: Array, region: String = "maze") 
 			"axis": "east_west" if index == 0 else "north_south", "serves_many_rooms": true})
 	# the region's own rooms that fit a 12 x 12 corner (RoomSizeProfiles)
 	var room_types := []
-	for type_name in _room_type_choices(region):
+	# the hotel's rooms are named by its bank layout, not the region table
+	var choices: Array = ["guest_room", "hotel_bathroom"] if region == "hotel" else _room_type_choices(region)
+	for type_name in choices:
 		if RoomSizeProfiles.within(String(type_name), Vector2i(WARREN_CELL * 2, WARREN_CELL * 2)) and not room_types.has(type_name) \
 				and not WARREN_ROOM_EXCLUDE.has(type_name):
 			room_types.append(type_name)
-	if room_types.is_empty():
-		room_types = ["storage"]
 	for quadrant in 4:
 		var east := quadrant % 2 == 1
 		var south := quadrant >= 2
@@ -1781,7 +1817,7 @@ func _maze_warren_layout(coord: Vector3i, grid: Array, region: String = "maze") 
 		var spine_x := 0 if east else 2
 		var spine_z := 0 if south else 2
 		var room_corner := Vector2i(-1, -1)
-		if rng.next_float() < .65:
+		if rng.next_float() < .65 and not room_types.is_empty():   # a region with no 12 x 12 room type gets plazas
 			var options: Array[Vector2i] = []
 			for cx in 2:
 				for cz in 2:
@@ -3506,7 +3542,10 @@ static func _vary_specs(specs: Array, side_span: int, depth_span: int, rng: Seed
 	for spec_value in specs:
 		var spec: Dictionary = (spec_value as Dictionary).duplicate()
 		var mounted := bool(spec.get("wall_mount", false)) or bool(spec.get("wall_mounted", false))
-		if (mounted or not bool(spec.get("solid", true))) and rng.next_float() < .75:
+		# wall pieces that are only decoration move along their wall; a working wall fixture (a headset shelf) stays
+		var decor_on_wall := mounted and ["Frame", "Painting", "Sign", "Clock", "Poster"].any(
+			func(word: String) -> bool: return word in String(spec.get("type", "")))
+		if (decor_on_wall or (not mounted and not bool(spec.get("solid", true)))) and rng.next_float() < .75:
 			var step := 1 + rng.next_index(2)
 			spec["side"] = int(spec.get("side", 0)) + (step if rng.next_float() < .5 else -step)
 			if not mounted and int(spec.get("depth", 0)) > 0 and rng.next_float() < .5:
