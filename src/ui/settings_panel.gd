@@ -404,6 +404,17 @@ func _build_voice_rows() -> void:
 				enabled if key == "voice_subtitles" else Settings.voice_subtitles)
 			Palette.set_state_toggle(button, enabled))
 		toggles.add_child(button)
+	var crash := Button.new()
+	crash.name = "SendCrashReportsButton"
+	crash.toggle_mode = true
+	crash.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	Palette.style_state_toggle(crash, "CRASH REPORTS", Settings.send_crash_reports)
+	crash.set_pressed_no_signal(Settings.send_crash_reports)
+	crash.tooltip_text = "Send a crash or freeze report on the next launch (build, device, log tail; never passwords)"
+	crash.toggled.connect(func(enabled: bool) -> void:
+		Settings.set_send_crash_reports(enabled)
+		Palette.set_state_toggle(crash, enabled))
+	toggles.add_child(crash)
 	add_child(toggles)
 
 

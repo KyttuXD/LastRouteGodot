@@ -1375,6 +1375,7 @@ const GUEST_INTERACTIONS := ["music_box", "ceryth_answer", "guardian_ping", "ven
 func request_interaction(event: Dictionary) -> void:
 	var request := event.duplicate(true)
 	var what := String(request.get("what", ""))
+	CrashWatch.crumb("interact", "%s %s" % [what, request.get("door_id", request.get("entity_id", request.get("id", "")))])
 	if what in ["admin_auth", "admin_custom_map", "admin_world"]:
 		request["admin_ticket"] = Backend.admin_ticket_for_room(RoomState.code)
 	if not RoomState.online or RoomState.is_host:
@@ -1483,6 +1484,7 @@ func _freshen_from_request(sender: int, event: Dictionary) -> void:
 ## so the guest's predicted door or pickup rolls back at once (InfiniteRouteTest "interaction_refused").
 func refuse_interaction(peer_id: int, event: Dictionary, reason: String) -> void:
 	var what := String(event.get("what", ""))
+	CrashWatch.crumb("refused", "%s peer %d: %s" % [what, peer_id, reason])
 	_log_limited("%d|%s|%s" % [peer_id, what, reason], "[coop] host refused %s from peer %d (%s): %s" % [what, peer_id,
 		RoomState.peer_display_name(peer_id), reason])
 	if peer_id > 1 and peer_is_live(peer_id):
