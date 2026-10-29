@@ -32,6 +32,8 @@ var _chunk_cache := {}
 ## owns real player collision. Mirror that footprint into the A* surface so a
 ## hunter cannot take a visual shortcut through a couch, bed or cabinet.
 var _solid_prop_cells := {}
+var _solid_by_coord := {}
+var _seats_by_coord := {}   # coord -> that chunk's seat spots (static), kept like _solid_by_coord   # coord -> that chunk's solid cells, kept while the chunk stays in the window
 var _active_coords: Array[Vector3i] = []
 var _refresh_revision := -1
 var _refresh_generation := 0
@@ -63,12 +65,27 @@ func refresh(route_level: int, coords: Array) -> void:
 	if level == route_level and _active_coords == canonical \
 			and _refresh_revision == revision:
 		return
+	# Decisions may query one margin chunk beyond the visible 3x3 window. Drop the
+	# chunks that left the window so navigation memory cannot grow with total
+	# distance travelled; the ones that stayed keep their data and solid cells
+	# (rebuilding every chunk's prop footprint on each window step cost ~10 ms per
+	# teammate crossing on an M4, 25-100 ms on the Windows test PCs). A new level
+	# or world-state revision (a breach opened) recomputes everything.
+	if level != route_level or _refresh_revision != revision:
+		_chunk_cache.clear()
+		_solid_by_coord.clear()
+		_seats_by_coord.clear()
+	else:
+		for coord_value in _chunk_cache.keys():
+			if not canonical.has(coord_value):
+				_chunk_cache.erase(coord_value)
+				_solid_by_coord.erase(coord_value)
+				_seats_by_coord.erase(coord_value)
 	level = route_level
-	# Decisions may query one margin chunk beyond the visible 3x3 window. Drop
-	# that cache whenever the window advances so navigation memory cannot grow
-	# with total distance travelled.
-	_chunk_cache.clear()
 	_solid_prop_cells.clear()
+	for coord_value in _solid_by_coord:
+		for cell_value in _solid_by_coord[coord_value]:
+			_solid_prop_cells[cell_value] = true
 	rooms.clear()
 	safe_zones.clear()
 	relays.clear()
@@ -145,29 +162,35 @@ func refresh(route_level: int, coords: Array) -> void:
 				vents.append(fixture_entry)
 			else:
 				hiding_spots.append(fixture_entry)
-		var origin := Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE, coord.z * StreamedRouteGenerator.CHUNK_SIZE)
-		for prop_value in data.get("region_props", []):
-			var prop: Dictionary = prop_value
-			var type := String(prop.get("type", ""))
-			if PropModelCatalog.interaction_for(type) != "sit":
-				continue
-			# the same size and position the view spawns the sit interactables at (StreamedFacilityView3D._spawn_region_prop)
-			var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
-			var yaw := float(prop.get("yaw", 0.0))
-			var centre := origin + Vector2(prop.get("cell", Vector2i.ZERO)) + Vector2(.5, .5) \
-				+ (prop.get("placement_offset", Vector2.ZERO) as Vector2) + (prop.get("mount_offset", Vector2.ZERO) as Vector2)
-			var points: Array = PropModelCatalog.seat_points(type, size)
-			for index in points.size():
-				var point: Dictionary = points[index]
-				# gameplay-local (x, z) turned by yaw into the plan, as the view places the sit interactables
-				var local := Vector3(float(point["x"]), 0.0, float(point["z"])).rotated(Vector3.UP, yaw)
-				var at := centre + Vector2(local.x, local.z)
-				var exit_local := Vector3((point["exit"] as Vector2).x, 0.0, (point["exit"] as Vector2).y).rotated(Vector3.UP, yaw)
-				var exit_dir := Vector2(exit_local.x, exit_local.z)
-				var exit_reach := (size.x * .5 - absf(float(point["x"])) if absf(exit_dir.dot(Vector2(cos(yaw), -sin(yaw)))) > .5 \
-					else size.z * .5 + absf(float(point["z"]))) + .6
-				seat_spots.append({"id": "%s#%d" % [String(prop.get("id", "%s@%s" % [type, at])), index], "type": type,
-					"seat_at": at, "stand_at": at + exit_dir * exit_reach, "yaw": yaw + float(point["turn"])})
+		# a chunk's seats are static while it stays in the window (see refresh): computed once, copied per refresh
+		var seats: Array = _seats_by_coord.get(coord, [])
+		if not _seats_by_coord.has(coord):
+			var origin := Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE, coord.z * StreamedRouteGenerator.CHUNK_SIZE)
+			for prop_value in data.get("region_props", []):
+				var prop: Dictionary = prop_value
+				var type := String(prop.get("type", ""))
+				if PropModelCatalog.interaction_for(type) != "sit":
+					continue
+				# the same size and position the view spawns the sit interactables at (StreamedFacilityView3D._spawn_region_prop)
+				var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+				var yaw := float(prop.get("yaw", 0.0))
+				var centre := origin + Vector2(prop.get("cell", Vector2i.ZERO)) + Vector2(.5, .5) \
+					+ (prop.get("placement_offset", Vector2.ZERO) as Vector2) + (prop.get("mount_offset", Vector2.ZERO) as Vector2)
+				var points: Array = PropModelCatalog.seat_points(type, size)
+				for index in points.size():
+					var point: Dictionary = points[index]
+					# gameplay-local (x, z) turned by yaw into the plan, as the view places the sit interactables
+					var local := Vector3(float(point["x"]), 0.0, float(point["z"])).rotated(Vector3.UP, yaw)
+					var at := centre + Vector2(local.x, local.z)
+					var exit_local := Vector3((point["exit"] as Vector2).x, 0.0, (point["exit"] as Vector2).y).rotated(Vector3.UP, yaw)
+					var exit_dir := Vector2(exit_local.x, exit_local.z)
+					var exit_reach := (size.x * .5 - absf(float(point["x"])) if absf(exit_dir.dot(Vector2(cos(yaw), -sin(yaw)))) > .5 \
+						else size.z * .5 + absf(float(point["z"]))) + .6
+					seats.append({"id": "%s#%d" % [String(prop.get("id", "%s@%s" % [type, at])), index], "type": type,
+						"seat_at": at, "stand_at": at + exit_dir * exit_reach, "yaw": yaw + float(point["turn"])})
+			_seats_by_coord[coord] = seats
+		for seat_value in seats:
+			seat_spots.append((seat_value as Dictionary).duplicate())
 	vents.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return String(a.get("id", "")) < String(b.get("id", "")))
 	for index in vents.size():
@@ -453,6 +476,13 @@ static func collider_plan_rects(prop: Dictionary, grow: float = 0.0) -> Array:
 
 
 func _cache_solid_prop_cells(coord: Vector3i, data: Dictionary) -> void:
+	var cells := {}
+	_collect_solid_prop_cells(coord, data, cells)
+	_solid_by_coord[coord] = cells.keys()
+	_solid_prop_cells.merge(cells)
+
+
+func _collect_solid_prop_cells(coord: Vector3i, data: Dictionary, out: Dictionary) -> void:
 	var base := Vector2i(coord.x, coord.z) * StreamedRouteGenerator.CHUNK_SIZE
 	# a closed seal (or any breakable that blocks) is a wall to the hunters until somebody breaks it open
 	for spec_value in data.get("breakables", []):
@@ -462,7 +492,7 @@ func _cache_solid_prop_cells(coord: Vector3i, data: Dictionary) -> void:
 		if world_state != null and world_state.breach_open(String(spec["id"])):
 			continue
 		for local_value in (spec["extras"] as Dictionary).get("cells", []):
-			_solid_prop_cells[base + (local_value as Vector2i)] = true
+			out[base + (local_value as Vector2i)] = true
 	for prop_value in data.get("region_props", []):
 		var prop: Dictionary = prop_value
 		if not bool(prop.get("solid", true)) \
@@ -483,4 +513,4 @@ func _cache_solid_prop_cells(coord: Vector3i, data: Dictionary) -> void:
 		for local_value in occupied:
 			var centre := Vector2(local_value as Vector2i) + Vector2(.5, .5)
 			if rects.is_empty() or rects.any(func(r: Rect2) -> bool: return r.has_point(centre)):
-				_solid_prop_cells[base + (local_value as Vector2i)] = true
+				out[base + (local_value as Vector2i)] = true
