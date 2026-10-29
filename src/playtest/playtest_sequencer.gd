@@ -1,7 +1,7 @@
 class_name PlaytestSequencer
 extends RefCounted
 
-## Trailer staging: plays one scripted SHOT (res://tools/playtest/shots/<name>.json, docs/FLYTHROUGH.md) in the real Last Route scene.
+## Trailer staging: plays one scripted SHOT (a JSON file the dev tool passes with --shot-file, docs/FLYTHROUGH.md) in the real Last Route scene.
 ## A shot is DATA: a stage (an area preset from PlaytestFlythrough, its first hall), actors (hunter models with floor-snapped feet),
 ## a camera track, a flashlight track and timed events. Nothing here touches game rules: actors are bare hunter models driven by this
 ## script (no HunterBrain), the camera is the player's own camera moved like the flythrough does.
@@ -21,7 +21,6 @@ extends RefCounted
 ## look: "<actor>[:height]" or [f, r, h]. face: "camera", "away", an actor name or degrees. Event keys: pose (loop until replaced), clip
 ## (raw animation, e.g. "walk"), move + speed, hide / show, tag (text) / tag_off, flicker (seconds), flash (flashlight stutters).
 
-const SHOT_DIR := "res://tools/playtest/shots/"
 const EYE := 1.6
 
 ## The shot's own camera track and stage, for authoring facing "toward the shot camera" once (never a live look-at of whatever camera renders).
@@ -90,9 +89,13 @@ static func run(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictionary, r
 	var tree := bridge.get_tree()
 	var fps := maxi(int(opts.get("fps", 30)), 10)
 	var shot_name := String(opts.get("shot", ""))
-	var file := FileAccess.open(SHOT_DIR + shot_name + ".json", FileAccess.READ)
+	# the shot files are dev data outside the shipped tree: tools/playtest/shots.py passes the file (project-relative or absolute)
+	var shot_path := String(opts.get("shot_file", ""))
+	if not shot_path.is_absolute_path():
+		shot_path = ProjectSettings.globalize_path("res://").path_join(shot_path)
+	var file := FileAccess.open(shot_path, FileAccess.READ)
 	if file == null:
-		return {"scenario_failure": "no shot file %s%s.json" % [SHOT_DIR, shot_name], "outcome": "error", "game_seconds": 0.0, "frames": 0}
+		return {"scenario_failure": "no shot file %s (--shot-file)" % shot_path, "outcome": "error", "game_seconds": 0.0, "frames": 0}
 	var shot: Dictionary = JSON.parse_string(file.get_as_text())
 	var area := String(shot.get("area", "hospital"))
 	bridge.status = "shot %s: starting the run" % shot_name

@@ -59,27 +59,31 @@ const MAX_SECONDS := CARRY_SECONDS
 static func duration(style: String) -> float:
 	return CARRY_SECONDS if style == SHOULDER_CARRY else TOTAL_SECONDS
 
-## Points on the 2.2 m runner body (measured at 1.60 m, times PlayerModels.SCALE / 0.9) the hunter's hands go to, in the body's own frame (facing -Z, +X its right, feet at 0).
+## Points on the 1.9 m runner body (measured at 1.60 m, times PlayerModels.SCALE / 0.9) the hunter's hands go to, in the body's own frame (facing -Z, +X its right, feet at 0).
 const BODY_POINTS := {
-	"neck": Vector3(0, 1.483, -0.233),
-	"l_shoulder": Vector3(-0.412, 1.744, -0.041),
-	"r_shoulder": Vector3(0.412, 1.744, -0.041),
-	"l_wrist": Vector3(-0.412, 1.703, -0.508),
-	"back_l": Vector3(-0.33, 1.442, 0.11),
-	"back_r": Vector3(0.33, 1.442, 0.11),
-	"r_ankle": Vector3(0.137, 0.137, 0.137),
-	"knees": Vector3(0, 1.099, -0.371),   # the front of the thighs, legs folded down her front in the shoulder carry (0.8 / -0.27 at the old 1.60 m)
+	"neck": Vector3(0, 1.28, -0.202),
+	"l_shoulder": Vector3(-0.356, 1.506, -0.036),
+	"r_shoulder": Vector3(0.356, 1.506, -0.036),
+	"l_wrist": Vector3(-0.356, 1.47, -0.439),
+	"back_l": Vector3(-0.285, 1.245, 0.095),
+	"back_r": Vector3(0.285, 1.245, 0.095),
+	"r_ankle": Vector3(0.119, 0.119, 0.119),
+	"knees": Vector3(0, 0.948, -0.32),   # the front of the thighs, legs folded down her front in the shoulder carry (0.8 / -0.27 at the old 1.60 m)
 }
-## The mannequin's joints these points were measured from (at the old scale .9; multiplied by 1.236 / 0.9 here): neck pivot 1.18, shoulders 1.08 (arm tops ~1.2),
+## The mannequin's joints these points were measured from (at the old scale .9; multiplied by 1.067 / 0.9 here): neck pivot 1.18, shoulders 1.08 (arm tops ~1.2),
 ## arms .44 long, torso .2 deep, head .4. Contacts sit just off the surface so a hunter's (much bigger) hand closes on it.
 
 ## Standing eye height of the runner the poses assume when no real camera is involved (the other players' view of a body).
-const BODY_EYE := 1.868   # 1.36 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
+const BODY_EYE := 1.612   # 1.36 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
 
 static var _pools := {}
 static var _looks := {}
 static var _errors := PackedStringArray()
 static var _loaded := false
+## The res://data/grabs pools and looks, kept so unloading content packs restores them (rebuild_from_registry).
+static var _builtin_pools := {}
+static var _builtin_looks := {}
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
 
 
 static func ensure_loaded() -> void:
@@ -95,8 +99,21 @@ static func ensure_loaded() -> void:
 			if not parsed["def"].is_empty():
 				_pools[String(parsed["def"]["id"])] = parsed["def"]["pool"]
 				_looks[String(parsed["def"]["id"])] = parsed["def"]["look"]
+	_builtin_pools = _pools.duplicate(true)
+	_builtin_looks = _looks.duplicate(true)
 	for message in _errors:
 		push_error("GrabStyles: " + message)
+	# packs loaded before this class was first used
+	apply_defs(ContentRegistry.pack_defs("grabs"))
+
+
+## Content packs changed (ContentRegistry.load_packs / unload_packs): the built-in pools, then the packs' grabs/<id>.json.
+static func rebuild_from_registry() -> void:
+	if not _loaded:
+		return
+	_pools = _builtin_pools.duplicate(true)
+	_looks = _builtin_looks.duplicate(true)
+	apply_defs(ContentRegistry.pack_defs("grabs"))
 
 
 static func errors() -> PackedStringArray:

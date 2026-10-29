@@ -22,6 +22,10 @@ signal taser_requested
 signal tool_used(item_id: String)
 signal item_drop_requested(item_id: String, durability: int, slot: int)
 signal interaction_message(message: String)
+## A Revive Kit hold at a downed teammate's spot (RouteInteractable3D.Kind.REVIVE_SPOT) started (true) or broke off
+## (false); `done` once it ran its full REVIVE_HOLD_SECONDS. The route asks the host (ReviveDowns).
+signal revive_hold_changed(peer_id: int, holding: bool)
+signal revive_hold_done(peer_id: int)
 
 ## Fallback only. At runtime the standing camera is aligned to the player
 ## model's authored eye attachments, keeping the first-person POV and visible
@@ -30,7 +34,7 @@ const CAMERA_HEIGHT := 1.6 * PlayerModels.SCALE
 const CAMERA_HEIGHT_MIN := 1.35 * PlayerModels.SCALE
 const CAMERA_HEIGHT_MAX := 1.78 * PlayerModels.SCALE
 const CONTROLLER_LOOK_RADIANS_PER_SECOND := 2.8
-## Capsule, eye, crouch and step all follow the runner's size (PlayerModels.SCALE); the radius is 0.28 (0.85x of the hunter's).
+## Capsule, eye, crouch and step all follow the runner's size (PlayerModels.SCALE); the radius is 0.24 (0.74x of the hunter's).
 const STANDING_COLLISION_HEIGHT := 1.7 * PlayerModels.SCALE
 const CROUCH_COLLISION_HEIGHT := 1.08 * PlayerModels.SCALE
 const STANDING_COLLISION_CENTER_Y := STANDING_COLLISION_HEIGHT * .5
@@ -112,6 +116,8 @@ const ITEM_MODEL_PATHS := {
 	"crowbar": "res://art/props-3d/interactables/crowbar.glb",
 	"rescue_axe": "res://art/props-3d/interactables/rescue_axe.glb",
 	"battery": "res://art/props-3d/interactables/battery.glb",
+	"stim_pack": "res://art/props-3d/interactables/stim_pack.glb",
+	"revive_kit": "res://art/props-3d/interactables/revive_kit.glb",
 }
 const HOTBAR_SIZE := 5
 const TOOL_ITEMS := ["flashlight", "taser", "lockpick", "crowbar", "rescue_axe"]
@@ -119,7 +125,13 @@ const BACKPACK_ITEMS := ["backpack_small", "backpack_medium", "backpack_large"]
 ## Physical items occupy inventory slots. Backpacks are permanent capacity
 ## upgrades collected from the world, so they deliberately do not appear in
 ## this catalog or become draggable/droppable hotbar entries.
-const INVENTORY_ITEMS := TOOL_ITEMS + ["battery"]
+const INVENTORY_ITEMS := TOOL_ITEMS + ["battery", "stim_pack", "revive_kit"]
+## Stackable consumables (KT 2026-10-28): how many share one slot. The count lives in the slot's
+## inventory_slot_durability entry (a battery stored 0 there before stacks, so a count reads as max(1, value) and old
+## saves load as stacks of one). Everything not listed holds one per slot: tools never stack.
+const STACK_MAX := {"battery": 5, "stim_pack": 3, "revive_kit": 2}
+## Holding the drop key this long drops the whole stack; a tap drops one.
+const DROP_STACK_HOLD := .5
 const BACKPACK_CAPACITY := {
 	"backpack_small": 5, "backpack_medium": 10, "backpack_large": 15,
 }
@@ -131,6 +143,7 @@ const INVENTORY_LABELS := {
 	"flashlight": "FLASHLIGHT", "taser": "TASER", "lockpick": "LOCKPICK SET",
 	"crowbar": "CROWBAR", "rescue_axe": "AXE",
 	"battery": "FLASHLIGHT BATTERY",
+	"stim_pack": "STIM PACK", "revive_kit": "REVIVE KIT",
 	"backpack_small": "SMALL BACKPACK", "backpack_medium": "MEDIUM BACKPACK",
 	"backpack_large": "LARGE BACKPACK",
 }
@@ -183,6 +196,12 @@ var heater_on := false
 var outage_system := ""
 var outage_left := 0.0
 var stamina := GameConfig.MAX_STAMINA
+## Stim Pack (GameConfig.STIM_*): seconds left of the boost, then of the crash; both replicate (heartbeat, GuestGuard).
+var stim_boost := 0.0
+var stim_crash := 0.0
+var _stim_inject := 0.0
+var _stim_inject_slot := -1
+var _heartbeat_in := 0.0
 var lamp_charge := GameConfig.MAX_LAMP_CHARGE
 var exhausted := false
 var stamina_recovery_delay := 0.0
@@ -212,13 +231,19 @@ var admin_god_mode := false
 var admin_noclip := false
 ## Admin run-speed multiplier (1 = normal); applied to walk, crouch and sprint.
 var admin_speed_scale := 1.0
-## A captured co-op guest remains in the room as a free-flying spectator rather
-## than respawning or being forced back to the menu. The host still treats this
-## state as game-over for targeting and replication purposes.
+## A caught co-op runner stays in the room as a GHOST (KT 2026-10-28: "more of a ghost player mode, not a free noclip
+## thing"): the same walking body with world collision, gravity, speed, stairs, ladders and level links, drawn
+## translucent and washed out; silent to hunters, never targeted (replicated as `spectating`), and unable to use, pick
+## up, open or trigger anything. Free flight is only the admin noclip.
 var spectator_mode := false
-## Follow cam: while valid the spectator trails this world position instead of free-flying.
+## Follow view: while `ghost_follow` and a living teammate is known (`spectator_follow_valid`), a separate camera trails
+## `spectator_follow_at`; the ghost body stays where it was.
+var ghost_follow := false
 var spectator_follow_valid := false
 var spectator_follow_at := Vector3.ZERO
+var _follow_camera: Camera3D
+## How see-through a ghost is (ModelSlot.set_character_fade).
+const GHOST_FADE := .55
 
 ## Exposure / noise / temperature, shared with hunter gimmicks that read them
 ## (see src/game/player_meters.gd).
@@ -312,11 +337,15 @@ const PLUNGE_SWIM_NOISE := .8
 const SOAKED_SECONDS := 30.0
 const SOAKED_NOISE_SCALE := 1.45
 const SOAKED_DRIP_EVERY := Vector2(1.1, 2.4)
-## Wading a sewer flood (SewerFloods.MAX_DEPTH deep): the speed at full depth, the noise of a splashing step (louder than a
-## sprint on stone) and how often a step splashes.
-const WADE_SPEED_SCALE := .6
+## Wading a sewer flood, scaled by depth: the speed at knee depth (SewerFloods.DEEP_DEPTH), the noise of a splashing step
+## at shin depth (louder than a sprint on stone) and at knee depth, how often a step splashes, and from what depth wading
+## tires (stamina per second).
+const WADE_SPEED_SCALE := .45
 const WADE_NOISE := 12.0
+const WADE_DEEP_NOISE := 17.0
 const WADE_SPLASH_EVERY := .42
+const WADE_TIRING_DEPTH := .6
+const WADE_STAMINA_DRAIN := 6.0
 const LADDER_CLIMB_SPEED := 1.7
 const LADDER_LET_GO_HEIGHT := 1.3 * PlayerModels.SCALE
 const LADDER_MOUNT_SECONDS := .3
@@ -327,14 +356,14 @@ const MODEL_EYE_NEAR := .02
 var resting_pose := ""
 ## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
 ## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
-const SIT_EYE := 1.58   # 1.15 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
+const SIT_EYE := 1.36   # 1.15 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
 ## How far short of an aim box a solid may be hit and still count as the box itself (its frame, its wall).
 const AIM_RAY_SLACK := .06
-## The 2.2 m runner's seated eye above the seat pan (eye 1.87 standing, hip 1.11, plus the thigh under her).
-const SIT_EYE_ABOVE_SEAT := .96
+## The 1.9 m runner's seated eye above the seat pan (eye 1.61 standing, hip 0.96, plus the thigh under her).
+const SIT_EYE_ABOVE_SEAT := .83
 ## Seat height the mannequin's "sit" clip is authored for (at PlayerModels.SCALE): peers lift a seated runner by the rest.
-const SIT_CLIP_SEAT := .577
-const LAY_EYE_ABOVE_MATTRESS := .30
+const SIT_CLIP_SEAT := .498
+const LAY_EYE_ABOVE_MATTRESS := .26
 const REST_EASE_SECONDS := 0.35
 const SIT_YAW_LIMIT := deg_to_rad(75.0)
 const LAY_YAW_LIMIT := deg_to_rad(55.0)
@@ -375,6 +404,9 @@ var hiding_lock_timer := 0.0
 ## (main_3d), the same indirection as interaction_veto/hiding_trap_resolver --
 ## a plain interactable has no business knowing what a hunter is.
 var music_box_resolver: Callable
+## Where the current revive hold started: moving REVIVE_BREAK_DISTANCE from it, sprinting, a grab or a stun breaks it.
+var _revive_hold_from := Vector3.INF
+var _resecure_frame := -1
 
 ## Ilyra's pounce. Deliberately its OWN field rather than reusing
 ## input_frozen: a stun and a struggle/hiding freeze look the same to the
@@ -1043,7 +1075,7 @@ func is_plunging() -> bool:
 ## `surface_y`), the splash and a muffled moment, a slow swim to `exit` on the walkway ring (floor height `exit.y`), then SOAKED_SECONDS
 ## of soaked. Collision is off for the duration; no damage, input is ignored. The level changes by itself as the feet cross the storey.
 func begin_plunge(from: Vector3, land: Vector3, exit: Vector3, surface_y: float) -> void:
-	if is_plunging() or is_climbing() or hidden or spectator_mode:
+	if is_plunging() or is_climbing() or hidden:   # a ghost takes the falls too (a level link)
 		return
 	if resting_furniture != null:
 		leave_furniture()
@@ -1130,7 +1162,10 @@ func _update_wading(delta: float, is_moving: bool) -> void:
 	soaked_left = maxf(soaked_left, SOAKED_SECONDS * .5)
 	if not is_moving:
 		return
-	noise = maxf(noise, WADE_NOISE * clampf(wading_depth / SewerFloods.MAX_DEPTH, .5, 1.0))
+	var deep := clampf((wading_depth - SewerFloods.MAX_DEPTH) / (SewerFloods.DEEP_DEPTH - SewerFloods.MAX_DEPTH), 0.0, 1.0)
+	noise = maxf(noise, lerpf(WADE_NOISE * clampf(wading_depth / SewerFloods.MAX_DEPTH, .5, 1.0), WADE_DEEP_NOISE, deep))
+	if wading_depth >= WADE_TIRING_DEPTH and not admin_god_mode:
+		stamina = maxf(0.0, stamina - WADE_STAMINA_DRAIN * delta)
 	_splash_left -= delta
 	if _splash_left <= 0.0:
 		_splash_left = WADE_SPLASH_EVERY
@@ -1156,7 +1191,7 @@ func _update_soaked(delta: float) -> void:
 ## The camera stays free; movement, items and collision are off on the rungs.
 func begin_ladder_climb(foot: Vector3, rise: float, height: float, yaw: float,
 		top_exit: Vector3, bottom_exit: Vector3, top_level: int, bottom_level: int) -> void:
-	if is_climbing() or hidden or spectator_mode:
+	if is_climbing() or hidden:   # a ghost climbs ladders too (a level link)
 		return
 	if resting_furniture != null:
 		leave_furniture()
@@ -1508,56 +1543,99 @@ func enter_spectator() -> void:
 	admin_speed_scale = 1.0
 	set_admin_noclip(false)
 	spectator_mode = true
+	clear_stim()
+	if hidden:
+		leave_hiding()
 	input_frozen = false
 	look_frozen = false
 	velocity = Vector3.ZERO
+	# the world still blocks a ghost (mask), but nothing collides with it (layer)
 	collision_layer = 0
-	collision_mask = 0
+	collision_mask = 1
 	if player_collision != null:
-		player_collision.disabled = true
-	if body_visual != null:
-		body_visual.visible = false
+		player_collision.disabled = false
+	set_ghost_look(body_visual, true)
+	ghost_follow = false
 
 
 func leave_spectator() -> void:
 	spectator_mode = false
 	spectator_follow_valid = false
+	set_ghost_follow(false)
 	velocity = Vector3.ZERO
 	collision_layer = 1
 	collision_mask = 1
 	if player_collision != null:
 		player_collision.disabled = false
+	set_ghost_look(body_visual, false)
 	if body_visual != null:
 		body_visual.visible = true
 
 
-func _update_spectator(delta: float) -> void:
-	if spectator_follow_valid:
-		var forward := -active_camera().global_basis.z
-		forward.y = 0.0
-		forward = forward.normalized() if forward.length_squared() > 0.001 else Vector3.FORWARD
-		var wanted := spectator_follow_at + Vector3.UP * 1.3 - forward * 3.0
-		global_position = global_position.lerp(wanted, clampf(delta * 8.0, 0.0, 1.0))
-		velocity = Vector3.ZERO
-		noise = 0.0
-		_clip = "idle"
-		ModelSlot.play_if_available(_animation_player, _clip)
+## A ghost's look on any character model: see-through (GHOST_FADE, or `fade`) with a pale overlay that washes the skin out.
+static func set_ghost_look(root: Node, on: bool, fade: float = GHOST_FADE) -> void:
+	if root == null:
 		return
-	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	var basis := active_camera().global_basis
-	var direction := basis.x * input_vector.x + (-basis.z) * -input_vector.y
-	if Input.is_action_pressed("jump"):
-		direction += Vector3.UP
-	if Input.is_action_pressed("crouch"):
-		direction += Vector3.DOWN
-	var fast := Input.is_action_pressed("sprint")
-	var speed := 12.0 if fast else 6.0
-	if direction.length_squared() > 0.0:
-		global_position += direction.normalized() * speed * delta
-	velocity = Vector3.ZERO
+	ModelSlot.set_character_fade(root, fade if on else 0.0)
+	_ghost_overlay(root, GHOST_OVERLAY if on else null)
+
+
+static var GHOST_OVERLAY: StandardMaterial3D = _make_ghost_overlay()
+
+
+static func _make_ghost_overlay() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color(.72, .80, .92, .5)
+	return m
+
+
+static func _ghost_overlay(node: Node, overlay: Material) -> void:
+	if node is GeometryInstance3D:
+		(node as GeometryInstance3D).material_overlay = overlay
+	for child in node.get_children():
+		_ghost_overlay(child, overlay)
+
+
+## The follow view on (a living teammate's back) or off (back in the ghost's own eyes).
+func set_ghost_follow(on: bool) -> void:
+	ghost_follow = on and spectator_mode
+	if ghost_follow:
+		if _follow_camera == null:
+			_follow_camera = Camera3D.new()
+			_follow_camera.name = "GhostFollowCamera"
+			_follow_camera.top_level = true
+			add_child(_follow_camera)
+		_follow_camera.global_transform = active_camera().global_transform
+		_follow_camera.current = true
+	elif _follow_camera != null and _follow_camera.current:
+		_follow_camera.current = false
+		var own := active_camera()
+		if own != null:
+			own.current = true
+
+
+## The follow view: the ghost body stands still (gravity only) while its camera trails the followed teammate, looking
+## the way the mouse points. True when it ran (the walking ghost is skipped this frame).
+func _update_ghost_follow(delta: float) -> bool:
+	if not ghost_follow or not spectator_follow_valid or _follow_camera == null:
+		return false
+	var look := first_person_pivot.global_basis if first_person_pivot != null else global_basis
+	var forward := -look.z
+	forward.y = 0.0
+	forward = forward.normalized() if forward.length_squared() > 0.001 else Vector3.FORWARD
+	var wanted := spectator_follow_at + Vector3.UP * 2.0 - forward * 3.4
+	_follow_camera.global_position = _follow_camera.global_position.lerp(wanted, clampf(delta * 8.0, 0.0, 1.0))
+	_follow_camera.look_at(spectator_follow_at + Vector3.UP * 1.4, Vector3.UP)
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_update_vertical_motion(delta, false)
+	_move_and_resolve_landing()
 	noise = 0.0
 	_clip = "idle"
 	ModelSlot.play_if_available(_animation_player, _clip)
+	return true
 
 
 func _update_admin_noclip(delta: float) -> void:
@@ -1604,13 +1682,13 @@ func _physics_process(delta: float) -> void:
 	_update_controller_look(delta)
 	_update_soaked(delta)
 	_noise_burst_timer = maxf(0.0, _noise_burst_timer - delta)
+	_update_stim(delta)
 	_update_viewmodel_push(delta)
 	_update_crawl_hands()
 	taser_cooldown = maxf(0.0, taser_cooldown - delta)
 	_update_first_person_item_lights()
 	_update_flashlight_occlusion()
-	if spectator_mode:
-		_update_spectator(delta)
+	if spectator_mode and _update_ghost_follow(delta):
 		return
 	if hiding_lock_timer > 0.0:
 		hiding_lock_timer = maxf(0.0, hiding_lock_timer - delta)
@@ -1676,7 +1754,7 @@ func _physics_process(delta: float) -> void:
 		else:
 			_update_vertical_motion(delta, false)
 			_move_and_resolve_landing()
-		noise = 0.0
+		noise = _noise_burst if stim_crash > 0.0 and _noise_burst_timer > 0.0 else 0.0   # a stim heartbeat, even in a locker
 		_clip = "idle"
 		ModelSlot.play_if_available(_animation_player, _clip)
 		_update_crouch_fade(delta, false)
@@ -1714,7 +1792,8 @@ func _physics_process(delta: float) -> void:
 		movement_speed = GameConfig.PLAYER_CROUCH_SPEED * float(difficulty["crouch_speed"])
 		movement_mode = "crouch"
 	elif wants_to_sprint and (admin_god_mode or stamina > 0.0):
-		movement_speed = GameConfig.PLAYER_SPRINT_SPEED * float(difficulty["sprint_speed"])
+		movement_speed = GameConfig.PLAYER_SPRINT_SPEED * float(difficulty["sprint_speed"]) \
+			* (GameConfig.STIM_SPEED_SCALE if stim_boost > 0.0 else 1.0)
 		is_sprinting = true
 		movement_mode = "sprint"
 	else:
@@ -1723,13 +1802,15 @@ func _physics_process(delta: float) -> void:
 
 	movement_speed *= admin_speed_scale
 	if wading_depth > 0.0:
-		movement_speed *= lerpf(1.0, WADE_SPEED_SCALE, clampf(wading_depth / SewerFloods.MAX_DEPTH, 0.0, 1.0))
+		movement_speed *= lerpf(1.0, WADE_SPEED_SCALE, clampf(wading_depth / SewerFloods.DEEP_DEPTH, 0.0, 1.0))
 
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
 	if _noise_burst_timer > 0.0:
 		noise = maxf(noise, _noise_burst)
 	if soaked_left > 0.0:
 		noise *= SOAKED_NOISE_SCALE
+	if spectator_mode:
+		noise = 0.0   # a ghost's footsteps are silent to hunters
 	_update_wading(delta, is_moving)
 
 	meters.update(delta, {
@@ -1828,13 +1909,14 @@ func _physics_process(delta: float) -> void:
 	# mouse (after focus loss or a menu) and clicks on open menus never swing, spend or blip.
 	var click_ready := xr_active or (_cursor_was_captured and MouseLock.is_captured())
 	_cursor_was_captured = MouseLock.is_captured()
+	if spectator_mode:
+		return   # a ghost uses, drops, opens and triggers nothing (its hotbar waits for a revive)
 	if inventory_enabled:
 		if inventory_enabled and Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
 			_fire_taser()
 		if Input.is_action_just_pressed("tool_use") and click_ready and not movement_locked:
 			_use_selected_item()
-		if Input.is_action_just_pressed("drop_item"):
-			request_drop_selected_item()
+		_update_drop_key(delta)
 		if Input.is_action_just_pressed("hotbar_previous"):
 			select_inventory_slot(selected_inventory_slot - 1)
 		if Input.is_action_just_pressed("hotbar_next"):
@@ -2175,7 +2257,8 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 		return
 	if is_sprinting:
 		stamina = maxf(0.0, stamina - GameConfig.STAMINA_SPRINT_DRAIN \
-			* (GameConfig.TROLL_STAMINA_DRAIN_SCALE if troll_active else 1.0) * delta)
+			* (GameConfig.TROLL_STAMINA_DRAIN_SCALE if troll_active else 1.0) \
+			* (GameConfig.STIM_DRAIN_SCALE if stim_boost > 0.0 else 1.0) * delta)
 		stamina_recovery_delay = GameConfig.STAMINA_RECOVERY_DELAY
 		if stamina <= 0.0:
 			exhausted = true
@@ -2183,7 +2266,8 @@ func _update_stamina(delta: float, is_sprinting: bool) -> void:
 
 	stamina_recovery_delay = maxf(0.0, stamina_recovery_delay - delta)
 	if stamina_recovery_delay <= 0.0:
-		stamina = minf(GameConfig.MAX_STAMINA, stamina + GameConfig.STAMINA_RECOVERY * delta)
+		stamina = minf(GameConfig.MAX_STAMINA, stamina + GameConfig.STAMINA_RECOVERY \
+			* (GameConfig.STIM_CRASH_REGEN_SCALE if stim_crash > 0.0 else 1.0) * delta)
 	if exhausted and stamina >= GameConfig.STAMINA_EXHAUSTED_RECOVERY:
 		exhausted = false
 
@@ -2308,6 +2392,8 @@ func _build_first_person_items() -> void:
 	_build_utility_view("crowbar")
 	_build_utility_view("rescue_axe")
 	_build_utility_view("battery")
+	_build_utility_view("stim_pack")
+	_build_utility_view("revive_kit")
 	for view in [flashlight_view, taser_view] + tool_views.values():
 		_add_first_person_hand(view as Node3D)
 	_refresh_inventory_view()
@@ -2606,6 +2692,8 @@ func grant_inventory_item(item_id: String, restored_durability: int = -1) -> boo
 		return collect_backpack(item_id)
 	if not INVENTORY_ITEMS.has(item_id):
 		return false
+	if STACK_MAX.has(item_id):
+		return _grant_stack(item_id, maxi(1, restored_durability))
 	var slot := inventory_order.find("")
 	if slot < 0:
 		return false
@@ -2617,8 +2705,6 @@ func grant_inventory_item(item_id: String, restored_durability: int = -1) -> boo
 	elif item_id == "taser":
 		inventory_slot_durability[slot] = 0
 		taser_cooldown = 0.0
-	elif item_id == "battery":
-		inventory_slot_durability[slot] = 0
 	elif INVENTORY_MAX_DURABILITY.has(item_id):
 		inventory_slot_durability[slot] = clampi(restored_durability, 1,
 			int(INVENTORY_MAX_DURABILITY[item_id])) if restored_durability > 0 \
@@ -2627,6 +2713,90 @@ func grant_inventory_item(item_id: String, restored_durability: int = -1) -> boo
 	if slot < HOTBAR_SIZE:
 		select_inventory_slot(slot)
 	else:
+		_refresh_inventory_view()
+	return true
+
+
+## Stackables: `count` merges into the first matching stacks that are not full, the rest into empty slots. All or
+## nothing: refused (false, nothing changes) unless every one fits, so a dropped stack is never half picked up.
+func _grant_stack(item_id: String, count: int) -> bool:
+	if not can_accept_item(inventory_order, inventory_slot_durability, item_id, count):
+		return false
+	var cap := int(STACK_MAX[item_id])
+	var left := count
+	var first_slot := -1
+	for slot in inventory_order.size():
+		if left > 0 and inventory_order[slot] == item_id and stack_count_at(slot) < cap:
+			var add := mini(cap - stack_count_at(slot), left)
+			inventory_slot_durability[slot] = stack_count_at(slot) + add
+			left -= add
+			first_slot = slot if first_slot < 0 else first_slot
+	while left > 0:
+		var slot := inventory_order.find("")
+		inventory_order[slot] = item_id
+		inventory_slot_durability[slot] = mini(cap, left)
+		left -= mini(cap, left)
+		first_slot = slot if first_slot < 0 else first_slot
+	_sync_owned_inventory_items()
+	if first_slot < HOTBAR_SIZE:
+		select_inventory_slot(first_slot)
+	else:
+		_refresh_inventory_view()
+	return true
+
+
+## How many of an item fit: room on its stacks plus empty slots (one per slot for anything that does not stack).
+static func item_room(order: Array, slot_durability: Array, item_id: String) -> int:
+	var cap := int(STACK_MAX.get(item_id, 1))
+	var room := 0
+	for slot in order.size():
+		if String(order[slot]).is_empty():
+			room += cap
+		elif cap > 1 and String(order[slot]) == item_id:
+			var held := maxi(1, int(slot_durability[slot])) if slot < slot_durability.size() else 1
+			room += maxi(0, cap - held)
+	return room
+
+
+## Host and local checks before a pickup or drop claim: `count` of `item_id` all fit (STACK_MAX caps every stack).
+static func can_accept_item(order: Array, slot_durability: Array, item_id: String, count: int = 1) -> bool:
+	return item_room(order, slot_durability, item_id) >= maxi(1, count)
+
+
+static func stack_max(item_id: String) -> int:
+	return int(STACK_MAX.get(item_id, 1))
+
+
+## The stack count in a slot (1 for any single item, 0 for an empty slot).
+func stack_count_at(slot: int) -> int:
+	if slot < 0 or slot >= inventory_order.size() or String(inventory_order[slot]).is_empty():
+		return 0
+	if not STACK_MAX.has(String(inventory_order[slot])):
+		return 1
+	return clampi(_slot_durability(slot), 1, int(STACK_MAX[inventory_order[slot]]))
+
+
+## Every one of an item carried, across stacks.
+func item_count(item_id: String) -> int:
+	var total := 0
+	for slot in inventory_order.size():
+		if inventory_order[slot] == item_id:
+			total += stack_count_at(slot)
+	return total
+
+
+## Uses up `count` from the stack in `slot` (the preferred slot when -1); the slot empties at zero. False when the slot
+## does not hold that item.
+func consume_stack(item_id: String, count: int = 1, slot: int = -1) -> bool:
+	if slot < 0:
+		slot = _preferred_item_slot(item_id)
+	if slot < 0 or slot >= inventory_order.size() or inventory_order[slot] != item_id:
+		return false
+	var left := stack_count_at(slot) - maxi(1, count)
+	if left <= 0 or not STACK_MAX.has(item_id):
+		remove_inventory_item(item_id, slot)
+	else:
+		inventory_slot_durability[slot] = left
 		_refresh_inventory_view()
 	return true
 
@@ -2674,7 +2844,8 @@ func backpack_extra_slots() -> int:
 	return backpack_storage_units * 5
 
 
-func remove_inventory_item(item_id: String, preferred_slot: int = -1) -> Dictionary:
+## `count` (stackables): take that many off the stack and keep the rest in the slot; -1 empties the slot.
+func remove_inventory_item(item_id: String, preferred_slot: int = -1, count: int = -1) -> Dictionary:
 	if not INVENTORY_ITEMS.has(item_id) or not owns_inventory_item(item_id):
 		return {}
 	_save_active_flashlight_charge()
@@ -2683,7 +2854,11 @@ func remove_inventory_item(item_id: String, preferred_slot: int = -1) -> Diction
 			and inventory_order[preferred_slot] == item_id else _preferred_item_slot(item_id)
 	if slot < 0:
 		return {}
-	var durability := _slot_durability(slot)
+	if count > 0 and STACK_MAX.has(item_id) and stack_count_at(slot) > count:
+		inventory_slot_durability[slot] = stack_count_at(slot) - count
+		_refresh_inventory_view()
+		return {"item": item_id, "durability": count, "slot": slot}
+	var durability := stack_count_at(slot) if STACK_MAX.has(item_id) else _slot_durability(slot)
 	inventory_order[slot] = ""
 	inventory_slot_durability[slot] = 0
 	if item_id == "flashlight":
@@ -2699,7 +2874,9 @@ func remove_inventory_item(item_id: String, preferred_slot: int = -1) -> Diction
 	return {"item": item_id, "durability": durability, "slot": slot}
 
 
-func request_drop_selected_item() -> bool:
+## `whole_stack` false drops one off a stack (the tap); tools and single items always drop whole. A stack's
+## "durability" in the drop request and the dropped record is how many it holds.
+func request_drop_selected_item(whole_stack: bool = true) -> bool:
 	if not inventory_enabled:
 		return false
 	if input_frozen or stun_timer > 0.0:
@@ -2707,9 +2884,35 @@ func request_drop_selected_item() -> bool:
 	var item_id := selected_inventory_item()
 	if item_id.is_empty():
 		return false   # nothing in hand: dropping is silent
-	item_drop_requested.emit(item_id, item_durability(item_id),
-		selected_inventory_slot)
+	var amount := item_durability(item_id)
+	if STACK_MAX.has(item_id):
+		amount = stack_count_at(selected_inventory_slot) if whole_stack else 1
+	item_drop_requested.emit(item_id, amount, selected_inventory_slot)
 	return true
+
+
+## Drop key: single items drop on the press; a stack of two or more drops one on a tap and all of it once the key is
+## held DROP_STACK_HOLD.
+var _drop_hold := -1.0
+
+
+func _update_drop_key(delta: float) -> void:
+	if Input.is_action_just_pressed("drop_item"):
+		if stack_count_at(selected_inventory_slot) >= 2:
+			_drop_hold = 0.0
+		else:
+			request_drop_selected_item()
+		return
+	if _drop_hold < 0.0:
+		return
+	if not Input.is_action_pressed("drop_item"):
+		_drop_hold = -1.0
+		request_drop_selected_item(false)
+		return
+	_drop_hold += delta
+	if _drop_hold >= DROP_STACK_HOLD:
+		_drop_hold = -1.0
+		request_drop_selected_item(true)
 
 
 func owns_inventory_item(item_id: String) -> bool:
@@ -2817,10 +3020,12 @@ func restore_run_save(state: Dictionary) -> bool:
 		if not item_id.is_empty() and not INVENTORY_ITEMS.has(item_id):
 			return false
 		restored_order.append(item_id)
-		var maximum := int(INVENTORY_MAX_DURABILITY.get(item_id, 0))
+		var maximum := int(INVENTORY_MAX_DURABILITY.get(item_id, STACK_MAX.get(item_id, 0)))
 		var durability := maxi(0, int(saved_durability[index]))
 		if maximum > 0:
 			durability = mini(durability, maximum)
+		if STACK_MAX.has(item_id):
+			durability = maxi(1, durability)   # a stack count; a pre-stack battery saved 0
 		restored_durability.append(durability)
 	inventory_order = restored_order
 	inventory_slot_durability = restored_durability
@@ -2911,8 +3116,64 @@ func _use_selected_item() -> void:
 			_fire_taser()
 		"battery":
 			_use_battery()
+		"stim_pack":
+			_use_stim()
+		"revive_kit":
+			interaction_message.emit("REVIVE KIT // HOLD %s WHERE A TEAMMATE WENT DOWN" % InputGlyphs.key("interact"))
 		_:
 			_use_selected_tool()
+
+
+## Starts the injection; the stim is used up (and the boost starts) when it lands, unless a grab or a stun cuts it.
+## One at a time: not again until the crash has passed.
+func _use_stim() -> void:
+	if _stim_inject > 0.0 or input_frozen or grab_active or stun_timer > 0.0:
+		return
+	if stim_boost > 0.0 or stim_crash > 0.0:
+		interaction_message.emit("STIM STILL IN YOUR BLOOD")
+		Sound.interaction_fail()
+		return
+	_stim_inject = GameConfig.STIM_INJECT_SECONDS
+	_stim_inject_slot = selected_inventory_slot
+	Sound.menu_blip()
+
+
+func _update_stim(delta: float) -> void:
+	if _stim_inject > 0.0:
+		if grab_active or stun_timer > 0.0 or spectator_mode:
+			_stim_inject = 0.0   # cut off: nothing is used up
+		else:
+			_stim_inject = maxf(0.0, _stim_inject - delta)
+			if _stim_inject <= 0.0 and consume_stack("stim_pack", 1, _stim_inject_slot):
+				stamina = GameConfig.MAX_STAMINA
+				exhausted = false
+				stim_boost = GameConfig.STIM_BOOST_SECONDS
+				Sound.recharge(GameConfig.MAX_STAMINA)
+				interaction_message.emit("STIM PACK // SPRINT BOOST")
+	if stim_boost > 0.0:
+		stim_boost = maxf(0.0, stim_boost - delta)
+		if stim_boost <= 0.0:
+			stim_crash = GameConfig.STIM_CRASH_SECONDS
+			_heartbeat_in = 0.0
+	elif stim_crash > 0.0:
+		stim_crash = maxf(0.0, stim_crash - delta)
+		_heartbeat_in -= delta
+		if _heartbeat_in <= 0.0 and stim_crash > 0.0:
+			_heartbeat_in = GameConfig.STIM_HEARTBEAT_SECONDS
+			# loud enough for a hunter close by (and in a locker: HunterInspect looks twice as often)
+			emit_noise_burst(GameConfig.STIM_HEARTBEAT_NOISE, .25)
+			Sound.heartbeat(.65)
+
+
+func clear_stim() -> void:
+	stim_boost = 0.0
+	stim_crash = 0.0
+	_stim_inject = 0.0
+
+
+## Seconds left of a stim injection (0 when none), for the viewmodel and tests.
+func stim_injecting() -> float:
+	return _stim_inject
 
 
 func _use_battery() -> void:
@@ -2922,7 +3183,7 @@ func _use_battery() -> void:
 	if used_slot < 0 or used_slot >= inventory_order.size() \
 			or String(inventory_order[used_slot]) != "battery":
 		return
-	remove_inventory_item("battery", used_slot)
+	consume_stack("battery", 1, used_slot)
 	restore_lamp(GameConfig.BATTERY_RECHARGE)
 	Sound.recharge(GameConfig.BATTERY_RECHARGE)
 
@@ -3210,6 +3471,8 @@ func is_in_safe_zone() -> bool:
 
 
 func get_interaction_prompt() -> String:
+	if spectator_mode:
+		return ""
 	if resting_furniture != null:
 		# resting: what you can do from here, never the "LIE DOWN" of the furniture you are on
 		if asleep:
@@ -3227,10 +3490,14 @@ func get_interaction_prompt() -> String:
 	if percent >= 0:
 		if _resecure_target.kind == RouteInteractable3D.Kind.MUSIC_BOX:
 			return "WINDING MUSIC BOX // %d%%" % percent
+		if _resecure_target.kind == RouteInteractable3D.Kind.REVIVE_SPOT:
+			return "REVIVING %s // %d%%" % [_resecure_target.revive_name, percent]
 		return "RESTORING SIGNAL // %d%%" % percent
 	var target := _nearest_interactable()
 	if target != null:
 		var prompt: String = target.get_prompt()
+		if target.kind == RouteInteractable3D.Kind.REVIVE_SPOT and _hold_seconds(target) > 0.0:
+			prompt = "HOLD INTERACT // REVIVE %s" % target.revive_name
 		# Generic development interactables ("USE") add nothing; every other prompt names its action and gets the key
 		# for the active device: "[E] HIDE", "[E] OPEN DOOR", "HOLD [E] RESTORE SABOTAGED RELAY".
 		if prompt.strip_edges().to_upper() == "USE":
@@ -3281,6 +3548,8 @@ func xr_poke(target: RouteInteractable3D) -> void:
 
 
 func _try_interact() -> void:
+	if spectator_mode:
+		return   # a ghost triggers nothing
 	var target := _nearest_interactable()
 	if target == null:
 		if shop_resolver.is_valid():
@@ -3320,24 +3589,53 @@ var _resecure_progress := 0.0
 
 
 func _update_resecure(delta: float) -> void:
+	# a frame without this call (grabbed, stunned, frozen, climbing) breaks any hold in progress
+	if _resecure_frame >= 0 and Engine.get_physics_frames() - _resecure_frame > 1:
+		_reset_hold()
+	_resecure_frame = Engine.get_physics_frames()
 	var target := _nearest_interactable()
 	var held_kind: bool = target != null and _hold_seconds(target) > 0.0
 	if not held_kind or target != _resecure_target:
+		_reset_hold()
 		_resecure_target = target if held_kind else null
-		_resecure_progress = 0.0
 	if _resecure_target == null:
 		return
-	if not Input.is_action_pressed("interact"):
-		_resecure_progress = 0.0
+	var reviving := _resecure_target.kind == RouteInteractable3D.Kind.REVIVE_SPOT
+	if not Input.is_action_pressed("interact") or (reviving and _revive_hold_broken()):
+		_reset_hold()
 		return
+	if reviving:
+		if _resecure_progress <= 0.0:
+			_revive_hold_from = global_position
+			revive_hold_changed.emit(_resecure_target.revive_peer, true)
+		emit_noise_burst(GameConfig.REVIVE_NOISE, .2)   # hunters in the room hear the kit working
 	_resecure_progress += delta
 	if _resecure_progress >= _hold_seconds(_resecure_target):
 		var done := _resecure_target
 		_resecure_progress = 0.0
 		_resecure_target = null
+		if reviving:
+			_revive_hold_from = Vector3.INF
+			revive_hold_done.emit(done.revive_peer)
+			return
 		var message: String = done.set_sabotaged(false) if done.kind == RouteInteractable3D.Kind.RELAY else done.activate(self)
 		if not message.is_empty():
 			interaction_message.emit(message)
+
+
+## A revive hold breaks when the reviver sprints or steps REVIVE_BREAK_DISTANCE off where it started.
+func _revive_hold_broken() -> bool:
+	return _revive_hold_from != Vector3.INF and (movement_mode == "sprint" \
+		or global_position.distance_to(_revive_hold_from) > GameConfig.REVIVE_BREAK_DISTANCE)
+
+
+## Drops a hold in progress (a revive tells the host it broke off).
+func _reset_hold() -> void:
+	if _resecure_progress > 0.0 and _resecure_target != null and is_instance_valid(_resecure_target) \
+			and _resecure_target.kind == RouteInteractable3D.Kind.REVIVE_SPOT:
+		revive_hold_changed.emit(_resecure_target.revive_peer, false)
+	_resecure_progress = 0.0
+	_revive_hold_from = Vector3.INF
 
 
 ## Hold-to-use interactables and how long the hold is: a sabotaged relay (Briselle) and a music box (Glyra).
@@ -3347,6 +3645,11 @@ func _hold_seconds(target: RouteInteractable3D) -> float:
 		return GameConfig.RELAY_RESECURE_SECONDS
 	if target.kind == RouteInteractable3D.Kind.MUSIC_BOX and not target.disabled:
 		return GameConfig.MUSIC_BOX_WIND_HOLD
+	if target.kind == RouteInteractable3D.Kind.REVIVE_SPOT and owns_inventory_item("revive_kit"):
+		return GameConfig.REVIVE_HOLD_SECONDS
+	# anything else that asks for a hold (a sewer valve wheel)
+	if target.has_meta("hold_seconds"):
+		return float(target.get_meta("hold_seconds"))
 	return 0.0
 
 

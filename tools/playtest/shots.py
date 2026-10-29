@@ -40,8 +40,8 @@ def local_scene(godot_args, timeout):
 def preview_checks(name, args, src, lane, out_dir, tmp):
     """Quick low-res run to the shot's `expect` moment: returns (passed, checks, still path). Refuses nothing itself: the caller decides."""
     # fixed fps like the render: the clip's clock and the game's movement agree, so preview distances are the render's
-    base = ("--fixed-fps %d --resolution 960x540 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route --scenario=sequence --shot=%s --preview --seed=%s --fps=%d --clean=true --deadline=250 --name=pre_%s"
-            % (args.fps, name, args.seed, args.fps, name))
+    base = ("--fixed-fps %d --resolution 960x540 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route --scenario=sequence --shot=%s --shot-file=tools/playtest/shots/%s.json --preview --seed=%s --fps=%d --clean=true --deadline=250 --name=pre_%s"
+            % (args.fps, name, name, args.seed, args.fps, name))
     if args.local:
         # never read the previous run's report or stills by accident
         shutil.rmtree(LOCAL_LANE / (".playtest/pre_%s" % name), ignore_errors=True)
@@ -124,8 +124,8 @@ def main():
                 continue
             avi_rel = ".playtest/fly/%s.avi" % name
             cmd = ("--write-movie %s --fixed-fps %d --resolution 1280x720 res://scenes/playtest_runner.tscn -- --playtest-runner --game=last_route "
-                   "--scenario=sequence --shot=%s --seed=%s --fps=%d --clean=true --deadline=%d --name=fly_%s"
-                   % (avi_rel, args.fps, name, args.seed, args.fps, args.timeout - 60, name))
+                   "--scenario=sequence --shot=%s --shot-file=tools/playtest/shots/%s.json --seed=%s --fps=%d --clean=true --deadline=%d --name=fly_%s"
+                   % (avi_rel, args.fps, name, name, args.seed, args.fps, args.timeout - 60, name))
             local = tmp / name
             if args.local:
                 run = local_scene(cmd, args.timeout)

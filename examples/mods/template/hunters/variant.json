@@ -1,0 +1,14 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "template_runner",
+	"name": "Runner",
+	"tier": "easy",
+	"speed": 0.82,
+	"chase": 3.6,
+	"prog": 0.18,
+	"sight": 8.0,
+	"hearing": 1.0,
+	"spawn": 12,
+	"model": "res://assets/hunters_blocky/glyra/glyra.glb",
+	"portrait": "res://assets/ui/hunter_portraits/glyra.png"
+}

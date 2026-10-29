@@ -27,8 +27,8 @@ const SAMPLES := 4
 ## (Night Watch used to draw its hunters at the authored 1.0; KT ruled they match Last Route's: NightWatchHunterScale, checked at the end of _previews.)
 ## While a grab plays the hunter's body leans and twists with the hold; the shoulder span of a shy wrist-yank reaches 2.6% (GRAB lane to look at it).
 const PLAYING_LIMIT := 0.03
-## KT ruling 2026-10-28: the runner is about 2.2 m, 0.85x of the 2.58 m hunter (slightly smaller, never as big).
-const RUNNER_HEIGHT := 2.2
+## KT ruling 2026-10-28 (second): the runner is about 1.9 m, head top at a hunter's upper torso (shoulder line 1.83 m, neck 2.0 m of 2.58 m).
+const RUNNER_HEIGHT := 1.9
 const HUNTER_HEIGHT := 2.58
 const SKIP_MESH := ["Beam", "Star", "Scythe", "Cue-", "Halo", "Glyph"]
 
@@ -106,6 +106,10 @@ func _measure(model: Node3D, ref: Dictionary, scale_ref: float, ground: float, s
 	for bone_name in BODY:
 		var bone := _bone(model, bone_name)
 		if bone == null:
+			continue
+		if bone.global_basis.determinant() < 0.0:     # a mirrored bone turns its faces inside out
+			out["scale"] = 1.0
+			out["what"] = "%s is mirrored (negative scale)" % bone_name
 			continue
 		var s := bone.global_basis.get_scale().abs()
 		var dev := maxf(absf(s.x / scale_ref - 1.0), maxf(absf(s.y / scale_ref - 1.0), absf(s.z / scale_ref - 1.0)))
@@ -425,7 +429,7 @@ func _runners(host: Node) -> void:
 		_expect(absf(idle_height - 1.78 * PlayerModels.SCALE) < 1.78 * PlayerModels.SCALE * TOLERANCE + .02,
 			"%s: the standing runner is %.2f m, expected %.2f m" % [label, idle_height, 1.78 * PlayerModels.SCALE])
 		_expect(absf(idle_height / RUNNER_HEIGHT - 1.0) <= TOLERANCE + .005, "%s: the standing runner is %.2f m, the ruling is %.1f m" % [label, idle_height, RUNNER_HEIGHT])
-		_expect(idle_height / HUNTER_HEIGHT < .9 and idle_height / HUNTER_HEIGHT > .8, "%s: the runner is %.2fx of a hunter, want 0.8-0.9 (slightly smaller)" % [label, idle_height / HUNTER_HEIGHT])
+		_expect(idle_height / HUNTER_HEIGHT < .8 and idle_height / HUNTER_HEIGHT > .68, "%s: the runner is %.2fx of a hunter, want 0.68-0.8 (head top at her upper torso)" % [label, idle_height / HUNTER_HEIGHT])
 		# skin and arm-style changes (PlayerSkin) and a repaint never rescale the body
 		for slim in [true, false, true, false]:
 			PlayerSkin.set_arms(model, slim)

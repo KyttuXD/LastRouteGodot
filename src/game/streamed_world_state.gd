@@ -15,6 +15,8 @@ var hunters := {}
 ## deterministic spawn candidate is admitted again on the next stream refresh.
 var removed_hunters := {}
 var dropped_items := {}
+## Open co-op revive windows (ReviveDowns, docs/REVIVE.md).
+var downs := ReviveDowns.new()
 var next_drop_sequence := 1
 var sabotaged_relays := {}
 ## Stable generated door id -> {open, broken}. Closed/unbroken is the
@@ -29,6 +31,12 @@ var breaches := {}
 ## carries the seconds since, and the receiver re-bases them to its own clock (like the carousels), so every machine's
 ## water rises and drains together and a reloaded run carries on mid-flood.
 var floods := {}
+## Sewer valve wheels (docs/SEWERS.md): flood id -> the unix time on THIS machine a valve in its chunk was turned while it
+## ran. From then the pipe stops gushing and the water drains in SewerFloods.SHUT_DRAIN. Carried as ages like floods.
+var flood_shut := {}
+## Valve wheels turned (docs/SEWERS.md): valve id -> how many times. A flood valve with nothing to shut toggles its chunk's
+## pipe drips (off on odd turns); a gate valve's sluice is open on odd turns.
+var valve_turns := {}
 ## One waypoint per player (WaypointState); never a shared list.
 var waypoints := WaypointState.new()
 var disabled_hiding := {}
@@ -147,6 +155,8 @@ func create_drop(item_id: String, durability: int, position: Vector3,
 		return {}
 	var drop_id := "DROP:%d:%d" % [source_peer_id, next_drop_sequence]
 	next_drop_sequence += 1
+	if PlayerController3D.STACK_MAX.has(item_id):
+		durability = clampi(durability, 1, PlayerController3D.stack_max(item_id))   # a stack's count
 	var record := {"id": drop_id, "item": item_id,
 		"durability": maxi(0, durability), "position": position,
 		"level": level, "source_peer_id": source_peer_id,
@@ -243,6 +253,7 @@ func store_hunter(entity_id: String, brain: HunterBrain, level: int,
 		origin_chunk: Vector3i) -> void:
 	if entity_id.is_empty() or brain == null:
 		return
+	var previous: Dictionary = hunters.get(entity_id, {})
 	hunters[entity_id] = {
 		"hunter_id": brain.hunter_id,
 		"position": brain.position,
@@ -276,6 +287,10 @@ func store_hunter(entity_id: String, brain: HunterBrain, level: int,
 		"inspect_stand": brain.inspect_stand,
 		"inspect_face": brain.inspect_face,
 	}
+	# Gray's binding to the one runner she may catch (InfiniteRouteTest anti-idle) is not brain state: keep it.
+	for key in ["gray_peer", "gray_reason"]:
+		if previous.has(key):
+			hunters[entity_id][key] = previous[key]
 
 
 func restore_hunter(brain: HunterBrain, state: Dictionary) -> void:
@@ -422,8 +437,11 @@ func snapshot() -> Dictionary:
 		"room_lights": room_lights.duplicate(true),
 		"breaches": breaches.duplicate(true),
 		"floods": _flood_snapshot(Time.get_unix_time_from_system()),
+		"flood_shut": _shut_snapshot(Time.get_unix_time_from_system()),
+		"valve_turns": valve_turns.duplicate(true),
 		"booth_ready_at": booth_ready_at.duplicate(true),
 		"carousels": _carousel_snapshot(Time.get_unix_time_from_system()),
+		"downs": downs.snapshot(),
 	}
 
 
@@ -436,18 +454,57 @@ func start_flood(id: String) -> bool:
 	return true
 
 
+## A valve was turned in a chunk: every flood of that chunk's pipes still running is shut from now (once). Returns the
+## floods it shut.
+func shut_floods(chunk: Vector3i) -> Array:
+	var shut := []
+	var prefix := "BRK:%d:%d:%d:" % [chunk.x, chunk.y, chunk.z]
+	for id in floods:
+		var age := flood_age(String(id))
+		if String(id).begins_with(prefix) and not flood_shut.has(id) and age >= 0.0:
+			flood_shut[id] = Time.get_unix_time_from_system()
+			shut.append(id)
+	return shut
+
+
+## A valve's turn count, set from the host's event (idempotent: it carries the count, not a delta).
+func set_valve_turns(valve_id: String, turns: int) -> bool:
+	if valve_id.is_empty() or int(valve_turns.get(valve_id, 0)) == turns:
+		return false
+	valve_turns[valve_id] = turns
+	navigation_revision += 1      # a gate valve opens or closes a crossing
+	return true
+
+
+func valve_count(valve_id: String) -> int:
+	return int(valve_turns.get(valve_id, 0))
+
+
+## Seconds after the burst that a valve shut this flood, or -1 if none has.
+func flood_shut_at(id: String) -> float:
+	return float(flood_shut[id]) - float(floods[id]) if flood_shut.has(id) and floods.has(id) else -1.0
+
+
 ## Seconds since a pipe burst, or -1 when it has not.
 func flood_age(id: String) -> float:
 	return Time.get_unix_time_from_system() - float(floods[id]) if floods.has(id) else -1.0
 
 
-## Floods with the seconds since each began (spent ones, fully drained, are left out).
+## Floods with the seconds since each began (spent ones, shut and drained, are left out).
 func _flood_snapshot(now: float) -> Dictionary:
 	var out := {}
 	for id in floods:
 		var age := now - float(floods[id])
-		if age < SewerFloods.DURATION:
+		if not SewerFloods.spent(age, flood_shut_at(String(id))):
 			out[id] = age
+	return out
+
+
+func _shut_snapshot(now: float) -> Dictionary:
+	var out := {}
+	for id in flood_shut:
+		if floods.has(id) and not SewerFloods.spent(now - float(floods[id]), flood_shut_at(String(id))):
+			out[id] = now - float(flood_shut[id])
 	return out
 
 
@@ -462,6 +519,7 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	var schema := int(snapshot_data.get("schema", -1))
 	if schema not in [1, 2, 3, 4, 5, SCHEMA]:
 		return false
+	downs.adopt(snapshot_data.get("downs", {}))   # optional: older snapshots have no revive windows
 	var pickups = snapshot_data.get("claimed_pickups", {})
 	var rooms = snapshot_data.get("safe_rooms", {})
 	var hunter_data = snapshot_data.get("hunters", {})
@@ -495,6 +553,14 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	room_lights = (lights as Dictionary).duplicate(true) if lights is Dictionary else {}
 	var broken = snapshot_data.get("breaches", {})
 	breaches = (broken as Dictionary).duplicate(true) if broken is Dictionary else {}
+	var turns = snapshot_data.get("valve_turns", {})
+	valve_turns = (turns as Dictionary).duplicate(true) if turns is Dictionary else {}
+	flood_shut.clear()
+	var shut_ages = snapshot_data.get("flood_shut", {})
+	if shut_ages is Dictionary:
+		var shut_now := Time.get_unix_time_from_system()
+		for shut_id in (shut_ages as Dictionary):
+			flood_shut[String(shut_id)] = shut_now - float((shut_ages as Dictionary)[shut_id])
 	floods.clear()
 	var flood_ages = snapshot_data.get("floods", {})
 	if flood_ages is Dictionary:

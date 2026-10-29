@@ -15,6 +15,13 @@ Native ENet packets are wrapped through the UDP relay, so hosts and guests
 make only outbound connections. Player routers do not need UPnP, a manual port
 forward, or a publicly reachable UDP socket.
 
+A room lives exactly as long as its host. An explicit quit (`/api/enet/rooms/unregister`) closes it at once; a host
+whose process crashes or is killed is dropped within about a second: current clients send `HOST_ALIVE` every 250 ms
+from a background thread (a frozen main loop keeps the room), and the relay times such a host out 1 s after the last
+one (hosts from older builds keep the 15 s timeout). Either way every guest gets `HOST_LEFT` (and an `ERROR` for older
+clients), the code stops resolving (`ROOM NOT FOUND`), and a reserved private room keeps its reservation. Host
+migration happens only when a host hands over on purpose (`/api/enet/rooms/release-host`).
+
 ## Local run
 
 Node 18 or newer is the only dependency.
@@ -169,6 +176,11 @@ names from the original deployment remain accepted as compatibility aliases.
   `last-route-godot/run` exists; `PUT {data, updatedAt}` with `data: null` deletes it, an
   older `updatedAt` than the stored one gets `409 STALE`, bodies over 64 KB get `413`, and
   each account may write 30 times a minute (`game_saves.mjs`).
+- `GET`, `PUT /api/v1/skins/:account`: account skins (`skins.mjs`). `PUT` is the raw PNG (64x64 or the old 64x32,
+  PNG only, at most 64 KB) with the owner's `x-session-token` and `x-skin-arms: auto|classic|slim`; another account
+  gets `403`, 5 uploads per account per 10 minutes. `GET` is public: `{hash|"", arms, updatedAt, versions}`; the PNG
+  comes from `GET /api/skins/files/<hash>.png`. The last 5 versions are kept. The older `POST /api/skins/upload`,
+  `mine`, `clear`, `remove` routes still work. Files live under `<data>/skins` (`LASTROUTE_SKINS_DIR`).
 
 `GET /api/health` reports the exact Git commit currently published for each
 update channel under `updates.<channel>.revision`, together with its version
@@ -329,7 +341,7 @@ The pack **index** lives here (VPS 3); the pack **files** live only on VPS 2. Th
     exists is refused with 409 `VERSION_EXISTS` unless `replace` is set.
   - `POST /api/admin/mods/block` with `{ id, reason? }` and `POST /api/admin/mods/unblock` with `{ id }`.
 - Caps follow the client loader: 16 MB per file, 128 MB per version, 512 files. The index holds at most 2000 packs and
-  keeps the 5 newest versions of each. Paths must follow the loader's layout: `pack.json`; `props|regions|hunters|grabs/*.json`
+  keeps the 5 newest versions of each. Paths must follow the loader's layout: `pack.json`; `props|regions|hunters|grabs|sounds|ambience|floors|walls|ceilings|rooms/*.json`
   one level deep; `assets/**` `.glb` `.png` `.ogg` (lower case). Anything else is refused at deploy time.
   The register body may be up to 256 KB; every other route keeps the 64 KB cap. `/api/mods/*` has its own
   rate-limit bucket (`LASTROUTE_MOD_RATE_LIMIT`).
@@ -358,6 +370,57 @@ LASTROUTE_OWNER_SESSION=... node backend/deploy_mod_pack.mjs path/to/pack --vps2
 The script hashes every file and enforces the caps. It copies the pack to `<id>/<version>.uploading-<pid>` on VPS 2
 and re-hashes the files there with `sha256sum`. Only if every hash matches does it rename the folder into place and
 register the pack in the index. A bad upload is deleted, and nothing is registered.
+
+## Reserved private rooms
+
+A reserved room is a room code the owner keeps (`backend/reserved_rooms.mjs`): it never expires, nobody else can
+register it, and it is hidden -- `GET /api/enet/rooms/<code>` answers `403 ROOM_RESERVED`. Store and echo only:
+the live game session on that code still belongs to whichever invited player hosts it.
+
+- Codes: `LASTROUTE_RESERVED_ROOMS` (default `KATHY,AKIRI`; always present), or created by the owner. Reserved codes
+  may use any five letters or digits (AKIRI has an I); generated room codes keep their alphabet (no I, O, 0, 1) and a
+  non-reserved code outside it cannot be registered. Each is Stored with their
+  stored with its route settings (seed, mode, scale, difficulty, daytime, mod ids), whitelist (account names,
+  canonical uppercase) and an optional room
+  password (scrypt hash only) in `$LASTROUTE_RESERVED_ROOMS_STORE` (default `<data dir>/reserved_rooms.json`), so
+  they survive restarts and deploys.
+- Hosting: `POST /api/enet/rooms/register` on a reserved code needs the owner, an invited account
+  (`sessionToken`) or `roomPassword`; the answer carries `reserved.settings`. A host that stops heartbeating for
+  30 s can be replaced by the next invited player.
+- Joining: `POST /api/rooms/reserved/resolve { code, sessionToken?, password? }` answers `{ live, room, joinTicket,
+  canHost, settings }`. The relay admits a reserved room's guest only when its join nonce is a live ticket (10 min).
+  Direct (non-relay) connections are not gated; production always uses the relay.
+- Owner (`POST /api/admin/reserved-rooms`, full admin owner): `action` `list` (with `live`, `players`), `create`,
+  `update` (`settings`, `invites`, `password`; `""` clears it), `delete` (not for environment codes), `whitelist`
+  (`op` `add`/`remove`/`list`, `name`), and `command` (only while someone hosts it: `409 ROOM_NOT_LIVE` otherwise; a
+  new host starts with an empty queue) with `command`
+  `restart` (`sameSeed`), `end`, `kick` (`target`), `settings`, `transfer`. Commands are queued (20 kept) and echoed
+  to the host on its heartbeat (`reserved.commands`); the host carries them out and acks them (`commandAck`). The
+  in-game admin menu has the same owner controls under PRIVATE ROOM (plus WHITELIST EVERYONE HERE / SHOW WHITELIST).
+  Operators: `~/Developer/Claude-Setup/rooms.sh` (status, restart, end, whitelist) and the KT-FW13 "Server Rooms"
+  launcher, which runs it on KT-Mini4-1 over SSH; it signs in from an owner session file or a hidden prompt and
+  talks to the backend on VPS 3's loopback port over SSH.
+- Later, not built: a server-hosted room would need a headless dedicated host process per reserved room (Godot
+  `--headless` with a "server" role that simulates hunters and the floor without a local runner), a supervisor that
+  restarts it on crash or deploy, a UDP port or relay session per room, its own resource budget on VPS 3, and
+  RemotePlayers/RoomState paths that do not assume the host is also a player.
+
+## Crash reports
+
+The game's `CrashWatch` autoload (`src/autoload/crash_watch.gd`) notices a session that crashed, was killed or froze
+(a sentinel file left in `user://logs`, a freeze watchdog) and sends one `lr.crash/1` report on the next launch, when
+the player's "CRASH REPORTS" setting is on (default) and the run is a real game run (never headless, editor or
+playtest bots, which leave reports queued for the test harness instead).
+
+- `POST /api/v1/crash-reports` with the report. Store and echo only: `201 { ok, id, report }` returns exactly what was
+  stored. Body cap 96 KB; `log_tail` 32 KB, 50 breadcrumbs, 50 recent errors, 400 chars a line, 120 a field. Anything
+  credential-shaped (bearer/basic auth, `token=`/`password:`/`admin_ticket` values, 40+ hex digits) is replaced
+  before storage, on the client and again here. The requester address is a rate-limit key only (6 reports an hour per
+  address and device id) and is never stored.
+- `POST /api/admin/crash-reports` with `{ sessionToken, since?, limit? }` (full admin owner): newest first, at most
+  200; `since` is a report id.
+- Storage: one JSON file per report in `$LASTROUTE_CRASH_REPORTS_DIR` (default `<data dir>/crash-reports`), newest
+  5000 kept. Operators read them with `~/Developer/Claude-Setup/crash-reports.sh` (over SSH, no credentials).
 
 ## Moderation
 

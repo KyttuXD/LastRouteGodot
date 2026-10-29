@@ -7,6 +7,11 @@ extends Node
 
 signal registration_changed(registered: bool, message: String)
 signal room_resolved(code: String, endpoint: Dictionary, error: String)
+## Reserved private rooms (backend reserved_rooms.mjs): nobody is hosting it and this player may (settings: stored
+## route options); the room wants an invite or its password; owner commands for the room this client hosts.
+signal reserved_room_hostable(code: String, settings: Dictionary)
+signal reserved_room_access_needed(code: String, message: String)
+signal reserved_commands_received(commands: Array)
 signal health_checked(ok: bool, message: String)
 signal account_changed(signed_in: bool, username: String, admin: bool, message: String)
 signal account_progress_changed(available: bool, progress: Dictionary,
@@ -44,6 +49,15 @@ var registered_code := ""
 var last_error := ""
 var account_username := ""
 var account_session_token := ""
+## A reserved room's password as the player typed it: memory only, sent to resolve/register, never saved.
+var room_password := ""
+## The relay join ticket from the last reserved resolve, and the code it is for (used once by RoomState.join_room).
+var reserved_join_ticket := ""
+var reserved_join_code := ""
+## The reserved room this client hosts: its stored settings, and the owner commands seen / carried out.
+var reserved_settings := {}
+var _reserved_seen := 0
+var _reserved_ack := 0
 var account_admin := false
 var account_admin_owner := false
 var account_admin_permissions := PackedStringArray()
@@ -175,6 +189,48 @@ func accounts_available() -> bool:
 	)
 
 
+## True when offline mode was chosen for ONE run (Create Room -> Offline). Leaving to a menu clears it (end_run_offline); a boot
+## fallback or --offline stays until GO ONLINE.
+var offline_for_run := false
+
+
+## Create Room -> "Offline (solo, no server)": offline for this run only.
+func enter_run_offline() -> void:
+	if offline_mode and not offline_for_run:
+		return   # already offline for the session (boot fallback / --offline): leave that to GO ONLINE
+	offline_for_run = true
+	enable_offline_mode()
+	UpdateManager.enable_offline_mode()
+
+
+## A menu is showing again: a run-scoped offline mode ends here. Returns true when it cleared (the caller re-runs the online checks).
+func end_run_offline() -> bool:
+	if not offline_for_run:
+		return false
+	offline_for_run = false
+	if "--offline" in OS.get_cmdline_user_args():
+		return false
+	go_online()
+	UpdateManager.go_online()
+	return true
+
+
+const OFFLINE_NOTE := "OFFLINE MODE IS ON // THE SERVER IS NOT BEING CONTACTED. GO ONLINE TO PLAY WITH FRIENDS."
+const OFFLINE_JOIN_MESSAGE := "OFFLINE MODE // GO ONLINE TO JOIN ROOMS"
+
+
+## Leaves offline mode without a restart (the menu's GO ONLINE): clears the flag, re-runs the health check and, when a login is
+## stored, the account session check. The caller re-runs UpdateManager.check() and whatever lookup it was waiting on.
+func go_online() -> void:
+	offline_mode = false
+	offline_for_run = false
+	check_health()
+	if not account_session_token.is_empty() and accounts_available() and not account_busy:
+		_send_account("session", "/api/account/session", {
+			"sessionToken": account_session_token,
+		})
+
+
 func enable_offline_mode() -> void:
 	offline_mode = true
 	_heartbeat.stop()
@@ -247,7 +303,7 @@ func admin_ticket_permissions_for_room(room_code: String) -> PackedStringArray:
 ## code. Repeated room packets are common, so a still-valid proof is reused.
 func request_admin_ticket(room_code: String) -> void:
 	var clean := room_code.strip_edges().to_upper()
-	if not admin_authorized() or not RoomState.valid_room_code(clean):
+	if not admin_authorized() or not RoomState.valid_join_code(clean):
 		_clear_admin_ticket()
 		return
 	if not admin_ticket_for_room(clean).is_empty():
@@ -727,7 +783,7 @@ func _on_admin_ticket_response(result: int, response_code: int,
 	var ticket := String(payload.get("ticket", ""))
 	var room_code := String(payload.get("room", "")).strip_edges().to_upper()
 	var expires_in := clampi(int(payload.get("expiresIn", 0)), 1, 300)
-	if ticket.length() != 43 or not RoomState.valid_room_code(room_code):
+	if ticket.length() != 43 or not RoomState.valid_join_code(room_code):
 		_clear_admin_ticket()
 		admin_ticket_changed.emit(false, room_code,
 			"PRIMARY SERVER RETURNED AN INVALID ADMIN PROOF")
@@ -890,6 +946,7 @@ func register_room(code: String, port: int, player_count: int,
 		# moderation (docs/ANTI_CHEAT.md): who hosts, so kick reports count per host and flagged accounts can't host public
 		"sessionToken": account_session_token,
 		"deviceId": moderation.device_id(),
+		"roomPassword": room_password,   # only a reserved code needs it
 	})
 	_heartbeat.start()
 
@@ -911,6 +968,22 @@ func host_endpoint() -> Dictionary:
 	return _host_endpoint.duplicate()
 
 
+## Room closes (explicit "host left") still on their way to the server; quitting waits briefly for them.
+var _unregister_in_flight := 0
+
+
+func room_close_pending() -> bool:
+	return _unregister_in_flight > 0
+
+
+## Quit path: give the explicit room close a moment to leave the machine (up to `timeout` seconds) before the process ends.
+func wait_for_room_close(timeout: float = 1.5) -> void:
+	var waited := 0.0
+	while _unregister_in_flight > 0 and waited < timeout and is_inside_tree():
+		await get_tree().create_timer(0.05, true, false, true).timeout
+		waited += 0.05
+
+
 func unregister_room() -> void:
 	_heartbeat.stop()
 	if not _host_operation.is_empty():
@@ -922,8 +995,10 @@ func unregister_room() -> void:
 	# A one-shot request means leaving never waits on an in-flight heartbeat.
 	var request := HTTPRequest.new()
 	add_child(request)
+	_unregister_in_flight += 1
 	request.request_completed.connect(func(_result: int, _code: int,
 			_headers: PackedStringArray, _body: PackedByteArray) -> void:
+		_unregister_in_flight = maxi(0, _unregister_in_flight - 1)
 		request.queue_free())
 	request.request(_url("/api/enet/rooms/unregister"), _headers(),
 		HTTPClient.METHOD_POST, JSON.stringify({
@@ -935,6 +1010,9 @@ func unregister_room() -> void:
 
 func resolve_room(code: String) -> void:
 	var clean := code.strip_edges().to_upper()
+	if offline_mode:
+		room_resolved.emit(clean, {}, OFFLINE_JOIN_MESSAGE)
+		return
 	if not configured():
 		room_resolved.emit(clean, {}, "ROOM DIRECTORY IS NOT CONFIGURED")
 		return
@@ -975,6 +1053,8 @@ func _send_heartbeat() -> void:
 		"players": _player_count,
 		"sessionActive": _session_active,
 		"daytime": RoomState.is_day(),
+		"commandSince": _reserved_seen,
+		"commandAck": _reserved_ack,
 	})
 
 
@@ -1019,6 +1099,7 @@ func _on_host_response(result: int, response_code: int,
 			call_deferred("register_room", registered_code, _port,
 				_player_count, _session_active)
 		return
+	_take_reserved(payload.get("reserved"), operation == "register")
 	if operation == "register":
 		_token = String(payload.get("token", ""))
 		_host_endpoint = payload.get("room", {}) if payload.get("room", {}) is Dictionary else {}
@@ -1039,11 +1120,128 @@ func _on_host_response(result: int, response_code: int,
 				"ROOM %s LISTED IN DIRECTORY" % registered_code)
 
 
+## The register/heartbeat answer for a reserved room: its stored settings, and owner commands not seen yet.
+func _take_reserved(reserved, fresh_registration: bool) -> void:
+	if not reserved is Dictionary:
+		if fresh_registration:
+			reserved_settings = {}
+		return
+	if fresh_registration:
+		_reserved_seen = 0
+		_reserved_ack = 0
+	reserved_settings = reserved.get("settings", {}) if reserved.get("settings", {}) is Dictionary else {}
+	var fresh := []
+	for entry in reserved.get("commands", []):
+		if entry is Dictionary and int(entry.get("seq", 0)) > _reserved_seen:
+			fresh.append(entry)
+			_reserved_seen = maxi(_reserved_seen, int(entry.get("seq", 0)))
+	if not fresh.is_empty():
+		reserved_commands_received.emit(fresh)
+
+
+## The host carried out owner command `seq`; the next heartbeat tells the server so it stops sending it.
+func ack_reserved_command(seq: int) -> void:
+	_reserved_ack = maxi(_reserved_ack, seq)
+
+
+func is_reserved_host() -> bool:
+	return registered and not reserved_settings.is_empty()
+
+
+## A reserved code: ask with this account (invite list) and the typed room password.
+func _resolve_reserved(code: String) -> void:
+	var request := HTTPRequest.new()
+	add_child(request)
+	request.request_completed.connect(func(result: int, response_code: int, _headers_value: PackedStringArray,
+			body: PackedByteArray) -> void:
+		request.queue_free()
+		var payload := _parse_body(body)
+		if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
+			var message := String(payload.get("error", "PRIVATE ROOM %s // ACCESS REQUIRED" % code))
+			reserved_room_access_needed.emit(code, message)
+			room_resolved.emit(code, {}, message)
+			return
+		if bool(payload.get("canHost", false)):
+			var settings = payload.get("settings", {})
+			reserved_room_hostable.emit(code, settings if settings is Dictionary else {})
+			return
+		reserved_join_ticket = String(payload.get("joinTicket", ""))
+		reserved_join_code = code
+		var room = payload.get("room", {})
+		room_resolved.emit(code, room if room is Dictionary else {}, "" if room is Dictionary else "PRIVATE ROOM RETURNED NO ENDPOINT"))
+	if request.request(_url("/api/rooms/reserved/resolve"), _headers(), HTTPClient.METHOD_POST,
+			JSON.stringify({"code": code, "sessionToken": account_session_token, "password": room_password})) != OK:
+		request.queue_free()
+		room_resolved.emit(code, {}, "COULD NOT START PRIVATE ROOM LOOKUP")
+
+
+## The relay ticket for joining `code`, used once.
+func take_join_ticket(code: String) -> String:
+	if reserved_join_code != code:
+		return ""
+	var ticket := reserved_join_ticket
+	reserved_join_ticket = ""
+	reserved_join_code = ""
+	return ticket
+
+
+## Owner: queue a command (restart, end, kick, settings, transfer) on a reserved room; whoever hosts it carries it out.
+signal reserved_command_sent(ok: bool, message: String)
+
+
+func send_reserved_command(code: String, command: String, args: Dictionary = {}) -> void:
+	var body := {"sessionToken": account_session_token, "action": "command", "code": code, "command": command}
+	body.merge(args)
+	var request := HTTPRequest.new()
+	add_child(request)
+	request.request_completed.connect(func(result: int, response_code: int, _headers_value: PackedStringArray,
+			response_body: PackedByteArray) -> void:
+		request.queue_free()
+		var payload := _parse_body(response_body)
+		var ok := result == HTTPRequest.RESULT_SUCCESS and response_code == 202
+		reserved_command_sent.emit(ok, "PRIVATE ROOM // %s QUEUED" % command.to_upper() if ok
+			else String(payload.get("error", "PRIVATE ROOM COMMAND FAILED (HTTP %d)" % response_code))))
+	if request.request(_url("/api/admin/reserved-rooms"), _headers(), HTTPClient.METHOD_POST, JSON.stringify(body)) != OK:
+		request.queue_free()
+		reserved_command_sent.emit(false, "COULD NOT SEND PRIVATE ROOM COMMAND")
+
+
+## Owner: add / remove / list one account on a reserved room's whitelist; `done` gets (ok, whitelist, message).
+func reserved_whitelist(code: String, op: String, name: String, done: Callable) -> void:
+	var request := HTTPRequest.new()
+	add_child(request)
+	request.request_completed.connect(func(result: int, response_code: int, _headers_value: PackedStringArray,
+			response_body: PackedByteArray) -> void:
+		request.queue_free()
+		var payload := _parse_body(response_body)
+		var ok := result == HTTPRequest.RESULT_SUCCESS and response_code == 200
+		done.call(ok, payload.get("whitelist", []) if ok else [], "" if ok else String(payload.get("error", "WHITELIST FAILED"))))
+	if request.request(_url("/api/admin/reserved-rooms"), _headers(), HTTPClient.METHOD_POST, JSON.stringify({
+			"sessionToken": account_session_token, "action": "whitelist", "code": code, "op": op, "name": name})) != OK:
+		request.queue_free()
+		done.call(false, [], "COULD NOT REACH THE ROOM DIRECTORY")
+
+
+## Hand the room to the next player: the relay promotes the longest-connected guest (host migration).
+func release_host() -> void:
+	if not registered or _token.is_empty():
+		return
+	var request := HTTPRequest.new()
+	add_child(request)
+	request.request_completed.connect(func(_r: int, _c: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
+		request.queue_free())
+	request.request(_url("/api/enet/rooms/release-host"), _headers(), HTTPClient.METHOD_POST,
+		JSON.stringify({"code": registered_code, "token": _token}))
+
+
 func _on_resolve_response(result: int, response_code: int,
 		_headers_value: PackedStringArray, body: PackedByteArray,
 		request: HTTPRequest, code: String) -> void:
 	request.queue_free()
 	var payload := _parse_body(body)
+	if response_code == 403 and String(payload.get("code", "")) == "ROOM_RESERVED":
+		_resolve_reserved(code)
+		return
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
 		room_resolved.emit(code, {}, String(payload.get("error",
 			"ROOM %s WAS NOT FOUND" % code)))

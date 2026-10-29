@@ -5,12 +5,14 @@ extends RefCounted
 ## meters; this sanity-checks each replicated sample before the host trusts it for targeting, pickups and relays.
 ## - speed: horizontal distance per sample against the fastest legit move (sprint, on the easiest difficulty) with lag
 ##   tolerance; upward speed against climb/jump; falling and plunges are never capped;
-## - teleports: a jump beyond TELEPORT_DISTANCE needs a floor change, an authorised admin, a spectator, or a host-known
+## - teleports: a jump beyond TELEPORT_DISTANCE needs a floor change, an authorised admin, or a host-known
 ##   legit spot (spawn / checkpoint, through `legit_spot`);
 ## - no-clip: a capsule sweep along the reported path through static world geometry (doors are ignored, they lag);
 ## - meters: stamina is not replicated, so an unbroken sprint longer than a full tank (plus slack) counts; lamp charge
 ##   must stay within 0..MAX and never rise without a battery being used up;
-## - the reported grid "position" must match "at".
+## - the reported grid "position" must match "at";
+## - stacks: no slot holds more of a stackable than PlayerController3D.STACK_MAX ("stack");
+## - a Stim Pack boost (STIM_BOOST_SPEED for STIM_BOOST_SECONDS) only counts once a stim was really used up.
 ## A violation snaps the guest back to its last good spot and adds a strike; strikes decay while clean, and STRIKE_KICK
 ## of them kicks the guest. Cheap: a handful of arithmetic checks per 20 Hz sample, one shape cast only when moving.
 ##
@@ -95,7 +97,8 @@ func check(peer_id: int, state: Dictionary, now: float, space: PhysicsDirectSpac
 	if peer.is_empty():
 		_peers[peer_id] = {"good": at, "time": now, "depth": int(state.get("depth", 0)), "strikes": 0,
 			"clean_since": now, "sprint": 0.0, "lamp": float(state.get("lamp_charge", GameConfig.MAX_LAMP_CHARGE)),
-			"batteries": _batteries(state), "seq": int(state.get("seq", -1)), "jitter": 0.0, "gaps": [],
+			"batteries": _batteries(state), "stims": _carried(state, "stim_pack"), "boost_until": -1.0,
+			"seq": int(state.get("seq", -1)), "jitter": 0.0, "gaps": [],
 			"lag_until": -1.0, "now": now, "id": peer_id}
 		return {}
 	var seq := int(state.get("seq", -1))
@@ -109,10 +112,12 @@ func check(peer_id: int, state: Dictionary, now: float, space: PhysicsDirectSpac
 	_note_gap(peer, dt, now)
 	var good: Vector3 = peer["good"]
 	var depth := int(state.get("depth", 0))
+	# a ghost (spectating) walks like a runner, so it is checked like one; only the death screen itself is let off
 	var free_pass: bool = (exempt.is_valid() and bool(exempt.call(peer_id))) \
-		or bool(state.get("spectating", false)) or bool(state.get("game_over", false))
+		or (bool(state.get("game_over", false)) and not bool(state.get("spectating", false)))
 	var reason := ""
 	peer["now"] = now
+	_note_stim(peer, state, now)
 	if not free_pass:
 		reason = _movement_reason(peer, state, at, good, depth, dt, space, seq_jump)
 		if reason.is_empty():
@@ -120,6 +125,7 @@ func check(peer_id: int, state: Dictionary, now: float, space: PhysicsDirectSpac
 	peer["time"] = now
 	peer["lamp"] = clampf(float(state.get("lamp_charge", peer["lamp"])), 0.0, GameConfig.MAX_LAMP_CHARGE)
 	peer["batteries"] = _batteries(state)
+	peer["stims"] = _carried(state, "stim_pack")
 	if reason.is_empty():
 		peer["good"] = at
 		peer["depth"] = depth
@@ -137,6 +143,20 @@ func check(peer_id: int, state: Dictionary, now: float, space: PhysicsDirectSpac
 
 
 const LAG_EXCUSABLE := ["speed", "fly", "teleport", "noclip", "stamina"]
+
+
+## A Stim Pack boost is trusted only when the sample both reports it and carries one stim fewer than the last: then
+## for its length (plus a second of slack) the speed budget runs at STIM_SPEED_SCALE and the unbroken-sprint clock
+## restarts, since the stim refilled the tank. A claimed boost with no stim used buys nothing.
+func _note_stim(peer: Dictionary, state: Dictionary, now: float) -> void:
+	if float(state.get("stim_boost", 0.0)) > 0.0 and _carried(state, "stim_pack") < int(peer.get("stims", 0)):
+		peer["boost_until"] = now + GameConfig.STIM_BOOST_SECONDS + 1.0
+	if boosted(peer):
+		peer["sprint"] = 0.0
+
+
+static func boosted(peer: Dictionary) -> bool:
+	return float(peer.get("boost_until", -1.0)) >= float(peer.get("now", 0.0))
 
 
 ## Arrival gaps feed the credit cap (longest lately), jitter, and the heavy-lag hold.
@@ -179,7 +199,7 @@ func _movement_reason(peer: Dictionary, state: Dictionary, at: Vector3, good: Ve
 	# Leaky budgets: each sample earns distance at the legit top speed for the real time since the last one and spends
 	# what it moved. The cap is the longest gap seen lately, so the catch-up burst after a freeze passes while a steady
 	# over-speed runs dry within a second or two. A move past the budget and beyond TELEPORT_DISTANCE is a teleport.
-	var tolerance := TOLERANCE * _lag_scale(peer)
+	var tolerance := TOLERANCE * _lag_scale(peer) * (GameConfig.STIM_SPEED_SCALE if boosted(peer) else 1.0)
 	var window := _longest_gap(peer)
 	var flat_credit := minf(float(peer.get("flat_credit", LAG_SLACK_M)) + max_speed * tolerance * dt,
 		max_speed * tolerance * window + LAG_SLACK_M) - flat
@@ -204,6 +224,8 @@ func _movement_reason(peer: Dictionary, state: Dictionary, at: Vector3, good: Ve
 
 
 func _meter_reason(peer: Dictionary, state: Dictionary, dt: float) -> String:
+	if _over_stacked(state):
+		return "stack"
 	var lamp := float(state.get("lamp_charge", peer["lamp"]))
 	if lamp < -0.01 or lamp > GameConfig.MAX_LAMP_CHARGE + 0.01:
 		return "lamp"
@@ -218,9 +240,36 @@ func _meter_reason(peer: Dictionary, state: Dictionary, dt: float) -> String:
 	return ""
 
 
-static func _batteries(state: Dictionary) -> int:
+## A slot holding more of a stackable than PlayerController3D.STACK_MAX allows (pickups and drops are all-or-nothing and
+## capped, so only an edited client gets there).
+static func _over_stacked(state: Dictionary) -> bool:
 	var order = state.get("inventory_order", [])
-	return (order as Array).count("battery") if order is Array else 0
+	var counts = state.get("inventory_slot_durability", [])
+	if not order is Array or not counts is Array:
+		return false
+	for slot in mini((order as Array).size(), (counts as Array).size()):
+		var item_id := String(order[slot])
+		if PlayerController3D.STACK_MAX.has(item_id) and int(counts[slot]) > PlayerController3D.stack_max(item_id):
+			return true
+	return false
+
+
+static func _batteries(state: Dictionary) -> int:
+	return _carried(state, "battery")
+
+
+## How many of a stackable item the sample carries (each slot's count lives in inventory_slot_durability).
+static func _carried(state: Dictionary, item_id: String) -> int:
+	var order = state.get("inventory_order", [])
+	if not order is Array:
+		return 0
+	var counts = state.get("inventory_slot_durability", [])
+	var total := 0
+	for slot in (order as Array).size():
+		if String(order[slot]) == item_id:
+			total += clampi(int(counts[slot]) if counts is Array and slot < (counts as Array).size() else 1,
+				1, PlayerController3D.stack_max(item_id))
+	return total
 
 
 ## True when a slim capsule swept from `from` to `to` (raised off the floor) hits static world geometry that is not a

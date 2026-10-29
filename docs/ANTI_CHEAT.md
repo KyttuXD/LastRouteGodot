@@ -17,7 +17,8 @@ pickups, relays or checkpoints use it.
 
 A violation rewrites the sample to the last good spot, sends the guest an `anticheat_snap` event that moves it back,
 and adds a strike. Strikes decay one per 30 s clean; 5 strikes kick the guest (`RemotePlayers.kick_guest`) with a
-system notice to the room. Authorised admin peers (`remote_admin_peer_allowed`) and spectators are exempt.
+system notice to the room. Authorised admin peers (`remote_admin_peer_allowed`) are exempt, and so is the death screen itself; a ghost (spectating) walks
+like a runner and is checked like one.
 
 Cost: a few comparisons per 20 Hz sample plus one shape cast when the guest moved.
 
@@ -25,7 +26,9 @@ Validator: `anti_cheat` (synthetic cheaters corrected / kicked; sprint with lag,
 admins and battery use pass).
 
 Host-caused long moves never strike: a vent transit (`vent_used`), being pulled out of hiding (`hide_found`), an axe
-rescue and a revive call `GuestGuard.allow_jump` for 3 s.
+rescue and a revive (`revive`, `revive_at`) call `GuestGuard.allow_jump` for 3 s. A slot holding more of a stackable than
+`PlayerController3D.STACK_MAX` is a strike (`stack`); a Stim Pack boost widens the speed budget only after a stim was used
+up (docs/REVIVE.md).
 
 ## Consequences (manual only, `backend/moderation.mjs`)
 

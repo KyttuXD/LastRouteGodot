@@ -18,9 +18,16 @@ export const RelayFrame = Object.freeze({
   ERROR: 7,
   HOST_PROMOTE: 8,
   HOST_MIGRATING: 9,
+  // The room is gone (its host quit, crashed or was killed): guests leave to the menu. Older clients also get ERROR.
+  HOST_LEFT: 10,
+  // The host is alive: payload = host token. Sent every ~250 ms from a background thread (EnetRelayTunnel), so a
+  // frozen main loop does not drop a live room; a host that sends it is timed out after hostAliveTtlMs.
+  HOST_ALIVE: 11,
 });
+export const HOST_LEFT_MESSAGE = "HOST LEFT // ROOM CLOSED";
 
-const ROOM_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
+// any five letters/digits: generated codes and an owner's reserved codes (KATHY, AKIRI); unknown codes route nowhere
+const ROOM_CODE_PATTERN = /^[A-Z0-9]{5}$/;
 
 function safeEqual(leftValue, rightValue) {
   const left = Buffer.from(String(leftValue || ""));
@@ -77,14 +84,22 @@ export function createEnetRelay({
   now = Date.now,
   logger = console,
   hostTtlMs = 15_000,
+  // KT: "make the room drop 1s or no delay". Hosts that send HOST_ALIVE (every 250 ms) are gone after this long;
+  // older hosts (HOST_REGISTER every 3 s) keep hostTtlMs.
+  hostAliveTtlMs = 1_000,
+  // Called when a room's live session ends here (host quit, timed out, or closeRoom): the directory forgets it.
+  onRoomClosed = null,
   sessionTtlMs = 45_000,
   maximumGuestsPerRoom = 15,
   guestAllocationWindowMs = 10_000,
   maximumGuestAllocationsPerAddress = 4,
+  // A 4-player room moves ~400 KB/s through one host endpoint; the kernel default (~208 KB on Linux) leaves
+  // little room for an event-loop pause. Linux caps this at net.core.rmem_max / wmem_max.
+  socketBufferBytes = 4 * 1024 * 1024,
 } = {}) {
   if (typeof roomByCode !== "function") throw new TypeError("roomByCode is required");
 
-  const socket = createSocket("udp4");
+  const socket = createSocket({ type: "udp4", recvBufferSize: socketBufferBytes, sendBufferSize: socketBufferBytes });
   const hosts = new Map();
   const sessions = new Map();
   const guestSessions = new Map();
@@ -94,11 +109,25 @@ export function createEnetRelay({
   let listening = false;
   let relayPort = 0;
   let lastError = "";
+  // What happened to every datagram since start; relayStatus() reports it so a deploy shows real numbers.
+  const counters = {
+    forwardedGuest: 0,
+    forwardedHost: 0,
+    forwardedBytes: 0,
+    droppedInvalid: 0,
+    droppedUnknownSession: 0,
+    droppedNoHost: 0,
+    droppedWrongEndpoint: 0,
+    sendErrors: 0,
+    roomsClosed: 0,
+  };
 
   function send(type, sessionId, code, payload, endpoint) {
     if (!endpoint || !listening) return;
     const frame = encodeRelayFrame(type, sessionId, code, payload);
-    socket.send(frame, endpoint.port, endpoint.address);
+    socket.send(frame, endpoint.port, endpoint.address, (error) => {
+      if (error) counters.sendErrors += 1;
+    });
   }
 
   function sendError(code, endpoint, message) {
@@ -180,11 +209,34 @@ export function createEnetRelay({
     return true;
   }
 
+  function hostTtl(host) {
+    return host?.alive ? hostAliveTtlMs : hostTtlMs;
+  }
+
+  // The live session is over: every guest is told (HOST_LEFT, plus ERROR for older clients) and dropped, and the
+  // directory forgets the room. Host migration happens only when a host hands over on purpose (release-host).
+  function closeRoom(code, reason = HOST_LEFT_MESSAGE) {
+    let told = 0;
+    for (const [sessionId, session] of sessions) {
+      if (session.code !== code) continue;
+      send(RelayFrame.HOST_LEFT, sessionId, code, Buffer.from(reason), session.guest);
+      sendError(code, session.guest, reason);
+      removeSession(sessionId);
+      told += 1;
+    }
+    const known = hosts.has(code) || migrations.has(code);
+    hosts.delete(code);
+    migrations.delete(code);
+    counters.roomsClosed += 1;
+    if (typeof onRoomClosed === "function") onRoomClosed(code, reason);
+    return known || told > 0;
+  }
+
   function prune() {
     const timestamp = now();
     for (const [code, host] of hosts) {
       if (!roomByCode(code)) removeHost(code);
-      else if (timestamp - host.lastSeen > hostTtlMs) beginHostMigration(code);
+      else if (timestamp - host.lastSeen > hostTtl(host)) closeRoom(code);
     }
     for (const [sessionId, session] of sessions) {
       if (!roomByCode(session.code) || timestamp - session.lastSeen > sessionTtlMs) {
@@ -212,7 +264,10 @@ export function createEnetRelay({
 
   socket.on("message", (packet, remote) => {
     const frame = decodeRelayFrame(packet);
-    if (!frame) return;
+    if (!frame) {
+      counters.droppedInvalid += 1;
+      return;
+    }
     const endpoint = { address: remote.address, port: remote.port };
     const room = roomByCode(frame.code);
 
@@ -221,7 +276,7 @@ export function createEnetRelay({
         sendError(frame.code, endpoint, "HOST AUTHORIZATION FAILED");
         return;
       }
-      hosts.set(frame.code, { ...endpoint, lastSeen: now() });
+      hosts.set(frame.code, { ...endpoint, lastSeen: now(), alive: Boolean(hosts.get(frame.code)?.alive) });
       const migration = migrations.get(frame.code);
       if (migration) {
         removeSession(migration.sessionId);
@@ -237,14 +292,28 @@ export function createEnetRelay({
       return;
     }
 
+    if (frame.type === RelayFrame.HOST_ALIVE) {
+      // from the host's keep-alive thread, on its own socket: proves the token, never moves the host endpoint
+      const host = hosts.get(frame.code);
+      if (!room || !host || !safeEqual(frame.payload.toString("utf8"), room.token)) return;
+      host.lastSeen = now();
+      host.alive = true;
+      return;
+    }
+
     if (frame.type === RelayFrame.GUEST_JOIN) {
       const host = hosts.get(frame.code);
-      if (!room || !host || now() - host.lastSeen > hostTtlMs) {
+      if (!room || !host || now() - host.lastSeen > hostTtl(host)) {
         sendError(frame.code, endpoint, "ROOM HOST HAS NOT REACHED THE RELAY");
         return;
       }
       if (frame.payload.length < 8 || frame.payload.length > 32) {
         sendError(frame.code, endpoint, "INVALID GUEST NONCE");
+        return;
+      }
+      // A reserved private room admits only guests whose nonce is a join ticket from /api/rooms/reserved/resolve.
+      if (typeof room.admitGuest === "function" && !room.admitGuest(frame.payload)) {
+        sendError(frame.code, endpoint, "PRIVATE ROOM // ACCESS REQUIRED");
         return;
       }
       const guestKey = `${frame.code}|${endpointKey(remote.address, remote.port)}|${frame.payload.toString("hex")}`;
@@ -289,22 +358,46 @@ export function createEnetRelay({
     }
 
     const session = sessions.get(frame.sessionId);
-    if (!session || session.code !== frame.code || !room) return;
+    if (!session || session.code !== frame.code || !room) {
+      counters.droppedUnknownSession += 1;
+      return;
+    }
 
     if (frame.type === RelayFrame.GUEST_DATA) {
-      if (session.guest.address !== remote.address || session.guest.port !== remote.port) return;
+      if (session.guest.address !== remote.address || session.guest.port !== remote.port) {
+        counters.droppedWrongEndpoint += 1;
+        return;
+      }
       const host = hosts.get(frame.code);
-      if (!host || now() - host.lastSeen > hostTtlMs) return;
+      if (!host || now() - host.lastSeen > hostTtl(host)) {
+        counters.droppedNoHost += 1;
+        return;
+      }
       session.lastSeen = now();
+      counters.forwardedGuest += 1;
+      counters.forwardedBytes += frame.payload.length;
       send(RelayFrame.GUEST_DATA, frame.sessionId, frame.code, frame.payload, host);
     } else if (frame.type === RelayFrame.HOST_DATA) {
       const host = hosts.get(frame.code);
-      if (!host || host.address !== remote.address || host.port !== remote.port) return;
+      if (!host || host.address !== remote.address || host.port !== remote.port) {
+        counters.droppedWrongEndpoint += 1;
+        return;
+      }
       host.lastSeen = now();
       session.lastSeen = now();
+      counters.forwardedHost += 1;
+      counters.forwardedBytes += frame.payload.length;
       send(RelayFrame.HOST_DATA, frame.sessionId, frame.code, frame.payload, session.guest);
     }
   });
+
+  function safeBufferSizes() {
+    try {
+      return { receive: socket.getRecvBufferSize(), send: socket.getSendBufferSize() };
+    } catch {
+      return undefined;
+    }
+  }
 
   socket.on("listening", () => {
     listening = true;
@@ -326,7 +419,8 @@ export function createEnetRelay({
     migrations.clear();
   });
 
-  const pruneTimer = setInterval(prune, Math.max(1000, Math.min(hostTtlMs, sessionTtlMs) / 3));
+  // every 250 ms: a killed host's room must be gone within about a second (hostAliveTtlMs + one tick)
+  const pruneTimer = setInterval(prune, Math.max(100, Math.min(250, hostAliveTtlMs / 4)));
   pruneTimer.unref();
   socket.once("close", () => clearInterval(pruneTimer));
 
@@ -336,9 +430,12 @@ export function createEnetRelay({
     port: relayPort,
     hosts: hosts.size,
     sessions: sessions.size,
+    counters: { ...counters },
+    socketBuffers: listening ? safeBufferSizes() : undefined,
     error: lastError || undefined,
   });
   socket.requestHostMigration = (code) => beginHostMigration(String(code || "").trim().toUpperCase());
+  socket.closeRoom = (code, reason) => closeRoom(String(code || "").trim().toUpperCase(), reason);
   socket.pruneNow = prune;
   return socket;
 }

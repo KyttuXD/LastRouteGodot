@@ -72,6 +72,29 @@ const STAMINA_RECOVERY := 21.0
 ## KT: "no delay before stamina regeneration": regen starts the frame sprinting stops, at the normal rate.
 const STAMINA_RECOVERY_DELAY := 0.0
 const STAMINA_EXHAUSTED_RECOVERY := 25.0
+## Stim Pack (docs/REVIVE.md, KT 2026-10-28): a STIM_INJECT_SECONDS jab, then a full tank and STIM_BOOST_SECONDS of
+## faster sprinting at a lower drain; then STIM_CRASH_SECONDS of slower regen with a heartbeat hunters can hear.
+const STIM_INJECT_SECONDS := .6
+const STIM_BOOST_SECONDS := 6.0
+const STIM_SPEED_SCALE := 1.2
+const STIM_DRAIN_SCALE := .5
+const STIM_CRASH_SECONDS := 10.0
+const STIM_CRASH_REGEN_SCALE := .5
+const STIM_HEARTBEAT_SECONDS := .8
+const STIM_HEARTBEAT_NOISE := 3.0
+## Revive Kit (docs/REVIVE.md): a caught co-op runner can be revived at the spot they went down for REVIVE_WINDOW_SECONDS,
+## by a teammate holding [E] there for REVIVE_HOLD_SECONDS with a kit (used up). Solo it is a one-time second wind.
+const REVIVE_WINDOW_SECONDS := 90.0
+const REVIVE_HOLD_SECONDS := 3.0
+const REVIVE_RANGE := 1.6
+const REVIVE_BREAK_DISTANCE := .5
+const REVIVE_NOISE := 6.0
+const REVIVE_STAMINA := 25.0
+const REVIVE_GRACE_SECONDS := 3.5
+## Per-chunk spawn chances (a separate seeded draw, so every older pickup stays where it was).
+const STIM_PACK_CHANCE := .18
+const REVIVE_KIT_CHANCE_COOP := .06
+const REVIVE_KIT_CHANCE_SOLO := .03
 ## Troll mode for caught / flagged cheaters (docs/ANTI_CHEAT.md).
 const TROLL_HUNTER_SPEED_SCALE := 1.15
 const TROLL_STAMINA_DRAIN_SCALE := 1.6
@@ -82,7 +105,7 @@ const TROLL_FAKE_STEP_SECONDS := Vector2(2.5, 6.0)
 ## theoretical 0.375 m apex and roughly half a second of air time; enough to
 ## clear a small lip without letting players vault the maze walls or props.
 const PLAYER_GRAVITY := 12.0
-const PLAYER_JUMP_VELOCITY := 3.3   # a little more than the 3.0 of the 1.60 m runner (hop 0.48 m, inside the restrained 0.24-0.50 m arc)
+const PLAYER_JUMP_VELOCITY := 3.15   # a little more than the 3.0 of the 1.60 m runner (hop 0.48 m, inside the restrained 0.24-0.50 m arc)
 const LADDER_CLIMB_SPEED := 2.15
 ## Ordinary room-height drops and imperfect stair transitions remain playable.
 ## Only a near-full-level fall crosses this threshold, and even severe falls
@@ -146,7 +169,7 @@ const FACILITY_SAFE_ZONE_AT_SPAWN := true
 ## the SAME grid-cell units as facility_generator.gd (1 unit = 1 cell) —
 ## hunter_brain.gd is presentation-agnostic and never touches pixels or
 ## meters directly; each presentation layer converts at its own boundary.
-const PLAYER_RADIUS := 0.28   # 0.85x of the hunter's 0.33 (the runner is 2.2 m beside a 2.58 m hunter)
+const PLAYER_RADIUS := 0.24   # 0.74x of the hunter's 0.33 (the runner is 1.9 m beside a 2.58 m hunter)
 ## Brain footprint: 0.22 m at the old size, times HunterRoster.MODEL_SCALE (1.5). Still inside one cell, so cell walkability is unchanged.
 const HUNTER_RADIUS := 0.33
 ## Capture reach uses the tuned footprint from before the 1.5x scale, so difficulty catch distances are unchanged.

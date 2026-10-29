@@ -38,7 +38,9 @@ VERDICT = re.compile(r"^-- suite (\S+) (PASS|FAIL) ([0-9.]+)s")
 # failures), so a broken project could print "PASS". None of these lines appear in a healthy full run (checked against
 # the 2026-10-28 baseline), so any of them turns the suite it appears in -- or, before the first suite, every suite of
 # that process -- into a FAIL. Plain "ERROR:" lines are NOT used: a healthy run prints dozens of them.
-COMPILE_ERROR = re.compile(r"SCRIPT ERROR|Parse Error|Failed to load script|Compile Error|res://\S+:\d+ - ")
+# "Unicode parsing error": a NUL or bad byte in a script or a file read at boot (a NUL string constant in an autoload
+# made every --import print six of them, 2026-10-28); treated like a compile error so it fails loudly.
+COMPILE_ERROR = re.compile(r"SCRIPT ERROR|Parse Error|Failed to load script|Compile Error|Unicode parsing error|res://\S+:\d+ - ")
 
 
 # Legacy names old lane trees still pass (validate_runner.gd SUITE_ALIASES): "biomes" became the four region shards.
@@ -104,6 +106,39 @@ def clone_project(dst):
     shutil.copytree(ROOT, dst, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git", "build", ".playtest"))
 
 
+def collect_crash_markers(home):
+    """What CrashWatch (src/autoload/crash_watch.gd) left in a run's user://: the session sentinel (Godot did not quit
+    cleanly: crash or kill), an unrecovered freeze dump, and queued reports (a freeze it came back from, or an earlier
+    crash it found at boot). Returned as one line each and removed, so the next run starts clean."""
+    found = []
+    for dirpath, _dirs, files in os.walk(home):
+        for name in sorted(files):
+            path = os.path.join(dirpath, name)
+            if name == "crashwatch_session.json":
+                kind = "crash: did not quit cleanly"
+            elif name == "crashwatch_freeze.json":
+                kind = "freeze: main loop stalled and never came back"
+            elif os.path.basename(dirpath) == "crash_queue" and name.endswith(".json"):
+                kind = "report: %s" % name.rsplit("-", 1)[-1][:-5]
+            else:
+                continue
+            detail = ""
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                crumbs = [str(c) for c in data.get("breadcrumbs", [])][-3:]
+                if crumbs:
+                    detail = " | last: " + " / ".join(c[:80] for c in crumbs)
+            except (OSError, ValueError, AttributeError):
+                pass
+            found.append(kind + detail)
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    return found
+
+
 class Worker:
     def __init__(self, idx, base):
         self.idx = idx
@@ -114,6 +149,7 @@ class Worker:
         os.makedirs(self.proj)
         clone_project(self.proj)
         self.env = dict(os.environ)
+        self.crash_markers = []   # [(suites, marker line)], from collect_crash_markers after each Godot run
         home, tmp = os.path.join(self.dir, "home"), os.path.join(self.dir, "tmp")
         # user:// lives under HOME (macOS), XDG_DATA_HOME (Linux) or APPDATA (Windows): move all three
         self.env.update(HOME=home, XDG_DATA_HOME=home, APPDATA=home, TMPDIR=tmp, TEMP=tmp, TMP=tmp,
@@ -169,6 +205,9 @@ class Worker:
             rc = proc.wait()
             killer.cancel()
             state["done"] = True
+            for marker in collect_crash_markers(os.path.join(self.dir, "home")):
+                self.crash_markers.append((list(suites), marker))
+                print("[w%d] CRASHMARK %s: %s" % (self.idx, ",".join(suites)[:120], marker), flush=True)
             if state["stalled"] and current and current not in verdicts:
                 # a blocking Godot ALERT (or any hang without CPU use) inside this suite: a test FAIL, not a hang
                 verdicts[current] = ("FAIL", 0.0)
@@ -457,6 +496,7 @@ def _run_all(args, known, wanted, unknown, serial, bins, base, logs, durations):
     except OSError:
         pass
 
+    markers = [(w.idx, suites, m) for w in workers for suites, m in w.crash_markers]
     print("\n==== SUMMARY (%d suites, %d workers, %.0fs wall) ====" % (len(results), len(bins), wall))
     for s in sorted(results, key=lambda k: (results[k][0] == "PASS", -results[k][1])):
         print("%-4s %7.1fs  %s" % (results[s][0], results[s][1], s))
@@ -465,9 +505,14 @@ def _run_all(args, known, wanted, unknown, serial, bins, base, logs, durations):
         print("\n-- %s" % s)
         for line in fail_lines.get(s, [])[:30]:
             print("   " + line)
+    if markers:
+        print("\n-- crash markers (CrashWatch: crashes, kills and freezes; informational)")
+        for idx, suites, marker in markers:
+            print("   [w%d] %s: %s" % (idx, ",".join(suites)[:120], marker))
     if args.json:
-        json.dump({"wall": wall, "jobs": len(bins), "results": results,
-                   "fail_lines": fail_lines}, open(args.json, "w"), indent=1)
+        json.dump({"wall": wall, "jobs": len(bins), "results": results, "fail_lines": fail_lines,
+                   "crash_markers": [{"worker": i, "suites": su, "marker": m} for i, su, m in markers]},
+                  open(args.json, "w"), indent=1)
     print("RESULT: %s (%d failed of %d)" % ("FAIL" if failed else "PASS", len(failed), len(results)))
     return 1 if failed else 0
 

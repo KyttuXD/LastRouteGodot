@@ -67,7 +67,6 @@ const RAMP_PRESTREAM_CELLS := 6.0
 const CLIFF_WALL_KIND := "stone1"
 ## How far past the lip the sheet hangs.
 const FALLS_SPOUT := .12
-const FALLS_SOUND_RANGE := 28.0
 const SEWER_FALLS_SHADER := preload("res://src/look/sewer_falls.gdshader")
 
 const SEWER_WATER_SHADER := preload("res://src/look/sewer_water.gdshader")
@@ -126,6 +125,10 @@ var booth_reporter: Callable
 var _booth_nodes := {}
 ## the merry-go-round lever: requester(player, ride_id) -> String asks the host to start or stop the ride
 var carousel_requester: Callable
+## Sewer valve wheels: requester(player, valve_id) -> String asks the host to turn one (a turned valve shuts its chunk's
+## floods, SewerFloods); _valve_nodes: valve id -> the wheel's pivot (Rim/Spoke/Hub of the authored model).
+var valve_requester: Callable
+var _valve_nodes := {}
 var _carousel_nodes := {}
 var door_requester: Callable
 
@@ -165,6 +168,9 @@ var _ready_set := {}
 var _wanted_now := {}
 var _pending_prebuild: Array[Vector3i] = []
 var _pending_data: Array[Vector3i] = []
+## Chunks a storey up or down in the runner's 3x3 whose prop scenes load in the background once their data exists, so a
+## level change finds its props in memory (the first hop onto a storey used to sit idle while its GLBs loaded).
+var _warm_props := {}
 var _ready_dirty := false
 var _ready_recheck := 0.0
 var _chunk_data := {}
@@ -232,6 +238,7 @@ func begin(seed_text: String, player: PlayerController3D,
 	clear()
 	generator = StreamedRouteGenerator.new(seed_text)
 	generator.public_route = RoomState.public_route
+	generator.coop = RoomState.online
 	_gen_worker = generator.make_worker_copy()
 	tracked_player = player
 	world_state = state if state != null else StreamedWorldState.new()
@@ -251,6 +258,8 @@ func _exit_tree() -> void:
 func clear() -> void:
 	_walked_link_cache.clear()
 	_pipe_nodes.clear()
+	_valve_nodes.clear()
+	_gate_nodes.clear()
 	if _floods != null:
 		_floods.forget_all()
 	if _gen_task != -1:
@@ -276,6 +285,7 @@ func clear() -> void:
 	_dormant_data.clear()
 	_pending_prebuild.clear()
 	_pending_data.clear()
+	_warm_props.clear()
 	_ready_set = {}
 	_chunk_data.clear()
 	_pickup_nodes.clear()
@@ -448,9 +458,8 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 			var coord := Vector3i(x, center.y, z)
 			if generator.is_chunk_allowed(coord):
 				wanted[coord] = true
-	# The maze and the Mezzanine above it look through each other (grating, the open balcony edges). On the Mezzanine the
-	# 3x3 of the maze below stays loaded; in the maze only the Mezzanine chunk overhead (the neighbours stream in when a
-	# stairwell is walked, and are seen through the open-air edges only from above).
+	# The maze and the deck over it look through each other (grating, the open balcony edges): on a deck the 3x3 of the maze
+	# below stays loaded; in the maze only the deck chunk overhead.
 	if center.y == 0 or center.y == StreamedRouteGenerator.MEZZANINE_LEVEL:
 		var other_level := StreamedRouteGenerator.MEZZANINE_LEVEL if center.y == 0 else 0
 		var reach := 0 if center.y == 0 else 1
@@ -459,6 +468,14 @@ func _wanted_chunks(center: Vector3i) -> Dictionary:
 				var other := Vector3i(x, other_level, z)
 				if generator.is_chunk_allowed(other):
 					wanted[other] = true
+	# The Mezzanine void is one open shaft: standing in or beside it, every level of its columns within one chunk stays
+	# loaded, so the whole shaft is visible from any ledge, catwalk or deck.
+	for z in range(center.z - 1, center.z + 2):
+		for x in range(center.x - 1, center.x + 2):
+			if not generator.is_void_column(Vector3i(x, 0, z)):
+				continue
+			for level in range(VoidRegion.BOTTOM_LEVEL, VoidRegion.TOP_LEVEL + 1):
+				wanted[Vector3i(x, level, z)] = true
 	# The far end of a ladder or ramp stays loaded while the runner is in a chunk
 	# with one, so a shaft or a ramp tunnel never opens onto an unloaded level.
 	# Chunks with no link keep the plain nine-chunk window.
@@ -545,6 +562,7 @@ func _refresh_stream(force: bool) -> void:
 	_pending_unloads.clear()
 	_wanted_now = wanted
 	_pending_data.clear()
+	_warm_props.clear()
 	_ready_set = _vertical_ready_set(center)
 	if not _active_build.is_empty():
 		# a chunk still wanted or still to pre-build keeps building (restarting it on every level change wasted the work)
@@ -564,12 +582,14 @@ func _refresh_stream(force: bool) -> void:
 		var coord: Vector3i = coord_value
 		if not wanted.has(coord):
 			_pending_unloads.append(coord)
-	# Nearest first; ties go to the chunk ahead of the runner's travel direction.
+	# The runner's own storey first (the walls round them), then the linked storeys; nearest first, ties go to the chunk
+	# ahead of the runner's travel direction. Counting a storey as one step of distance interleaved a Mezzanine well's
+	# other levels with the runner's own neighbours, so the storey they stand on finished last.
 	var heading := Vector2(center.x - previous.x, center.z - previous.z) if previous.x != 999999 else Vector2.ZERO
 	_pending_loads.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
-		var da := _chunk_distance(a, center) * 4 - int(heading.dot(Vector2(a.x - center.x, a.z - center.z)))
-		var db := _chunk_distance(b, center) * 4 - int(heading.dot(Vector2(b.x - center.x, b.z - center.z)))
-		return da < db)
+		return _load_order(a, center, heading) < _load_order(b, center, heading))
+	if jump:
+		_hop_until_usec = Time.get_ticks_usec() + int(HOP_BURST_SECONDS * 1e6)
 	_pending_unloads.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 		return _chunk_distance(a, center) > _chunk_distance(b, center))
 	_stream_queue_center = center
@@ -818,6 +838,9 @@ func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 				var coord := Vector3i(x, level, z)
 				if generator.is_chunk_allowed(coord) and not generator.has_chunk_cached(coord) and not _pending_data.has(coord):
 					_pending_data.append(coord)
+				if absi(level - center.y) == 1 and generator.is_chunk_allowed(coord) and not _loaded.has(coord) \
+						and not _dormant.has(coord):
+					_warm_props[coord] = true
 
 
 ## Links (ladder, ramp, stairwell ...) in the runner's 3x3. Generators with vertical_links(coord) (every level) are asked
@@ -1073,12 +1096,20 @@ func _queue_generation() -> void:
 	for coord in _pending_data:
 		if not generator.has_chunk_cached(coord) and not coords.has(coord):
 			coords.append(coord)
-	_pending_data.clear()
 	for coord in _extra_generation.keys():
 		if _chunk_generated(coord):
 			_extra_generation.erase(coord)
 	if coords.is_empty():
 		return
+	# Small batches, most urgent first (the queue's own order: the runner's chunk and its seam neighbours, then the rest
+	# of the window, pre-builds, and data-only storeys last). A task's results are only taken when it completes, so one
+	# task for everything (50+ chunks after a teleport) kept the runner's own chunk waiting for all of it: seconds on an
+	# old laptop, with nothing building.
+	if coords.size() > GEN_BATCH:
+		coords = coords.slice(0, GEN_BATCH)
+	# data-only chunks leave their list once a batch takes them (or once something else generated them)
+	_pending_data.assign(_pending_data.filter(func(coord: Vector3i) -> bool:
+		return not coords.has(coord) and not generator.has_chunk_cached(coord)))
 	_gen_task_coords = coords
 	var worker := _gen_worker
 	var results := {}
@@ -1086,6 +1117,27 @@ func _queue_generation() -> void:
 	_gen_task = WorkerThreadPool.add_task(func() -> void:
 		for coord in coords:
 			results[coord] = worker.chunk(coord), true, "chunk generation")
+
+
+const WARM_MAX_IN_FLIGHT := 4
+## Chunks per generation task: one chunk and its four seam neighbours, so the first build can start after one batch.
+const GEN_BATCH := 5
+## Prefetch the props of warm chunks whose data is ready, only while the stream queue is idle (called from
+## _drain_stream_queue) and with few loads in flight, so nothing the window needs waits behind it.
+func _warm_generated_props() -> void:
+	if _prefetching.size() >= WARM_MAX_IN_FLIGHT:
+		return   # the loader threads are busy: what the window needs now must not queue behind a warm-up
+	var started := 0
+	for coord_value in _warm_props.keys():
+		var coord: Vector3i = coord_value
+		if started >= 3:
+			return
+		# only chunks whose data is already cached: _prefetch_chunk reads generator.chunk(), which would otherwise generate
+		# it here on the main thread (generators without a worker copy, the sewer's, took a 373 ms frame)
+		if generator.has_chunk_cached(coord):
+			_warm_props.erase(coord)
+			_prefetch_chunk(coord)
+			started += 1
 
 
 func _poll_prefetch() -> void:
@@ -1129,10 +1181,17 @@ func _drain_stream_queue() -> void:
 		_queue_generation()
 	if _pending_loads.is_empty() and _pending_unloads.is_empty() \
 			and _active_build.is_empty() and _pending_prebuild.is_empty():
+		if not _warm_props.is_empty():
+			_warm_generated_props()
 		return
 	# A long queue (after a teleport) gets a little more time per frame so the window fills in seconds, not tens.
 	var budget := minf(PlatformProfile.stream_budget_ms + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(),
 		PlatformProfile.stream_budget_max_ms)
+	if _hop_until_usec != 0:
+		if Time.get_ticks_usec() < _hop_until_usec and _own_storey_pending():
+			budget = maxf(budget, PlatformProfile.stream_budget_burst_ms)
+		else:
+			_hop_until_usec = 0
 	_stream_deadline_usec = Time.get_ticks_usec() + int(budget * 1000.0)
 	while true:
 		# Never register new collision and retire an old physics island in the same
@@ -1194,6 +1253,26 @@ func _prof(label: String, t0: int) -> void:
 		frame_stream_label = label
 	if profile_stream and ms > 4.0:
 		print("PROF %s %.1f ms" % [label, ms])
+
+
+static func _load_order(coord: Vector3i, center: Vector3i, heading: Vector2) -> int:
+	return (0 if coord.y == center.y else 1000) + _chunk_distance(coord, center) * 4 \
+		- int(heading.dot(Vector2(coord.x - center.x, coord.z - center.z)))
+
+
+## After a level change or teleport the runner's own storey streams with the tier's burst budget
+## (PlatformProfile.stream_budget_burst_ms) until it is complete, for at most this long. An old laptop needs several
+## seconds for a storey (1.5 s ended the burst long before an Air had built one).
+const HOP_BURST_SECONDS := 6.0
+var _hop_until_usec := 0
+
+
+## Still building or queued on the runner's own storey (the queue holds it first, see _load_order).
+func _own_storey_pending() -> bool:
+	var level := _last_player_chunk.y
+	if not _active_build.is_empty() and (_active_build.get("coord", Vector3i.ZERO) as Vector3i).y == level:
+		return true
+	return not _pending_loads.is_empty() and _pending_loads[0].y == level
 
 
 static func _chunk_distance(a: Vector3i, b: Vector3i) -> int:
@@ -1272,8 +1351,9 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 			for x in range(drop.position.x, drop.end.x):
 				open_above[Vector2i(x, z)] = true
 				heights[Vector2i(x, z)] = LEVEL_HEIGHT
-	# Under the Mezzanine's grating the maze has no ceiling: the grating is the roof, and hunters see up through it
-	if coord.y == 0 and generator.is_chunk_allowed(Vector3i(coord.x, StreamedRouteGenerator.MEZZANINE_LEVEL, coord.z)):
+	# Under a deck's grating the maze has no ceiling: the grating is the roof, and hunters see up through it
+	if coord.y == 0 and generator.is_chunk_allowed(Vector3i(coord.x, StreamedRouteGenerator.MEZZANINE_LEVEL, coord.z)) \
+			and not generator.is_void_column(coord):
 		for cell_value in generator.mezzanine().sight_cells(coord):
 			open_above[cell_value as Vector2i] = true
 	var shaft_cells: Dictionary = data.get("shaft_cells", {})
@@ -1304,7 +1384,7 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 	for cell_value in data.get("structural_voids", []):
 		structural_voids[cell_value as Vector2i] = true
 	var link_cells := {}
-	if coord.y == 0 or coord.y == StreamedRouteGenerator.SEWER_LEVEL:
+	if (coord.y == 0 or coord.y == StreamedRouteGenerator.SEWER_LEVEL) and not generator.is_void_column(coord):
 		for link_value in generator.sewer().links_for(coord):
 			link_cells[LevelLink.cell_on(link_value, coord.y)] = link_value
 	# The maze end of every ladder: its top section with grab hoops in the shaft,
@@ -1335,6 +1415,8 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"wall_items": _wall_items.get(region, _wall_items["maze"]),
 		"ceiling_voids": ceiling_voids,
 		"floor_voids": floor_voids,
+		# a maze chunk beside a deck patch or the void is seen from above: its slab gets a top face (ceilings face down)
+		"roof_top": coord.y == 0 and _seen_from_above(coord),
 		"structural_voids": structural_voids,
 		"safe": bool(data.get("safe_room", false)),
 		"style": RefLook.REGION_STYLE.get(region, RefLook.REGION_STYLE["maze"]),
@@ -1421,7 +1503,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				_spawn_mezzanine_rails(root, data)
 				_spawn_shop_signs(root, data)
 				if not (build["sewer_grid"] as Array).is_empty():
-					_spawn_sewer_water(root, build["sewer_grid"], _jump_cell(data))
+					_spawn_sewer_water(root, build["sewer_grid"], _jump_cell(data), _gate_gaps(data))
 				_spawn_ramps(root, data, (build["coord"] as Vector3i).y)
 				_spawn_falls(root, data, (build["coord"] as Vector3i).y)
 				InfernoPitView.build(root, data)
@@ -1508,6 +1590,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					_set_lights_recursive(root, false)
 				StoreyLayers.apply(root, coord.y)
 				_floods.chunk_built(coord, root, data)
+				_apply_drips(root, data)
 				_loaded[coord] = root
 				_chunk_data[coord] = data
 				chunk_builds += 1
@@ -1536,6 +1619,9 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 	if data.has("mezzanine_grid"):
 		_build_mezzanine_cell(build, cell)
 		return
+	if bool(build.get("roof_top", false)) and not (build["open_above"] as Dictionary).has(cell):
+		var roof_y := _height_in(build, cell) if int(grid_data[z][x]) == 0 else float(build["corridor_h"])
+		surface.add_floor_at(x, z, roof_y + .03, RefTextures.layer("floor", ceiling_kind), RefTextures.params("ceiling", ceiling_kind))
 	var ramp_cells: Dictionary = data.get("ramp_cells", {})
 	if ramp_cells.has(cell):
 		_build_ramp_cell(build, cell, ramp_cells[cell])
@@ -1720,17 +1806,36 @@ static func _is_lava(build: Dictionary, cell: Vector2i) -> bool:
 		and (build["structural_voids"] as Dictionary).has(cell)
 
 
-## One cell of a Mezzanine chunk: grating or deck underfoot (a floor collider, drawn), open air everywhere else (no wall,
-## no collider, no ceiling: the double-height void over the maze). The railings come in _spawn_mezzanine_rails.
+## True for a level-0 chunk with no deck over it but one in the 3x3 around it (or the void): from there it is seen from above.
+func _seen_from_above(coord: Vector3i) -> bool:
+	if generator.is_chunk_allowed(Vector3i(coord.x, StreamedRouteGenerator.MEZZANINE_LEVEL, coord.z)):
+		return false
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			if generator.is_chunk_allowed(Vector3i(coord.x + dx, StreamedRouteGenerator.MEZZANINE_LEVEL, coord.z + dz)):
+				return true
+	return false
+
+
+## One cell of a void chunk (Mezzanine, VoidRegion): grating or deck underfoot (a floor collider, drawn), open air
+## elsewhere (no wall, no collider, no ceiling), the pit floor at the bottom, and a roof over everything at the top. The
+## railings come in _spawn_mezzanine_rails.
 func _build_mezzanine_cell(build: Dictionary, cell: Vector2i) -> void:
 	var data: Dictionary = build["data"]
 	var code := int((data["mezzanine_grid"] as Array)[cell.y][cell.x])
+	var surface := build["surface"] as RefSurfaceMesh
+	if bool(data.get("void_cap", false)):
+		surface.add_ceiling(cell.x, cell.y, LEVEL_HEIGHT - SLAB, RefTextures.layer("floor", "ceil0"),
+			RefTextures.params("ceiling", "ceil0"))
+	if code == MezzanineRouteGenerator.PIT:
+		(build["grid"] as GridMap).set_cell_item(Vector3i(cell.x, 0, cell.y), _col_floor_item)
+		surface.add_floor(cell.x, cell.y, RefTextures.layer("floor", "hazard"), RefTextures.params("floor", "hazard"))
+		return
 	if not MezzanineRouteGenerator.is_walkable(code):
 		return
 	var kind := "grate" if code == MezzanineRouteGenerator.GRATE else "metal2"
 	(build["grid"] as GridMap).set_cell_item(Vector3i(cell.x, 0, cell.y), _col_floor_item)
-	(build["surface"] as RefSurfaceMesh).add_floor(cell.x, cell.y, RefTextures.layer("floor", kind),
-		RefTextures.params("floor", kind))
+	surface.add_floor(cell.x, cell.y, RefTextures.layer("floor", kind), RefTextures.params("floor", kind))
 
 
 ## Railings on every Mezzanine edge that drops to open air: an iron top bar and a collider, waist high.
@@ -1770,6 +1875,24 @@ func _spawn_mezzanine_rails(root: Node3D, data: Dictionary) -> void:
 	mesh.mesh = surface.commit()
 	mesh.material_override = _stair_iron()
 	root.add_child(mesh)
+	# the shaft is dark: one budgeted lamp over the catwalk crossing of every void chunk lights the deck and the walls of
+	# the shaft round it
+	for spot in [Vector2(0, 0), Vector2(-11, 0), Vector2(11, 0), Vector2(0, -11), Vector2(0, 11)]:
+		var lamp := OmniLight3D.new()
+		lamp.light_color = Color("ffd29a")
+		lamp.light_energy = 1.1
+		lamp.omni_range = 18.0
+		lamp.position = Vector3(UpperLevelTools.CENTER + .5 + spot.x, 2.6, UpperLevelTools.CENTER + .5 + spot.y)
+		root.add_child(lamp)
+		LampField.make_budgeted(lamp)
+	if bool(data.get("void_floor", false)):
+		# a faint red glow rising from the pit
+		var glow := OmniLight3D.new()
+		glow.light_color = Color("c8402a")
+		glow.light_energy = .8
+		glow.omni_range = 26.0
+		glow.position = Vector3(UpperLevelTools.CENTER + .5, .6, UpperLevelTools.CENTER + .5)
+		root.add_child(glow)
 
 
 func _add_rail_bar(surface: SurfaceTool, center: Vector3, size: Vector3) -> void:
@@ -2324,20 +2447,9 @@ func apply_breach(id: String, hp: int, opened: bool) -> void:
 	node.apply_breakable_state(hp, opened)
 
 
+## The fall's roar: a positional source of the level layer (LevelAmbience plays the nearest few, muffled behind walls).
 func _add_falls_sound(root: Node3D, at: Vector3) -> void:
-	if DisplayServer.get_name() == "headless":
-		return
-	var stream := FallsLoop.stream()
-	var roar := AudioStreamPlayer3D.new()
-	roar.name = "FallsRoar"
-	roar.stream = stream
-	roar.bus = &"SFX"
-	roar.unit_size = 7.0
-	roar.max_distance = FALLS_SOUND_RANGE
-	roar.volume_db = 3.0
-	roar.autoplay = true
-	roar.position = at
-	root.add_child(roar)
+	LevelAmbience.add(root, "falls", at)
 
 
 ## The sloped collider of every ramp whose upper end is this chunk's level: one
@@ -2409,7 +2521,7 @@ func _add_shaft_lining(build: Dictionary, cell: Vector2i) -> void:
 ## One mesh of flowing water over every channel cell of a sewer chunk. The
 ## vertex colour's red/blue channels carry the flow direction for the shader:
 ## the east-west channel flows along x, the north-south one along z.
-func _spawn_sewer_water(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1)) -> void:
+func _spawn_sewer_water(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1), gaps: Dictionary = {}) -> void:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var y := SewerRouteGenerator.WATER_SURFACE
@@ -2437,7 +2549,7 @@ func _spawn_sewer_water(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2
 	material.shader = SEWER_WATER_SHADER
 	water.material_override = material
 	root.add_child(water)
-	_spawn_channel_railings(root, sewer_grid, gap)
+	_spawn_channel_railings(root, sewer_grid, gap, gaps)
 
 
 ## The falls' jump cell of a chunk, or (-1, -1): the railing gap and the open collider sit on it.
@@ -2450,7 +2562,7 @@ static func _jump_cell(data: Dictionary) -> Vector2i:
 ## Iron railings along every edge where a walkway, room floor or deck meets open
 ## water: a post at each metre and a top and mid rail, as two MultiMeshes per
 ## chunk. They are the visible reason the channel collider stops you.
-func _spawn_channel_railings(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1)) -> void:
+func _spawn_channel_railings(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1), gaps: Dictionary = {}) -> void:
 	var segments: Array[Transform3D] = []
 	var size := sewer_grid.size()
 	for z in size:
@@ -2463,8 +2575,8 @@ func _spawn_channel_railings(root: Node3D, sewer_grid: Array, gap: Vector2i = Ve
 				if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
 						or not int(sewer_grid[n.y][n.x]) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL]:
 					continue
-				if n == gap:
-					continue            # the deliberate jump: no rail where the ledge meets the open drop cell
+				if n == gap or gaps.has(n):
+					continue            # the deliberate jump, a sluice gate's ends: no rail where the ledge meets them
 				# on the walkway side of the edge, running along it
 				var mid := Vector3(x + .5 + step.x * (.5 - RAIL_INSET), 0.0, z + .5 + step.y * (.5 - RAIL_INSET))
 				var basis := Basis(Vector3.UP, PI / 2.0) if step.x != 0 else Basis.IDENTITY
@@ -2644,7 +2756,8 @@ func _seam_height(build: Dictionary, nx: int, nz: int) -> float:
 
 
 func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
-	var region := String(build.get("region", generator.region_for(build["coord"])))
+	# build["region"] is always set: a get() default is evaluated on every call (region_for once per floor cell)
+	var region := String(build["region"]) if build.has("region") else generator.region_for(build["coord"])
 	return ref_floor_kind(build["data"], region, build["room_map"], build["room_anchor"], x, z)
 
 
@@ -2750,7 +2863,9 @@ func _ref_wall_kind(build: Dictionary, x: int, z: int, nx: int, nz: int) -> Stri
 	var coord: Vector3i = build["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var room_type: String = (build["room_map"] as Dictionary).get(Vector2i(nx, nz), "")
-	var region := String(build.get("region", generator.region_for(coord) if generator != null else "maze"))
+	# a get() default would be evaluated on every call: region_for ran once per wall face
+	var region := String(build["region"]) if build.has("region") \
+		else (generator.region_for(coord) if generator != null else "maze")
 	return RefLook.wall_kind(region, room_type, coord.x * size + x, coord.z * size + z)
 
 
@@ -3008,7 +3123,171 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		for index in range(before, parent.get_child_count()):
 			(entry["nodes"] as Array).append(parent.get_child(index))
 		return
+	if type == "sewerValveWheel" or type == "sewerSluiceGate":
+		var first := parent.get_child_count()
+		_spawn_region_prop_now(parent, coord, prop, finish)
+		if type == "sewerValveWheel":
+			_rig_valve(parent, prop, first)
+		else:
+			_rig_gate(parent, prop, first)
+		return
 	_spawn_region_prop_now(parent, coord, prop, finish)
+
+
+const VALVE_TURN_SECONDS := 1.6
+const VALVE_HOLD_SECONDS := 2.0
+const VALVE_NOISE := 9.0
+const GATE_SWING_SECONDS := 2.4
+## gate id -> {"pivot": Node3D (the leaf's hinge), "cells": Array, "grid": GridMap, "open": bool}
+var _gate_nodes := {}
+
+
+## The channel cells under a chunk's sluice gates: the railings leave their ends open.
+static func _gate_gaps(data: Dictionary) -> Dictionary:
+	var gaps := {}
+	for gate in data.get("gates", []):
+		for cell in (gate as Dictionary)["cells"]:
+			gaps[cell] = true
+	return gaps
+
+
+## A sluice gate: its leaf on a pivot at the hinge pin, raised (shut) or lowered (a crossing) as the world state says.
+func _rig_gate(parent: Node3D, prop: Dictionary, first: int) -> void:
+	var visual: Node3D = null
+	for index in range(first, parent.get_child_count()):
+		var child := parent.get_child(index)
+		if child is Node3D and String(child.get_meta("streamed_prop_type", "")) == "sewerSluiceGate":
+			visual = child
+	if visual == null:
+		return
+	var leaf := visual.find_child("Leaf", true, false) as Node3D
+	var pin := visual.find_child("HingePin", true, false) as Node3D
+	if leaf == null or pin == null:
+		return
+	var holder := leaf.get_parent() as Node3D
+	var pivot := Node3D.new()
+	pivot.name = "GateHinge"
+	holder.add_child(pivot)
+	pivot.transform = Transform3D(Basis.IDENTITY, pin.transform.origin)
+	var keep := leaf.transform
+	holder.remove_child(leaf)
+	pivot.add_child(leaf)
+	leaf.transform = pivot.transform.affine_inverse() * keep
+	var gate_id := String(prop.get("gate", ""))
+	_gate_nodes[gate_id] = {"pivot": pivot, "cells": prop.get("gate_cells", []), "grid": parent.get_node_or_null("Structure"),
+		"open": false}
+	apply_gate(gate_id, _gate_open(parent, gate_id), false)
+
+
+## Whether a gate is open: its valve turned an odd number of times.
+func _gate_open(root: Node, gate_id: String) -> bool:
+	if world_state == null:
+		return false
+	var data: Dictionary = _chunk_data.get(_root_coord(root), {})
+	if data.is_empty():
+		data = generator.chunk(_root_coord(root))
+	for gate in data.get("gates", []):
+		if (gate as Dictionary)["id"] == gate_id:
+			return world_state.valve_count(String(gate["valve"])) % 2 == 1
+	return false
+
+
+static func _root_coord(root: Node) -> Vector3i:
+	var parts := String(root.name).split("_")
+	return Vector3i(int(parts[1]), int(parts[2]), int(parts[3])) if parts.size() == 4 else Vector3i.ZERO
+
+
+## Lowers (open) or raises (shut) a gate's leaf, and swaps the channel collider under it for floor, or back.
+func apply_gate(gate_id: String, open: bool, animate: bool = true) -> void:
+	var entry: Dictionary = _gate_nodes.get(gate_id, {})
+	var pivot: Variant = entry.get("pivot")
+	if not is_instance_valid(pivot):
+		_gate_nodes.erase(gate_id)
+		return
+	entry["open"] = open
+	var angle := 0.0 if open else -PI / 2.0
+	if animate:
+		var swing := (pivot as Node3D).create_tween()
+		swing.tween_property(pivot, "rotation:x", angle, GATE_SWING_SECONDS).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	else:
+		(pivot as Node3D).rotation.x = angle
+	var grid: Variant = entry.get("grid")
+	if is_instance_valid(grid):
+		for cell_value in entry.get("cells", []):
+			var cell: Vector2i = cell_value
+			(grid as GridMap).set_cell_item(Vector3i(cell.x, 0, cell.y), _col_floor_item if open else _col_channel_item)
+
+
+## A flood valve with nothing to shut turns its chunk's pipe drips off and on (off after odd turns of any of them).
+func _apply_drips(root: Node, data: Dictionary) -> void:
+	if world_state == null or root == null:
+		return
+	var off := false
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if String(prop.get("type", "")) == "sewerValveWheel" and String(prop.get("valve_effect", "flood")) == "flood":
+			off = off or world_state.valve_count(String(prop["id"])) % 2 == 1
+	for drips in root.find_children("PipeDrips", "GPUParticles3D", true, false):
+		(drips as GPUParticles3D).emitting = not off
+
+
+## A valve wheel you can turn: its rim, spokes and hub on one pivot at the hub (they spin), and an interactable at it.
+func _rig_valve(parent: Node3D, prop: Dictionary, first: int) -> void:
+	var visual: Node3D = null
+	for index in range(first, parent.get_child_count()):
+		var child := parent.get_child(index)
+		if child is Node3D and String(child.get_meta("streamed_prop_type", "")) == "sewerValveWheel":
+			visual = child
+	if visual == null:
+		return
+	var hub := visual.find_child("Hub", true, false) as Node3D
+	if hub == null:
+		return
+	var pivot := Node3D.new()
+	pivot.name = "ValvePivot"
+	var holder := hub.get_parent() as Node3D
+	holder.add_child(pivot)
+	pivot.transform = Transform3D(Basis.IDENTITY, hub.transform.origin)
+	for part in holder.get_children():
+		var name_text := String(part.name)
+		if part is Node3D and part != pivot and (name_text.begins_with("Rim") or name_text.begins_with("Spoke") or name_text == "Hub"):
+			var keep := (part as Node3D).transform
+			holder.remove_child(part)
+			pivot.add_child(part)
+			(part as Node3D).transform = pivot.transform.affine_inverse() * keep
+	var valve_id := String(prop.get("id", ""))
+	_valve_nodes[valve_id] = pivot
+	var turn := RouteInteractable3D.new()
+	turn.name = "ValveTurn"
+	turn.kind = RouteInteractable3D.Kind.FURNITURE
+	turn.configure_furniture("play")
+	turn.position = pivot.global_position - parent.global_position if pivot.is_inside_tree() else visual.position + Vector3(0, .3, 0)
+	turn.prompt_resolver = func() -> String: return "TURN VALVE"
+	turn.set_meta("hold_seconds", VALVE_HOLD_SECONDS)
+	if valve_requester.is_valid():
+		turn.activation_override = valve_requester.bind(valve_id)
+	parent.add_child(turn)
+
+
+## The host's "stream_valve" on every machine: the wheel spins round twice with a clank (its floods shut in the state).
+func apply_valve(valve_id: String, event: Dictionary = {}) -> void:
+	var coord: Vector3i = event.get("chunk", Vector3i(999999, 0, 0))
+	var root := _loaded.get(coord) as Node
+	if root != null:
+		match String(event.get("effect", "")):
+			"flood":
+				_apply_drips(root, _chunk_data.get(coord, {}))
+			"gate":
+				apply_gate(String(event.get("gate", "")), int(event.get("turns", 0)) % 2 == 1)
+	var pivot: Variant = _valve_nodes.get(valve_id)
+	if not is_instance_valid(pivot):
+		_valve_nodes.erase(valve_id)
+		return
+	var spin := (pivot as Node3D).create_tween()
+	spin.tween_property(pivot, "rotation:z", (pivot as Node3D).rotation.z - TAU * 2.0, VALVE_TURN_SECONDS) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	if DisplayServer.get_name() != "headless":
+		Sound.door_breach()
 
 
 ## The torn end an outflow main leaves at its wall once the Axe breaks it (authored with the main, no collider: it is all
@@ -3068,6 +3347,9 @@ func _spawn_region_prop_now(parent: Node3D, coord: Vector3i, prop: Dictionary, f
 		var wall := Vector2(prop.get("outflow_wall", Vector2i.ZERO))
 		_add_pipe_drips(parent, Vector3(cell.x + .5 - wall.x * 2.53, float(prop.get("collider_y0", 1.0)) - .2,
 			cell.y + .5 - wall.y * 2.53), prop, Vector3(.7, 0.0, .7), 12)
+		# its trickle (LevelAmbience), by the main's breakable id so a burst can stop it
+		LevelAmbience.add(parent, "outflow", Vector3(cell.x + .5 - wall.x * 2.53, float(prop.get("collider_y0", 1.0)) - .2,
+			cell.y + .5 - wall.y * 2.53), "outflow:" + String(prop.get("breakable_id", "")))
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:
@@ -3264,6 +3546,22 @@ func room_lamp_energy(room_id: String) -> float:
 	for entry_value in _room_lamps.get(room_id, []):
 		total += float(((entry_value as Array)[0] as Array)[2])
 	return total
+
+
+## Guest prediction (InfiniteRouteTest): swings only the door leaf, leaving StreamedWorldState to the host's event. A
+## refused or lost request rolls back with show_room_door_state().
+func predict_room_door(door_id: String, open: bool) -> void:
+	var door := _door_nodes.get(door_id) as RouteInteractable3D
+	if door != null and is_instance_valid(door):
+		door.apply_room_door_state(open, bool(world_state.room_door_status(door_id).get("broken", false)))
+
+
+## Draws a door as StreamedWorldState has it (undoes predict_room_door).
+func show_room_door_state(door_id: String) -> void:
+	var door := _door_nodes.get(door_id) as RouteInteractable3D
+	if door != null and is_instance_valid(door):
+		var status := world_state.room_door_status(door_id)
+		door.apply_room_door_state(bool(status.get("open", false)), bool(status.get("broken", false)))
 
 
 func apply_room_door_state(door_id: String, open: bool, broken: bool) -> bool:
@@ -3837,6 +4135,17 @@ func _collect_taken_pickups() -> void:
 		if pickup.completed and world_state.claim_pickup(entity_id):
 			pickup_claimed.emit(entity_id)
 			_pickup_nodes.erase(entity_id)
+
+
+## Guest prediction: hides a pickup the moment it is taken (and stops a second press); the host's claim frees it, a
+## refusal or timeout shows it again. False when there is no such pickup node here.
+func predict_pickup_taken(entity_id: String, taken: bool) -> bool:
+	var pickup := _pickup_nodes.get(entity_id) as RouteInteractable3D
+	if pickup == null or not is_instance_valid(pickup) or (taken and pickup.completed):
+		return false
+	pickup.visible = not taken
+	pickup.completed = taken
+	return true
 
 
 func apply_pickup_claim(entity_id: String) -> bool:

@@ -32,6 +32,9 @@ var default_pixel_effect_percent := -1.0
 ## frame log (PerfLog, user://perf). Mobile GPUs share the frame with a slower CPU: smaller build slices.
 var stream_budget_ms := 4.0
 var stream_budget_max_ms := 9.0
+## Right after a level change or teleport, while the runner's own storey is still streaming in (StreamedFacilityView3D).
+## Slow machines get the most: a few slower frames at a hop beat seconds of missing walls (an Air built ~5 ms a frame).
+var stream_budget_burst_ms := 14.0
 var perf_log := false
 ## Device quality tier (QualityTier): detected from the hardware at boot, or forced by Settings GRAPHICS. In AUTO the
 ## QualityGovernor gives up notches live when the frame target is missed and takes them back with a margin.
@@ -97,8 +100,8 @@ func _ready() -> void:
 	add_child(governor)
 	get_tree().node_added.connect(_on_node_added)
 	if prerender_ambience and DisplayServer.get_name() != "headless":
-		# every district bed renders on the worker pool at boot, so entering a district never waits for one
-		for key in AmbienceTable.regions():
+		# every district and level bed renders on the worker pool at boot, so entering one never waits for it
+		for key in AmbienceTable.regions() + AmbienceTable.levels():
 			Sound.prerender_ambience.call_deferred(String(key))
 	PerfLog.install(get_tree().root, perf_log or args.has("--perflog"))
 	if is_phone or is_quest:
@@ -120,6 +123,7 @@ func apply_budgets() -> void:
 	var budgets := QualityGovernor.degrade(QualityTier.budgets(tier, tier_specs), notch)
 	stream_budget_ms = budgets["stream_budget_ms"]
 	stream_budget_max_ms = budgets["stream_budget_max_ms"]
+	stream_budget_burst_ms = float(budgets.get("stream_budget_burst_ms", stream_budget_max_ms))
 	prebuild_linked_levels = bool(budgets["prebuild_linked_levels"]) and not low_memory
 	lamp_pool = budgets["lamp_pool"]
 	shadows = budgets["shadows"]
@@ -220,6 +224,7 @@ static func quit_allowed(ios: bool, web: bool) -> bool:
 ## the final step (the platform validator checks the order without leaving).
 func quit_app(quit := Callable()) -> void:
 	flush_saves()
+	await RoomState.close_room_for_quit()   # a hosting player closes their room (guests -> main menu) before the app ends
 	await UpdateManager.apply_on_exit()   # a downloaded update is swapped in as the game exits
 	if is_xr:
 		var openxr := XRServer.find_interface("OpenXR")

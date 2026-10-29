@@ -75,6 +75,8 @@ var radar_time := -1.0:
 ## teammates remain visible on both maps while hunter markers still require
 ## the admin reveal permission.
 var players: Array = []
+## Admin pulses (host-approved, a few seconds): [{at: Vector2, level: int, until_msec: int, name: String}] drawn as expanding rings.
+var pulses: Array = []
 var dropped_tools: Array = []
 var safe_rooms: Array = []
 ## Infinite mode supplies compact discovered chunks rather than a finite
@@ -140,8 +142,8 @@ func view_center() -> Vector2:
 
 
 func _process(delta: float) -> void:
-	if not pings.is_empty() and is_visible_in_tree():
-		queue_redraw()   # pings pulse and expire
+	if (not pings.is_empty() or not pulses.is_empty()) and is_visible_in_tree():
+		queue_redraw()   # pings and admin pulses animate and expire
 	# Porcelle's ping animates, so a minimap with her mark redraws every frame
 	if ghost_ping and is_visible_in_tree():
 		for mark in hunters:
@@ -355,7 +357,7 @@ func show_streamed_state(chunks: Dictionary, level: int, chunk_size: int,
 	players = []
 	for mark_value in player_marks:
 		var mark: Dictionary = mark_value
-		if not mark.has("level") or int(mark["level"]) == level:
+		if not mark.has("level") or int(mark["level"]) == level or bool(mark.get("other_floor", false)):
 			players.append(mark)
 	dropped_tools = []
 	for mark_value in drop_marks:
@@ -408,6 +410,7 @@ func _draw() -> void:
 		_draw_remote_player(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
 			cell, mark)
 	_draw_pings(origin, Vector2.ZERO, cell)
+	_draw_pulses(origin, Vector2.ZERO, cell)
 	for mark in dropped_tools:
 		_draw_dropped_tool(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
 			cell, mark)
@@ -576,10 +579,11 @@ func _draw_streamed() -> void:
 		_draw_hunter_marker(mark_at, cell, mark)
 	for mark in players:
 		var mark_world: Vector2 = mark.get("at", Vector2.ZERO)
-		if not Rect2(world_bounds).has_point(mark_world):
+		if mark.has("exit_direction") and not Rect2(world_bounds).has_point(mark_world):
 			continue
 		_draw_remote_player(origin + (mark_world - world_origin) * cell, cell, mark)
 	_draw_pings(origin, world_origin, cell)
+	_draw_pulses(origin, world_origin, cell)
 	for mark in dropped_tools:
 		var mark_world: Vector2 = mark.get("at", Vector2.ZERO)
 		if not Rect2(world_bounds).has_point(mark_world):
@@ -773,32 +777,157 @@ func _draw_hunter_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Palette.BACKDROP)
 
 
+## Co-op teammates. Same floor in view: a coloured arrow along their facing with an initial tag (the full map adds the callsign).
+## Same floor off the view: the arrow becomes a pointer clamped to the map edge. Another floor: a dimmed dot with a triangle
+## (up = a higher floor than yours) at their spot, or at the edge when out of view. Downed / spectating: a hollow grey ring with a cross.
+const TEAMMATE_EDGE_MARGIN := 6.0
+
+
+## Where and as what a teammate is drawn, given their screen position `at`: {kind: "arrow" | "downed" | "updown", shown (clamped to
+## the map edge when off_view), off_view, outward (unit vector to them from the map centre), up (updown only)}.
+func teammate_layout(at: Vector2, radius: float, mark: Dictionary) -> Dictionary:
+	var inner := Rect2(Vector2.ZERO, size).grow(-maxf(TEAMMATE_EDGE_MARGIN, radius + 2.0))
+	var off_view := not inner.has_point(at)
+	var shown := at
+	var outward := Vector2.ZERO
+	if off_view and inner.size.x > 0.0 and inner.size.y > 0.0:
+		var centre := inner.get_center()
+		var delta := at - centre
+		outward = delta.normalized()
+		var half := inner.size * 0.5
+		var t := minf(half.x / maxf(absf(delta.x), .0001), half.y / maxf(absf(delta.y), .0001))
+		shown = centre + delta * minf(t, 1.0)
+	var kind := "arrow"
+	if bool(mark.get("other_floor", false)):
+		kind = "updown"
+	elif bool(mark.get("spectating", false)):
+		kind = "downed"
+	return {"kind": kind, "shown": shown, "off_view": off_view, "outward": outward,
+		"up": int(mark.get("level", 0)) > streamed_level}
+
+
+func set_pulses(marks: Array) -> void:
+	pulses = marks.duplicate(true)
+	queue_redraw()
+
+
+func _draw_pulses(origin: Vector2, world_origin: Vector2, cell: float) -> void:
+	var now := Time.get_ticks_msec()
+	for mark in pulses:
+		if int(mark.get("until_msec", 0)) <= now:
+			continue
+		var world: Vector2 = mark.get("at", Vector2.ZERO)
+		var at := origin + (world - world_origin) * cell
+		var layout := teammate_layout(at, 4.0, {"other_floor": int(mark.get("level", streamed_level)) != streamed_level,
+			"level": int(mark.get("level", streamed_level))})
+		var shown: Vector2 = layout["shown"]
+		var phase := fposmod(float(now) / 900.0, 1.0)
+		var tint := Color("37e6d9")
+		draw_circle(shown, 2.5, tint)
+		draw_arc(shown, 4.0 + phase * 16.0, 0.0, TAU, 28, Color(tint, 1.0 - phase), 1.6, true)
+		draw_arc(shown, 4.0 + fposmod(phase + .5, 1.0) * 16.0, 0.0, TAU, 28, Color(tint, 1.0 - fposmod(phase + .5, 1.0)), 1.2, true)
+		var label := String(mark.get("name", "")).to_upper().substr(0, 12)
+		if not label.is_empty():
+			var font := ThemeDB.fallback_font
+			var at_label := shown + Vector2(7.0, 3.0)
+			if at_label.x + font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x > size.x:
+				at_label.x = shown.x - 8.0 - font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x
+			draw_string_outline(font, at_label, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7, 3, Color(0.01, 0.04, 0.05, .95))
+			draw_string(font, at_label, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7, tint.lightened(.3))
+
+
+## A revive window (ReviveDowns record via infinite_route_test.downed_map_marks()) as a map mark: where a teammate went down, the
+## seconds left to revive them, and whether it is on another floor than the one shown (current_level).
+static func down_map_mark(down: Dictionary, current_level: int) -> Dictionary:
+	var world: Vector3 = down.get("at", Vector3.ZERO)
+	var level := -int(down.get("depth", 0))
+	return {"peer_id": int(down.get("peer", 0)), "at": Vector2(world.x, world.z), "level": level, "name": String(down.get("name", "")),
+		"down_left": float(down.get("left", 0.0)), "other_floor": level != current_level, "colour": RouteInteractable3D.REVIVE_COLOR}
+
+
+## Revive-green ring with a heartbeat line (never a red cross: that emblem is protected) and the name + seconds left: someone to revive. Another floor shows the up/down triangle; off the map it is
+## clamped to the edge like a teammate.
+func _draw_down_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
+	var radius := maxf(3.4 if interactive else 3.0, cell * .5)
+	var layout := teammate_layout(at, radius, mark)
+	var shown: Vector2 = layout["shown"]
+	var pulse := 0.65 + 0.35 * sin(float(Time.get_ticks_msec()) / 180.0)
+	var red := Color(RouteInteractable3D.REVIVE_COLOR, pulse)
+	var ink := Color(0.01, 0.04, 0.05, .95)
+	draw_circle(shown, radius + 1.2, Color(ink, .8))
+	draw_arc(shown, radius, 0.0, TAU, 16, red, maxf(1.3, cell * .13), true)
+	var beat := PackedVector2Array([shown + Vector2(-radius * .8, 0), shown + Vector2(-radius * .3, 0),
+		shown + Vector2(-radius * .1, -radius * .7), shown + Vector2(radius * .15, radius * .6),
+		shown + Vector2(radius * .35, 0), shown + Vector2(radius * .8, 0)])
+	draw_polyline(beat, red, 1.2, true)
+	if layout["kind"] == "updown":
+		var dir := -1.0 if layout["up"] else 1.0
+		var tri := PackedVector2Array([shown + Vector2(0, dir * radius * .9) + Vector2(radius + 3.5, 0),
+			shown + Vector2(-radius * .5, -dir * radius * .4) + Vector2(radius + 3.5, 0),
+			shown + Vector2(radius * .5, -dir * radius * .4) + Vector2(radius + 3.5, 0)])
+		draw_colored_polygon(tri, red)
+	var font := ThemeDB.fallback_font
+	var label := "%s %dS" % [String(mark.get("name", "")).to_upper().substr(0, 10), ceili(float(mark.get("down_left", 0.0)))]
+	var size_px := 7 if not interactive else 8
+	var width := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+	var label_at := shown + Vector2(radius + 2.0, radius * .6)
+	if label_at.x + width > size.x - 1.0:
+		label_at.x = shown.x - radius - 2.0 - width
+	draw_string_outline(font, label_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, 3, ink)
+	draw_string(font, label_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, Color(RouteInteractable3D.REVIVE_COLOR.lightened(.25), pulse))
+
+
 func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
 	if mark.has("exit_direction"):
 		_draw_floor_exit_marker(at, cell, String(mark.get("exit_direction", "up")),
 			String(mark.get("name", "")))
 		return
-	var radius := maxf(2.5 if interactive else 2.0, cell * .48)
+	if mark.has("down_left"):
+		_draw_down_marker(at, cell, mark)
+		return
+	var radius := maxf(3.4 if interactive else 3.0, cell * .5)
 	var colour: Color = mark.get("colour", COOP_PLAYER_BLUE)
-	draw_circle(at, radius + maxf(1.0, cell * .12), Color(0.01, 0.04, 0.05, .95))
-	draw_circle(at, radius, colour)
-	var facing: Vector2 = mark.get("facing", Vector2.UP)
-	if facing.length_squared() > .01:
-		draw_line(at, at + facing.normalized() * radius * 1.55,
-			Color("d9fff9"), maxf(1.0, cell * .11), true)
-	var label := String(mark.get("name", "P")).substr(0, 1).to_upper()
-	var font := ThemeDB.fallback_font
-	var font_size := clampi(roundi(cell * .62), 6, 10)
-	var glyph := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-	draw_string(font, at - Vector2(glyph.x * .5, -glyph.y * .32), label,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.01, 0.04, 0.05))
-	# the full map names them: callsign beside the marker, in their colour with a dark outline
-	if interactive:
-		var callsign := String(mark.get("name", "")).to_upper().substr(0, 16)
-		if not callsign.is_empty():
-			var at_label := at + Vector2(radius + 3.0, glyph.y * .3)
-			draw_string_outline(font, at_label, callsign, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, 3, Color(0.01, 0.04, 0.05, .95))
-			draw_string(font, at_label, callsign, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, colour.lightened(.25))
+	if bool(mark.get("stale", false)):
+		colour = Color(colour, .45)   # no news for a while: last known spot, dimmed
+	var layout := teammate_layout(at, radius, mark)
+	var off_view: bool = layout["off_view"]
+	var shown: Vector2 = layout["shown"]
+	var outward: Vector2 = layout["outward"]
+	var ink := Color(0.01, 0.04, 0.05, .95)
+	# Every player is an arrow in their own colour, no dots, initials or names (names live on the HUD waypoints).
+	if layout["kind"] == "updown":
+		# another floor: a bold up / down arrow in their colour
+		var dir := -1.0 if layout["up"] else 1.0
+		var reach := radius * 1.6
+		var tri := PackedVector2Array([shown + Vector2(0, dir * reach), shown + Vector2(-reach * .8, -dir * reach * .6),
+			shown + Vector2(reach * .8, -dir * reach * .6)])
+		var tri_outline := PackedVector2Array()
+		for point in tri:
+			tri_outline.append(shown + (point - shown) * 1.35)
+		draw_colored_polygon(tri_outline, ink)
+		draw_colored_polygon(tri, colour)
+		return
+	var facing: Vector2 = outward if off_view else mark.get("facing", Vector2.UP)
+	if facing.length_squared() < .01:
+		facing = Vector2.UP
+	facing = facing.normalized()
+	var side := Vector2(-facing.y, facing.x)
+	var length := radius * (1.7 if off_view else 1.55)
+	var arrow := PackedVector2Array([shown + facing * length,
+		shown - facing * length * .7 + side * radius * 1.05,
+		shown - facing * length * .25,
+		shown - facing * length * .7 - side * radius * 1.05])
+	var outline := PackedVector2Array()
+	for point in arrow:
+		outline.append(point + (point - shown).normalized() * 1.1)
+	draw_colored_polygon(outline, ink)
+	if layout["kind"] == "downed":
+		# downed / spectating: the same arrow, hollow
+		var hollow := arrow.duplicate()
+		hollow.append(arrow[0])
+		draw_polyline(hollow, colour, 1.5, true)
+	else:
+		draw_colored_polygon(arrow, colour)
 
 
 func _draw_floor_exit_marker(at: Vector2, cell: float, direction: String,
@@ -1003,4 +1132,4 @@ func _draw_player(origin: Vector2, cell: float) -> void:
 		var outline := arrow.duplicate()
 		outline.append(arrow[0])
 		draw_polyline(outline, Color(0.01, 0.04, 0.05, .95), maxf(2.0, reach * .22), true)
-	draw_colored_polygon(arrow, Palette.INK)
+	draw_colored_polygon(arrow, RemotePlayers.local_colour())

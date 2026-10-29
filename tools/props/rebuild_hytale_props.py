@@ -638,6 +638,83 @@ def make_rescue_axe():
     return objects, (1.2, -2.2, 1.35), (0, 0, .50)
 
 
+def make_revive_kit():
+    """Revive Kit (docs/REVIVE.md): a charcoal hard case with a hi-vis lid, defib paddles clipped on top, a white
+    pulse-line emblem (deliberately no cross) and a green charge lamp."""
+    colors = ["#1D2126", "#30363D", "#D9692B", "#F08A44", "#E6E2D6", "#5EE08C",
+              "#8E989E", "#121416"]
+    image = make_pixel_atlas("revive_kit_pixel_atlas", colors)
+    mat = make_material("Revive kit pixel paint", image, roughness=.62,
+                        metallic=.08)
+    count = len(colors)
+    objects = []
+    box("CaseBody", (0, 0, .11), (.50, .30, .18), mat, 1, count, objects,
+        bevel=.012)
+    box("CaseLid", (0, 0, .225), (.52, .32, .07), mat, 2, count, objects,
+        bevel=.012)
+    box("CaseFoot", (0, 0, .015), (.48, .28, .03), mat, 0, count, objects,
+        bevel=.004)
+    for side, x in (("L", -.15), ("R", .15)):
+        box("Latch%s" % side, (x, -.162, .19), (.06, .02, .07), mat, 6,
+            count, objects, bevel=.004)
+        box("HandlePost%s" % side, (x * .7, 0, .285), (.035, .05, .06), mat,
+            7, count, objects, bevel=.004)
+    box("Handle", (0, 0, .315), (.26, .05, .035), mat, 7, count, objects,
+        bevel=.006)
+    box("EmblemPlate", (0, -.152, .105), (.24, .012, .11), mat, 3, count,
+        objects, bevel=.002)
+    for index, (x, z, w, h) in enumerate(((-.085, .105, .05, .016),
+                                          (-.052, .125, .016, .056),
+                                          (-.034, .085, .016, .076),
+                                          (-.016, .115, .016, .046),
+                                          (.035, .105, .085, .016))):
+        box("Pulse%d" % index, (x, -.160, z), (w, .006, h), mat, 4, count,
+            objects)
+    box("ChargeLamp", (.20, -.12, .265), (.04, .04, .025), mat, 5, count,
+        objects, bevel=.003)
+    for side, x in (("L", -.14), ("R", .10)):
+        box("Paddle%s" % side, (x, .075, .275), (.13, .09, .03), mat, 1,
+            count, objects, bevel=.006)
+        box("PaddleFace%s" % side, (x, .075, .262), (.12, .08, .006), mat, 6,
+            count, objects)
+        box("PaddleGrip%s" % side, (x, .075, .305), (.05, .04, .04), mat, 2,
+            count, objects, bevel=.005)
+    box("Cable", (-.02, .135, .262), (.20, .02, .02), mat, 7, count, objects)
+    return objects, (1.05, -1.25, .85), (0, 0, .16)
+
+
+def make_stim_pack():
+    """Stim Pack: a chunky autoinjector, long axis up like the other hand items (plunger at the grip end, safety cap
+    on top), ribbed grip, white label and a cyan dose window."""
+    colors = ["#202428", "#353B42", "#E2B526", "#F4D35E", "#3FD3E6", "#A9E6EE",
+              "#8E989E", "#E6E2D6"]
+    image = make_pixel_atlas("stim_pack_pixel_atlas", colors)
+    mat = make_material("Stim pack pixel paint", image, roughness=.50,
+                        metallic=.12)
+    count = len(colors)
+    objects = []
+    box("PlungerButton", (0, 0, .0125), (.05, .05, .025), mat, 3, count,
+        objects, bevel=.004)
+    box("Plunger", (0, 0, .05), (.09, .09, .05), mat, 2, count, objects,
+        bevel=.008)
+    box("Grip", (0, 0, .185), (.11, .11, .22), mat, 1, count, objects,
+        bevel=.01)
+    for index, z in enumerate((.115, .155)):
+        box("GripRib%d" % index, (0, 0, z), (.118, .118, .02), mat, 0,
+            count, objects)
+    box("Label", (0, -.057, .205), (.05, .006, .10), mat, 7, count, objects)
+    box("Fluid", (0, 0, .345), (.096, .096, .10), mat, 4, count, objects)
+    for index, (x, y) in enumerate(((-.05, -.05), (.05, -.05), (-.05, .05),
+                                    (.05, .05))):
+        box("Frame%d" % index, (x, y, .345), (.014, .014, .10), mat, 5, count,
+            objects)
+    box("Collar", (0, 0, .41), (.09, .09, .03), mat, 6, count, objects,
+        bevel=.004)
+    box("SafetyCap", (0, 0, .46), (.08, .08, .07), mat, 2, count, objects,
+        bevel=.008)
+    return objects, (.75, -1.1, .65), (0, 0, .24)
+
+
 def make_flashlight_item():
     colors = ["#121518", "#2D3339", "#4B555D", "#79858C", "#D5C778",
               "#FFF0A5"]
@@ -5439,6 +5516,8 @@ BUILDERS = {
     "music_box": make_music_box,
     "hiding_spot": make_locker,
     "battery": make_battery,
+    "revive_kit": make_revive_kit,
+    "stim_pack": make_stim_pack,
     "relay": make_relay,
     "safe_zone": make_safe_zone,
     "lift": make_lift,
@@ -6050,8 +6129,15 @@ def make_sewer_pipe_run():
 
 
 ## The outflow main's underside sits at SewerRouteGenerator.CRAWL_CLEARANCE (the crouched capsule, 1.08 m x
-## PlayerModels.SCALE 0.9, + 5 cm): a crouched runner passes under it, nothing taller does.
-OUTFLOW_CLEARANCE = 1.08 * 0.9 + 0.05
+## PlayerModels.SCALE, read from src/config/player_models.gd, + 5 cm): a crouched runner passes under it, nothing taller
+## does. Rebuild sewer_outflow_pipe and sewer_outflow_pipe_broken whenever PlayerModels.SCALE changes (sewer_crawl checks).
+def _player_scale():
+    import re
+    with open(os.path.join(PROJECT_ROOT, "src", "config", "player_models.gd")) as handle:
+        return float(re.search(r"const SCALE := ([0-9.]+)", handle.read()).group(1))
+
+
+OUTFLOW_CLEARANCE = 1.08 * _player_scale() + 0.05
 OUTFLOW_VAULT = 3.2
 
 
@@ -6146,6 +6232,45 @@ def make_sewer_outflow_pipe_broken():
     box("HangerPlate0", (0.0, 1.10, OUTFLOW_VAULT - 0.02), (0.22, 0.22, 0.04), rust, 1, count, objects)
     box("SnappedStrap", (0.30, 1.10, top - 0.02), (0.55, 0.07, 0.03), iron, 1, count, objects, rotation=(0.0, 0.35, 0.0))
     return objects, (2.2, -1.6, 2.6), (0.0, 1.0, 1.8)
+
+
+def make_sewer_sluice_gate():
+    """A lifting sluice leaf across the 3 m channel: two iron posts with a counterweight beam on the hinge side
+    (Blender +Y, the walkway edge at y = 1.5), two seat bollards on the far side, and the riveted leaf "Leaf" authored
+    LOWERED (flat, its walking surface at z = 0, spanning the channel). The view hinges it up to stand upright while the
+    sluice is shut. Origin: the middle channel cell at walkway floor level."""
+    iron, rust, concrete, _, count = sewer_materials("sewer_sluice_gate")
+    objects = []
+    half = 0.68
+    # the leaf: one joined object so it hinges as a piece (frame, plate, cross ribs, kick plates)
+    leaf_parts = []
+    box("LeafPlate", (0.0, 0.0, -0.04), (half * 2.0, 3.0, 0.08), rust, 4, count, leaf_parts, bevel=0.006)
+    for index, y in enumerate((-1.1, -0.35, 0.35, 1.1)):
+        box("LeafRib%d" % index, (0.0, y, -0.12), (half * 2.0, 0.06, 0.08), iron, 2, count, leaf_parts)
+    for side, x in (("L", -half), ("R", half)):
+        box("LeafKick%s" % side, (x, 0.0, 0.06), (0.05, 3.0, 0.12), iron, 1, count, leaf_parts)
+        for j, y in enumerate((-1.2, -0.4, 0.4, 1.2)):
+            box("LeafRivet%s%d" % (side, j), (x * 0.9, y, 0.005), (0.04, 0.04, 0.02), rust, 6, count, leaf_parts)
+    bpy.ops.object.select_all(action="DESELECT")
+    for part in leaf_parts:
+        part.select_set(True)
+    bpy.context.view_layer.objects.active = leaf_parts[0]
+    bpy.ops.object.join()
+    leaf = bpy.context.view_layer.objects.active
+    leaf.name = "Leaf"
+    objects.append(leaf)
+    # hinge side: posts, the hinge pin and a counterweight beam overhead
+    for side, x in (("L", -half - 0.14), ("R", half + 0.14)):
+        box("Post%s" % side, (x, 1.62, 1.3), (0.14, 0.14, 2.6), iron, 2, count, objects, bevel=0.008)
+        box("PostFoot%s" % side, (x, 1.62, 0.03), (0.3, 0.3, 0.06), concrete, 3, count, objects)
+    cylinder("HingePin", (0.0, 1.5, 0.0), 0.06, half * 2.0 + 0.4, 10, iron, 1, count, objects,
+             rotation=(0.0, math.pi / 2.0, 0.0))
+    box("Header", (0.0, 1.62, 2.66), (half * 2.0 + 0.5, 0.18, 0.14), iron, 2, count, objects, bevel=0.008)
+    box("Counterweight", (0.0, 1.62, 2.4), (0.7, 0.3, 0.38), concrete, 4, count, objects, bevel=0.01)
+    # far side: the leaf's seat
+    for side, x in (("L", -half + 0.1), ("R", half - 0.1)):
+        box("Seat%s" % side, (x, -1.58, -0.1), (0.16, 0.16, 0.2), iron, 2, count, objects)
+    return objects, (3.6, -2.6, 2.6), (0.0, 0.0, 0.8)
 
 
 def make_sewer_overflow_grate():
@@ -6246,6 +6371,7 @@ SEWER_BUILDERS = {
     "sewer_pipe_run": make_sewer_pipe_run,
     "sewer_outflow_pipe": make_sewer_outflow_pipe,
     "sewer_outflow_pipe_broken": make_sewer_outflow_pipe_broken,
+    "sewer_sluice_gate": make_sewer_sluice_gate,
     "sewer_overflow_grate": make_sewer_overflow_grate,
     "sewer_lamp": make_sewer_lamp,
 }
@@ -6259,7 +6385,7 @@ for model_name, builder in BUILDERS.items():
     export_objects, eye, look = builder()
     save_and_export(model_name, export_objects)
     if model_name in {"battery", "flashlight_item", "taser_item", "lockpick_set",
-                      "crowbar", "rescue_axe", "backpack_small",
+                      "crowbar", "rescue_axe", "revive_kit", "stim_pack", "backpack_small",
                       "backpack_medium", "backpack_large"}:
         render_inventory_icon(model_name, eye, look)
     render_preview(model_name, export_objects, eye, look)

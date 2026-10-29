@@ -110,7 +110,7 @@ func _drive(host: Node, city: bool) -> void:
 			if facility.current_chunk_data().is_empty() or not facility._loaded.has(facility.current_chunk_coord()):
 				missing_under += 1
 	var jump := 0.0
-	var jump_moves: Array = [Vector3(-3 * size, 0, 0)] if city else [Vector3(0, StreamedFacilityView3D.LEVEL_HEIGHT, 0), Vector3(5 * size, 0, 0)]
+	var jump_moves: Array = [Vector3(-3 * size, 0, 0)] if city else [Vector3(0, -StreamedFacilityView3D.LEVEL_HEIGHT, 0), Vector3(5 * size, 0, 0)]
 	for move in jump_moves:
 		player.global_position += move
 		var t0 := Time.get_ticks_usec()
