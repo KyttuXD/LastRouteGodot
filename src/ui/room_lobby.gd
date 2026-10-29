@@ -187,6 +187,13 @@ func _config_block() -> Control:
 		RoomState.DIFFICULTY_BLURBS)
 	difficulty_group.add_child(_label(String(RoomState.DIFFICULTY_BLURBS.get(RoomState.difficulty, "")), Palette.MUTED, 6))
 	groups.add_child(difficulty_group)
+	# AI teammates the host runs (co-op only: they need the revive window); 0 = none
+	var npc_group := _config_group("NPC TEAMMATES", {0: "NONE", 1: "1", 2: "2", 3: "3", 4: "4"},
+		RoomState.npc_teammates,
+		func(value: int) -> void: RoomState.set_npc_teammates(value),
+		func(_value: int) -> bool: return RoomState.is_host and RoomState.online and not RoomState.public_route,
+		{0: "Only real players.", 1: "AI runners join the route, run from hunters and can be revived."})
+	groups.add_child(npc_group)
 	groups.add_child(_archive_group())
 
 	stack.add_child(_label("THE RUN SAVES ITSELF // DEATH ENDS IT", Palette.MUTED, 6))

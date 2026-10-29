@@ -57,6 +57,8 @@ var _capture_cooldown := 0.0
 var _was_chased := false
 var _hunter_step_elapsed := 0.0
 var _remotes: RemotePlayers
+## Host: the room's NPC teammates (RoomState.npc_teammates), null when there are none.
+var _npcs: NpcTeammates
 var _room_chat: RoomChat
 var _awaiting_snapshot := false
 var _authority_refresh_elapsed := AUTHORITY_REFRESH_SECONDS
@@ -272,6 +274,8 @@ func _ready() -> void:
 	_remotes.guard.legit_spot = func(at: Vector3, _depth: int) -> bool:
 		return at.distance_to(facility.spawn_position()) < 4.0 or at.distance_to(_checkpoint_world_position()) < 4.0
 	world.add_child(_remotes)
+	if RoomState.online and RoomState.is_host and RoomState.npc_teammates > 0:
+		_start_npcs(RoomState.npc_teammates)
 	_room_chat = RoomChat.attach(self, _remotes)
 	_room_chat.ping_posted.connect(hud.add_map_ping)
 	_room_chat.hunter_aim_provider = _aimed_hunter_mark
@@ -5993,12 +5997,26 @@ func _revives_enabled() -> bool:
 
 
 ## Host: a runner went down at `at` (where the hunter took them); their revive window opens for everyone.
+## Host: `count` NPC teammates (NpcTeammates) join this run; co-op only, since they need the revive window.
+func _start_npcs(count: int) -> void:
+	if _npcs != null or count <= 0 or not _revives_enabled() or not RoomState.is_host:
+		return
+	_npcs = NpcTeammates.new()
+	_npcs.name = "NpcTeammates"
+	add_child(_npcs)
+	_npcs.setup(self, count)
+	_remotes.npc_captured.connect(_npcs.down)
+
+
 func _host_record_down(peer: int, at: Vector3, depth: int) -> void:
 	if not _revives_enabled() or not RoomState.is_host or peer == 0:
 		return
 	# "down_depth", not "depth": relayed world events carry the host's GameState.depth under that key
+	var name := RoomState.peer_display_name(peer)
+	if RemotePlayers.is_npc(peer):
+		name = String(_remotes.peer_state(peer).get("display_name", "NPC"))
 	_publish_stream_event({"what": "stream_down", "peer": peer, "at": at, "down_depth": depth,
-		"name": RoomState.peer_display_name(peer), "left": GameConfig.REVIVE_WINDOW_SECONDS})
+		"name": name, "left": GameConfig.REVIVE_WINDOW_SECONDS})
 
 
 func _apply_revive_event(event: Dictionary) -> void:
@@ -6020,6 +6038,8 @@ func _apply_revive_event(event: Dictionary) -> void:
 		"stream_revived":
 			var at = event.get("at")
 			downs.clear(peer)
+			if _npcs != null and RemotePlayers.is_npc(peer):
+				_npcs.revived(peer)
 			_sync_revive_markers()
 			if int(event.get("by", 0)) == local:
 				player.consume_stack("revive_kit")
