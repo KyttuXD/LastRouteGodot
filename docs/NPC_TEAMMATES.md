@@ -1,6 +1,6 @@
 # NPC teammates
 
-The host can add AI runners to a co-op route: the staging screen's **NPC TEAMMATES** row (host only, 0–4, default none).
+Admins and devs can add AI runners to a co-op route: the staging screen's **NPC TEAMMATES** scroller (◀ N ▶, 0–16, default 0). Players never see it; it shows only with admin tools (`Build.tools_enabled()`) for the host.
 Guests need nothing: they see each NPC as another runner.
 
 - **Who runs them:** the host only (`NpcTeammates`, `src/game_3d/npc_teammates.gd`). Each NPC's state goes out through

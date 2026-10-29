@@ -22,7 +22,7 @@ func _unit() -> void:
 	_expect(RemotePlayers.is_npc(NpcTeammates.ID_BASE) and not RemotePlayers.is_npc(1) and not RemotePlayers.is_npc(123456789),
 		"is_npc picks the wrong ids")
 	RoomState.online = false
-	RoomState.set_npc_teammates(9)
+	RoomState.set_npc_teammates(99)
 	_expect(RoomState.npc_teammates == NpcTeammates.MAX_COUNT, "the setting did not clamp to %d" % NpcTeammates.MAX_COUNT)
 	RoomState.set_npc_teammates(-2)
 	_expect(RoomState.npc_teammates == 0, "the setting went below 0")
@@ -36,8 +36,38 @@ func _unit() -> void:
 	_expect(not names.is_empty() and names[-1] == "_xnpc_place", "the NPC RPC does not sort last: %s" % [names])
 
 
+## The staging screen: no NPC row for a player; an admin host gets the ◀ N ▶ scroller, which steps and stops at 0 and MAX_COUNT.
+func _lobby(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.online = true
+	RoomState.is_host = true
+	RoomState.npc_teammates = 0
+	for admin in [false, true]:
+		Build.deny_admin_for_test = not admin
+		var lobby := Control.new()
+		lobby.set_script(load("res://src/ui/room_lobby.gd"))
+		host.add_child(lobby)
+		await host.get_tree().process_frame
+		var row := lobby.find_child("LobbyNpcTeammates", true, false)
+		if not admin:
+			_expect(row == null, "a player sees the NPC TEAMMATES row")
+		else:
+			_expect(row != null, "an admin host has no NPC TEAMMATES scroller")
+			if row != null:
+				_expect((row.find_child("NpcLess", true, false) as Button).disabled, "◀ is enabled at 0")
+				(row.find_child("NpcMore", true, false) as Button).pressed.emit()
+				_expect(RoomState.npc_teammates == 1, "▶ did not step to 1")
+				RoomState.npc_teammates = NpcTeammates.MAX_COUNT
+		lobby.queue_free()
+		await host.get_tree().process_frame
+	Build.deny_admin_for_test = false
+	RoomState.npc_teammates = 0
+	RoomState.online = false
+
+
 func run(host: Node) -> int:
 	_unit()
+	await _lobby(host)
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	var scene: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
 	host.get_tree().root.add_child(scene)

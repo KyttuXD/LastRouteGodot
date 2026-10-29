@@ -1,7 +1,7 @@
 class_name NpcTeammates
 extends Node
 
-## Host-simulated AI teammates (room setting NPC TEAMMATES 0-4, docs/NPC_TEAMMATES.md, KT 2026-10-28). The host runs each NPC
+## Host-simulated AI teammates (admin/dev room setting NPC TEAMMATES 0-16, docs/NPC_TEAMMATES.md, KT 2026-10-28). The host runs each NPC
 ## here and publishes it as a remote runner (RemotePlayers.npc_state), so every peer draws it, lists it as "NPC · name", and the
 ## host's hunters target it through the same target list as a real runner. Caught, it goes down where it stood (the co-op revive
 ## window, ReviveDowns); a teammate's Revive Kit hold brings it back, else it stays out like a caught player.
@@ -9,8 +9,9 @@ extends Node
 ## runner is on another storey for CATCH_UP_SECONDS it rejoins them there (out of their sight: it does not walk stairs yet).
 
 const ID_BASE := 2_000_000_000   # above any id ENet hands out in practice; RemotePlayers.is_npc()
-const MAX_COUNT := 4
-const NAMES := ["ROOK", "WREN", "MOSS", "PIKE"]
+const MAX_COUNT := 16
+const NAMES := ["ROOK", "WREN", "MOSS", "PIKE", "FINCH", "SLATE", "BIRCH", "COBALT", "EMBER", "FLINT", "HAZEL", "IVY",
+	"JUNO", "LARK", "ONYX", "SAGE"]
 const SLOT_RADIUS := 2.4
 const FOLLOW_RADIUS := 5.0       # m from the runner before the NPC walks to its slot again
 const THREAT_RANGE := 14.0

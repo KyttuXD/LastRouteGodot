@@ -121,7 +121,7 @@ var reserved := false
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
 ## Host only: AI teammates the host simulates in co-op (NpcTeammates, 0..MAX_COUNT); guests just see them as runners.
-var npc_teammates := 0
+var npc_teammates := 0   # set from the staging screen by admins and devs only (room_lobby _npc_scroller)
 ## Display names, host first. One entry while offline.
 var players: PackedStringArray = []
 ## True after an ENet room handshake (or immediately for its host).
