@@ -21,7 +21,11 @@ extends RefCounted
 ## sight modifiers. Relaxed/Standard/Hard difficulty scaling is applied here;
 ## Nightmare and its larger active lineup remain intentionally unavailable.
 
-enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH }
+enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH, PEEK, INSPECT }
+## INSPECT phases (HunterInspect): stepping up to the slats, turning to them, bending in, lingering, straightening.
+enum Inspect { WALK, TURN, LEAN, LINGER, RISE }
+## PEEK phases (HunterPeek): sliding into the spot, leaning out and looking, seen someone (burst reaction), ducked back.
+enum Peek { SETTLE, LOOK, SEEN, AMBUSH }
 
 const ARRIVAL_DISTANCE := 0.65
 const WAYPOINT_DISTANCE := 0.18
@@ -39,6 +43,12 @@ const CENTER_STEER_SECONDS := 0.8
 const UNREACHABLE_GIVE_UP := 1.6
 ## Seconds the hunter has been trying to move without getting anywhere; read by the admin hunter list and the validators.
 var stuck_seconds := 0.0
+## Times the view had to put this hunter back on the floor (HunterView3D safety net; always 0 in a healthy run).
+var fall_recoveries := 0
+## How lit this hunter stands (LightField, set by the host each few frames); -1 = unknown (rule off).
+var self_exposure := -1.0
+## The runner's own exposure for the current target (LightField), -1 = unknown.
+var target_exposure := -1.0
 var _unreachable_time := 0.0
 
 var position: Vector2
@@ -49,6 +59,12 @@ var hunter_id: String
 var spawn_seed_text := ""
 var gimmick: HunterGimmick
 var difficulty_id := "standard"
+## The floor's relay count as of the last update (Gray's pressure resets when it rises).
+var relays_seen := 0
+## Hard-mode abilities (null on Relaxed or for a hunter without any): see HardAbilities.
+var hard: HardAbilities
+## Optional Callable(position: Vector2, radius: float) -> bool: true when a level link (ladder, stairs, manhole, grate, elevator, drop) is within `radius` cells.
+var near_link: Callable = Callable()
 var difficulty_profile: Dictionary = GameConfig.DIFFICULTY_PROFILES["standard"]
 
 ## Changes a gimmick made to the shared world, for the scene above to drain.
@@ -66,9 +82,16 @@ var facing := Vector2(0, 1)
 
 var radius := GameConfig.HUNTER_RADIUS
 var base_speed: float
+## Chasing a trolled cheater (RemotePlayers.troll_peers): a little faster.
+var troll_target := false
 var chase_speed: float
 var chase_progression_scale: float
 var sight_range: float
+## City DAYTIME: outdoors the sun lights the runner (see HunterVision for the per-hunter multipliers). `indoor_check` takes a
+## route-space position and says whether it is inside a building, where the night rules still apply.
+var day_mode := false
+var indoor_check: Callable = Callable()
+var _notice_progress := 0.0
 var hearing_scale: float
 
 var stamina := GameConfig.HUNTER_STAMINA_MAX
@@ -110,6 +133,32 @@ var _path_target_cell := Vector2i.ZERO
 var _stuck_time := 0.0
 var _center_steer_left := 0.0
 
+## Corner peek (HunterPeek). Replicated: state, peek_phase, peek_body, peek_head, peek_dir, peek_side.
+var peek_phase := Peek.SETTLE
+var peek_timer := 0.0
+var peek_body := Vector2.ZERO
+var peek_head := Vector2.ZERO
+var peek_dir := Vector2.ZERO
+var peek_side := 1
+var peek_cooldown := 0.0
+var peeks_started := 0
+## Validators only: >= 0 replaces HunterPeek.chance().
+var peek_chance_override := -1.0
+var _peek_resume := State.SEARCH
+var _peek_corner_cell := Vector2i(-99999, -99999)
+
+## Locker inspection (HunterInspect). Replicated: state, inspect_phase, inspect_stand, inspect_face.
+var inspect_phase := Inspect.WALK
+var inspect_timer := 0.0
+var inspect_stand := Vector2.ZERO
+var inspect_face := Vector2.ZERO
+var inspect_cooldown := 0.0
+var inspections := 0
+var _inspect_resume := Vector2.ZERO
+
+## How she runs in a chase (HunterChaseStyle id, from her data or the fallback table). Presentation only; replicated.
+var chase_style := HunterChaseStyle.DEFAULT
+
 var _rng: SeededRandom
 
 
@@ -118,10 +167,12 @@ func _init(spawn_position: Vector2, rng_seed_text: String,
 	position = spawn_position
 	_rng = SeededRandom.new(rng_seed_text)
 	spawn_seed_text = rng_seed_text
+	id = HunterIdAliases.canonical(id)
 	hunter_id = id
 	difficulty_id = route_difficulty if GameConfig.DIFFICULTY_PROFILES.has(
 		route_difficulty) else "standard"
 	difficulty_profile = GameConfig.difficulty_profile(difficulty_id)
+	hard = HardAbilities.for_brain(self)
 	gimmick = HunterGimmick.for_id(id)
 	var identity := HunterRoster.get_identity(id)
 	base_speed = identity["base_speed"]
@@ -129,6 +180,7 @@ func _init(spawn_position: Vector2, rng_seed_text: String,
 	chase_progression_scale = identity["chase_progression_scale"]
 	sight_range = identity["sight_range"]
 	hearing_scale = identity["hearing_scale"]
+	chase_style = HunterChaseStyle.style_for(id)
 
 
 ## Mirrors applyRelayActivation(): a hunter isn't just "spawned", it starts
@@ -159,6 +211,8 @@ func _tick_emote(delta: float) -> void:
 
 
 func update(delta: float, generator, target: Dictionary, depth: int, relays_collected: int) -> bool:
+	troll_target = bool(target.get("troll", false))
+	relays_seen = relays_collected
 	_tick_emote(delta)
 	# A rule-summoned hunter decides her own activation inside her gimmick, so
 	# it has to run before the inactive check that would otherwise stop it.
@@ -174,6 +228,7 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 
 	var target_position: Vector2 = target["position"]
 	var target_hidden: bool = target.get("hidden", false)
+	var ignoring_hider := _camp_guard(delta, target_position, target_hidden)
 	var target_in_safe_zone: bool = target.get("in_safe_zone", false)
 	var target_noise: float = target.get("noise", 0.0)
 	var target_flashlight_on: bool = target.get("flashlight_on", true)
@@ -183,12 +238,18 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 		gimmick.before_perception(self, delta, target, generator)
 
 	_update_beam_attention(delta, generator, target)
-	_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)
+	if not ignoring_hider:
+		_update_perception(delta, generator, target_position, target_hidden, target_in_safe_zone, target_noise, target_flashlight_on)
 	if gimmick:
 		gimmick.after_perception(self, delta, target, generator)
 	_update_stamina(delta)
+	peek_cooldown = maxf(0.0, peek_cooldown - delta)
+	inspect_cooldown = maxf(0.0, inspect_cooldown - delta)
+	_consider_peek(generator)
 	var before_move := position
-	_update_movement(delta, generator, depth, relays_collected)
+	var leap_drives := hard != null and hard.update(self, delta, generator, target)
+	if not leap_drives:
+		_update_movement(delta, generator, depth, relays_collected)
 	_note_displacement(delta, position.distance_to(before_move))
 
 	# Account/room-proof authorization belongs to the owning gameplay scene,
@@ -196,9 +257,12 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 	# boolean here let an ordinary peer suppress capture whenever the host itself
 	# happened to be an admin. The authoritative capture boundary rechecks the
 	# signed player permission before applying any result.
-	if not target_hidden and not target_in_safe_zone \
-			and not (gimmick and gimmick.immune_to_capture()):
-		var reach := (GameConfig.PLAYER_RADIUS + radius) \
+	var may_grab_hidden := target_hidden and gimmick != null and gimmick.breaches_hiding() \
+		and has_last_known and last_known.distance_to(target_position) < 0.9
+	if (not target_hidden or may_grab_hidden) and not target_in_safe_zone \
+			and not (gimmick and gimmick.immune_to_capture()) and not (hard != null and hard.blocks_capture()):
+		# the catch reach keeps the tuned pre-scale footprint: a bigger body must not catch from further away
+		var reach := (GameConfig.PLAYER_RADIUS + GameConfig.HUNTER_CATCH_RADIUS) \
 			* GameConfig.CAPTURE_DISTANCE_SCALE \
 			* float(difficulty_profile["capture_distance"])
 		if position.distance_to(target_position) < reach:
@@ -212,13 +276,16 @@ func update(delta: float, generator, target: Dictionary, depth: int, relays_coll
 ## last pose/state they had before the target disappeared.
 func update_without_target(delta: float, generator,
 		depth: int, relays_collected: int) -> void:
+	relays_seen = relays_collected
 	_tick_emote(delta)
+	if hard != null:
+		hard.cancel()
 	if not active:
 		return
 	if stun_timer > 0.0:
 		stun_timer = maxf(0.0, stun_timer - delta)
 		return
-	if state == State.CHASE or state == State.INVESTIGATE or state == State.SEARCH:
+	if state in [State.CHASE, State.INVESTIGATE, State.SEARCH, State.PEEK, State.INSPECT]:
 		state = State.IDLE
 		has_last_known = false
 		has_search_target = false
@@ -232,10 +299,99 @@ func update_without_target(delta: float, generator,
 	_update_movement(delta, generator, depth, relays_collected)
 
 
+## Walks toward `point` on this floor while the runner she follows is on the
+## other level (a sewer ladder she is heading for). Stays INVESTIGATE, so the
+## walk is part of the pursuit rather than a wander, and never perceives or
+## grabs anyone on the way. Returns true once she stands at the point.
+func head_to(point: Vector2, delta: float, generator, depth: int, relays_collected: int) -> bool:
+	_tick_emote(delta)
+	if not active:
+		return false
+	if stun_timer > 0.0:
+		stun_timer = maxf(0.0, stun_timer - delta)
+		return false
+	if position.distance_to(point) <= ARRIVAL_DISTANCE:
+		state = State.INVESTIGATE
+		has_last_known = true
+		last_known = point
+		return true
+	if state != State.INVESTIGATE or not has_last_known or last_known.distance_to(point) > .01:
+		_path.clear()
+		_has_path_target = false
+	state = State.INVESTIGATE
+	has_last_known = true
+	last_known = point
+	direct_chase_visible = false
+	_ability_direct_sight = false
+	_update_stamina(delta)
+	_update_movement(delta, generator, depth, relays_collected)
+	return position.distance_to(point) <= ARRIVAL_DISTANCE
+
+
+## Anti-camp guard: no hunter stays within CAMP_RADIUS of the same hidden runner for more than the mode's camp_limit seconds
+## without leaving. Time spent stunned (the hide-check tell) does not count. After leaving she ignores that hidden runner for
+## CAMP_COOLDOWN seconds (the hide check's own cooldown covers the spot), wanders off and searches elsewhere.
+## Returns true while she is ignoring the hidden runner (the caller skips perception that frame).
+const CAMP_RADIUS := 2.0
+const CAMP_COOLDOWN := 30.0
+const CAMP_LEAVE_DISTANCE := 12.0
+var camp_time := 0.0
+var camp_cooldown := 0.0
+var camp_leaves := 0
+
+
+func _camp_guard(delta: float, target_position: Vector2, target_hidden: bool) -> bool:
+	camp_cooldown = maxf(0.0, camp_cooldown - delta)
+	if not target_hidden or position.distance_to(target_position) > CAMP_RADIUS:
+		camp_time = maxf(0.0, camp_time - delta * 2.0)
+		return false
+	if camp_cooldown > 0.0:
+		return true
+	camp_time += delta
+	if camp_time <= float(difficulty_profile.get("camp_limit", 12.0)):
+		return false
+	camp_time = 0.0
+	camp_cooldown = CAMP_COOLDOWN
+	camp_leaves += 1
+	state = State.WANDER
+	has_last_known = false
+	has_search_target = false
+	direct_chase_visible = false
+	lost_sight_timer = 0.0
+	_path.clear()
+	_has_path_target = false
+	var away := (position - target_position).normalized() if position.distance_to(target_position) > .05 else Vector2.RIGHT
+	wander_target = position + away * CAMP_LEAVE_DISTANCE
+	has_wander_target = true
+	return true
+
+
+## The director's nudge: investigate `point` (a wandering hunter given somewhere to go). Never used on a chasing hunter.
+func direct_to(point: Vector2) -> void:
+	state = State.INVESTIGATE
+	has_last_known = true
+	last_known = point
+	_path.clear()
+	_has_path_target = false
+	direct_chase_visible = false
+
+
 ## Stops the hunter dead — cannot chase, grab, or even perceive — for
 ## `duration` seconds. Used after a broken grip (hunter-ai.js's
 ## ESCAPE_STUN_DURATION) and after a respawn (RESPAWN_STUN_DURATION).
+## Pure rule, shared with the validator: a hunter that is hunting (not wandering), whose last sighting is within
+## HIDE_CHECK_TRAIL of the spot, and that has reached it.
+static func hide_check_triggers(state: int, has_last_known: bool, last_known: Vector2, hunter_at: Vector2,
+		spot_centre: Vector2, trail: float = GameConfig.HIDE_CHECK_TRAIL) -> bool:
+	if state not in [State.CHASE, State.SEARCH, State.INVESTIGATE]:
+		return false
+	return has_last_known and last_known.distance_to(spot_centre) <= trail \
+		and hunter_at.distance_to(spot_centre) <= GameConfig.HIDE_CHECK_REACH
+
+
 func apply_stun(duration: float) -> void:
+	if hard != null:
+		hard.cancel()
 	stun_timer = maxf(stun_timer, duration)
 	_path.clear()
 	_has_path_target = false
@@ -287,6 +443,24 @@ func presentation_look_target() -> Variant:
 			return null
 
 
+## Point `distance` cells along her current A* route, for presentation-only head
+## look. Vector2.INF when she has no route (idle, direct chase, or a guest
+## whose brain is only fed replicated state).
+func path_look_ahead(distance: float) -> Vector2:
+	if _path.is_empty():
+		return Vector2.INF
+	var from := position
+	var left := distance
+	for cell in _path:
+		var point := Vector2(cell) + Vector2(.5, .5)
+		var segment := from.distance_to(point)
+		if segment >= left:
+			return from.lerp(point, left / maxf(segment, .001))
+		left -= segment
+		from = point
+	return from
+
+
 ## Mirrors respawnAfterCapture()'s hunter reset: back to a calm, unalerted
 ## idle instead of remembering anything about the run that just ended.
 func calm_reset(stun_duration: float) -> void:
@@ -299,9 +473,41 @@ func calm_reset(stun_duration: float) -> void:
 	apply_stun(stun_duration)
 
 
+func _target_in_daylight(target_position: Vector2) -> bool:
+	return day_mode and not (indoor_check.is_valid() and bool(indoor_check.call(target_position)))
+
+
+## How far this hunter sees the runner now: the night rules (unlit / flashlight, per-hunter night multiplier) indoors or at
+## night; outdoors in City daytime the sun does the lighting, so her day range applies whatever the runner carries.
+func sight_limit_for(target_position: Vector2, target_flashlight_on: bool) -> float:
+	var difficulty_sight := float(difficulty_profile["hunter_sight"])
+	var limit := sight_range * GameConfig.UNLIT_SIGHT_SCALE * difficulty_sight
+	if LightField.enabled and target_exposure >= 0.0:
+		# her flashlight off: how far she is seen follows how lit she stands (pitch dark is close, a lamp pool far)
+		limit = sight_range * LightField.unlit_scale(target_exposure) * difficulty_sight
+	if target_flashlight_on:
+		limit = maxf(GameConfig.FLASHLIGHT_SIGHT_MIN,
+			sight_range * GameConfig.FLASHLIGHT_SIGHT_SCALE) * difficulty_sight
+	if day_mode:
+		if _target_in_daylight(target_position):
+			limit = sight_range * GameConfig.DAYLIGHT_SIGHT_SCALE * difficulty_sight \
+				* HunterVision.day_multiplier(hunter_id)
+		else:
+			limit *= HunterVision.night_multiplier(hunter_id)
+	# Mutual light: a hunter standing in light the runner can see her by also sees the runner (within her own sight range;
+	# line of sight is still required by the perception step).
+	if LightField.enabled and self_exposure >= LightField.VISIBLE_EXPOSURE:
+		limit = maxf(limit, sight_range * difficulty_sight)
+	if gimmick != null:
+		limit *= gimmick.sight_scale(self)
+	return limit
+
+
 func _update_perception(delta: float, generator, target_position: Vector2, target_hidden: bool, target_in_safe_zone: bool, target_noise: float, target_flashlight_on: bool) -> void:
-	var direct_distance := position.distance_to(target_position)
-	var can_sense := not target_in_safe_zone and not target_hidden
+	var eye := sight_eye()
+	var direct_distance := eye.distance_to(target_position)
+	var breaches: bool = gimmick != null and gimmick.breaches_hiding()
+	var can_sense := not target_in_safe_zone and (not target_hidden or breaches)
 	if not can_sense:
 		direct_chase_visible = false
 	sense_timer -= delta
@@ -316,12 +522,8 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 
 	var sees_target := false
 	var perception_line_clear := false
-	var difficulty_sight := float(difficulty_profile["hunter_sight"])
 	var difficulty_hearing := float(difficulty_profile["hunter_hearing"])
-	var sight_limit := sight_range * GameConfig.UNLIT_SIGHT_SCALE * difficulty_sight
-	if target_flashlight_on:
-		sight_limit = maxf(GameConfig.FLASHLIGHT_SIGHT_MIN,
-			sight_range * GameConfig.FLASHLIGHT_SIGHT_SCALE) * difficulty_sight
+	var sight_limit := sight_limit_for(target_position, target_flashlight_on)
 	var hearing_limit := target_noise * hearing_scale * difficulty_hearing
 	if can_sense:
 		# One throttled grid ray serves exposed sight and open-air hearing. Walls
@@ -329,7 +531,7 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 		var ray_range := maxf(sight_limit,
 			hearing_limit * GameConfig.HEARING_OPEN_AIR_SCALE)
 		if direct_distance < ray_range:
-			perception_line_clear = generator.has_line_of_sight(position, target_position)
+			perception_line_clear = generator.has_line_of_sight(eye, target_position)
 		sees_target = direct_distance < sight_limit and perception_line_clear
 
 	var hears_target := false
@@ -354,6 +556,17 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 				_path_target_cell = _cell_of(target_position)
 				_has_path_target = true
 
+	var notice_needed := HunterVision.notice_seconds(hunter_id) if day_mode and _target_in_daylight(target_position) else 0.0
+	if sees_target and state != State.CHASE and notice_needed > 0.0:
+		# A glare-shy hunter needs a moment of clear sight in daylight before she commits.
+		_notice_progress += GameConfig.HUNTER_SENSE_INTERVAL
+		if _notice_progress < notice_needed:
+			sees_target = false
+	elif not sees_target:
+		_notice_progress = 0.0
+	if state == State.PEEK:
+		_peek_perceive(sees_target, hears_target, target_position)
+		return
 	if sees_target:
 		state = State.CHASE
 		has_last_known = true
@@ -373,7 +586,7 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 	elif state == State.CHASE:
 		direct_chase_visible = _ability_direct_sight
 		lost_sight_timer += GameConfig.HUNTER_SENSE_INTERVAL
-		if lost_sight_timer > GameConfig.HUNTER_LOST_SIGHT_GRACE:
+		if lost_sight_timer > float(difficulty_profile["lost_sight_grace"]):
 			state = State.INVESTIGATE
 			direct_chase_visible = false
 	else:
@@ -382,7 +595,7 @@ func _update_perception(delta: float, generator, target_position: Vector2, targe
 
 func _update_stamina(delta: float) -> void:
 	if state == State.CHASE:
-		stamina = maxf(0.0, stamina - GameConfig.HUNTER_STAMINA_CHASE_DRAIN * delta)
+		stamina = maxf(0.0, stamina - float(difficulty_profile["stamina_drain"]) * delta)
 		if stamina <= 0.0:
 			winded = true
 	else:
@@ -393,6 +606,12 @@ func _update_stamina(delta: float) -> void:
 
 func _update_movement(delta: float, generator, depth: int, relays_collected: int) -> void:
 	match state:
+		State.PEEK:
+			_update_peek(delta, generator)
+			return
+		State.INSPECT:
+			_update_inspect(delta, generator)
+			return
 		State.IDLE:
 			idle_timer -= delta
 			if idle_timer <= 0.0:
@@ -445,7 +664,7 @@ func _handle_arrival(generator) -> void:
 			has_wander_target = false
 		State.CHASE, State.INVESTIGATE:
 			state = State.SEARCH
-			search_timer = GameConfig.HUNTER_SEARCH_TIME
+			search_timer = float(difficulty_profile["search_time"])
 			search_visits = 0
 			search_target = _pick_search_target(generator)
 			has_search_target = true
@@ -468,6 +687,10 @@ func _current_speed(depth: int, relays_collected: int) -> float:
 		speed *= GameConfig.HUNTER_WINDED_SPEED_SCALE
 	if gimmick:
 		speed *= gimmick.speed_scale(self)
+	if hard != null:
+		speed *= hard.speed_scale()
+	if troll_target:
+		speed *= GameConfig.TROLL_HUNTER_SPEED_SCALE
 	return speed * float(difficulty_profile["hunter_speed"])
 
 
@@ -520,7 +743,7 @@ func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> voi
 			if state == State.CHASE or state == State.INVESTIGATE:
 				has_last_known = false
 				state = State.SEARCH
-				search_timer = GameConfig.HUNTER_SEARCH_TIME
+				search_timer = float(difficulty_profile["search_time"])
 				search_visits = 0
 				search_target = _pick_search_target(generator)
 				has_search_target = true
@@ -699,6 +922,19 @@ func _pick_wander_target(generator) -> Vector2:
 
 
 func _pick_search_target(generator) -> Vector2:
+	# Hard / Nightmare / (rarely) Normal: sometimes search the hiding spot nearest the last sighting instead of a random point beside it.
+	var hide_chance := float(difficulty_profile.get("hide_random", 0.0))
+	if hide_chance > 0.0 and "hiding_spots" in generator and _rng.next_float() < hide_chance:
+		var best := INF
+		var best_point := Vector2.INF
+		for spot in generator.hiding_spots:
+			var centre := Vector2(float(spot["x"]) + .5, float(spot["y"]) + .5)
+			var gap := centre.distance_to(last_known)
+			if gap < best and gap <= 8.0 and centre.distance_to(position) > 0.5:
+				best = gap
+				best_point = centre
+		if best_point != Vector2.INF and not generator.find_path(_cell_of(position), _cell_of(best_point)).is_empty():
+			return best_point
 	var offsets: Array = [Vector2(3, 0), Vector2(-3, 0), Vector2(0, 3), Vector2(0, -3), Vector2(2, 2), Vector2(-2, 2), Vector2(2, -2), Vector2(-2, -2)]
 	for i in range(offsets.size() - 1, 0, -1):
 		var swap_index := _rng.next_index(i + 1)
@@ -751,6 +987,9 @@ func next_random_index(exclusive_max: int) -> int:
 var beam_attention := 0.0
 var beam_alerted := false
 var flash_triggered := false
+## A new flash needs the beam to have been let go (attention back to 0). A hunter walking into the player wobbles on the
+## edge of the cone; a one-frame gap must not count as a second flash.
+var _flash_armed := true
 
 
 func _update_beam_attention(delta: float, generator, target: Dictionary) -> void:
@@ -765,7 +1004,11 @@ func _update_beam_attention(delta: float, generator, target: Dictionary) -> void
 	else:
 		beam_attention = maxf(0.0, previous - delta * GameConfig.BEAM_ATTENTION_DECAY)
 	beam_alerted = lit and beam_attention >= GameConfig.BEAM_ATTENTION_TIME
-	flash_triggered = beam_alerted and previous < GameConfig.BEAM_ATTENTION_TIME
+	if beam_attention <= 0.0:
+		_flash_armed = true
+	flash_triggered = beam_alerted and previous < GameConfig.BEAM_ATTENTION_TIME and _flash_armed
+	if flash_triggered:
+		_flash_armed = false
 
 
 func beam_reaches(from: Vector2, from_facing: Vector2, target: Vector2, range_limit: float, half_angle: float, generator) -> bool:
@@ -782,3 +1025,211 @@ func beam_reaches(from: Vector2, from_facing: Vector2, target: Vector2, range_li
 
 static func _cell_of(pos: Vector2) -> Vector2i:
 	return Vector2i(int(floor(pos.x)), int(floor(pos.y)))
+
+
+# ------------------------------------------------------------------------------------------------------ corner peek
+
+## Where her sight is taken from: the leaned-out head while she looks round a corner, her body otherwise.
+func sight_eye() -> Vector2:
+	if state == State.PEEK and (peek_phase == Peek.LOOK or peek_phase == Peek.SEEN):
+		return peek_head
+	return position
+
+
+## True while the lean pose shows (the head is past the edge).
+func peeking_out() -> bool:
+	return state == State.PEEK and (peek_phase == Peek.LOOK or peek_phase == Peek.SEEN)
+
+
+## Searching/investigating and about to turn a real corner: maybe stop behind it and look first. Never mid-chase.
+func _consider_peek(generator) -> void:
+	if state == State.PEEK or peek_cooldown > 0.0 or stun_timer > 0.0 or direct_chase_visible:
+		return
+	if state != State.INVESTIGATE and state != State.SEARCH:
+		return
+	if gimmick != null and gimmick.holds_position():
+		return
+	var odds := HunterPeek.chance(hunter_id, difficulty_id)
+	if gimmick != null:
+		odds = gimmick.peek_chance(self, odds)
+	if peek_chance_override >= 0.0:
+		odds = peek_chance_override
+	if odds <= 0.0 or not generator.has_method("is_floor"):
+		return
+	var here := _cell_of(position)
+	var route: Array = [here]
+	for cell in _path:
+		if cell != route[-1]:
+			route.append(cell)
+	var corner := HunterPeek.find_corner(route, generator)
+	if corner.is_empty() or corner["c"] == _peek_corner_cell:
+		return
+	var spot := HunterPeek.body(corner)
+	if position.distance_to(spot) > 1.0:
+		return   # not at the corner yet
+	_peek_corner_cell = corner["c"]
+	if _rng.next_float() >= odds:
+		return
+	start_peek(corner)
+
+
+## Enters the peek at `corner` (HunterPeek.find_corner); the validator drives this directly too.
+func start_peek(corner: Dictionary) -> void:
+	_peek_resume = state if state == State.INVESTIGATE or state == State.SEARCH else State.SEARCH
+	state = State.PEEK
+	peek_phase = Peek.SETTLE
+	peek_timer = HunterPeek.SETTLE
+	peek_body = HunterPeek.body(corner)
+	peek_head = HunterPeek.head(corner)
+	peek_dir = Vector2(corner["d2"])
+	peek_side = HunterPeek.side(corner)
+	_peek_corner_cell = corner["c"]
+	peeks_started += 1
+	direct_chase_visible = false
+
+
+func _update_peek(delta: float, generator) -> void:
+	var offset := peek_body - position
+	if offset.length() > .01:
+		var step := minf(offset.length(), base_speed * delta)
+		_move_with_collision(offset.normalized().x * step, offset.normalized().y * step, generator)
+	facing = peek_dir
+	peek_timer -= delta
+	if peek_phase == Peek.SETTLE and position.distance_to(peek_body) > .05 and peek_timer > -1.5:
+		return   # still sliding into the spot (gives up waiting after 1.5 s if something blocks it)
+	if peek_timer > 0.0:
+		return
+	match peek_phase:
+		Peek.SETTLE:
+			peek_phase = Peek.LOOK
+			peek_timer = float(HunterPeek.tuning(hunter_id)["look"])
+			sense_timer = 0.0   # look the moment the head clears the edge
+		Peek.LOOK:
+			_end_peek(_peek_resume)   # nothing there: pull back and carry on
+		Peek.SEEN:
+			_end_peek(State.CHASE)    # burst
+		Peek.AMBUSH:
+			_end_peek(State.INVESTIGATE)   # they never came round: go to where she saw them
+
+
+func _peek_perceive(sees_target: bool, hears_target: bool, target_position: Vector2) -> void:
+	if sees_target or hears_target:
+		has_last_known = true
+		last_known = target_position
+	if not sees_target:
+		direct_chase_visible = false
+		return
+	match peek_phase:
+		Peek.SETTLE, Peek.LOOK:
+			if String(HunterPeek.tuning(hunter_id)["style"]) == "ambush":
+				peek_phase = Peek.AMBUSH   # duck back behind the corner and wait for them to come round
+				peek_timer = float(HunterPeek.difficulty(difficulty_id)["ambush"])
+			else:
+				peek_phase = Peek.SEEN
+				peek_timer = float(HunterPeek.difficulty(difficulty_id)["react"])
+		Peek.AMBUSH:
+			_end_peek(State.CHASE)   # seen from cover: they came to her
+			direct_chase_visible = true
+
+
+func _end_peek(next: State) -> void:
+	state = next
+	peek_phase = Peek.SETTLE
+	peek_cooldown = HunterPeek.COOLDOWN
+	lost_sight_timer = 0.0
+	_path.clear()
+	_has_path_target = false
+	if next == State.SEARCH and not has_search_target:
+		has_search_target = has_last_known
+		search_target = last_known
+	if next == State.SEARCH and search_timer <= 0.0:
+		search_timer = float(difficulty_profile["search_time"])
+
+
+# ------------------------------------------------------------------------------------------------------ locker inspection
+
+## Rolls the dice for a qualifying pass (HunterInspect.qualifies) and starts the inspection if it lands and a stand
+## clears her body.
+func maybe_inspect(spot_centre: Vector2, door: Vector2, generator, chance_scale: float = 1.0) -> bool:
+	if _rng.next_float() >= HunterInspect.chance(hunter_id, difficulty_id) * chance_scale:
+		inspect_cooldown = 4.0   # a missed roll: not again on the very next frame of the same pass
+		return false
+	return start_inspect(spot_centre, door, generator)
+
+
+## `door`: unit direction out through the spot's door. She walks (pathing round the locker if she came from behind or
+## the side) to her stand point and faces back into the slats. False when no stand clears her.
+func start_inspect(spot_centre: Vector2, door: Vector2, generator) -> bool:
+	var stand := HunterInspect.stand_point(hunter_id, spot_centre, door, generator, radius)
+	if stand == Vector2.INF:
+		return false
+	_inspect_resume = position + facing * HunterInspect.LEAVE_DISTANCE
+	state = State.INSPECT
+	inspect_phase = Inspect.WALK
+	inspect_stand = stand
+	inspect_face = -door.normalized()
+	inspect_timer = 0.0
+	inspections += 1
+	direct_chase_visible = false
+	_path.clear()
+	_has_path_target = false
+	return true
+
+
+## True while she is bent in at the slats (the lean pose shows, the breath plays).
+func inspecting_close() -> bool:
+	return state == State.INSPECT and inspect_phase in [Inspect.LEAN, Inspect.LINGER]
+
+
+func _update_inspect(delta: float, generator) -> void:
+	inspect_timer += delta
+	match inspect_phase:
+		Inspect.WALK:
+			var offset := inspect_stand - position
+			if offset.length() > .05 and inspect_timer < HunterInspect.WALK_LIMIT:
+				var speed := base_speed * HunterInspect.WALK_SCALE
+				if offset.length() > ARRIVAL_DISTANCE:
+					_pursue(inspect_stand, speed, delta, generator)   # round the locker if she came from behind it
+				else:
+					var step := minf(offset.length(), speed * delta)
+					facing = offset.normalized()
+					_move_with_collision(facing.x * step, facing.y * step, generator)
+				return
+			_next_inspect(Inspect.TURN)
+		Inspect.TURN:
+			facing = facing.slerp(inspect_face, clampf(delta / maxf(.05, HunterInspect.TURN_SECONDS - inspect_timer + delta), 0.0, 1.0))
+			if inspect_timer >= HunterInspect.TURN_SECONDS:
+				facing = inspect_face
+				_next_inspect(Inspect.LEAN)
+		Inspect.LEAN:
+			facing = inspect_face
+			if inspect_timer >= HunterInspect.LEAN_SECONDS:
+				_next_inspect(Inspect.LINGER)
+		Inspect.LINGER:
+			facing = inspect_face
+			if inspect_timer >= HunterInspect.linger(hunter_id, difficulty_id):
+				_next_inspect(Inspect.RISE)
+		Inspect.RISE:
+			facing = inspect_face
+			if inspect_timer >= HunterInspect.RISE_SECONDS:
+				_end_inspect(generator)
+
+
+func _next_inspect(phase: Inspect) -> void:
+	inspect_phase = phase
+	inspect_timer = 0.0
+
+
+## Moves on the way she was going (nothing found), and leaves inspections alone for the difficulty's cooldown.
+func _end_inspect(generator) -> void:
+	state = State.WANDER
+	inspect_phase = Inspect.WALK
+	inspect_cooldown = float(HunterInspect.difficulty(difficulty_id)["cooldown"])
+	var goal := _inspect_resume
+	if generator.has_method("is_floor") and not generator.is_floor(goal.x, goal.y):
+		goal = inspect_stand - inspect_face * HunterInspect.LEAVE_DISTANCE
+	wander_target = goal
+	has_wander_target = true
+	has_last_known = false
+	_path.clear()
+	_has_path_target = false

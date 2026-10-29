@@ -147,8 +147,7 @@ func _everyone_has_a_dossier_entry() -> void:
 	var missing: Array[String] = []
 	for id in HunterRoster.PROFILES:
 		var entry := HunterDossier.entry(id)
-		if entry.is_empty() or String(entry.get("ability", "")).is_empty() \
-				or String(entry.get("behavior", "")).is_empty():
+		if entry.is_empty() or String(entry.get("behavior", "")).is_empty():
 			missing.append(id)
 	for id in HunterDossier.ENTRIES:
 		_expect(HunterRoster.PROFILES.has(id),
@@ -158,13 +157,17 @@ func _everyone_has_a_dossier_entry() -> void:
 	_expect(HunterDossier.ENTRIES.size() == HunterRoster.A_Z_IDS.size(),
 		"dossier ENTRIES covers %d hunters for a %d-hunter A-Z roster" % [
 			HunterDossier.ENTRIES.size(), HunterRoster.A_Z_IDS.size()])
-	print("  dossier  %d ability entries" % HunterDossier.ENTRIES.size())
+	for id in HunterRoster.PROFILES:
+		var shown := HunterDossier.entry(id)
+		_expect(not shown.has("ability") and not shown.has("gimmick_title"), "%s dossier shows a role title" % id)
+		_expect(HunterDossier.portrait(id) != null, "%s has no dossier portrait" % id)
+	print("  dossier  %d entries" % HunterDossier.ENTRIES.size())
 
 
 ## The Blockbench -> glTF export pipeline writes pixel-art materials as MASK,
 ## which Godot imports as alpha scissor. This must remain authored: transparent
 ## overlay texels reveal the base torso, and transparent wing/hair padding cuts
-## out the silhouette. The old runtime opacity override turned Eirys/Quirith's
+## out the silhouette. The old runtime opacity override turned Elise/Quenelle's
 ## overlay padding into solid black boxes. Load through ModelSlot exactly as the
 ## game does and confirm the imported masking survives.
 func _everyone_actually_renders() -> void:

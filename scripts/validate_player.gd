@@ -83,12 +83,252 @@ func run(host: Node) -> int:
 	return _failures
 
 
+## The ladder-climb hands are the player's skinned hands (same source as the viewmodel), never the old tan/orange placeholder
+## boxes: every mesh is a mannequin mesh textured with the skin atlas, no BoxMesh, no flat skin-tone material; a skin or arm-style
+## change rebuilds them live.
+func _expect_skinned_climb_hands(controller: PlayerController3D) -> void:
+	controller._show_climb_hands(true)
+	var hands := controller._climb_hands
+	if hands == null or hands.get_child_count() != 2:
+		_fail("the ladder climb shows no pair of hands")
+		return
+	var meshes := hands.find_children("*", "MeshInstance3D", true, false)
+	if meshes.size() < 4:
+		_fail("the climb hands have %d meshes, not forearm + hand per arm" % meshes.size())
+	for mesh_value in meshes:
+		var mesh_node := mesh_value as MeshInstance3D
+		if mesh_node.mesh is BoxMesh or mesh_node.mesh is PrimitiveMesh:
+			_fail("a climb hand is a placeholder primitive box")
+		var material := mesh_node.get_active_material(0)
+		var textured := material is StandardMaterial3D and (material as StandardMaterial3D).albedo_texture != null
+		if not textured:
+			_fail("a climb hand mesh is not textured with the skin atlas (flat material)")
+		elif (material as StandardMaterial3D).albedo_color.is_equal_approx(Color("d9a98a")):
+			_fail("a climb hand still uses the placeholder skin tone")
+	var left := hands.get_node("L").get_child(0) as Node3D
+	var right := hands.get_node("R").get_child(0) as Node3D
+	if left.scale.x * right.scale.x >= 0.0:
+		_fail("the left climb hand is not mirrored")
+	_expect_climb_motion_and_size(controller)
+	var was_arms := Settings.skin_arms
+	var was_slim := Settings.skin_slim
+	Settings.skin_arms = "slim"
+	controller._apply_visual_settings()
+	var rebuilt := controller._climb_hands
+	if rebuilt == null or not rebuilt.visible or not bool(rebuilt.get_node("R").get_child(0).get_meta("slim", false)):
+		_fail("the climb hands did not rebuild with the slim (Alex) arms when the style changed")
+	Settings.skin_arms = was_arms
+	Settings.skin_slim = was_slim
+	controller._apply_visual_settings()
+
+
+## The hands alternate rung by rung with the climb height, reverse going down, stay put when the climb stops, and read as real
+## arms: their on-screen size is a fixed share of the view at the default FOV and at both FOV extremes.
+func _expect_climb_motion_and_size(controller: PlayerController3D) -> void:
+	var snapshot := func(height: float) -> Array:
+		controller._animate_climb_hands(height)
+		var out := []
+		for arm in controller._climb_hands.get_children():
+			out.append((arm as Node3D).position)
+		return out
+	var base: Array = snapshot.call(1.0)
+	var same: Array = snapshot.call(1.0)
+	_expect_equal_poses(base, same, "the climb hands moved while the climb was stopped")
+	var moved: Array = snapshot.call(1.15)
+	if base[0].is_equal_approx(moved[0]) and base[1].is_equal_approx(moved[1]):
+		_fail("the climb hands did not move when the climb moved 15 cm")
+	var left_a := PlayerController3D.climb_hand_pose(1.0, -1.0)
+	var right_a := PlayerController3D.climb_hand_pose(1.0, 1.0)
+	if bool(left_a["grip"]) == bool(right_a["grip"]):
+		_fail("both climb hands grip or reach at the same time; they must alternate")
+	var up := PlayerController3D.climb_hand_pose(1.2, -1.0)
+	var back := PlayerController3D.climb_hand_pose(1.0, -1.0)
+	var down := PlayerController3D.climb_hand_pose(0.8, -1.0)
+	if is_equal_approx(float(up["y"]), float(down["y"])) or is_equal_approx(float(up["y"]), float(back["y"])):
+		_fail("climbing up and down do not give different hand poses")
+	if not PlayerController3D.climb_hand_pose(0.3, -1.0)["pull"] is float:
+		_fail("no grip pull value")
+	var camera := controller.first_person_camera
+	var viewport_size := controller.get_viewport().get_visible_rect().size
+	var was_fov := Settings.field_of_view
+	for fov in [Settings.MIN_FIELD_OF_VIEW, Settings.DEFAULT_FIELD_OF_VIEW, Settings.MAX_FIELD_OF_VIEW]:
+		camera.fov = fov
+		controller._animate_climb_hands(1.0)
+		var top := 1.0e9
+		var bottom := -1.0e9
+		for mesh_value in controller._climb_hands.find_children("*", "MeshInstance3D", true, false):
+			var mesh_node := mesh_value as MeshInstance3D
+			var box := mesh_node.mesh.get_aabb()
+			for corner in 8:
+				var point := mesh_node.global_transform * box.get_endpoint(corner)
+				if camera.is_position_behind(point):
+					continue
+				var screen := camera.unproject_position(point)
+				top = minf(top, screen.y)
+				bottom = maxf(bottom, screen.y)
+		var share := (bottom - top) / viewport_size.y
+		if share < .2 or share > .8:
+			_fail("the climb hand is %.0f%% of the screen height at FOV %.0f (want 20-80%%)" % [share * 100.0, fov])
+	camera.fov = was_fov
+
+
+func _expect_equal_poses(a: Array, b: Array, message: String) -> void:
+	for i in a.size():
+		if not (a[i] as Vector3).is_equal_approx(b[i]):
+			_fail(message)
+			return
+
+
+## XR hand interactions (XRHands, milestone 4): a flat run builds none of the XR helpers and still aims [E] from the head;
+## the climb and swing maths hold; and a gripping hand's pull moves a real ladder climb by exactly that much.
+func _expect_xr_hands(controller: PlayerController3D) -> void:
+	if controller.xr_hands != null or controller.xr_comfort != null:
+		_fail("a flat run built the XR comfort or hand helpers")
+	if not controller.interaction_aim().is_equal_approx(controller.active_camera().global_transform):
+		_fail("[E] no longer aims from the head on a flat run")
+	if not is_equal_approx(XRHands.climb_pull(1.2, 1.0), 0.2) or not is_equal_approx(XRHands.climb_pull(1.0, 1.1), -0.1):
+		_fail("pulling a gripping hand down does not climb up by the same distance")
+	if not XRHands.is_swing(Vector3(0, 0, .05), 1.0 / 72.0) or XRHands.is_swing(Vector3(0, 0, .01), 1.0 / 72.0):
+		_fail("the swing speed threshold is wrong (3.6 m/s must swing, 0.7 m/s must not)")
+	var saved_position := controller.global_position
+	var saved_rotation := controller.rotation
+	var saved_layer := controller.collision_layer
+	var saved_mask := controller.collision_mask
+	var items_visible := controller.first_person_items.visible
+	controller.begin_ladder_climb(saved_position, 3.0, 1.0, saved_rotation.y, saved_position + Vector3(0, 3, -1),
+		saved_position + Vector3(0, 0, 1), 0, 0)
+	if controller.is_climbing():
+		controller.ladder_climb["phase"] = "climb"
+		controller.xr_climb_pull(.4)
+		controller._update_ladder_climb(1.0 / 60.0)
+		var height := float(controller.ladder_climb.get("height", 0.0))
+		if not is_equal_approx(height, 1.4):
+			_fail("a 0.4 m hand pull moved the climb to %.2f m instead of 1.40 m" % height)
+		controller.xr_climb_pull(-5.0)
+		controller._update_ladder_climb(1.0 / 60.0)
+		if String(controller.ladder_climb.get("phase", "")) != "climb" or float(controller.ladder_climb["height"]) > 0.001:
+			_fail("pushing a hand far up does not stop the climb at the foot of the ladder")
+	else:
+		_fail("the test ladder climb did not start")
+	_expect_skinned_climb_hands(controller)
+	controller.ladder_climb = {}
+	controller._show_climb_hands(false)
+	_expect_climb_body(controller, saved_position, saved_rotation.y)
+	controller.ladder_climb = {}
+	controller._show_climb_hands(false)
+	controller.global_position = saved_position
+	controller.rotation = saved_rotation
+	controller.collision_layer = saved_layer
+	controller.collision_mask = saved_mask
+	controller.first_person_items.visible = items_visible
+
+
+## True first person on a ladder (KT): the runner sees their own player model (the one others see) climb, from its eyes, head
+## hidden; each gripping hand is on its rung within 3 cm (the sewer ladder's layout: rungs every .3 m from .28 m, .4 m in
+## front of the climbing line), the hands move with the climb and stay put when it stops, no floating hands beside it, and
+## the dismount gives back the normal first-person view.
+func _expect_climb_body(controller: PlayerController3D, foot: Vector3, yaw: float) -> void:
+	var forward := Vector3(-sin(yaw), 0.0, -cos(yaw))
+	var rungs := Node3D.new()
+	controller.get_parent().add_child(rungs)
+	for i in 14:
+		var rung := Node3D.new()
+		rung.name = "Rung%02d" % i
+		rungs.add_child(rung)
+		rung.global_position = foot + forward * .4 + Vector3.UP * (.28 + i * .3)
+		rung.look_at(rung.global_position + forward, Vector3.UP)
+	controller.begin_ladder_climb(foot, 3.0, 1.0, yaw, foot + Vector3(0, 3, -1), foot + Vector3(0, 0, 1), 0, 0)
+	controller.ladder_climb["phase"] = "climb"
+	controller._update_ladder_climb(1.0 / 60.0)
+	var body := controller.first_person_body()
+	body._process(0.0)
+	if not body.visible or body.model != controller._body_model:
+		_fail("climbing does not show the runner's own player model in first person")
+	else:
+		for step_check in 3:
+			controller.ladder_climb["height"] = 1.0 + step_check * .2
+			controller._update_ladder_climb(1.0 / 60.0)
+			body._process(0.0)
+			if not preload("res://scripts/validate_grabs.gd")._head_hidden(body.model, controller.first_person_camera):
+				_fail("the climbing model's head is visible to the first-person camera")
+		if controller.first_person_camera.global_position.distance_to(body.eye()) > .02:
+			_fail("the climbing camera is %.2f m from the model's eyes" % controller.first_person_camera.global_position.distance_to(body.eye()))
+		var gripped := 0
+		var before := {}
+		for step in 4:
+			controller.ladder_climb["height"] = 1.0 + step * .17
+			controller._update_ladder_climb(1.0 / 60.0)
+			body._process(0.0)
+			var targets := controller.climb_hand_targets(float(controller.ladder_climb["height"]))
+			for key in ["L", "R"]:
+				var grip := HunterGrab.grip_point(HunterGrab.arm_chain(body.model, key))
+				if step == 0:
+					before[key] = grip
+				if bool(targets.get("grip_" + key, false)):
+					gripped += 1
+					if grip.distance_to(targets[key]) > .03:
+						_fail("the climbing %s hand is %.1f cm off its rung" % [key, grip.distance_to(targets[key]) * 100.0])
+		if gripped == 0:
+			_fail("no climbing hand ever gripped a rung")
+		var moved := false
+		for key in ["L", "R"]:
+			moved = moved or HunterGrab.grip_point(HunterGrab.arm_chain(body.model, key)).distance_to(before[key]) > .05
+		if not moved:
+			_fail("the climbing hands did not move with the climb")
+		var held := HunterGrab.grip_point(HunterGrab.arm_chain(body.model, "L"))
+		controller._update_ladder_climb(1.0 / 60.0)
+		body._process(0.0)
+		if HunterGrab.grip_point(HunterGrab.arm_chain(body.model, "L")).distance_to(held) > .01:
+			_fail("the climbing hands moved while the climb was stopped")
+		if controller._climb_hands != null and controller._climb_hands.visible:
+			_fail("the floating ladder hands still show beside the climbing model")
+	controller._ladder_dismount("top")
+	for _i in 120:
+		controller._update_ladder_climb(1.0 / 60.0)
+		if controller.ladder_climb.is_empty():
+			break
+	if controller.ladder_climb.is_empty():
+		if body.visible or controller.body_visual.visible:
+			_fail("the player model stays drawn in first person after the dismount")
+		for mesh in body.model.find_child("Head", true, false).find_children("*", "GeometryInstance3D", true, false) + [body.model.find_child("Head", true, false)]:
+			if mesh is VisualInstance3D and (mesh as VisualInstance3D).layers == FirstPersonBody.HEAD_LAYER:
+				_fail("the model's head stays off the first-person layer after the dismount")
+		if not is_equal_approx(controller.first_person_camera.near, PlayerController3D.FIRST_PERSON_NEAR):
+			_fail("the near plane stays small after the dismount")
+	rungs.queue_free()
+
+
+## XR head follow (XRComfort.follow_head): a headset 0.6 m beside the body pulls the body after it in open space and
+## always brings the view back over the body.
+func _expect_xr_head_follow(controller: PlayerController3D) -> void:
+	var comfort := XRComfort.new()
+	comfort.player = controller
+	comfort.origin = controller.xr_origin
+	comfort.camera = controller.xr_camera
+	var start := controller.global_position
+	var origin_start := controller.xr_origin.position
+	controller.xr_camera.position = Vector3(0.6, 1.4, 0)
+	comfort.follow_head(false)
+	var offset := controller.xr_camera.global_position - controller.global_position
+	if Vector2(offset.x, offset.z).length() > 0.02 or not controller.global_position.is_equal_approx(start):
+		_fail("the XR view is not pulled back over a body that must not move (offset %s)" % offset)
+	controller.xr_origin.position = origin_start
+	controller.global_position = start
+	controller.xr_camera.position = Vector3.ZERO
+	comfort.free()
+
+
 func _expect_xr(route: Node) -> void:
 	var controller: PlayerController3D = route.player
 	if controller.xr_origin == null or controller.xr_camera == null \
 			or controller.xr_left == null or controller.xr_right == null:
 		_fail("the route player is missing its OpenXR origin/camera/controllers")
 		return
+	# OpenXR names its controller trackers left_hand / right_hand (a /user/hand/... path never tracks).
+	if controller.xr_left.tracker != &"left_hand" or controller.xr_right.tracker != &"right_hand" \
+			or controller.xr_left.pose != &"default" or controller.xr_right.pose != &"default":
+		_fail("the XR controllers listen to %s/%s %s/%s instead of left_hand/right_hand with the default pose" % [
+			controller.xr_left.tracker, controller.xr_left.pose, controller.xr_right.tracker, controller.xr_right.pose])
 	if controller.first_person_items == null or controller.flashlight_view == null \
 			or controller.taser_view == null:
 		_fail("the desktop first-person camera is missing its held equipment view")
@@ -99,6 +339,10 @@ func _expect_xr(route: Node) -> void:
 			"*", "MeshInstance3D", true, false)
 		if item_meshes.size() < 20:
 			_fail("the authored equipment views contain only %d visible parts" % item_meshes.size())
+		# camera-local equipment sits right beside the shadowed flashlight: any of it casting a shadow throws a striped smear over the floor in the beam
+		for node in controller.first_person_items.find_children("*", "GeometryInstance3D", true, false):
+			if (node as GeometryInstance3D).cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+				_fail("first-person equipment %s casts a shadow" % controller.first_person_items.get_path_to(node))
 		for item_id in PlayerController3D.INVENTORY_ITEMS:
 			var view: Node3D = controller.flashlight_view if item_id == "flashlight" \
 				else (controller.taser_view if item_id == "taser" \
@@ -111,6 +355,15 @@ func _expect_xr(route: Node) -> void:
 	_expect_player_camera_and_crouch(controller)
 	_expect_controller_bindings()
 	_expect_keyboard_look(controller)
+	_expect_xr_hands(controller)
+	_expect_xr_head_follow(controller)
+	# A headset without a tracked right / left hand aims [E] and the flashlight with the head.
+	controller.xr_active = true
+	var head_aim := controller.interaction_aim().is_equal_approx(controller.xr_camera.global_transform)
+	var lamp_aim := controller.equipment_aim_direction().is_equal_approx(-controller.xr_camera.global_basis.z.normalized())
+	controller.xr_active = false
+	if not head_aim or not lamp_aim:
+		_fail("without tracked hands the headset does not aim [E] (%s) and the flashlight (%s) from the head" % [head_aim, lamp_aim])
 	if controller._flashlight_probe == null:
 		_fail("the flashlight has no forward collision probe")
 	else:
@@ -120,8 +373,11 @@ func _expect_xr(route: Node) -> void:
 		if not is_equal_approx(controller._flashlight_probe.target_position.z,
 				-PlayerController3D.FLASHLIGHT_MAX_RANGE):
 			_fail("the flashlight ray does not cover the beam range")
-	if not controller.flashlight.shadow_enabled:
-		_fail("the flashlight does not cast wall/prop shadows")
+	# Quality tiers: the flashlight casts shadows on every desktop tier but LOW (QualityTier); judge it per the live tier.
+	if PlatformProfile.shadows and not controller.flashlight.shadow_enabled:
+		_fail("the flashlight does not cast wall/prop shadows (tier %s keeps shadows)" % PlatformProfile.tier_readout())
+	if not PlatformProfile.shadows and controller.flashlight.shadow_enabled:
+		_fail("the flashlight casts shadows on tier %s, which drops them" % PlatformProfile.tier_readout())
 	var beam_color := controller.flashlight.light_color
 	var beam_color_error := maxf(absf(beam_color.r - 1.0), maxf(
 		absf(beam_color.g - 1.0), absf(beam_color.b - 1.0)))

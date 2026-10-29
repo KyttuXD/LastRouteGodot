@@ -7,11 +7,12 @@ extends RefCounted
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- hallways
 
-## seed, first chunk, last chunk. MAP-CHECK's south-east window holds a hotel and a prison; the others cover the mixed districts.
+## seed, first chunk, last chunk. the windows together hold a hotel and a prison and cover the mixed districts.
 const WINDOWS := [
 	{"seed": "MAP-CHECK", "from": Vector2i(0, 3), "to": Vector2i(6, 6)},
 	{"seed": "MAP-CHECK", "from": Vector2i(-6, -6), "to": Vector2i(-1, -1)},
 	{"seed": "HALL-A", "from": Vector2i(-4, -4), "to": Vector2i(4, 4)},
+	{"seed": "MAP-CHECK", "from": Vector2i(2, -6), "to": Vector2i(6, -1)},
 ]
 
 var _failures := 0
@@ -32,6 +33,7 @@ func run(_host: Node) -> int:
 	var doubled_districts := {}
 	var chunks_checked := 0
 	var covered := {}
+	var maze_halls := 0
 	for window in WINDOWS:
 		var seed_text: String = window["seed"]
 		var generator := StreamedRouteGenerator.new(seed_text)
@@ -55,6 +57,12 @@ func run(_host: Node) -> int:
 					for z in range(rect.position.y, rect.end.y):
 						for x in range(rect.position.x, rect.end.x):
 							rooms[origin + Vector2i(x, z)] = true
+				# a stairwell is an enclosed well, not a hallway: its landing is not a second hall beside the centre one
+				for well in data.get("stairwells", []):
+					var box: Rect2i = well["box"]
+					for z in range(box.position.y, box.end.y):
+						for x in range(box.position.x, box.end.x):
+							rooms[origin + Vector2i(x, z)] = true
 				for prop in data["region_props"]:
 					if prop.get("room_door", false):
 						for cell in prop.get("doorway_cells", []):
@@ -68,6 +76,12 @@ func run(_host: Node) -> int:
 				for corridor in data["corridors"]:
 					if corridor.has("rect") and String(corridor.get("id", "")).contains(":HALL:"):
 						var rect: Rect2i = corridor["rect"]
+						# KT: "5 wide maze region hallways": the maze's centre cross (halls 1 and 3) is five wide
+						var hall_id := String(corridor["id"])
+						if String(data["region"]) == "maze" and (hall_id.ends_with(":HALL:1") or hall_id.ends_with(":HALL:3")):
+							maze_halls += 1
+							_expect(mini(rect.size.x, rect.size.y) == 5, "%s maze main hall %s is %d wide" % [seed_text,
+								hall_id, mini(rect.size.x, rect.size.y)])
 						for z in range(rect.position.y, rect.end.y):
 							for x in range(rect.position.x, rect.end.x):
 								if int(grid[z][x]) != 0:
@@ -104,8 +118,17 @@ func run(_host: Node) -> int:
 	_expect(covered.has("hotel") and covered.has("prison"), "the scanned windows must include a hotel and a prison (got %s)" % [covered.keys()])
 	_expect(narrow_total == 0, "%d hallway cells are narrower than three wide (e.g. %s; by district %s)" % [
 		narrow_total, narrow_samples, districts])
+	_expect(maze_halls > 0, "the scanned windows must include a maze chunk")
+	# KT: "make the maze the most common spawn point": the spawn region is the maze about 60% of the time, else another
+	var spawn_regions := {}
+	for i in 400:
+		var region := StreamedRouteGenerator.new("SPAWN-%d" % i).biome_for(Vector3i.ZERO)
+		spawn_regions[region] = int(spawn_regions.get(region, 0)) + 1
+	var maze_share := float(spawn_regions.get("maze", 0)) / 400.0
+	_expect(maze_share > .5 and maze_share < .7 and spawn_regions.size() >= 6,
+		"spawn regions over 400 seeds should be ~60%% maze and still varied: %s" % [spawn_regions])
 	if _failures == 0:
-		print("  hallways  %d chunks (%s): no hallway cell narrower than three wide, main halls whole" % [chunks_checked, ", ".join(covered.keys())])
+		print("  hallways  %d chunks (%s): no hallway cell narrower than three wide, main halls whole, maze centre cross 5 wide (%d halls), spawn %d%% maze" % [chunks_checked, ", ".join(covered.keys()), maze_halls, roundi(maze_share * 100.0)])
 	return _failures
 
 

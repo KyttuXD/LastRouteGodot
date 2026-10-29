@@ -1,7 +1,7 @@
 [gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://src/ui/main_menu.gd" id="1_menu"]
-[ext_resource type="Script" path="res://src/ui/settings_panel.gd" id="2_settings"]
+[ext_resource type="PackedScene" path="res://scenes/settings_overlay.tscn" id="2_settings"]
 [ext_resource type="Script" path="res://src/ui/signal_backdrop.gd" id="3_backdrop"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_normal"]
@@ -202,12 +202,6 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "JOIN ROOM"
 
-[node name="OfflineButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 6
-unique_name_in_owner = true
-layout_mode = 2
-text = "PLAY OFFLINE"
-
 [node name="SettingsButton" type="Button" parent="ButtonPanel/ButtonBox"]
 theme_override_font_sizes/font_size = 6
 unique_name_in_owner = true
@@ -237,7 +231,7 @@ text = "DOWNLOAD UPDATE"
 theme_override_font_sizes/font_size = 5
 unique_name_in_owner = true
 layout_mode = 2
-text = "QUIT"
+text = "BACK TO GAMES"
 
 [node name="KickerLabel" type="Label" parent="."]
 layout_mode = 1
@@ -247,9 +241,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -155.0
-offset_top = -70.0
+offset_top = -76.0
 offset_right = 185.0
-offset_bottom = -60.0
+offset_bottom = -66.0
 grow_horizontal = 2
 grow_vertical = 2
 theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
@@ -264,20 +258,20 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -155.0
-offset_top = -58.0
+offset_top = -62.0
 offset_right = 85.0
-offset_bottom = -41.0
+offset_bottom = -48.0
 grow_horizontal = 2
 grow_vertical = 2
 theme_override_colors/font_color = Color(0.784, 0.663, 0.847, 1)
 theme_override_colors/font_outline_color = Color(0.09, 0.045, 0.07, 1)
 theme_override_colors/font_shadow_color = Color(0.22, 0.13, 0.27, 0.95)
-theme_override_font_sizes/font_size = 15
+theme_override_font_sizes/font_size = 10
 theme_override_constants/outline_size = 1
 theme_override_constants/shadow_offset_x = 3
 theme_override_constants/shadow_offset_y = 3
 theme_override_constants/shadow_outline_size = 1
-text = "K Y T T U :"
+text = "K Y T T U ' S   L A B"
 
 [node name="LedeLabel" type="Label" parent="."]
 layout_mode = 1
@@ -314,371 +308,6 @@ grow_vertical = 0
 text = "VERSION 0.0.1.0"
 horizontal_alignment = 1
 
-[node name="SettingsOverlay" type="ColorRect" parent="."]
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -220
-offset_top = -127
-offset_right = 220
-offset_bottom = 127
-grow_horizontal = 2
-grow_vertical = 2
+[node name="SettingsOverlay" parent="." instance=ExtResource("2_settings")]
 unique_name_in_owner = true
 visible = false
-script = ExtResource("2_settings")
-color = Color(0.02, 0.05, 0.065, 0.94)
-
-[node name="Title" type="Label" parent="SettingsOverlay"]
-layout_mode = 0
-offset_top = 6.0
-offset_right = 440.0
-offset_bottom = 24.0
-theme_override_colors/font_color = Color(0.55, 0.9, 0.85, 1)
-theme_override_font_sizes/font_size = 15
-text = "SETTINGS"
-horizontal_alignment = 1
-
-[node name="HintLabel" type="Label" parent="SettingsOverlay"]
-layout_mode = 0
-offset_top = 25.0
-offset_right = 440.0
-offset_bottom = 34.0
-theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
-theme_override_font_sizes/font_size = 7
-text = "PRESS REBIND, THEN A KEY  //  ESC CANCELS A REBIND IN PROGRESS"
-horizontal_alignment = 1
-
-[node name="AudioHeading" type="Label" parent="SettingsOverlay"]
-visible = false
-layout_mode = 0
-offset_left = 20.0
-offset_top = 37.0
-offset_right = 420.0
-offset_bottom = 45.0
-theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
-theme_override_font_sizes/font_size = 6
-text = "AUDIO"
-
-[node name="VolumeRow" type="HBoxContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 70.0
-offset_right = 420.0
-offset_bottom = 86.0
-theme_override_constants/separation = 8
-
-[node name="DisplayHeading" type="Label" parent="SettingsOverlay"]
-visible = false
-layout_mode = 0
-offset_left = 20.0
-offset_top = 63.0
-offset_right = 420.0
-offset_bottom = 71.0
-theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
-theme_override_font_sizes/font_size = 6
-text = "DISPLAY"
-
-[node name="VolumeLabel" type="Label" parent="SettingsOverlay/VolumeRow"]
-layout_mode = 2
-vertical_alignment = 1
-text = "MASTER VOLUME"
-
-[node name="VolumeSlider" type="HSlider" parent="SettingsOverlay/VolumeRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(180, 12)
-layout_mode = 2
-size_flags_vertical = 4
-max_value = 100.0
-step = 1.0
-value = 100.0
-
-[node name="VolumeValueLabel" type="Label" parent="SettingsOverlay/VolumeRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(34, 0)
-layout_mode = 2
-vertical_alignment = 1
-text = "100%"
-
-[node name="SfxVolumeRow" type="HBoxContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 94.0
-offset_right = 420.0
-offset_bottom = 110.0
-theme_override_constants/separation = 8
-
-[node name="SfxVolumeLabel" type="Label" parent="SettingsOverlay/SfxVolumeRow"]
-layout_mode = 2
-vertical_alignment = 1
-text = "GAMEPLAY / HUNTERS"
-
-[node name="SfxVolumeSlider" type="HSlider" parent="SettingsOverlay/SfxVolumeRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(180, 12)
-layout_mode = 2
-size_flags_vertical = 4
-max_value = 100.0
-step = 1.0
-value = 100.0
-
-[node name="SfxVolumeValueLabel" type="Label" parent="SettingsOverlay/SfxVolumeRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(34, 0)
-layout_mode = 2
-vertical_alignment = 1
-text = "100%"
-
-[node name="UiVolumeRow" type="HBoxContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 118.0
-offset_right = 420.0
-offset_bottom = 134.0
-theme_override_constants/separation = 8
-
-[node name="UiVolumeLabel" type="Label" parent="SettingsOverlay/UiVolumeRow"]
-layout_mode = 2
-vertical_alignment = 1
-text = "MENU / UI"
-
-[node name="UiVolumeSlider" type="HSlider" parent="SettingsOverlay/UiVolumeRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(180, 12)
-layout_mode = 2
-size_flags_vertical = 4
-max_value = 100.0
-step = 1.0
-value = 100.0
-
-[node name="UiVolumeValueLabel" type="Label" parent="SettingsOverlay/UiVolumeRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(34, 0)
-layout_mode = 2
-vertical_alignment = 1
-text = "100%"
-
-[node name="SensitivityRow" type="HBoxContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 186.0
-offset_right = 420.0
-offset_bottom = 202.0
-theme_override_constants/separation = 8
-
-[node name="SensitivityLabel" type="Label" parent="SettingsOverlay/SensitivityRow"]
-layout_mode = 2
-vertical_alignment = 1
-text = "MOUSE SENSITIVITY"
-
-[node name="SensitivitySlider" type="HSlider" parent="SettingsOverlay/SensitivityRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(180, 12)
-layout_mode = 2
-size_flags_vertical = 4
-
-[node name="SensitivityValueLabel" type="Label" parent="SettingsOverlay/SensitivityRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(34, 0)
-layout_mode = 2
-vertical_alignment = 1
-text = "50"
-
-[node name="DisplayRow" type="HBoxContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 66.0
-offset_right = 420.0
-offset_bottom = 82.0
-theme_override_constants/separation = 8
-
-[node name="VsyncRow" type="HBoxContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 86.0
-offset_right = 420.0
-offset_bottom = 102.0
-theme_override_constants/separation = 8
-
-[node name="VsyncLabel" type="Label" parent="SettingsOverlay/VsyncRow"]
-layout_mode = 2
-visible = false
-text = "VSYNC"
-
-[node name="VsyncButton" type="Button" parent="SettingsOverlay/VsyncRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(110, 16)
-layout_mode = 2
-toggle_mode = true
-
-[node name="FpsLimitRow" type="HBoxContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 106.0
-offset_right = 420.0
-offset_bottom = 122.0
-theme_override_constants/separation = 8
-
-[node name="FpsLimitLabel" type="Label" parent="SettingsOverlay/FpsLimitRow"]
-layout_mode = 2
-vertical_alignment = 1
-text = "FPS LIMIT"
-
-[node name="FpsLimitSlider" type="HSlider" parent="SettingsOverlay/FpsLimitRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(180, 12)
-layout_mode = 2
-size_flags_vertical = 4
-max_value = 240.0
-step = 30.0
-
-[node name="FpsLimitValueLabel" type="Label" parent="SettingsOverlay/FpsLimitRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(58, 0)
-layout_mode = 2
-vertical_alignment = 1
-text = "UNLIMITED"
-
-[node name="FovRow" type="HBoxContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 126.0
-offset_right = 420.0
-offset_bottom = 142.0
-theme_override_constants/separation = 8
-
-[node name="FovLabel" type="Label" parent="SettingsOverlay/FovRow"]
-layout_mode = 2
-vertical_alignment = 1
-text = "FIELD OF VIEW"
-
-[node name="FovSlider" type="HSlider" parent="SettingsOverlay/FovRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(180, 12)
-layout_mode = 2
-size_flags_vertical = 4
-min_value = 60.0
-max_value = 105.0
-step = 1.0
-value = 78.0
-
-[node name="FovValueLabel" type="Label" parent="SettingsOverlay/FovRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(34, 0)
-layout_mode = 2
-vertical_alignment = 1
-text = "78°"
-
-[node name="PixelEffectRow" type="HBoxContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 146.0
-offset_right = 420.0
-offset_bottom = 162.0
-theme_override_constants/separation = 8
-
-[node name="PixelEffectLabel" type="Label" parent="SettingsOverlay/PixelEffectRow"]
-layout_mode = 2
-vertical_alignment = 1
-text = "3D SIGNAL FILTER"
-
-[node name="PixelEffectSlider" type="HSlider" parent="SettingsOverlay/PixelEffectRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(180, 12)
-layout_mode = 2
-size_flags_vertical = 4
-max_value = 100.0
-step = 1.0
-value = 28.0
-
-[node name="PixelEffectValueLabel" type="Label" parent="SettingsOverlay/PixelEffectRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(34, 0)
-layout_mode = 2
-vertical_alignment = 1
-text = "28%"
-
-[node name="PlayerHueRow" type="HBoxContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 166.0
-offset_right = 420.0
-offset_bottom = 182.0
-theme_override_constants/separation = 8
-
-[node name="PlayerHueLabel" type="Label" parent="SettingsOverlay/PlayerHueRow"]
-layout_mode = 2
-vertical_alignment = 1
-text = "PLAYER SKIN HUE"
-
-[node name="PlayerHueSlider" type="HSlider" parent="SettingsOverlay/PlayerHueRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(180, 12)
-layout_mode = 2
-size_flags_vertical = 4
-max_value = 360.0
-step = 1.0
-
-[node name="PlayerHueValueLabel" type="Label" parent="SettingsOverlay/PlayerHueRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(56, 0)
-layout_mode = 2
-vertical_alignment = 1
-text = "ORIGINAL"
-
-[node name="ControlsHeading" type="Label" parent="SettingsOverlay"]
-visible = false
-layout_mode = 0
-offset_left = 20.0
-offset_top = 143.0
-offset_right = 420.0
-offset_bottom = 151.0
-theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
-theme_override_font_sizes/font_size = 6
-text = "CONTROLS"
-
-[node name="DisplayLabel" type="Label" parent="SettingsOverlay/DisplayRow"]
-layout_mode = 2
-visible = false
-vertical_alignment = 1
-text = "FULLSCREEN"
-
-[node name="FullscreenButton" type="Button" parent="SettingsOverlay/DisplayRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(110, 16)
-layout_mode = 2
-size_flags_vertical = 4
-toggle_mode = true
-
-[node name="FullscreenHint" type="Label" parent="SettingsOverlay/DisplayRow"]
-layout_mode = 2
-vertical_alignment = 1
-theme_override_colors/font_color = Color(0.55, 0.68, 0.69, 1)
-theme_override_font_sizes/font_size = 7
-text = "F11 ANYWHERE"
-
-[node name="ControlsScroll" type="ScrollContainer" parent="SettingsOverlay"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 62.0
-offset_right = 420.0
-offset_bottom = 228.0
-horizontal_scroll_mode = 0
-
-[node name="ControlsList" type="VBoxContainer" parent="SettingsOverlay/ControlsScroll"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 3
-
-[node name="CloseButton" type="Button" parent="SettingsOverlay"]
-unique_name_in_owner = true
-layout_mode = 0
-offset_left = 193.0
-offset_top = 234.0
-offset_right = 247.0
-offset_bottom = 250.0
-text = "BACK"

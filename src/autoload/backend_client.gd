@@ -83,11 +83,24 @@ var _admin_ticket_request: HTTPRequest
 var _admin_ticket_operation := ""
 var _admin_verify_request_id := 0
 var _requests_suppressed_for_tests := false
+## Custom skin sharing (SkinSync): uploads your skin, downloads peers' into memory.
+var skin_sync: SkinSync
+## Build reports, restriction status and host kick reports (docs/ANTI_CHEAT.md).
+var moderation: ModerationClient
 
 
 func _ready() -> void:
 	offline_mode = "--offline" in OS.get_cmdline_user_args()
 	_apply_loopback_override()
+	skin_sync = SkinSync.new()
+	add_child(skin_sync)
+	moderation = ModerationClient.new()
+	moderation.name = "Moderation"
+	add_child(moderation)
+	moderation.status_changed.connect(func(status: Dictionary) -> void:
+		var message := String(status.get("message", ""))
+		if not message.is_empty():
+			account_changed.emit(signed_in(), account_username, account_admin, message))
 	account_config_path = RunProfile.path(ACCOUNT_CONFIG_PATH)
 	_host_request = HTTPRequest.new()
 	_host_request.name = "HostDirectoryRequest"
@@ -180,6 +193,48 @@ func accounts_available() -> bool:
 	return not offline_mode and (_account_transport_is_protected() \
 		or base_url.trim_suffix("/").to_lower() == PRIMARY_BASE_URL.to_lower()
 	)
+
+
+## True when offline mode was chosen for ONE run (Create Room -> Offline). Leaving to a menu clears it (end_run_offline); a boot
+## fallback or --offline stays until GO ONLINE.
+var offline_for_run := false
+
+
+## Create Room -> "Offline (solo, no server)": offline for this run only.
+func enter_run_offline() -> void:
+	if offline_mode and not offline_for_run:
+		return   # already offline for the session (boot fallback / --offline): leave that to GO ONLINE
+	offline_for_run = true
+	enable_offline_mode()
+	UpdateManager.enable_offline_mode()
+
+
+## A menu is showing again: a run-scoped offline mode ends here. Returns true when it cleared (the caller re-runs the online checks).
+func end_run_offline() -> bool:
+	if not offline_for_run:
+		return false
+	offline_for_run = false
+	if "--offline" in OS.get_cmdline_user_args():
+		return false
+	go_online()
+	UpdateManager.go_online()
+	return true
+
+
+const OFFLINE_NOTE := "OFFLINE MODE IS ON // THE SERVER IS NOT BEING CONTACTED. GO ONLINE TO PLAY WITH FRIENDS."
+const OFFLINE_JOIN_MESSAGE := "OFFLINE MODE // GO ONLINE TO JOIN ROOMS"
+
+
+## Leaves offline mode without a restart (the menu's GO ONLINE): clears the flag, re-runs the health check and, when a login is
+## stored, the account session check. The caller re-runs UpdateManager.check() and whatever lookup it was waiting on.
+func go_online() -> void:
+	offline_mode = false
+	offline_for_run = false
+	check_health()
+	if not account_session_token.is_empty() and accounts_available() and not account_busy:
+		_send_account("session", "/api/account/session", {
+			"sessionToken": account_session_token,
+		})
 
 
 func enable_offline_mode() -> void:
@@ -325,24 +380,25 @@ func discovered_hunters() -> Array[String]:
 	var raw = account_progress.get("hunter_discoveries", [])
 	if raw is Array:
 		for value in raw:
-			var hunter_id := String(value)
-			if HunterRoster.PROFILES.has(hunter_id) and not result.has(hunter_id):
+			var hunter_id := HunterIdAliases.canonical(String(value))   # an old save may hold a pre-rename id
+			if (HunterRoster.PROFILES.has(hunter_id) or SecretCreatures.has(hunter_id)) and not result.has(hunter_id):
 				result.append(hunter_id)
 	result.sort()
 	return result
 
 
 func hunter_discovered(hunter_id: String) -> bool:
-	return discovered_hunters().has(hunter_id)
+	return discovered_hunters().has(HunterIdAliases.canonical(hunter_id))
 
 
 ## Discovery is deliberately account-only. A guest can encounter a hunter in
 ## the current room, but receives no permanent dossier unlock and cannot copy
 ## another runner's progress through ENet.
-func account_discover_hunter(hunter_id: String) -> bool:
+func account_discover_hunter(requested_id: String) -> bool:
+	var hunter_id := HunterIdAliases.canonical(requested_id)
 	if GameState.debug_run:
 		return false
-	if not signed_in() or not HunterRoster.PROFILES.has(hunter_id):
+	if not signed_in() or not (HunterRoster.PROFILES.has(hunter_id) or SecretCreatures.has(hunter_id)):
 		return false
 	var discoveries := discovered_hunters()
 	if discoveries.has(hunter_id):
@@ -479,6 +535,9 @@ func account_save_progress(progress: Dictionary) -> void:
 		return
 	var merged := progress.duplicate(true)
 	merged["hunter_discoveries"] = discovered_hunters()
+	# other games' saves live beside the Last Route document (account_save_game_progress) and must survive its writes
+	if account_progress.get("games") is Dictionary and not (account_progress["games"] as Dictionary).is_empty():
+		merged["games"] = (account_progress["games"] as Dictionary).duplicate(true)
 	_queue_progress_save(merged)
 
 
@@ -486,17 +545,79 @@ func account_clear_progress() -> void:
 	if not signed_in():
 		return
 	var discoveries := discovered_hunters()
-	if discoveries.is_empty():
+	var other_games: Dictionary = (account_progress["games"] as Dictionary).duplicate(true) \
+		if account_progress.get("games") is Dictionary else {}
+	if discoveries.is_empty() and other_games.is_empty():
 		_send_account("save", "/api/account/save", {
 			"sessionToken": account_session_token,
 			"progress": null,
 		})
 	else:
-		_queue_progress_save({
-			"schema": 1,
-			"kind": "profile",
-			"hunter_discoveries": discoveries,
-		})
+		var profile := {"schema": 1, "kind": "profile", "hunter_discoveries": discoveries}
+		if not other_games.is_empty():
+			profile["games"] = other_games
+		_queue_progress_save(profile)
+
+
+## ---- per-game account data -------------------------------------------------------------------------------------------
+## One account, one server document. Last Route's record stays where it always was (the document itself: route checkpoint
+## plus hunter discoveries), so existing accounts and saves load unchanged. Every other game keeps its record under
+## `games.<game_id>` in the same document; the server stores the document opaquely, so no backend change is needed.
+const DEFAULT_GAME_ID := "last_route"
+
+
+func game_progress(game_id: String = DEFAULT_GAME_ID) -> Dictionary:
+	if game_id == DEFAULT_GAME_ID:
+		return account_progress
+	var games = account_progress.get("games")
+	if games is Dictionary and (games as Dictionary).get(game_id) is Dictionary:
+		return ((games as Dictionary)[game_id] as Dictionary).duplicate(true)
+	return {}
+
+
+func game_has_save(game_id: String = DEFAULT_GAME_ID) -> bool:
+	if game_id == DEFAULT_GAME_ID:
+		return has_route_checkpoint()
+	return not game_progress(game_id).is_empty()
+
+
+func account_save_game_progress(game_id: String, data: Dictionary) -> void:
+	if game_id == DEFAULT_GAME_ID:
+		account_save_progress(data)
+		return
+	if GameState.debug_run:
+		return
+	if not signed_in():
+		return
+	var document := account_progress.duplicate(true)
+	if document.is_empty():
+		document = {"schema": 1, "kind": "profile"}
+	var games: Dictionary = (document["games"] as Dictionary).duplicate(true) if document.get("games") is Dictionary else {}
+	games[game_id] = data.duplicate(true)
+	document["games"] = games
+	account_progress = document.duplicate(true)
+	account_progress_changed.emit(has_route_checkpoint(), account_progress.duplicate(true), account_progress_saved_at,
+		"%s SAVE UPDATED" % game_id.to_upper())
+	_queue_progress_save(document)
+
+
+func account_clear_game_progress(game_id: String) -> void:
+	if game_id == DEFAULT_GAME_ID:
+		account_clear_progress()
+		return
+	if not signed_in() or not game_has_save(game_id):
+		return
+	var document := account_progress.duplicate(true)
+	var games: Dictionary = (document["games"] as Dictionary).duplicate(true)
+	games.erase(game_id)
+	if games.is_empty():
+		document.erase("games")
+	else:
+		document["games"] = games
+	account_progress = document.duplicate(true)
+	account_progress_changed.emit(has_route_checkpoint(), account_progress.duplicate(true), account_progress_saved_at,
+		"%s SAVE CLEARED" % game_id.to_upper())
+	_queue_progress_save(document)
 
 
 func _queue_progress_save(progress: Dictionary) -> void:
@@ -590,6 +711,7 @@ func _on_account_response(result: int, response_code: int,
 			return
 		account_session_verified = true
 		_save_account_session()
+		moderation.report_integrity("signin")
 		_adopt_account_progress(payload,
 			"ROUTE CHECKPOINT LOADED" if payload.get("progress") is Dictionary \
 			else "NO ROUTE CHECKPOINT")
@@ -826,6 +948,11 @@ func register_room(code: String, port: int, player_count: int,
 		"port": _port,
 		"players": _player_count,
 		"sessionActive": _session_active,
+		"daytime": RoomState.is_day(),
+		"game": RoomState.game_id(),
+		# moderation (docs/ANTI_CHEAT.md): who hosts, so kick reports count per host and flagged accounts can't host public
+		"sessionToken": account_session_token,
+		"deviceId": moderation.device_id(),
 	}
 	if _transport == "ws":
 		register_body["transport"] = "ws"
@@ -850,6 +977,22 @@ func host_endpoint() -> Dictionary:
 	return _host_endpoint.duplicate()
 
 
+## Room closes (explicit "host left") still on their way to the server; quitting waits briefly for them.
+var _unregister_in_flight := 0
+
+
+func room_close_pending() -> bool:
+	return _unregister_in_flight > 0
+
+
+## Quit path: give the explicit room close a moment to leave the machine (up to `timeout` seconds) before the process ends.
+func wait_for_room_close(timeout: float = 1.5) -> void:
+	var waited := 0.0
+	while _unregister_in_flight > 0 and waited < timeout and is_inside_tree():
+		await get_tree().create_timer(0.05, true, false, true).timeout
+		waited += 0.05
+
+
 func unregister_room() -> void:
 	_heartbeat.stop()
 	if not _host_operation.is_empty():
@@ -861,8 +1004,10 @@ func unregister_room() -> void:
 	# A one-shot request means leaving never waits on an in-flight heartbeat.
 	var request := HTTPRequest.new()
 	add_child(request)
+	_unregister_in_flight += 1
 	request.request_completed.connect(func(_result: int, _code: int,
 			_headers: PackedStringArray, _body: PackedByteArray) -> void:
+		_unregister_in_flight = maxi(0, _unregister_in_flight - 1)
 		request.queue_free())
 	request.request(_url("/api/enet/rooms/unregister"), _headers(),
 		HTTPClient.METHOD_POST, JSON.stringify({
@@ -874,6 +1019,9 @@ func unregister_room() -> void:
 
 func resolve_room(code: String) -> void:
 	var clean := code.strip_edges().to_upper()
+	if offline_mode:
+		room_resolved.emit(clean, {}, OFFLINE_JOIN_MESSAGE)
+		return
 	if not configured():
 		room_resolved.emit(clean, {}, "ROOM DIRECTORY IS NOT CONFIGURED")
 		return
@@ -915,6 +1063,7 @@ func _send_heartbeat() -> void:
 		"token": _token,
 		"players": _player_count,
 		"sessionActive": _session_active,
+		"daytime": RoomState.is_day(),
 	})
 
 
@@ -1006,9 +1155,16 @@ func _on_health_response(result: int, response_code: int,
 	health_checked.emit(ok, "DIRECTORY ONLINE" if ok else "DIRECTORY UNAVAILABLE")
 
 
+## An empty or non-JSON body (offline, a proxy error page) is just "no payload": JSON.parse_string would log
+## "Parse JSON failed" for it, so parse with a JSON object, which reports the error to us instead.
 func _parse_body(body: PackedByteArray) -> Dictionary:
-	var value = JSON.parse_string(body.get_string_from_utf8())
-	return value if value is Dictionary else {}
+	var text := body.get_string_from_utf8().strip_edges()
+	if text.is_empty() or not (text.begins_with("{") or text.begins_with("[")):
+		return {}
+	var json := JSON.new()
+	if json.parse(text) != OK:
+		return {}
+	return json.data if json.data is Dictionary else {}
 
 
 func _headers() -> PackedStringArray:

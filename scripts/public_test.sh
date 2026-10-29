@@ -2,6 +2,7 @@
 # Headless PUBLIC route test: A (authority) collects a relay, B joins as a guest and
 # crashes, B2 resumes B's place, the backend restarts, then A dies and B2 takes over.
 #   scripts/public_test.sh        (from the project root)
+# GAME=city runs the same scenario on the City public route (CTYPR, its own backend store).
 # Free high ports (HTTP 18205, relay UDP 11205), temp data dir, test-only values.
 set -u
 # SERVER_ROOT=/path/to/a/deployed/release runs the backend from that copy instead of this checkout.
@@ -28,7 +29,7 @@ start_server() {
   SERVER_PID=$!
 }
 client() { # role key
-  "$GODOT" --headless --path . res://scenes/public_test.tscn -- "$1" "--backend=$TARGET" "--dir=$TMP" "--key=$2" $GODOT_FLAGS > "$TMP/$1.log" 2>&1 &
+  "$GODOT" --headless --path . res://scenes/public_test.tscn -- "$1" "--backend=$TARGET" "--dir=$TMP" "--key=$2" ${GAME:+--game=$GAME} $GODOT_FLAGS > "$TMP/$1.log" 2>&1 &
   eval "PID_$1=$!"; PIDS+=($!)
 }
 waitfile() { for i in $(seq 1 ${2:-120}); do [ -f "$TMP/$1" ] && return 0; grep -q "PUBLIC [A-Za-z0-9]* FAIL " "$TMP"/*.log 2>/dev/null && return 1; sleep 1; done; return 1; }
@@ -52,7 +53,7 @@ kill $PID_a 2>/dev/null
 waitfile b2_authority.txt 150 || echo "FAIL: no handoff"
 STATUS=1
 grep -h "^PUBLIC" "$TMP"/a.log "$TMP"/b.log "$TMP"/b2.log
-STATE=$(curl -s "$TARGET/api/public/status")
+STATE=$(curl -s "$TARGET/api/public/status${GAME:+?game=$GAME}")
 echo "status after: $STATE"
 if [ -f "$TMP/a_after_restart.txt" ] && [ -f "$TMP/b2_authority.txt" ] && [ -f "$TMP/b2_ok.txt" ] && [ -f "$TMP/a_spectate_done.txt" ] && [ -f "$TMP/b2_spectating.txt" ] && ! grep -q "PUBLIC [A-Za-z0-9]* FAIL " "$TMP"/*.log; then echo "public route test OK"; STATUS=0; else echo "public route test FAILED"; tail -6 "$TMP"/a.log "$TMP"/b.log "$TMP"/b2.log; fi
 exit $STATUS

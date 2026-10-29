@@ -33,7 +33,22 @@ echo "== backend"
 "$node_binary" --test "$project_root"/backend/*.test.mjs
 
 echo "== game"
+# A GDScript runtime error does not fail a suite by itself (the call just returns a default), so a project that did
+# not compile could print PASS. Keep the output and refuse the run if it shows any compile/load error.
+game_log="$(mktemp -t lr-validate-game.XXXXXX)"
+trap 'rm -f "$game_log"' EXIT
+set +e
 "$godot_binary" --headless --path "$project_root" \
-	res://scenes/validate.tscn
+	res://scenes/validate.tscn 2>&1 | tee "$game_log"
+game_status=${PIPESTATUS[0]}
+set -e
+if grep -Eq 'SCRIPT ERROR|Parse Error|Failed to load script|Compile Error|res://[^ ]+:[0-9]+ - ' "$game_log"; then
+	echo "FAIL: compile/load errors in the game run (a PASS above would be false):" >&2
+	grep -E 'SCRIPT ERROR|Parse Error|Failed to load script|Compile Error|res://[^ ]+:[0-9]+ - ' "$game_log" | head -20 >&2
+	exit 1
+fi
+if [[ $game_status -ne 0 ]]; then
+	exit "$game_status"
+fi
 
 echo "FULL GAME VALIDATION OK"

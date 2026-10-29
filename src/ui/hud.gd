@@ -73,6 +73,7 @@ void fragment() {
 ## remains usable while the HUD is hidden.
 const GAMEPLAY_HUD_NODE_PATHS := [
 	NodePath("ObjectivePanel"),
+	NodePath("TeammateWaypoints"),
 	NodePath("MetersPanel"),
 	NodePath("HotbarPanel"),
 	NodePath("CompactStaminaBar"),
@@ -82,6 +83,8 @@ const GAMEPLAY_HUD_NODE_PATHS := [
 	NodePath("ThermalWarning"),
 	NodePath("Crosshair"),
 	NodePath("MinimapPanel"),
+	NodePath("ZonePanel"),
+	NodePath("HudStatusBar"),
 ]
 const ITEM_TEXTURES := {
 	"flashlight": preload("res://assets/ui/inventory/flashlight_item.png"),
@@ -90,12 +93,31 @@ const ITEM_TEXTURES := {
 	"crowbar": preload("res://assets/ui/inventory/crowbar.png"),
 	"rescue_axe": preload("res://assets/ui/inventory/rescue_axe.png"),
 	"battery": preload("res://assets/ui/inventory/battery.png"),
+	"stim_pack": preload("res://assets/ui/inventory/stim_pack.png"),
+	"revive_kit": preload("res://assets/ui/inventory/revive_kit.png"),
 }
+
+## Margin every HUD panel keeps from the window edge, and the gap between neighbouring panels (HUD units).
+const SAFE_MARGIN := 8.0
+const PANEL_GAP := 4.0
+const MINIMAP_SIZE := Vector2(88, 72)
+const FPS_WIDTH := 78.0
+const MIN_TEXT_PIXELS := 12.0
+const MESSAGE_TOP := 49.0
+## The floor never pushes text past this many HUD units, so a 480x270 pixel window (1 pixel per unit) stays usable.
+const MAX_FLOOR_UNITS := 9
 
 func _ready() -> void:
 	Palette.style_title(%MapTitle)
+	minimap.ghost_ping = true   # Porcelle pulses on the minimap; the full map keeps her steady mark
+	_apply_scheme_frames()
+	status_bar = HudStatusBar.new()
+	add_child(status_bar)
+	_build_zone_panel()
 	TestServerBadge.attach(self)
 	_build_thermal_warning()
+	teammate_waypoints = TeammateWaypoints.new()
+	add_child(teammate_waypoints)
 	_cache_gameplay_hud_surfaces()
 	_prepare_inventory_slots()
 	_build_inventory_overlay()
@@ -103,6 +125,10 @@ func _ready() -> void:
 	plan.waypoint_requested.connect(func(world_position: Vector2, level: int) -> void:
 		map_waypoint_requested.emit(world_position, level))
 	_on_map_overlay_visibility_changed()
+	interaction_label.visible = false
+	message_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	get_viewport().size_changed.connect(_layout_hud)
+	_layout_hud()
 
 @onready var depth_label: Label = %DepthLabel
 @onready var relay_label: Label = %RelayLabel
@@ -134,7 +160,12 @@ func _ready() -> void:
 @onready var compact_stamina_bar: ProgressBar = %CompactStaminaBar
 @onready var fps_label: Label = %FpsLabel
 
-var _public_label: Label
+var status_bar: HudStatusBar
+var _zone_panel: PanelContainer
+var _zone_label: Label
+var _minimap_available := true
+var _prompt_target := ""
+var _layout_signature := []
 var _message_time_left := 0.0
 var _hold_message := ""
 var _fps_update_left := 0.0
@@ -156,10 +187,16 @@ var _thermal_material: ShaderMaterial
 var _thermal_time := 0.0
 var _hud_hidden := false
 var _gameplay_hud_surfaces: Array[CanvasItem] = []
+## On-screen teammate markers (TeammateWaypoints); fed once per frame by the route.
+var teammate_waypoints: TeammateWaypoints
 var _gameplay_hud_modulates: Array[Color] = []
 
 
 func _process(delta: float) -> void:
+	_relayout_if_changed()
+	_fade_prompt(delta)
+	if map_overlay.visible or _recenter_button != null:
+		_update_recenter_button()
 	_thermal_time += delta
 	if _thermal_material != null and _thermal_surface.visible:
 		_thermal_material.set_shader_parameter("pulse_time", _thermal_time)
@@ -185,11 +222,13 @@ func _process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	InputGlyphs.observe(event)   # prompts follow the device the player last touched
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo \
 				and (key.keycode == KEY_F1 or key.physical_keycode == KEY_F1):
-			set_hud_hidden(not _hud_hidden)
+			if not _death_flow:   # the death moment and the end card own the screen; F1 must not bring the HUD back under them
+				set_hud_hidden(not _hud_hidden)
 			get_viewport().set_input_as_handled()
 			return
 	# Finish even when the pointer is released between slots. Plain gui_input
@@ -268,6 +307,26 @@ func hud_is_hidden() -> bool:
 	return _hud_hidden
 
 
+## The death flow (the catcher's line, then the end card) owns the screen: the gameplay HUD is faded out for its length and the player's own F1 choice is restored after.
+var _death_flow := false
+var _hidden_before_death := false
+
+
+func set_death_flow(active: bool) -> void:
+	if active == _death_flow:
+		return
+	_death_flow = active
+	if active:
+		_hidden_before_death = _hud_hidden
+		set_hud_hidden(true)
+	else:
+		set_hud_hidden(_hidden_before_death)
+
+
+func death_flow_active() -> bool:
+	return _death_flow
+
+
 func update_objective(depth: int, relays_collected: int, relay_target: int) -> void:
 	depth_label.text = "DEPTH %02d" % depth
 	relay_label.text = "%d/%d SIGNAL RELAYS" % [relays_collected, relay_target]
@@ -331,9 +390,11 @@ func _apply_inventory_slot(slot: PanelContainer, bar: ProgressBar, index: int,
 	caption.text = str(index + 1)
 	slot.tooltip_text = String(PlayerController3D.INVENTORY_LABELS.get(
 		item_id, "EMPTY SLOT")).to_upper()
+	_apply_stack_badge(slot, int(slot_durability[index]) if has_item and index < slot_durability.size() \
+		and PlayerController3D.STACK_MAX.has(item_id) else 0)
 	bar.visible = has_item and (item_id == "taser" or maximums.has(item_id))
 	if item_id == "taser":
-		bar.value = clampf(1.0 - taser_cooldown / GameConfig.TASER_COOLDOWN_SECONDS,
+		bar.value = clampf(1.0 - taser_cooldown / GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown"),
 			0.0, 1.0) * 100.0
 	else:
 		var max_value := maxi(1, int(maximums.get(item_id, 1)))
@@ -341,6 +402,26 @@ func _apply_inventory_slot(slot: PanelContainer, bar: ProgressBar, index: int,
 			if index < slot_durability.size() else int(durability.get(item_id, 0))
 		bar.value = clampf(float(remaining) / max_value,
 			0.0, 1.0) * 100.0
+
+
+## "xN" in the slot's bottom-right corner for a stack of two or more (PlayerController3D.STACK_MAX); hidden otherwise.
+func _apply_stack_badge(slot: PanelContainer, count: int) -> void:
+	var badge := slot.get_node_or_null("StackCount") as Label
+	if badge == null:
+		if count < 2:
+			return
+		badge = Label.new()
+		badge.name = "StackCount"
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		badge.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		badge.add_theme_font_size_override("font_size", 9)
+		badge.add_theme_color_override("font_color", Color(1.0, .94, .72))
+		badge.add_theme_color_override("font_outline_color", Color(0, 0, 0, .9))
+		badge.add_theme_constant_override("outline_size", 3)
+		slot.add_child(badge)
+	badge.text = "x%d" % count
+	badge.visible = count >= 2
 
 
 func _prepare_inventory_slots() -> void:
@@ -488,6 +569,15 @@ func _ensure_inventory_menu_capacity(capacity: int) -> void:
 		stack.add_child(bar)
 		_inventory_menu_slots.append(slot)
 		_inventory_menu_bars.append(bar)
+
+
+## The hotbar's rect on the HUD canvas (the union of its slots), for TouchControls to keep clear of.
+func hotbar_rect() -> Rect2:
+	var rect := Rect2()
+	for slot in _inventory_slots:
+		if slot != null and slot.is_visible_in_tree():
+			rect = slot.get_global_rect() if rect.size == Vector2.ZERO else rect.merge(slot.get_global_rect())
+	return rect
 
 
 func inventory_is_open() -> bool:
@@ -694,33 +784,73 @@ func update_meters(meters: PlayerMeters, hunter_heat: float = 0.0,
 		maxf(meter_cold, hunter_cold))
 
 
+## The prompt sits just under the crosshair and fades in/out (self_modulate, so F1's modulate still hides it); the
+## last text stays while it fades away.
+const PROMPT_FADE_PER_SECOND := 8.0
+
+
 func set_interaction_prompt(text: String) -> void:
-	interaction_label.text = text
+	_prompt_target = text
+	if not text.is_empty():
+		interaction_label.text = text
+		interaction_label.visible = true
 
 
-## "PUBLIC ROUTE // 3 ONLINE // 12 RELAYS": the shared route's standing line,
-## top centre. Empty hides it (private rooms and solo).
+var _recenter_button: Button
+
+
+## RECENTER: shown on the full map while it is not following the runner (after a pan); the key is the jump action.
+func _update_recenter_button() -> void:
+	if _recenter_button == null:
+		_recenter_button = Button.new()
+		_recenter_button.name = "RecenterButton"
+		_recenter_button.focus_mode = Control.FOCUS_NONE
+		_recenter_button.add_theme_font_size_override("font_size", 7)
+		_recenter_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		_recenter_button.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		_recenter_button.offset_top = 8
+		_recenter_button.offset_right = -12
+		Palette.style_button(_recenter_button, true, true)
+		_recenter_button.pressed.connect(func() -> void: plan.recenter())
+		map_overlay.add_child(_recenter_button)
+	_recenter_button.visible = map_overlay.visible and not plan.follow_player
+	if _recenter_button.visible:
+		_recenter_button.text = InputGlyphs.prompt("jump", "RECENTER")
+
+
+func _fade_prompt(delta: float) -> void:
+	var goal := 0.0 if _prompt_target.is_empty() else 1.0
+	interaction_label.self_modulate.a = move_toward(interaction_label.self_modulate.a, goal, delta * PROMPT_FADE_PER_SECOND)
+	if goal == 0.0 and interaction_label.self_modulate.a <= 0.01:
+		interaction_label.visible = false
+		interaction_label.text = ""
+
+
+## "PUBLIC ROUTE // 3 ONLINE // 12 RELAYS": the shared route's standing line, in the top-centre status bar.
+## Empty hides it (private rooms and solo).
 func set_public_line(text: String) -> void:
-	if _public_label == null:
-		_public_label = Label.new()
-		_public_label.name = "PublicLine"
-		_public_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_public_label.add_theme_font_size_override("font_size", 7)
-		_public_label.add_theme_color_override("font_color", Palette.AMBER)
-		_public_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, .85))
-		_public_label.add_theme_constant_override("outline_size", 2)
-		_public_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_public_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-		_public_label.offset_left = -140
-		_public_label.offset_right = 140
-		_public_label.offset_top = 4
-		_public_label.offset_bottom = 16
-		add_child(_public_label)
-	_public_label.text = text
-	_public_label.visible = not text.is_empty()
+	status_bar.set_segment("public", text, "line")
+
+
+## Admin room-proof status lines (READY / VERIFYING / VERIFIED / REQUESTING) repeat on every ticket renewal and re-verification.
+## Each one shows once per room on this client; rejections and errors are never held back.
+const ADMIN_PROOF_PREFIXES := ["ADMIN ROOM PROOF", "ADMIN // VERIFYING ROOM PROOF", "ADMIN // REQUESTING ROOM PROOF"]
+var _admin_proof_seen := {}
+
+
+static func is_admin_proof_notice(text: String) -> bool:
+	for prefix in ADMIN_PROOF_PREFIXES:
+		if text.begins_with(prefix) and not text.contains("DISABLED") and not text.contains("COULD NOT"):
+			return true
+	return false
 
 
 func show_message(text: String) -> void:
+	if is_admin_proof_notice(text):
+		var key := "%s|%s" % [RoomState.code, text]
+		if _admin_proof_seen.has(key):
+			return
+		_admin_proof_seen[key] = true
 	message_label.remove_theme_color_override("font_color")
 	# toast treatment: letter-spaced amber line with a dark outline
 	message_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, .85))
@@ -744,6 +874,52 @@ func set_hold_message(text: String) -> void:
 		message_label.visible = true
 
 
+## Radar sabotage (Purple's static / blackout, Orange's radar outage): an overlay over the minimap and the full map. Modes:
+## "" (clear), "static" (the map still reads, dusted with noise), "blackout" and "offline" (black, nothing leaks through).
+const RADAR_FX_SHADER := "shader_type canvas_item;\nuniform float amount = 0.5;\nuniform float black = 0.0;\nfloat h(vec2 p){return fract(sin(dot(p, vec2(12.9898, 78.233)) + TIME * 17.0) * 43758.5453);}\nvoid fragment(){\n\tfloat n = h(floor(UV * vec2(96.0, 64.0)));\n\tvec3 dust = vec3(0.75, 0.68, 0.87) * step(1.0 - amount, n);\n\tCOLOR = vec4(mix(dust, vec3(0.0), black), mix(step(1.0 - amount, n) * 0.8, 1.0, black));\n}\n"
+var radar_mode := ""
+var _radar_fx: Array = []
+var _radar_left := 0.0
+
+
+func set_radar_state(mode: String, seconds: float = 0.0) -> void:
+	radar_mode = mode
+	_radar_left = seconds if mode != "" else 0.0
+	_ensure_radar_fx()
+	for fx in _radar_fx:
+		var overlay := fx as ColorRect
+		overlay.visible = mode != ""
+		var material := overlay.material as ShaderMaterial
+		material.set_shader_parameter("black", 1.0 if mode == "blackout" or mode == "offline" else 0.0)
+		material.set_shader_parameter("amount", .18)
+
+
+func _ensure_radar_fx() -> void:
+	if not _radar_fx.is_empty():
+		return
+	for host_node in [minimap, plan]:
+		var overlay := ColorRect.new()
+		overlay.name = "RadarFx"
+		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+		overlay.color = Color.WHITE
+		var shader := Shader.new()
+		shader.code = RADAR_FX_SHADER
+		var material := ShaderMaterial.new()
+		material.shader = shader
+		overlay.material = material
+		overlay.visible = false
+		(host_node as Control).add_child(overlay)
+		_radar_fx.append(overlay)
+
+
+func tick_radar_state(delta: float) -> void:
+	if _radar_left > 0.0:
+		_radar_left -= delta
+		if _radar_left <= 0.0:
+			set_radar_state("")
+
+
 func toggle_map_overlay() -> void:
 	map_overlay.visible = not map_overlay.visible
 
@@ -756,6 +932,7 @@ func _on_map_overlay_visibility_changed() -> void:
 	var shown := map_overlay.visible
 	MouseLock.claim("map", shown)
 	if shown:
+		plan.recenter(true)   # open on the runner, following; the zoom is remembered
 		plan.grab_focus.call_deferred()
 	else:
 		plan.set("_dragging", false)
@@ -785,6 +962,11 @@ func update_minimap(generator: FacilityGenerator, at: Vector2, facing: Vector2,
 	minimap.show_state(generator, at, facing, marks, player_marks, drop_marks, safe_room_marks)
 
 
+func update_teammate_waypoints(camera: Camera3D, viewer: Vector3, marks: Array) -> void:
+	if teammate_waypoints != null:
+		teammate_waypoints.update_marks(camera, viewer, marks)
+
+
 func update_streamed_map(chunks: Dictionary, level: int, chunk_size: int,
 		at: Vector2, facing: Vector2, marks: Array,
 		player_marks: Array = [], show_regions: bool = false,
@@ -801,3 +983,126 @@ func update_streamed_minimap(chunks: Dictionary, level: int, chunk_size: int,
 	minimap.show_streamed_state(chunks, level, chunk_size, at, facing, marks,
 		false, STREAMED_MINIMAP_RADIUS_CELLS, player_marks, show_regions,
 		drop_marks, safe_room_marks)
+
+
+## Name of the area the player stands in. Shown in the minimap's slot while the minimap has no map to draw
+## (the City has zones, not a facility plan). Empty clears it.
+func set_zone_text(text: String) -> void:
+	# a zone / district name is an admin-only readout (RegionNames)
+	_zone_label.text = text if RegionNames.visible() else ""
+
+
+## A scene with no map to show (the City) turns the minimap off so only the zone name takes its slot.
+func set_minimap_available(available: bool) -> void:
+	_minimap_available = available
+
+
+func _build_zone_panel() -> void:
+	_zone_panel = PanelContainer.new()
+	_zone_panel.name = "ZonePanel"
+	_zone_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_zone_panel.visible = false
+	_zone_panel.add_theme_stylebox_override("panel", ($ObjectivePanel as Control).get_theme_stylebox("panel"))
+	_zone_label = Label.new()
+	_zone_label.name = "ZoneLabel"
+	_zone_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_zone_label.add_theme_font_size_override("font_size", 7)
+	_zone_label.add_theme_color_override("font_color", Palette.AMBER)
+	_zone_panel.add_child(_zone_label)
+	add_child(_zone_panel)
+
+
+func _relayout_if_changed() -> void:
+	var view := get_viewport().get_visible_rect().size
+	var signature := [view, get_viewport().get_final_transform().get_scale().x, _minimap_available and minimap.has_data(), _zone_label.text,
+		($ObjectivePanel as Control).get_combined_minimum_size(), status_bar.visible,
+		status_bar.get_combined_minimum_size(), _zone_panel.get_combined_minimum_size(),
+		message_label.visible]
+	if signature != _layout_signature:
+		_layout_signature = signature
+		_layout_hud()
+
+
+func _text_bases() -> Array:
+	return [[depth_label, 7], [relay_label, 6], [danger_label, 6], [fps_label, 7], [_zone_label, 7],
+		[message_label, 10]]
+
+
+static func _put(control: Control, position: Vector2, size: Vector2) -> void:
+	control.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	control.offset_left = position.x
+	control.offset_top = position.y
+	control.offset_right = position.x + size.x
+	control.offset_bottom = position.y + size.y
+
+
+## Content-sized, margin-safe placement of the top panels. Every panel is sized from its own minimum size
+## (never a fixed height with dead space) and the layout: status bar and message toast top centre; minimap (or zone
+## name) with the stats panel under it in the right column; FPS top left. The bar yields width to the side columns.
+func _layout_hud() -> void:
+	var view := get_viewport().get_visible_rect().size
+	# text stays at least MIN_TEXT_PIXELS tall on screen: window pixels per HUD unit decides the unit size
+	var pixels_per_unit := get_viewport().get_final_transform().get_scale().x
+	var floor_units := mini(MAX_FLOOR_UNITS, ceili(MIN_TEXT_PIXELS / maxf(0.1, pixels_per_unit)))
+	for entry in _text_bases():
+		(entry[0] as Label).add_theme_font_size_override("font_size", maxi(int(entry[1]), floor_units))
+	var minimap_panel := get_node("MinimapPanel") as Control
+	var has_map := _minimap_available and minimap.has_data()
+	minimap_panel.visible = has_map
+	_zone_panel.visible = not has_map and not _zone_label.text.is_empty()
+	var right_edge := view.x - SAFE_MARGIN
+	var right_w := 0.0
+	var slot_h := MINIMAP_SIZE.y   # the minimap's slot stays reserved while it has no data (layout contract: stats right/top)
+	if has_map:
+		_put(minimap_panel, Vector2(right_edge - MINIMAP_SIZE.x, SAFE_MARGIN), MINIMAP_SIZE)
+		right_w = MINIMAP_SIZE.x
+	elif _zone_panel.visible:
+		var zone_size := _zone_panel.get_combined_minimum_size()
+		_put(_zone_panel, Vector2(right_edge - zone_size.x, SAFE_MARGIN), zone_size)
+		right_w = zone_size.x
+		slot_h = zone_size.y
+	# stats panel: right column under the minimap / zone name, content-sized
+	var objective := get_node("ObjectivePanel") as Control
+	var stats := objective.get_combined_minimum_size()
+	_put(objective, Vector2(right_edge - stats.x, SAFE_MARGIN + slot_h + PANEL_GAP), stats)
+	right_w = maxf(right_w, stats.x)
+	var fps_size := Vector2(maxf(FPS_WIDTH, fps_label.get_minimum_size().x), fps_label.get_minimum_size().y)
+	_put(fps_label, Vector2(SAFE_MARGIN, SAFE_MARGIN), fps_size)
+	var side := SAFE_MARGIN + maxf(fps_size.x, right_w) + PANEL_GAP
+	var available := maxf(60.0, view.x - 2.0 * side)
+	if status_bar.visible:
+		status_bar.fit(available, maxi(7, floor_units))
+		var bar_size := status_bar.get_combined_minimum_size()
+		_put(status_bar, Vector2((view.x - bar_size.x) * .5, SAFE_MARGIN), bar_size)
+	# the toast keeps its fixed top-centre line under the status bar
+	var toast_w := minf(340.0, available)
+	_put(message_label, Vector2((view.x - toast_w) * .5, MESSAGE_TOP),
+		Vector2(toast_w, message_label.get_minimum_size().y))
+
+
+## The panel frames in hud.tscn are scene-file colours: Last Route keeps them as authored, other games' schemes
+## (the City's navy glass) repaint them from Palette. The frame resource is shared by every HUD panel and by every
+## HUD instance, so the authored values are remembered the first time and put back for Last Route.
+func _apply_scheme_frames() -> void:
+	var frame := (get_node("ObjectivePanel") as Control).get_theme_stylebox("panel") as StyleBoxFlat
+	if frame == null:
+		return
+	if not frame.has_meta("authored"):
+		frame.set_meta("authored", [frame.bg_color, frame.border_color, frame.corner_radius_top_left])
+	var authored: Array = frame.get_meta("authored")
+	if Palette.scheme_id == "last_route":
+		frame.bg_color = authored[0]
+		frame.border_color = authored[1]
+		frame.set_corner_radius_all(int(authored[2]))
+	else:
+		frame.bg_color = Color(Palette.PANEL, 0.9)
+		frame.border_color = Palette.PANEL_EDGE
+		frame.set_corner_radius_all(Palette.CORNER)
+
+
+## A quick-chat ping on both maps (RoomChat.ping_posted), on this floor only.
+func add_map_ping(_peer_id: int, at: Vector2, depth: int, label: String, colour: Color) -> void:
+	if depth != GameState.depth:
+		return
+	minimap.add_ping(at, colour, label)
+	plan.add_ping(at, colour, label)

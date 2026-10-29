@@ -9,10 +9,9 @@ extends RefCounted
 ## Run with:
 ##   godot4 --headless res://scenes/validate.tscn -- blocky
 
-const HUNTERS := ["aki", "briselle", "ceryth", "dovelle", "eirys", "ferryn", "glyra", "haelith", "ilyra",
-	"jyvra", "kathy", "loxelle", "mavrine", "nyxie", "opalie", "porcelle", "quirith", "ravelle", "solyth",
-	"thessine", "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zephyra",
-	"kathy_tall", "aki_tall", "xivvy_tall",
+const HUNTERS := ["aki", "briselle", "ceryth", "dovelle", "elise", "ferryn", "glyra", "haelith", "ilyra",
+	"javelle", "kathy", "loxelle", "mavrine", "nyxie", "opalie", "porcelle", "quenelle", "ravelle", "solyth",
+	"thessine", "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zellia",
 	"void_black", "void_blue", "void_brown", "void_cyan", "void_gray", "void_green", "void_orange", "void_pink",
 	"void_purple", "void_red", "void_white", "void_yellow"]
 ## Void hunters: presented larger than the A-Z hunters, each with one silhouette cue on a Cue-* bone
@@ -98,15 +97,15 @@ func run(host: Node) -> int:
 			for fish_bone in ["L-Gill", "R-Gill", "Tail-1", "Tail-2", "Tail-3", "Tail-Fin"]:
 				if node.find_child(fish_bone, true, false) == null:
 					_fail("%s is missing %s" % [id, fish_bone])
-		if id.begins_with("verrine") or id.begins_with("haelith") or id.begins_with("quirith"):
+		if id.begins_with("verrine") or id.begins_with("haelith") or id.begins_with("quenelle"):
 			for wolf_bone in ["L-Ear", "R-Ear", "Tail-1", "Tail-2", "Tail-3", "Tail-4"]:
 				if node.find_child(wolf_bone, true, false) == null:
 					_fail("%s is missing %s" % [id, wolf_bone])
-		if id.begins_with("ilyra") or id.begins_with("eirys"):
+		if id.begins_with("ilyra") or id.begins_with("elise"):
 			for cat_bone in ["L-Ear", "R-Ear", "Tail-1", "Tail-2", "Tail-3", "Tail-4"]:
 				if node.find_child(cat_bone, true, false) == null:
 					_fail("%s is missing %s" % [id, cat_bone])
-		if id.begins_with("glyra") or id.begins_with("jyvra") or id.begins_with("umbriel"):
+		if id.begins_with("glyra") or id.begins_with("javelle") or id.begins_with("umbriel"):
 			for horn_bone in ["L-Horn", "R-Horn"]:
 				if node.find_child(horn_bone, true, false) == null:
 					_fail("%s is missing %s" % [id, horn_bone])
@@ -119,12 +118,12 @@ func run(host: Node) -> int:
 				_fail("%s is missing its Halo" % id)
 		if id.begins_with("porcelle") and node.find_child("L-Horn", true, false) == null:
 			_fail("porcelle is missing her horns")
-		if id.begins_with("jyvra") or id.begins_with("porcelle"):
+		if id.begins_with("javelle") or id.begins_with("porcelle"):
 			for pig in ["L-Pig-1", "R-Pig-1"]:
 				if node.find_child(pig, true, false) == null:
 					_fail("%s is missing %s" % [id, pig])
 		if id.begins_with("wynelle"):
-			for pig in ["L-Pig-1", "L-Pig-4", "R-Pig-1", "R-Pig-4", "Pony-1"]:
+			for pig in ["L-Pig-1", "L-Pig-3", "R-Pig-1", "R-Pig-3", "Pony-1"]:
 				if node.find_child(pig, true, false) == null:
 					_fail("%s is missing pigtail bone %s" % [id, pig])
 		if id.begins_with("kathy"):

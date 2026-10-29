@@ -66,7 +66,8 @@ func _wait_for(test: Callable, what: String, seconds: float = 30.0) -> bool:
 
 func _in_route() -> bool:
 	var current := get_tree().current_scene
-	return current != null and current.scene_file_path == "res://scenes/infinite_route_test.tscn" \
+	var route_scene := "res://scenes/infinite_route_test.tscn"
+	return current != null and current.scene_file_path == route_scene \
 		and current.get("facility") != null and current.facility.generator != null
 
 
@@ -125,8 +126,12 @@ func _first_relay() -> Dictionary:
 
 # -- roles -------------------------------------------------------------------------
 
+static func _test_mode() -> RoomState.Mode:
+	return RoomState.Mode.DEFAULT
+
+
 func _run_host() -> void:
-	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.create_local(_test_mode())
 	RoomState.seed_text = "COOP-TEST-SEED"
 	RoomState.set_map_scale(RoomState.Scale.INFINITE)
 	var error := RoomState.host_primary_room(port)
@@ -188,6 +193,23 @@ func _run_host() -> void:
 	if not await _wait_for(func() -> bool: return _read("guest_saw_hunter_emote.txt") != "", "guest to see the hunter emote", 20.0):
 		return
 	_log("hunter emote replicated to the guest (%s)" % _read("guest_saw_hunter_emote.txt"))
+	# -- waypoints: one pin per player, host-authoritative, replicated ------------------
+	var wp_level: int = scene.facility.current_level()
+	scene._place_waypoint_at(Vector2(22.5, 26.5), wp_level)
+	_write("wp_host.txt", "1")
+	if not await _wait_for(func() -> bool: return _read("guest_wp.txt") != "", "guest waypoint report", 30.0):
+		return
+	var guest_wp := _read("guest_wp.txt").split("|")
+	var host_pins: Dictionary = scene.world_state.waypoints.by_peer
+	var guest_pin_ok := false
+	for peer_id in host_pins:
+		if int(peer_id) != 1 and (host_pins[peer_id]["at"] as Vector2).is_equal_approx(Vector2(float(guest_wp[0]), float(guest_wp[1]))):
+			guest_pin_ok = true
+	if host_pins.size() != 2 or not guest_pin_ok or not host_pins.has(1):
+		_fail("waypoints on the host: expected the host pin and the guest's LAST pin, got %s" % [host_pins])
+		return
+	_log("waypoints: host holds one pin per player (%d), the guest's second pin replaced its first" % host_pins.size())
+	_write("wp_ok.txt", "1")
 	# -- spectators --------------------------------------------------------------
 	# 1. guest dies while the host lives: host keeps playing and simulating
 	if not await _wait_for(func() -> bool: return _read("guest_spectating.txt") != "", "guest to spectate", 40.0):
@@ -253,7 +275,7 @@ func _run_guest(is_late: bool) -> void:
 	if resolved.has("error"):
 		_fail(String(resolved["error"]))
 		return
-	RoomState.create_local(RoomState.Mode.DEFAULT)
+	RoomState.create_local(_test_mode())
 	var join_error := RoomState.join_room(String(resolved.get("address", "")),
 		int(resolved.get("port", 0)), String(resolved.get("transport", "relay")), code)
 	if not join_error.is_empty():
@@ -326,6 +348,28 @@ func _run_guest(is_late: bool) -> void:
 		return
 	_write("guest_saw_hunter_emote.txt", "smug")
 	_log("saw the host's hunter emote")
+	# -- waypoints --------------------------------------------------------------
+	if not await _wait_for(func() -> bool: return _read("wp_host.txt") != "", "host waypoint", 30.0):
+		return
+	if not await _wait_for(func() -> bool: return scene.world_state.waypoints.has_for(1), "the host's pin on the guest", 20.0):
+		return
+	var wp_level: int = scene.facility.current_level()
+	scene._place_waypoint_at(Vector2(24.5, 30.5), wp_level)
+	await get_tree().create_timer(.4).timeout   # the host rate-limits one change per player per 150 ms
+	scene._place_waypoint_at(Vector2(26.5, 34.5), wp_level)
+	var own_id := multiplayer.get_unique_id()
+	if not await _wait_for(func() -> bool:
+			var own: Dictionary = scene.world_state.waypoints.get_for(own_id)
+			return not own.is_empty() and (own["at"] as Vector2).is_equal_approx(Vector2(26.5, 34.5)),
+			"the guest's replacement pin to come back from the host", 20.0):
+		return
+	if scene.world_state.waypoints.by_peer.size() != 2:
+		_fail("guest sees %d waypoints, expected 2 (one per player)" % scene.world_state.waypoints.by_peer.size())
+		return
+	_write("guest_wp.txt", "26.5|34.5")
+	if not await _wait_for(func() -> bool: return _read("wp_ok.txt") != "", "host waypoint verdict", 20.0):
+		return
+	_log("waypoints replicated: own pin replaced, the host's pin visible")
 	scene._resolve_capture_outcome(HunterRoster.DEFAULT_ID)
 	if not await _wait_for(func() -> bool: return scene.player.spectator_mode, "guest to spectate", 10.0):
 		return

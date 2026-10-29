@@ -1,13 +1,19 @@
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { extname, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAccountService } from "./account_service.mjs";
+import { CITY_MAP_TICKET_HEADER, createCityMaps } from "./city_maps.mjs";
+import { SKIN_ACCOUNT_PATH, SKIN_ARMS_HEADER, SKIN_MAX_BYTES, SKIN_TOKEN_HEADER, createSkins } from "./skins.mjs";
+import { SAVE_MAX_BYTES, SAVE_PATH, createGameSaves } from "./game_saves.mjs";
 import { createEnetRelay } from "./enet_relay.mjs";
 import { createWsRelay, WS_PATH } from "./ws_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
-import { createPublicRoute, PUBLIC_CODE } from "./public_route.mjs";
+import { createPublicRoute, PUBLIC_CODES } from "./public_route.mjs";
+import { createModeration } from "./moderation.mjs";
+import { createModPacks } from "./mod_packs.mjs";
+import { CRASH_MAX_BODY_BYTES, createCrashReports } from "./crash_reports.mjs";
 
 // Which deployment this is (production, test): shown in /api/health so nobody mistakes one for the other.
 const instanceName = String(process.env.LASTROUTE_INSTANCE || "production").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) || "production";
@@ -16,8 +22,12 @@ const ENET_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
 // listing must lapse quickly so a guest can take over.
 const PUBLIC_ENET_TTL_MS = 15_000;
 const MAX_BODY_BYTES = 64 * 1024;
+// a pack manifest lists up to 500 files with a sha256 each; only the owner-only register call may send this much
+const MOD_REGISTER_MAX_BODY_BYTES = 256 * 1024;
+const MOD_PACK_PATH = /^\/api\/mods\/packs\/([a-z0-9][a-z0-9_]{2,31})$/;
 const DEFAULT_ADMIN_TICKET_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const DEFAULT_DEV_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const ACCOUNT_RATE_LIMIT_PATHS = new Set([
   "/api/account/register",
   "/api/account/login",
@@ -28,10 +38,16 @@ const ACCOUNT_RATE_LIMIT_PATHS = new Set([
 	"/api/admin/roster/set",
 	"/api/admin/roster/remove",
   "/api/dev/login",
+  "/api/dev/reload",   // accepts adminProof (the setup password): must not be a cheap guessing oracle
   "/api/enet/admin-tickets/issue",
+  "/api/moderation/integrity",
+  "/api/admin/flags",
+  "/api/admin/flags/set",
+  "/api/admin/builds/add",
+  "/api/admin/builds/remove",
 ]);
 const UPDATE_CHANNELS = ["debug", "release"];
-const UPDATE_PLATFORMS = ["linux", "windows", "windows_legacy", "macos", "web", "steamvr", "quest"];
+const UPDATE_PLATFORMS = ["linux", "windows", "windows_legacy", "macos", "web", "steamvr", "quest", "phone"];
 const MIME_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
   [".html", "text/html; charset=utf-8"],
@@ -54,8 +70,8 @@ function responseHeaders() {
   return {
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-methods": "GET, HEAD, POST, PUT, OPTIONS",
+    "access-control-allow-headers": `content-type, ${CITY_MAP_TICKET_HEADER}, ${SKIN_TOKEN_HEADER}, ${SKIN_ARMS_HEADER}`,
   };
 }
 
@@ -75,12 +91,12 @@ function json(response, status, value, extraHeaders = {}) {
   response.end(body);
 }
 
-async function readJson(request) {
+async function readJson(request, maxBytes = MAX_BODY_BYTES) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw Object.assign(new Error("REQUEST BODY TOO LARGE"), { status: 413 });
+    if (size > maxBytes) throw Object.assign(new Error("REQUEST BODY TOO LARGE"), { status: 413 });
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
@@ -116,28 +132,43 @@ function requesterAddress(request, trustProxy) {
   return cleanAddress(request.socket.remoteAddress);
 }
 
+// Which game a room belongs to ("last_route" or "city"); servers and clients that predate the field mean "last_route".
+function publicGameId(value) {
+  const game = String(value ?? "").trim().toLowerCase();
+  return Object.hasOwn(PUBLIC_CODES, game) ? game : "last_route";
+}
+
+function cleanGame(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  return /^[a-z][a-z0-9_]{0,15}$/.test(text) ? text : "last_route";
+}
+
 function publicEnetRoom(room, timestamp, relayAddress = "", relayPort = 0) {
   if (room.transport === "ws") {
     // Browser-capable room: players connect to this server's WebSocket relay over the same origin they already use.
     return {
       code: room.code,
+      game: room.game || "last_route",
       transport: "ws",
       address: "",
       port: 0,
       wsPath: WS_PATH,
       players: room.players,
       sessionActive: room.sessionActive,
+      daytime: Boolean(room.daytime),
       expiresIn: Math.max(0, Math.ceil((room.expiresAt - timestamp) / 1000)),
     };
   }
   const relayed = Boolean(relayAddress && relayPort);
   return {
     code: room.code,
+    game: room.game || "last_route",
     transport: relayed ? "relay" : "direct",
     address: relayed ? relayAddress : room.address,
     port: relayed ? relayPort : room.port,
     players: room.players,
     sessionActive: room.sessionActive,
+    daytime: Boolean(room.daytime),
     expiresIn: Math.max(0, Math.ceil((room.expiresAt - timestamp) / 1000)),
   };
 }
@@ -156,9 +187,17 @@ function publicUpdateManifest(updates, channel, platform) {
   if (!/^\d+(?:\.\d+){2,3}$/.test(version) || (!url.startsWith("https://") && !relativeUrl)) return null;
   if (!/^[a-f0-9]{64}$/.test(sha256)) return null;
   if (revision && !/^[a-f0-9]{7,40}$/.test(revision)) return null;
+  // Phone and Quest APKs carry the publish build number (git rev-list --count, the Android versionCode); clients only
+  // install a higher one, so a missing or invalid number withholds the entry rather than offering an unusable update.
+  const mobile = platform === "phone" || platform === "quest";
+  const build = Number.isSafeInteger(entry.build) && entry.build > 0 ? entry.build : undefined;
+  // phones/Quest and (since the 2026-10 rework) macOS / Windows / Linux clients compare build numbers: withhold entries
+  // without one rather than offer an update no client will take. The web build refreshes by revision only.
+  if (platform !== "web" && (!build || !revision)) return null;
   return {
     version,
     revision,
+    build,
     url: url.startsWith("https://") ? url : relativeUrl,
     file,
     bytes: Number.isSafeInteger(entry.bytes) && entry.bytes > 0 ? entry.bytes : undefined,
@@ -252,8 +291,15 @@ export function createLastRouteServer({
   roomTtlMs = 300_000,
   playerTtlMs = 120_000,
   accountStorePath = null,
+  moderationStorePath = null,
+  moderationSalt = "",
   publicDirectory = null,
   customMapDirectory = null,
+  cityMaps: cityMapOptions = {},
+  skinDirectory = null,
+  skinOptions = {},
+  saveDirectory = null,
+  saveOptions = {},
   updateDirectory = null,
   adminPassword = "",
   updates = {},
@@ -264,9 +310,15 @@ export function createLastRouteServer({
   publicRouteStorePath = null,
   publicRouteSeed = "PUBLIC-ROUTE",
   publicItemRespawnMs,
+  modPackStorePath = null,
+  crashReportDirectory = null,
+  modDownloadBase = "",
+  modPackLimits,
   rateLimitWindowMs = DEFAULT_RATE_LIMIT_WINDOW_MS,
   apiRateLimitMax = 600,
+  modRateLimitMax = 120,
   accountRateLimitMax = 30,
+  devTokenTtlMs = DEFAULT_DEV_TOKEN_TTL_MS,
   now = Date.now,
   logger = console,
 } = {}) {
@@ -278,13 +330,33 @@ export function createLastRouteServer({
   // carry old authority into a new room.
   const adminTickets = new Map();
   const roomService = createRoomService({ now, roomTtlMs, playerTtlMs });
-  const publicRoute = createPublicRoute({
-    now, logger, storePath: publicRouteStorePath, initialSeed: publicRouteSeed,
-    ...(publicItemRespawnMs ? { itemRespawnMs: publicItemRespawnMs } : {}),
-  });
-  const publicRouteReady = publicRoute.load();
+  // One public route per game (namespaced by game id); the Last Route one keeps its original code and store file.
+  const cityStorePath = publicRouteStorePath ? publicRouteStorePath.replace(/(\.[^./\\]+)?$/, "_city$1") : null;
+  const publicRoutes = {
+    last_route: createPublicRoute({
+      now, logger, storePath: publicRouteStorePath, initialSeed: publicRouteSeed, code: PUBLIC_CODES.last_route,
+      ...(publicItemRespawnMs ? { itemRespawnMs: publicItemRespawnMs } : {}),
+    }),
+    city: createPublicRoute({
+      now, logger, storePath: cityStorePath, initialSeed: `${publicRouteSeed}-CITY`, code: PUBLIC_CODES.city,
+      ...(publicItemRespawnMs ? { itemRespawnMs: publicItemRespawnMs } : {}),
+    }),
+  };
+  const publicCodes = new Set(Object.values(PUBLIC_CODES));
+  const publicRouteReady = Promise.all(Object.values(publicRoutes).map((route) => route.load()));
   const accountService = createAccountService({ storePath: accountStorePath, now, logger });
-  const devTokens = new Set();
+  const cityMaps = createCityMaps({ ...cityMapOptions, accountService, now, logger,
+    roomExists: (code) => enetRooms.has(normalizeEnetCode(code)) });
+  const moderation = createModeration({ storePath: moderationStorePath, salt: moderationSalt, now, logger,
+    isOwner: (name) => accountService.isAdminOwner(name),
+    accountExists: (name) => accountService.accountExists(name),
+    updatesProvider: () => currentUpdates() });
+  const crashReports = crashReportDirectory ? createCrashReports({ directory: crashReportDirectory, now }) : null;
+  const modPacks = createModPacks({ storePath: modPackStorePath, downloadBase: modDownloadBase, now, logger,
+    ...(modPackLimits ? { limits: modPackLimits } : {}) });
+  const skins = createSkins({ directory: skinDirectory, accountService, now, logger, ...skinOptions });
+  const gameSaves = createGameSaves({ directory: saveDirectory, accountService, now, logger, ...saveOptions });
+  const devTokens = new Map();   // token -> expiresAt; a leaked dev token must not grant developer proof forever
   const requestRates = new Map();
   let enetRelay = null;
   let reloadId = 0;
@@ -310,10 +382,12 @@ export function createLastRouteServer({
 
   function pruneEnetRooms() {
     const timestamp = now();
-    if (publicRoute.authorityStale()) {
-      enetRooms.delete(PUBLIC_CODE);
-      wsRelay.closeRoom(PUBLIC_CODE);
-      publicRoute.resetAuthority();
+    for (const [game, route] of Object.entries(publicRoutes)) {
+      if (route.authorityStale()) {
+        enetRooms.delete(PUBLIC_CODES[game]);
+        wsRelay.closeRoom(PUBLIC_CODES[game]);
+        route.resetAuthority();
+      }
     }
     for (const [code, room] of enetRooms) {
       // A web room whose host still holds its relay socket is alive even if the browser tab stopped sending heartbeats
@@ -325,6 +399,16 @@ export function createLastRouteServer({
     }
     for (const [ticket, proof] of adminTickets) {
       if (proof.expiresAt <= timestamp || !enetRooms.has(proof.code)) adminTickets.delete(ticket);
+    }
+  }
+
+  function forgetEnetRoom(code) {
+    const room = enetRooms.get(code);
+    if (!room) return;
+    enetRooms.delete(code);
+    wsRelay.closeRoom(code);
+    for (const [ticket, proof] of adminTickets) {
+      if (proof.code === code && safeEqual(proof.hostToken, room.token)) adminTickets.delete(ticket);
     }
   }
 
@@ -344,24 +428,33 @@ export function createLastRouteServer({
   }
 
   function developerRequest(body) {
-    if (body?.devToken && devTokens.has(String(body.devToken))) return true;
+    if (body?.devToken) {
+      const key = String(body.devToken);
+      const expiresAt = devTokens.get(key);
+      if (expiresAt && expiresAt > now()) return true;
+      if (expiresAt) devTokens.delete(key);
+    }
     if (adminPassword && safeEqual(body?.adminProof, adminPassword)) return true;
     return Boolean(accountService.sessionAdminIdentity(body?.sessionToken)?.adminOwner);
   }
 
   function issueDevToken() {
     const token = randomBytes(24).toString("hex");
-    devTokens.add(token);
+    const timestamp = now();
+    for (const [key, expiresAt] of devTokens) if (expiresAt <= timestamp) devTokens.delete(key);
+    devTokens.set(token, timestamp + Math.max(1000, Number(devTokenTtlMs) || DEFAULT_DEV_TOKEN_TTL_MS));
     return token;
   }
 
   function rateLimitRequest(request, pathname) {
     const sensitive = ACCOUNT_RATE_LIMIT_PATHS.has(pathname);
-    const maximum = Math.max(1, Number(sensitive ? accountRateLimitMax : apiRateLimitMax) || 1);
+    // mod index reads get their own, tighter bucket so a client polling packs cannot starve gameplay calls
+    const mods = !sensitive && pathname.startsWith("/api/mods/");
+    const maximum = Math.max(1, Number(sensitive ? accountRateLimitMax : mods ? modRateLimitMax : apiRateLimitMax) || 1);
     const windowMs = Math.max(1000, Number(rateLimitWindowMs) || DEFAULT_RATE_LIMIT_WINDOW_MS);
     const timestamp = now();
     const address = requesterAddress(request, trustProxy) || "unknown";
-    const key = `${sensitive ? "account" : "api"}|${address}`;
+    const key = `${sensitive ? "account" : mods ? "mods" : "api"}|${address}`;
     let rate = requestRates.get(key);
     if (!rate || timestamp >= rate.resetAt) {
       rate = { count: 0, resetAt: timestamp + windowMs };
@@ -403,13 +496,97 @@ export function createLastRouteServer({
       });
     }
 
+    if (new Set(["GET", "HEAD"]).has(request.method) && url.pathname.startsWith("/api/city-maps/files/")) {
+      const result = cityMaps.file(url.pathname, request.headers);
+      if (result && result[0] === 200) {
+        response.writeHead(200, { ...responseHeaders(), "cache-control": "private, max-age=600",
+          "content-type": "application/octet-stream", "content-length": result[1].length, etag: `"${result[2]}"` });
+        return response.end(request.method === "HEAD" ? undefined : result[1]);
+      }
+      if (result) return json(response, result[0], result[1]);
+    }
+
+    if (new Set(["GET", "HEAD"]).has(request.method) && url.pathname.startsWith("/api/skins/files/")) {
+      const result = skins.file(url.pathname);
+      if (result[0] === 200) {
+        response.writeHead(200, { ...responseHeaders(), "cache-control": "public, max-age=31536000, immutable",
+          "content-type": "image/png", "content-length": result[1].length, etag: `"${result[2]}"` });
+        return response.end(request.method === "HEAD" ? undefined : result[1]);
+      }
+      return json(response, result[0], result[1]);
+    }
+
+    // mod pack index (mod_packs.mjs): metadata only; the files themselves are served from VPS 2
+    if (request.method === "GET" && url.pathname === "/api/mods/packs") {
+      const result = modPacks.list();
+      return json(response, result[0], result[1], { "cache-control": "public, max-age=60" });
+    }
+    const modPackPath = MOD_PACK_PATH.exec(url.pathname);
+    if (request.method === "GET" && modPackPath) {
+      const result = modPacks.get(modPackPath[1], url.searchParams.get("version"));
+      return json(response, result[0], result[1], { "cache-control": "public, max-age=60" });
+    }
+
+    const skinAccount = SKIN_ACCOUNT_PATH.exec(url.pathname);
+    if (skinAccount && new Set(["GET", "PUT"]).has(request.method)) {
+      // account skins (skins.mjs): GET is public metadata, PUT is the owner's raw PNG (session + arms style in headers)
+      if (request.method === "GET") {
+        const found = skins.get(skinAccount[1]);
+        return json(response, found[0], found[1], { "cache-control": "public, max-age=15" });
+      }
+      const chunks = [];
+      let received = 0;
+      for await (const chunk of request) {
+        received += chunk.length;
+        if (received > 1024 * 1024) { request.destroy(); return; }
+        if (received <= SKIN_MAX_BYTES) chunks.push(chunk);
+      }
+      if (received > SKIN_MAX_BYTES) {
+        return json(response, 413, { ok: false, code: "BAD_SKIN", error: "Skin refused: the file is too large" });
+      }
+      const putToken = String(request.headers[SKIN_TOKEN_HEADER] || "");
+      const putRefused = moderation.checkSkinUpload(accountService.sessionUsername(putToken) || "");
+      if (putRefused) return json(response, putRefused[0], putRefused[1]);
+      const stored = skins.put(putToken, skinAccount[1], Buffer.concat(chunks), String(request.headers[SKIN_ARMS_HEADER] || "auto").toLowerCase());
+      return json(response, stored[0], stored[1]);
+    }
+
+    const savePath = SAVE_PATH.exec(url.pathname);
+    if (savePath && new Set(["GET", "PUT"]).has(request.method)) {
+      // cloud saves (game_saves.mjs): the session rides in a header, the body is capped before it is parsed
+      const saveToken = String(request.headers["x-session-token"] || "");
+      const [gameId, slot] = [savePath[1], savePath[2]];   // allow-listed plain ids, never decoded
+      if (request.method === "GET") {
+        const loaded = gameSaves.get(saveToken, gameId, slot);
+        return json(response, loaded[0], loaded[1]);
+      }
+      const chunks = [];
+      let received = 0;
+      for await (const chunk of request) {
+        received += chunk.length;
+        if (received > 1024 * 1024) { request.destroy(); return; }   // never read an unbounded body
+        if (received <= SAVE_MAX_BYTES) chunks.push(chunk);
+      }
+      if (received > SAVE_MAX_BYTES) {
+        return json(response, 413, { ok: false, code: "SAVE_TOO_LARGE", error: `A save is at most ${SAVE_MAX_BYTES / 1024} KB` });
+      }
+      let saveBody = null;
+      try {
+        saveBody = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        return json(response, 400, { ok: false, code: "BAD_SAVE", error: "INVALID JSON BODY" });
+      }
+      const stored = gameSaves.put(saveToken, gameId, slot, saveBody);
+      return json(response, stored[0], stored[1]);
+    }
+
     const customMapFile = url.pathname.match(/^\/api\/custom-maps\/([A-Za-z0-9][A-Za-z0-9._-]{0,180}\.png)$/i);
     if (new Set(["GET", "HEAD"]).has(request.method) && customMapFile) {
       if (tryStaticFile(request, response, customMapDirectory, `/${customMapFile[1]}`)) return;
       return json(response, 404, { ok: false, error: "CUSTOM MAP NOT FOUND" });
     }
 
-    const updateLookup = url.pathname.match(/^\/api\/updates\/(debug|release)\/(linux|windows|windows_legacy|macos|web|steamvr|quest)$/);
+    const updateLookup = url.pathname.match(/^\/api\/updates\/(debug|release)\/(linux|windows|windows_legacy|macos|web|steamvr|quest|phone)$/);
     if (request.method === "GET" && updateLookup) {
       const update = publicUpdateManifest(currentUpdates(), updateLookup[1], updateLookup[2]);
       if (!update) return json(response, 404, { ok: false, error: "NO UPDATE PUBLISHED" });
@@ -436,7 +613,7 @@ export function createLastRouteServer({
 
     if (request.method === "GET" && url.pathname === "/api/public/status") {
       await publicRouteReady;
-      return json(response, 200, publicRoute.status());
+      return json(response, 200, publicRoutes[publicGameId(url.searchParams.get("game"))].status());
     }
 
     if (request.method !== "POST") {
@@ -447,20 +624,65 @@ export function createLastRouteServer({
       return json(response, 404, { ok: false, code: "NOT_FOUND", error: "Not found" });
     }
 
+    if (url.pathname === "/api/skins/upload") {
+      // the one raw-body route: a PNG of at most SKIN_MAX_BYTES, the session in a header (a JSON wrapper would not fit the body limit)
+      const chunks = [];
+      let received = 0;
+      for await (const chunk of request) {
+        received += chunk.length;
+        if (received > 1024 * 1024) { request.destroy(); return; }   // never read an unbounded body
+        if (received <= SKIN_MAX_BYTES) chunks.push(chunk);
+      }
+      if (received > SKIN_MAX_BYTES) {
+        return json(response, 413, { ok: false, code: "BAD_SKIN", error: "Skin refused: the file is too large" });
+      }
+      const skinToken = String(request.headers[SKIN_TOKEN_HEADER] || "");
+      const refused = moderation.checkSkinUpload(accountService.sessionUsername(skinToken) || "");
+      if (refused) return json(response, refused[0], refused[1]);
+      const uploaded = skins.upload(String(request.headers[SKIN_TOKEN_HEADER] || ""), Buffer.concat(chunks));
+      return json(response, uploaded[0], uploaded[1]);
+    }
+
     let body;
     try {
-      body = await readJson(request);
+      body = await readJson(request,
+        url.pathname === "/api/admin/mods/register" ? MOD_REGISTER_MAX_BODY_BYTES
+          : url.pathname === "/api/v1/crash-reports" ? CRASH_MAX_BODY_BYTES : MAX_BODY_BYTES);
     } catch (error) {
       return json(response, error.status || 400, { ok: false, error: error.message });
+    }
+
+    // Crash / freeze reports (CrashWatch): store and echo only; per-client rate limit and field caps in crash_reports.mjs.
+    if (url.pathname === "/api/v1/crash-reports") {
+      if (!crashReports) return json(response, 404, { ok: false, code: "UNKNOWN_ENDPOINT", error: "Unknown endpoint" });
+      const client = `${requesterAddress(request, trustProxy) || "unknown"}|${String(body.device_id || "").slice(0, 64)}`;
+      const result = crashReports.submit(body, client);
+      return json(response, result[0], result[1]);
+    }
+    if (url.pathname === "/api/admin/crash-reports") {
+      const owner = accountService.sessionUsername(body.sessionToken);
+      if (!owner || !accountService.isAdminOwner(owner)) {
+        return json(response, 403, { ok: false, code: "ADMIN_OWNER_REQUIRED", error: "Full admin account required" });
+      }
+      if (!crashReports) return json(response, 200, { ok: true, reports: [], total: 0 });
+      const result = crashReports.list({ since: body.since, limit: body.limit });
+      return json(response, result[0], result[1]);
     }
 
     if (url.pathname === "/api/public/join" || url.pathname === "/api/public/state"
         || url.pathname === "/api/public/leave") {
       await publicRouteReady;
-      const publicEnet = enetRooms.get(PUBLIC_CODE);
+      const publicGame = publicGameId(body.game);
+      const publicRoute = publicRoutes[publicGame];
+      const publicEnet = enetRooms.get(PUBLIC_CODES[publicGame]);
       const hostTokenValid = Boolean(publicEnet && body.hostToken && safeEqual(body.hostToken, publicEnet.token));
       if (hostTokenValid) publicEnet.expiresAt = now() + PUBLIC_ENET_TTL_MS;
       const address = requesterAddress(request, trustProxy);
+      if (url.pathname === "/api/public/join") {
+        const refused = moderation.checkPublicJoin({ address, deviceId: body.deviceId,
+          username: accountService.sessionUsername(body.sessionToken) || "" });
+        if (refused) return json(response, refused[0], refused[1]);
+      }
       const result = url.pathname === "/api/public/join"
         ? publicRoute.join(body, { address, hostTokenValid, enetListed: Boolean(publicEnet) })
         : url.pathname === "/api/public/state"
@@ -477,6 +699,12 @@ export function createLastRouteServer({
       if (!code) return json(response, 400, { ok: false, error: "INVALID ROOM CODE" });
       if (!webRoom && (!Number.isInteger(port) || port < 1 || port > 65_535)) return json(response, 400, { ok: false, error: "INVALID ENET PORT" });
       if (enetRooms.has(code)) return json(response, 409, { ok: false, error: "ROOM CODE ALREADY REGISTERED" });
+      const hostUser = body.sessionToken ? accountService.sessionUsername(body.sessionToken) || "" : "";
+      if (publicCodes.has(code)) {
+        const refused = moderation.checkHostPublic({ username: hostUser, deviceId: body.deviceId,
+          address: requesterAddress(request, trustProxy) });
+        if (refused) return json(response, refused[0], refused[1]);
+      }
       const token = randomBytes(24).toString("base64url");
       const room = {
         code,
@@ -484,9 +712,13 @@ export function createLastRouteServer({
         address: requesterAddress(request, trustProxy),
         port,
         transport: webRoom ? "ws" : "enet",
+        hostUser,                                   // reporting identity for moderation (may be empty)
+        instance: randomBytes(9).toString("base64url"),
         players: Math.trunc(finitePlayers(body.players, 1)),
         sessionActive: Boolean(body.sessionActive),
-        expiresAt: now() + (code === PUBLIC_CODE ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
+        daytime: Boolean(body.daytime),
+        game: publicCodes.has(code) ? Object.keys(PUBLIC_CODES).find((g) => PUBLIC_CODES[g] === code) : cleanGame(body.game),
+        expiresAt: now() + (publicCodes.has(code) ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
       };
       enetRooms.set(code, room);
       return json(response, 201, {
@@ -502,7 +734,8 @@ export function createLastRouteServer({
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
       room.players = Math.trunc(finitePlayers(body.players, room.players));
       room.sessionActive = Boolean(body.sessionActive);
-      room.expiresAt = now() + (room.code === PUBLIC_CODE ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs);
+      room.daytime = Boolean(body.daytime);
+      room.expiresAt = now() + (publicCodes.has(room.code) ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs);
       return json(response, 200, {
         ok: true,
         room: publicEnetRoom(room, now(), relayAddress, relayPort),
@@ -514,11 +747,10 @@ export function createLastRouteServer({
       const room = enetRooms.get(code);
       if (!room) return json(response, 200, { ok: true, removed: false });
       if (!safeEqual(body.token, room.token)) return json(response, 403, { ok: false, error: "INVALID HOST TOKEN" });
-      enetRooms.delete(code);
+      // an explicit quit: guests are told now and the code stops resolving now
+      enetRelay?.closeRoom(code);
       wsRelay.closeRoom(code);
-      for (const [ticket, proof] of adminTickets) {
-        if (proof.code === code && safeEqual(proof.hostToken, room.token)) adminTickets.delete(ticket);
-      }
+      forgetEnetRoom(code);
       return json(response, 200, { ok: true, removed: true });
     }
 
@@ -582,6 +814,53 @@ export function createLastRouteServer({
       });
     }
 
+    if (url.pathname === "/api/moderation/report" || url.pathname === "/api/moderation/peers") {
+      const code = normalizeEnetCode(body.code);
+      const room = code ? enetRooms.get(code) : null;
+      if (!room || !safeEqual(body.hostToken, room.token)) {
+        return json(response, 403, { ok: false, code: "INVALID_HOST_TOKEN", error: "INVALID HOST TOKEN" });
+      }
+      const result = url.pathname === "/api/moderation/report"
+        ? moderation.reportKick(body, { room: code, host: room.hostUser ? `user:${room.hostUser}` : `room:${room.instance}` })
+        : moderation.peers(body);
+      return json(response, result[0], result[1]);
+    }
+    if (url.pathname === "/api/moderation/integrity") {
+      const result = moderation.integrity(body, { address: requesterAddress(request, trustProxy),
+        username: body.sessionToken ? accountService.sessionUsername(body.sessionToken) || "" : "" });
+      return json(response, result[0], result[1]);
+    }
+    if (url.pathname === "/api/moderation/status") {
+      return json(response, 200, { ok: true, status: moderation.status({ deviceId: body.deviceId,
+        address: requesterAddress(request, trustProxy),
+        username: body.sessionToken ? accountService.sessionUsername(body.sessionToken) || "" : "" }) });
+    }
+    if (url.pathname.startsWith("/api/admin/mods/")) {
+      const owner = accountService.sessionUsername(body.sessionToken);
+      if (!owner || !accountService.isAdminOwner(owner)) {
+        return json(response, 403, { ok: false, code: "ADMIN_OWNER_REQUIRED", error: "Full admin account required" });
+      }
+      let result;
+      if (url.pathname === "/api/admin/mods/register") result = modPacks.register(body, owner);
+      else if (url.pathname === "/api/admin/mods/block") result = modPacks.block(body, owner);
+      else if (url.pathname === "/api/admin/mods/unblock") result = modPacks.unblock(body, owner);
+      else result = [404, { ok: false, code: "UNKNOWN_ENDPOINT", error: "Unknown endpoint" }];
+      return json(response, result[0], result[1]);
+    }
+    if (url.pathname.startsWith("/api/admin/flags") || url.pathname.startsWith("/api/admin/builds/")) {
+      const owner = accountService.sessionUsername(body.sessionToken);
+      if (!owner || !accountService.isAdminOwner(owner)) {
+        return json(response, 403, { ok: false, code: "ADMIN_OWNER_REQUIRED", error: "Full admin account required" });
+      }
+      let result;
+      if (url.pathname === "/api/admin/flags") result = moderation.adminList();
+      else if (url.pathname === "/api/admin/flags/set") result = moderation.adminSet(body, owner);
+      else if (url.pathname === "/api/admin/builds/add") result = moderation.addBuild(body, owner);
+      else if (url.pathname === "/api/admin/builds/remove") result = moderation.removeBuild(body);
+      else result = [404, { ok: false, code: "UNKNOWN_ENDPOINT", error: "Unknown endpoint" }];
+      return json(response, result[0], result[1]);
+    }
+
     if (url.pathname === "/api/dev/login") {
       if (!adminPassword) return json(response, 503, { ok: false, code: "DEV_LOGIN_DISABLED", error: "Developer login is not configured" });
       if (!safeEqual(body.password, adminPassword)) return json(response, 401, { ok: false, code: "INVALID_DEV_PASSWORD", error: "Invalid developer password" });
@@ -604,6 +883,11 @@ export function createLastRouteServer({
     else if (url.pathname === "/api/rooms/custom-map") result = roomService.setCustomMap(body);
     else if (url.pathname === "/api/rooms/dialog-start") result = roomService.startDialog(body);
     else if (url.pathname === "/api/rooms/dialog-advance") result = roomService.advanceDialog(body);
+    else if (url.pathname === "/api/skins/mine") result = skins.mine(body);
+    else if (url.pathname === "/api/skins/clear") result = skins.clear(body);
+    else if (url.pathname === "/api/skins/remove") result = skins.remove(body);
+    else if (url.pathname === "/api/city-maps/list") result = cityMaps.list(body);
+    else if (url.pathname === "/api/city-maps/ticket") result = cityMaps.ticket(body);
     else if (url.pathname === "/api/rooms/leave") result = roomService.leaveRoom(body);
     else if (url.pathname === "/api/account/register") {
       result = await accountService.register(body, { allowDeveloperNames: developerRequest(body) });
@@ -613,7 +897,11 @@ export function createLastRouteServer({
       if (result[1]?.ok && result[1].adminOwner) result[1].devToken = issueDevToken();
     } else if (url.pathname === "/api/account/session") result = accountService.currentSession(body);
     else if (url.pathname === "/api/account/password") result = await accountService.changePassword(body);
-    else if (url.pathname === "/api/account/rename") result = accountService.rename(body, { allowDeveloperNames: developerRequest(body) });
+    else if (url.pathname === "/api/account/rename") {
+      const previous = accountService.sessionUsername(body.sessionToken);
+      result = accountService.rename(body, { allowDeveloperNames: developerRequest(body) });
+      if (result[1]?.ok && previous) moderation.renameAccount(previous, result[1].username);
+    }
     else if (url.pathname === "/api/account/save") result = accountService.save(body);
     else if (url.pathname === "/api/account/load") result = accountService.loadProgress(body);
     else if (url.pathname === "/api/account/logout") result = accountService.logout(body);
@@ -657,6 +945,8 @@ export function createLastRouteServer({
         return enetRooms.get(code) || null;
       },
       promoteRoomHost: promoteEnetRoomHost,
+      // the host quit, crashed or was killed: the code is invalid at once (a reserved room keeps its reservation)
+      onRoomClosed: (code) => forgetEnetRoom(code),
       now,
       logger,
     });
@@ -736,9 +1026,24 @@ export function startLastRouteServerFromEnvironment() {
     Number(process.env.LASTROUTE_API_RATE_LIMIT) || 600);
   const accountRateLimitMax = Math.max(1,
     Number(process.env.LASTROUTE_ACCOUNT_RATE_LIMIT) || 30);
+  const cityMapDirectory = environmentPath("LASTROUTE_CITY_MAPS_DIR");
+  const cityMapKeyPath = cityMapDirectory ? join(cityMapDirectory, "maps_pub.pem") : "";
   const server = createLastRouteServer({
     enetRoomTtlMs,
+    cityMaps: {
+      directory: cityMapDirectory,
+      ticketSecret: String(process.env.LASTROUTE_CITY_MAP_TICKET_SECRET || ""),
+      publicKeyPem: cityMapKeyPath && existsSync(cityMapKeyPath) ? readFileSync(cityMapKeyPath, "utf8") : "",
+    },
     accountStorePath,
+    moderationStorePath: environmentPath("LASTROUTE_MODERATION_STORE") || join(dirname(accountStorePath), "moderation.json"),
+    moderationSalt: String(process.env.LASTROUTE_MODERATION_SALT || ""),
+    skinDirectory: environmentPath("LASTROUTE_SKINS_DIR") || join(dataDirectory, "skins"),
+    saveDirectory: environmentPath("LASTROUTE_SAVES_DIR") || join(dataDirectory, "saves"),
+    modPackStorePath: environmentPath("LASTROUTE_MOD_INDEX_STORE") || join(dataDirectory, "mod_packs.json"),
+    crashReportDirectory: environmentPath("LASTROUTE_CRASH_REPORTS_DIR") || join(dataDirectory, "crash-reports"),
+    // public URL of the VPS 2 mod folder, e.g. https://<vps2>/lr3d/mods (the index never serves pack files itself)
+    modDownloadBase: String(process.env.LASTROUTE_MOD_DOWNLOAD_BASE || "").trim(),
     publicDirectory: publicDirectory && existsSync(publicDirectory) ? publicDirectory : null,
     customMapDirectory: customMapDirectory && existsSync(customMapDirectory) ? customMapDirectory : null,
     updateDirectory: updateDirectory && existsSync(updateDirectory) ? updateDirectory : null,
@@ -756,6 +1061,7 @@ export function startLastRouteServerFromEnvironment() {
     rateLimitWindowMs,
     apiRateLimitMax,
     accountRateLimitMax,
+    modRateLimitMax: Math.max(1, Number(process.env.LASTROUTE_MOD_RATE_LIMIT) || 120),
   });
   if (relayEnabled) server.startEnetRelay({ host, port: relayPort });
   server.listen(port, host, () => loggerStartup(host, port, accountStorePath,

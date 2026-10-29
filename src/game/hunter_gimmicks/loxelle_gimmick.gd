@@ -8,7 +8,7 @@ extends HunterGimmick
 ## LOXELLE_INTERVAL seconds she has a LOXELLE_CHANCE roll to burn the nearest
 ## hiding spot in her OWN room. An empty spot goes dark for a while and comes
 ## back; an OCCUPIED one gets you pulled out of it, non-lethally, the same
-## shape as Jyvra's ejection.
+## shape as Javelle's ejection.
 ##
 ## What is deliberately simplified: the original destroys a *prop* and regrows
 ## it from a `temporaryHidingDamage` list keyed to the game clock; this port has
@@ -46,7 +46,7 @@ func after_perception(brain: HunterBrain, delta: float, target: Dictionary, gene
 	if not _door_charge_phase.is_empty():
 		_update_door_charge(brain, delta, generator)
 		return
-	# Zephyra's pesticide trade pauses her passive routine entirely --
+	# Zellia's pesticide trade pauses her passive routine entirely --
 	# regeneration included, matching the original's full early-return.
 	if bool(target.get("pesticide_active", false)):
 		return
@@ -121,7 +121,8 @@ func _resolve_charge(brain: HunterBrain, target: Dictionary,
 	if occupied:
 		toggles.append({"cell": _charge_cell,
 			"eject_to": generator.hiding_exit_position(_charge_candidate),
-			"charge_impact": true})
+			"charge_impact": true, "temperature_add": GameConfig.LOXELLE_BREAK_TEMPERATURE,
+			"noise_add": GameConfig.LOXELLE_BREAK_NOISE})
 	else:
 		toggles.append({"cell": _charge_cell, "disabled": true,
 			"charge_impact": true})
@@ -231,3 +232,9 @@ func _nearest_live_spot(from: Vector2, generator, room_id: String) -> Dictionary
 			best_distance = distance
 			best = spot
 	return best
+
+
+## Non-lethal in 2D (nonLethal / specialist early return): she can never trigger a capture.
+func immune_to_capture() -> bool:
+	return true
+

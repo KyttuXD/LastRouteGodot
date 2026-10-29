@@ -18,6 +18,10 @@ signal waypoint_requested(world_position: Vector2, level: int)
 const WALL := 0
 const RELAY_TEAL_BLUE := Color("32c9d8")
 const STAIR_ICON_WHITE := Color("f4f7f6")
+const SEWER_WATER_TINT := Color("2f5a52")
+const LADDER_ICON_TINT := Color("e8c25a")
+## Solid props on the map: their real collision boxes (see _draw_collider_box).
+const PROP_BOX_TINT := Color("7899a1")
 const COOP_PLAYER_BLUE := Color("63d9f1")
 const PORCELLE_GHOST := Color("c9b6e4")
 const MIN_MAP_ZOOM := 0.75
@@ -31,7 +35,12 @@ const REGION_COLORS := {
 	"gothic": Color("8a68ad"),
 	"prison": Color("778994"),
 	"inferno": Color("d45b3f"),
+	"sewer": Color("5e7a5c"),
 	"carnival": Color("ce5d96"),
+	"hospital": Color("9fd0c2"),
+	"lab": Color("5fd4e4"),
+	"greenhouse": Color("7fbf5a"),
+	"mall": Color("e8b05a"),
 }
 
 @export var interactive := false
@@ -41,10 +50,33 @@ var player_at := Vector2.ZERO
 var player_facing := Vector2(0, 1)
 ## [{ "at": Vector2, "name": String, "active": bool }]
 var hunters: Array = []
+## Porcelle's marks pulse (RadarPing) instead of sitting on the map: the HUD minimap turns this on. `radar_time` < 0 uses
+## the real clock (tests pin it).
+var ghost_ping := false
+## Quick-chat pings: {at (map units like player marks), colour, label, until (msec)}; drawn for PING_SECONDS.
+var pings: Array = []
+const PING_SECONDS := 6.0
+## Full-map player arrow: a constant on-screen size (HUD units, tip reach) at every zoom, so zooming in shows more map
+## around it instead of growing the arrow over several rooms. Kept within [MIN, MAX].
+const PLAYER_ARROW_MIN := 7.0
+const PLAYER_ARROW_SIZE := 8.0
+const PLAYER_ARROW_MAX := 9.0
+
+
+## How far the player arrow reaches from its centre at `cell` HUD units per cell: the minimap scales with its cells, the
+## full map keeps a fixed on-screen size.
+static func arrow_reach(cell: float, full_map: bool) -> float:
+	return clampf(PLAYER_ARROW_SIZE, PLAYER_ARROW_MIN, PLAYER_ARROW_MAX) if full_map else cell * 0.95
+var radar_time := -1.0:
+	set(value):
+		radar_time = value
+		queue_redraw()
 ## Other runners are deliberately separate from hunter intelligence: co-op
 ## teammates remain visible on both maps while hunter markers still require
 ## the admin reveal permission.
 var players: Array = []
+## Admin pulses (host-approved, a few seconds): [{at: Vector2, level: int, until_msec: int, name: String}] drawn as expanding rings.
+var pulses: Array = []
 var dropped_tools: Array = []
 var safe_rooms: Array = []
 ## Infinite mode supplies compact discovered chunks rather than a finite
@@ -66,8 +98,21 @@ var waypoint_path: Array = []
 ## Zero fits every supplied chunk (fullscreen map). A positive value creates a
 ## player-centred square with this many cells of reach (minimap).
 var streamed_focus_radius_cells := 0
-var map_zoom := 1.0
-var _pan_world := Vector2.ZERO
+var map_zoom := 1.0:
+	set(value):
+		map_zoom = value
+		if interactive:
+			remembered_zoom = value
+## The full map's zoom survives closing and reopening it (and a new HUD).
+static var remembered_zoom := 1.0
+## Full map: while true the view stays centred on the runner (smoothly); a manual pan turns it off, recenter() turns it on.
+var follow_player := true
+## Seconds-to-catch-up feel of the follow (exponential smoothing rate; higher = tighter).
+const FOLLOW_RATE := 10.0
+var _view_center := Vector2.ZERO
+var _view_center_valid := false
+var _touches := {}
+var _pinch_distance := 0.0
 var _dragging := false
 var _last_cell_scale := 1.0
 var _last_world_origin := Vector2.ZERO
@@ -78,15 +123,53 @@ var _last_screen_origin := Vector2.ZERO
 
 func _ready() -> void:
 	focus_mode = Control.FOCUS_ALL if interactive else Control.FOCUS_NONE
+	if interactive:
+		map_zoom = remembered_zoom
+
+
+## Centre on the runner and follow again (the RECENTER control). `snap` jumps there instead of gliding (opening the map).
+func recenter(snap: bool = false) -> void:
+	follow_player = true
+	if snap or not _view_center_valid:
+		_view_center = player_at
+		_view_center_valid = true
+	queue_redraw()
+
+
+## The world point at the centre of the full map.
+func view_center() -> Vector2:
+	return _view_center
 
 
 func _process(delta: float) -> void:
+	if (not pings.is_empty() or not pulses.is_empty()) and is_visible_in_tree():
+		queue_redraw()   # pings and admin pulses animate and expire
+	# Porcelle's ping animates, so a minimap with her mark redraws every frame
+	if ghost_ping and is_visible_in_tree():
+		for mark in hunters:
+			if bool(mark.get("ghost", false)):
+				queue_redraw()
+				break
+	if interactive and is_visible_in_tree() and follow_player and streamed_chunk_size > 0:
+		if not _view_center_valid:
+			recenter(true)
+		var step := 1.0 - exp(-FOLLOW_RATE * delta)
+		var before := _view_center
+		_view_center = _view_center.lerp(player_at, step)
+		if _view_center.distance_squared_to(player_at) < 0.0001:
+			_view_center = player_at
+		if before != _view_center:
+			queue_redraw()
 	if not interactive or not visible or not has_focus() or streamed_chunk_size <= 0:
 		return
+	if Input.is_action_just_pressed("jump"):
+		recenter()
 	# Full-map controller controls: left stick pans, shoulders zoom, and X drops
 	# a waypoint at the centre crosshair. Gameplay is already frozen while this
 	# surface is open, so these actions never leak into tools or movement.
 	var pan := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if pan.length_squared() <= .01:
+		pan = Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
 	if pan.length_squared() > .01:
 		pan_screen(-pan * 120.0 * delta)
 	if Input.is_action_just_pressed("flashlight"):
@@ -124,14 +207,51 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _dragging:
 		pan_screen((event as InputEventMouseMotion).relative)
 		accept_event()
+	elif event is InputEventMagnifyGesture:
+		zoom_at((event as InputEventMagnifyGesture).factor, (event as InputEventMagnifyGesture).position)
+		accept_event()
+	elif event is InputEventPanGesture:
+		pan_screen(-(event as InputEventPanGesture).delta * 8.0)
+		accept_event()
+	elif event is InputEventScreenTouch:
+		var touch := event as InputEventScreenTouch
+		if touch.pressed:
+			_touches[touch.index] = touch.position
+		else:
+			_touches.erase(touch.index)
+		_pinch_distance = _touch_spread()
+		accept_event()
+	elif event is InputEventScreenDrag:
+		var drag := event as InputEventScreenDrag
+		_touches[drag.index] = drag.position
+		if _touches.size() >= 2:
+			var spread := _touch_spread()
+			if _pinch_distance > 1.0 and spread > 1.0:
+				zoom_at(spread / _pinch_distance, _touch_centre())
+			_pinch_distance = spread
+		elif not _dragging:
+			pan_screen(drag.relative)
+		accept_event()
+
+
+func _touch_spread() -> float:
+	if _touches.size() < 2:
+		return 0.0
+	var points: Array = _touches.values()
+	return (points[0] as Vector2).distance_to(points[1] as Vector2)
+
+
+func _touch_centre() -> Vector2:
+	var points: Array = _touches.values()
+	return ((points[0] as Vector2) + (points[1] as Vector2)) * .5
 
 
 func zoom_at(factor: float, screen_position: Vector2 = Vector2(-1, -1)) -> void:
 	if not interactive or factor <= 0.0:
 		return
 	var focus := screen_position
-	if focus.x < 0.0 or focus.y < 0.0:
-		focus = size * .5
+	if focus.x < 0.0 or focus.y < 0.0 or follow_player:
+		focus = size * .5   # following: zoom about the runner so they stay centred
 	var old_cell := maxf(.0001, _last_cell_scale)
 	var old_world_at_focus := _last_world_origin + focus / old_cell
 	var next_zoom := clampf(map_zoom * factor, MIN_MAP_ZOOM, MAX_MAP_ZOOM)
@@ -142,23 +262,35 @@ func zoom_at(factor: float, screen_position: Vector2 = Vector2(-1, -1)) -> void:
 	# Keep the same world coordinate under the pointer, as conventional web maps
 	# do, instead of pulling the map toward its centre on every wheel step.
 	var wanted_origin := old_world_at_focus - focus / new_cell
-	_pan_world = wanted_origin - _last_world_center + size / (2.0 * new_cell)
+	if not follow_player:
+		_view_center = wanted_origin + size / (2.0 * new_cell)
 	queue_redraw()
 
 
 func pan_screen(screen_delta: Vector2) -> void:
 	if not interactive:
 		return
-	# Dragging right moves the paper right, so the viewed world origin moves left.
-	_pan_world -= screen_delta / maxf(.0001, _last_cell_scale)
+	if screen_delta.length_squared() < 0.0001:
+		return
+	# Dragging right moves the paper right, so the viewed world origin moves left. Panning by hand stops following.
+	follow_player = false
+	if not _view_center_valid:
+		_view_center = player_at
+		_view_center_valid = true
+	_view_center -= screen_delta / maxf(.0001, _last_cell_scale)
 	queue_redraw()
+
+
+## True once there is a map to draw (a generated facility or discovered streamed chunks). The HUD hides the
+## minimap panel while this is false rather than showing an empty dark box.
+func has_data() -> bool:
+	return generator != null or not streamed_chunks.is_empty()
 
 
 func reset_view() -> void:
 	map_zoom = 1.0
-	_pan_world = Vector2.ZERO
 	_dragging = false
-	queue_redraw()
+	recenter(true)
 
 
 func set_waypoints(marks: Array) -> void:
@@ -225,7 +357,7 @@ func show_streamed_state(chunks: Dictionary, level: int, chunk_size: int,
 	players = []
 	for mark_value in player_marks:
 		var mark: Dictionary = mark_value
-		if not mark.has("level") or int(mark["level"]) == level:
+		if not mark.has("level") or int(mark["level"]) == level or bool(mark.get("other_floor", false)):
 			players.append(mark)
 	dropped_tools = []
 	for mark_value in drop_marks:
@@ -277,6 +409,8 @@ func _draw() -> void:
 	for mark in players:
 		_draw_remote_player(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
 			cell, mark)
+	_draw_pings(origin, Vector2.ZERO, cell)
+	_draw_pulses(origin, Vector2.ZERO, cell)
 	for mark in dropped_tools:
 		_draw_dropped_tool(origin + (mark.get("at", Vector2.ZERO) as Vector2) * cell,
 			cell, mark)
@@ -328,7 +462,10 @@ func _draw_streamed() -> void:
 			size.y / maxf(1.0, discovered_size.y))
 		cell = _base_cell_scale * map_zoom
 		_last_world_center = discovered_min + discovered_size * .5
-		world_origin = _last_world_center + _pan_world - size / (2.0 * cell)
+		if not _view_center_valid:
+			_view_center = player_at
+			_view_center_valid = true
+		world_origin = _view_center - size / (2.0 * cell)
 		world_min_x = floori(world_origin.x)
 		world_min_z = floori(world_origin.y)
 		cols = ceili(size.x / cell) + 1
@@ -364,6 +501,37 @@ func _draw_streamed() -> void:
 					continue
 				draw_rect(Rect2(local_origin + Vector2(x, z) * cell,
 					Vector2.ONE * cell), floor_tint)
+		var water: PackedByteArray = chunk.get("water", PackedByteArray())
+		if water.size() == streamed_chunk_size * streamed_chunk_size:
+			for index in water.size():
+				if water[index] == 0:
+					continue
+				var wx := index % streamed_chunk_size
+				var wz := index / streamed_chunk_size
+				if world_bounds.has_point(chunk_world_origin + Vector2i(wx, wz)):
+					draw_rect(Rect2(local_origin + Vector2(wx, wz) * cell, Vector2.ONE * cell), SEWER_WATER_TINT)
+		for ladder_value in chunk.get("ladders", []):
+			var ladder: Dictionary = ladder_value
+			var ladder_cell: Vector2i = ladder.get("cell", Vector2i.ZERO)
+			if world_bounds.has_point(chunk_world_origin + ladder_cell):
+				var icon_at := local_origin + (Vector2(ladder_cell) + Vector2(.5, .5)) * cell
+				var up := String(ladder.get("direction", "")) == "up"
+				# ramps, switchback stairwells and spiral stairs: the stair icon (up or down)
+				if String(ladder.get("kind", "ladder")) in ["ramp", "stairs", "spiral"]:
+					_draw_stair_icon(icon_at, cell, up)
+				# ladders are not marked on the maps (KT): only stairs, ramps and spirals
+		for prop_value in chunk.get("props", []):
+			var prop: Dictionary = prop_value
+			var local: Vector2i = prop.get("cell", Vector2i.ZERO)
+			if not world_bounds.has_point(chunk_world_origin + local):
+				continue
+			if String(prop.get("kind", "prop")) == "prop":
+				# solid props: their real collision boxes (decor has none and is not drawn)
+				for box in prop.get("boxes", []):
+					_draw_collider_box(local_origin, cell, box, PROP_BOX_TINT)
+				continue
+			var prop_at := local_origin + (Vector2(local) + Vector2(.5, .5)) * cell
+			draw_circle(prop_at, maxf(1.0, cell * .16), PROP_BOX_TINT)
 		for pickup_value in chunk.get("pickups", []):
 			var pickup: Dictionary = pickup_value
 			var kind := String(pickup.get("kind", ""))
@@ -376,15 +544,6 @@ func _draw_streamed() -> void:
 				else Color(0.95, 0.82, 0.25)
 			draw_circle(local_origin + (Vector2(local) + Vector2(.5, .5)) * cell,
 				maxf(1.0, cell * (.34 if kind == "relay" else .26)), tint)
-		for prop_value in chunk.get("props", []):
-			var prop: Dictionary = prop_value
-			var local: Vector2i = prop.get("cell", Vector2i.ZERO)
-			if not world_bounds.has_point(chunk_world_origin + local):
-				continue
-			var prop_at := local_origin + (Vector2(local) + Vector2(.5, .5)) * cell
-			var radius := maxf(1.0, cell * .20)
-			draw_rect(Rect2(prop_at - Vector2.ONE * radius,
-				Vector2.ONE * radius * 2.0), Color("7899a1"))
 		var spawn_cell: Vector2i = chunk.get("spawn", Vector2i(-1, -1))
 		if spawn_cell.x >= 0 and world_bounds.has_point(chunk_world_origin + spawn_cell):
 			var spawn_at := local_origin + (Vector2(spawn_cell) + Vector2(.5, .5)) * cell
@@ -411,15 +570,20 @@ func _draw_streamed() -> void:
 		if not bool(mark.get("active", true)):
 			continue
 		var mark_world: Vector2 = mark["at"]
+		var mark_at := origin + (mark_world - world_origin) * cell
+		if bool(mark.get("ghost", false)) and ghost_ping:
+			_draw_ghost_ping(mark_at, cell)   # clamps to the edge when she is out of range
+			continue
 		if not Rect2(world_bounds).has_point(mark_world):
 			continue
-		var mark_at := origin + (mark_world - world_origin) * cell
 		_draw_hunter_marker(mark_at, cell, mark)
 	for mark in players:
 		var mark_world: Vector2 = mark.get("at", Vector2.ZERO)
-		if not Rect2(world_bounds).has_point(mark_world):
+		if mark.has("exit_direction") and not Rect2(world_bounds).has_point(mark_world):
 			continue
 		_draw_remote_player(origin + (mark_world - world_origin) * cell, cell, mark)
+	_draw_pings(origin, world_origin, cell)
+	_draw_pulses(origin, world_origin, cell)
 	for mark in dropped_tools:
 		var mark_world: Vector2 = mark.get("at", Vector2.ZERO)
 		if not Rect2(world_bounds).has_point(mark_world):
@@ -493,7 +657,7 @@ func _draw_streamed_region_key(visible_coords: Array[Vector3i]) -> void:
 		if not regions.has(region):
 			regions.append(region)
 	regions.sort()
-	if regions.is_empty():
+	if regions.is_empty() or not RegionNames.visible():
 		return
 	var current_coord := Vector3i(floori(player_at.x / streamed_chunk_size),
 		streamed_level, floori(player_at.y / streamed_chunk_size))
@@ -525,7 +689,65 @@ func _draw_streamed_region_key(visible_coords: Array[Vector3i]) -> void:
 			-1, font_size).x + 22.0
 
 
+func add_ping(at: Vector2, colour: Color, label: String) -> void:
+	pings.append({"at": at, "colour": colour, "label": label.to_upper().substr(0, 12),
+		"until": Time.get_ticks_msec() + int(PING_SECONDS * 1000.0)})
+	queue_redraw()
+
+
+func live_pings() -> Array:
+	var now := Time.get_ticks_msec()
+	pings = pings.filter(func(ping: Dictionary) -> bool: return int(ping["until"]) > now)
+	return pings
+
+
+func _draw_pings(origin: Vector2, world_origin: Vector2, cell: float) -> void:
+	var font := ThemeDB.fallback_font
+	var now := Time.get_ticks_msec()
+	for ping_value in live_pings():
+		var ping: Dictionary = ping_value
+		var at: Vector2 = origin + ((ping["at"] as Vector2) - world_origin) * cell
+		var left := float(int(ping["until"]) - now) / (PING_SECONDS * 1000.0)
+		var colour: Color = ping["colour"]
+		var radius := maxf(3.0, cell * .6)
+		var pulse := 1.0 + .5 * fposmod(float(now) / 700.0, 1.0)
+		draw_arc(at, radius * pulse, 0.0, TAU, 18, Color(colour, .9 * left), maxf(1.0, cell * .12), true)
+		draw_circle(at, radius * .45, Color(colour, .95))
+		if interactive:
+			draw_string_outline(font, at + Vector2(radius + 2.0, 3.0), String(ping["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 8, 3, Color(0, 0, 0, .9))
+			draw_string(font, at + Vector2(radius + 2.0, 3.0), String(ping["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 8, colour.lightened(.2))
+
+
+func _ping_clock() -> float:
+	return radar_time if radar_time >= 0.0 else Time.get_ticks_msec() / 1000.0
+
+
+## Porcelle's pulse: a dot with one expanding ring while a ping lasts, nothing in between; out of range it clamps to the
+## edge as a small arrow so the direction still reads. Reduced motion draws the steady dim dot instead.
+func _draw_ghost_ping(at: Vector2, cell: float) -> void:
+	var info := RadarPing.marker(at, Rect2(Vector2.ZERO, size), _ping_clock(), Settings.reduced_motion)
+	if not bool(info["visible"]):
+		return
+	var strength: float = info["strength"]
+	var pos: Vector2 = info["pos"]
+	var radius := maxf(RadarPing.MIN_RADIUS, cell * RadarPing.MARK_RADIUS_CELLS)
+	var colour := Palette.ALERT
+	if bool(info["clamped"]):
+		var dir: Vector2 = info["direction"]
+		var side := Vector2(-dir.y, dir.x)
+		draw_colored_polygon(PackedVector2Array([pos + dir * radius, pos - dir * radius * .6 + side * radius * .7,
+			pos - dir * radius * .6 - side * radius * .7]), Color(colour, strength))
+		return
+	draw_circle(pos, radius, Color(colour, strength))
+	if not Settings.reduced_motion:
+		var grown := radius * lerpf(1.0, RadarPing.RING_GROWTH, float(info["progress"]))
+		draw_arc(pos, grown, 0.0, TAU, 20, Color(colour, strength * (1.0 - float(info["progress"]))), maxf(1.0, cell * .10), true)
+
+
 func _draw_hunter_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
+	if bool(mark.get("ghost", false)) and ghost_ping:
+		_draw_ghost_ping(at, cell)
+		return
 	if bool(mark.get("ghost", false)):
 		# Porcelle is readable but deliberately uncertain: a translucent head and
 		# taper replace the solid danger dot used by visible hunters.
@@ -555,24 +777,169 @@ func _draw_hunter_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Palette.BACKDROP)
 
 
+## Co-op teammates. Same floor in view: a coloured arrow along their facing with an initial tag (the full map adds the callsign).
+## Same floor off the view: the arrow becomes a pointer clamped to the map edge. Another floor: a dimmed dot with a triangle
+## (up = a higher floor than yours) at their spot, or at the edge when out of view. Downed / spectating: a hollow grey ring with a cross.
+const TEAMMATE_EDGE_MARGIN := 6.0
+
+
+## Where and as what a teammate is drawn, given their screen position `at`: {kind: "arrow" | "downed" | "updown", shown (clamped to
+## the map edge when off_view), off_view, outward (unit vector to them from the map centre), up (updown only)}.
+func teammate_layout(at: Vector2, radius: float, mark: Dictionary) -> Dictionary:
+	var inner := Rect2(Vector2.ZERO, size).grow(-maxf(TEAMMATE_EDGE_MARGIN, radius + 2.0))
+	var off_view := not inner.has_point(at)
+	var shown := at
+	var outward := Vector2.ZERO
+	if off_view and inner.size.x > 0.0 and inner.size.y > 0.0:
+		var centre := inner.get_center()
+		var delta := at - centre
+		outward = delta.normalized()
+		var half := inner.size * 0.5
+		var t := minf(half.x / maxf(absf(delta.x), .0001), half.y / maxf(absf(delta.y), .0001))
+		shown = centre + delta * minf(t, 1.0)
+	var kind := "arrow"
+	if bool(mark.get("other_floor", false)):
+		kind = "updown"
+	elif bool(mark.get("spectating", false)):
+		kind = "downed"
+	return {"kind": kind, "shown": shown, "off_view": off_view, "outward": outward,
+		"up": int(mark.get("level", 0)) > streamed_level}
+
+
+func set_pulses(marks: Array) -> void:
+	pulses = marks.duplicate(true)
+	queue_redraw()
+
+
+func _draw_pulses(origin: Vector2, world_origin: Vector2, cell: float) -> void:
+	var now := Time.get_ticks_msec()
+	for mark in pulses:
+		if int(mark.get("until_msec", 0)) <= now:
+			continue
+		var world: Vector2 = mark.get("at", Vector2.ZERO)
+		var at := origin + (world - world_origin) * cell
+		var layout := teammate_layout(at, 4.0, {"other_floor": int(mark.get("level", streamed_level)) != streamed_level,
+			"level": int(mark.get("level", streamed_level))})
+		var shown: Vector2 = layout["shown"]
+		var phase := fposmod(float(now) / 900.0, 1.0)
+		var tint := Color("37e6d9")
+		draw_circle(shown, 2.5, tint)
+		draw_arc(shown, 4.0 + phase * 16.0, 0.0, TAU, 28, Color(tint, 1.0 - phase), 1.6, true)
+		draw_arc(shown, 4.0 + fposmod(phase + .5, 1.0) * 16.0, 0.0, TAU, 28, Color(tint, 1.0 - fposmod(phase + .5, 1.0)), 1.2, true)
+		var label := String(mark.get("name", "")).to_upper().substr(0, 12)
+		if not label.is_empty():
+			var font := ThemeDB.fallback_font
+			var at_label := shown + Vector2(7.0, 3.0)
+			if at_label.x + font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x > size.x:
+				at_label.x = shown.x - 8.0 - font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x
+			draw_string_outline(font, at_label, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7, 3, Color(0.01, 0.04, 0.05, .95))
+			draw_string(font, at_label, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7, tint.lightened(.3))
+
+
+## A revive window (ReviveDowns record via infinite_route_test.downed_map_marks()) as a map mark: where a teammate went down, the
+## seconds left to revive them, and whether it is on another floor than the one shown (current_level).
+static func down_map_mark(down: Dictionary, current_level: int) -> Dictionary:
+	var world: Vector3 = down.get("at", Vector3.ZERO)
+	var level := -int(down.get("depth", 0))
+	return {"peer_id": int(down.get("peer", 0)), "at": Vector2(world.x, world.z), "level": level, "name": String(down.get("name", "")),
+		"down_left": float(down.get("left", 0.0)), "other_floor": level != current_level, "colour": RouteInteractable3D.REVIVE_COLOR}
+
+
+## Revive-green ring with a heartbeat line (never a red cross: that emblem is protected) and the name + seconds left: someone to revive. Another floor shows the up/down triangle; off the map it is
+## clamped to the edge like a teammate.
+func _draw_down_marker(at: Vector2, cell: float, mark: Dictionary) -> void:
+	var radius := maxf(3.4 if interactive else 3.0, cell * .5)
+	var layout := teammate_layout(at, radius, mark)
+	var shown: Vector2 = layout["shown"]
+	var pulse := 0.65 + 0.35 * sin(float(Time.get_ticks_msec()) / 180.0)
+	var red := Color(RouteInteractable3D.REVIVE_COLOR, pulse)
+	var ink := Color(0.01, 0.04, 0.05, .95)
+	draw_circle(shown, radius + 1.2, Color(ink, .8))
+	draw_arc(shown, radius, 0.0, TAU, 16, red, maxf(1.3, cell * .13), true)
+	var beat := PackedVector2Array([shown + Vector2(-radius * .8, 0), shown + Vector2(-radius * .3, 0),
+		shown + Vector2(-radius * .1, -radius * .7), shown + Vector2(radius * .15, radius * .6),
+		shown + Vector2(radius * .35, 0), shown + Vector2(radius * .8, 0)])
+	draw_polyline(beat, red, 1.2, true)
+	if layout["kind"] == "updown":
+		var dir := -1.0 if layout["up"] else 1.0
+		var tri := PackedVector2Array([shown + Vector2(0, dir * radius * .9) + Vector2(radius + 3.5, 0),
+			shown + Vector2(-radius * .5, -dir * radius * .4) + Vector2(radius + 3.5, 0),
+			shown + Vector2(radius * .5, -dir * radius * .4) + Vector2(radius + 3.5, 0)])
+		draw_colored_polygon(tri, red)
+	var font := ThemeDB.fallback_font
+	var label := "%s %dS" % [String(mark.get("name", "")).to_upper().substr(0, 10), ceili(float(mark.get("down_left", 0.0)))]
+	var size_px := 7 if not interactive else 8
+	var width := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+	var label_at := shown + Vector2(radius + 2.0, radius * .6)
+	if label_at.x + width > size.x - 1.0:
+		label_at.x = shown.x - radius - 2.0 - width
+	draw_string_outline(font, label_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, 3, ink)
+	draw_string(font, label_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, Color(RouteInteractable3D.REVIVE_COLOR.lightened(.25), pulse))
+
+
 func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
 	if mark.has("exit_direction"):
 		_draw_floor_exit_marker(at, cell, String(mark.get("exit_direction", "up")),
 			String(mark.get("name", "")))
 		return
-	var radius := maxf(2.0, cell * .48)
-	draw_circle(at, radius + maxf(1.0, cell * .12), Color(0.01, 0.04, 0.05, .95))
-	draw_circle(at, radius, COOP_PLAYER_BLUE)
-	var facing: Vector2 = mark.get("facing", Vector2.UP)
-	if facing.length_squared() > .01:
-		draw_line(at, at + facing.normalized() * radius * 1.55,
-			Color("d9fff9"), maxf(1.0, cell * .11), true)
-	var label := String(mark.get("name", "P")).substr(0, 1).to_upper()
+	if mark.has("down_left"):
+		_draw_down_marker(at, cell, mark)
+		return
+	var radius := maxf(3.2 if interactive else 2.8, cell * .48)
+	var colour: Color = mark.get("colour", COOP_PLAYER_BLUE)
+	if bool(mark.get("stale", false)):
+		colour = Color(colour, .45)   # no news for a while: last known spot, dimmed
+	var layout := teammate_layout(at, radius, mark)
+	var other_floor: bool = layout["kind"] == "updown"
+	var inert: bool = layout["kind"] == "downed"
+	var off_view: bool = layout["off_view"]
+	var shown: Vector2 = layout["shown"]
+	var outward: Vector2 = layout["outward"]
+	var ink := Color(0.01, 0.04, 0.05, .95)
+	if other_floor:
+		var dim := Color(colour, .55)
+		draw_circle(shown, radius + 1.4, Color(ink, .85))
+		draw_circle(shown, radius + .4, dim)
+		var up: bool = layout["up"]
+		var tri := PackedVector2Array()
+		var dir := -1.0 if up else 1.0
+		tri.append(shown + Vector2(0, dir * radius * .75))
+		tri.append(shown + Vector2(-radius * .75, -dir * radius * .5))
+		tri.append(shown + Vector2(radius * .75, -dir * radius * .5))
+		draw_colored_polygon(tri, ink)
+	elif inert:
+		draw_arc(shown, radius, 0.0, TAU, 14, Color(0.62, 0.62, 0.66), maxf(1.2, cell * .12), true)
+		var arm := radius * .55
+		draw_line(shown + Vector2(-arm, -arm), shown + Vector2(arm, arm), Color(0.62, 0.62, 0.66), 1.2, true)
+		draw_line(shown + Vector2(-arm, arm), shown + Vector2(arm, -arm), Color(0.62, 0.62, 0.66), 1.2, true)
+	else:
+		var facing: Vector2 = outward if off_view else mark.get("facing", Vector2.UP)
+		if facing.length_squared() < .01:
+			facing = Vector2.UP
+		facing = facing.normalized()
+		var side := Vector2(-facing.y, facing.x)
+		var length := radius * (1.5 if off_view else 1.35)
+		var arrow := PackedVector2Array([shown + facing * length,
+			shown - facing * length * .7 + side * radius * .95,
+			shown - facing * length * .25,
+			shown - facing * length * .7 - side * radius * .95])
+		var outline := PackedVector2Array()
+		for point in arrow:
+			outline.append(point + (point - shown).normalized() * 1.0)
+		draw_colored_polygon(outline, ink)
+		draw_colored_polygon(arrow, colour)
+	# a tag beside the marker: the initial on the minimap, the whole callsign on the full map (unless clamped to the edge)
+	var callsign := String(mark.get("name", "P")).to_upper()
+	var label := callsign.substr(0, 16) if interactive and not off_view else callsign.substr(0, 1)
 	var font := ThemeDB.fallback_font
-	var font_size := clampi(roundi(cell * .62), 6, 10)
+	var font_size := 7 if not interactive else 8
 	var glyph := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-	draw_string(font, at - Vector2(glyph.x * .5, -glyph.y * .32), label,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.01, 0.04, 0.05))
+	var tag_at := shown + Vector2(radius + 2.0, glyph.y * .3)
+	if tag_at.x + glyph.x > size.x - 1.0:
+		tag_at.x = shown.x - radius - 2.0 - glyph.x
+	var tag_colour := Color(colour.lightened(.25), .6 if (other_floor or inert) else 1.0)
+	draw_string_outline(font, tag_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 3, ink)
+	draw_string(font, tag_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, tag_colour)
 
 
 func _draw_floor_exit_marker(at: Vector2, cell: float, direction: String,
@@ -668,6 +1035,60 @@ func _draw_waypoint(at: Vector2, cell: float) -> void:
 
 ## Fullscreen/admin maps show a direction-aware white stair symbol. The regular
 ## minimap never reaches this helper because it deliberately hides stair data.
+## The collision boxes of a generated chunk's solid props, by prop id: [PackedFloat32Array(centre x, centre z, half x,
+## half z, yaw)] in chunk-local metres, straight from CollisionWorld (the boxes the 3D view builds), so the map shows
+## exactly what blocks the player. Props the placement clean-up removed are not in the chunk and get nothing.
+static func collider_boxes(data: Dictionary) -> Dictionary:
+	var out := {}
+	for rect_value in CollisionWorld.from_chunk(data).rects:
+		var rect: Dictionary = rect_value
+		var centre: Vector2 = rect["center"]
+		var half: Vector2 = rect["half"]
+		var list: Array = out.get(String(rect["id"]), [])
+		list.append(PackedFloat32Array([centre.x, centre.y, half.x, half.y, float(rect["yaw"])]))
+		out[String(rect["id"])] = list
+	return out
+
+
+## One collision box [centre x, centre z, half x, half z, yaw] in chunk-local metres, as the rotated rectangle the player meets.
+static func collider_corners(box: PackedFloat32Array) -> PackedVector2Array:
+	var centre := Vector2(box[0], box[1])
+	var c := cos(box[4])
+	var s := sin(box[4])
+	var out := PackedVector2Array()
+	for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		var local := Vector2(box[2] * corner.x, box[3] * corner.y)
+		out.append(centre + Vector2(local.x * c + local.y * s, -local.x * s + local.y * c))
+	return out
+
+
+func _draw_collider_box(local_origin: Vector2, cell: float, box: PackedFloat32Array, tint: Color) -> void:
+	var points := collider_corners(box)
+	for i in points.size():
+		points[i] = local_origin + points[i] * cell
+	draw_colored_polygon(points, tint)
+
+
+## A ladder between the maze and the sewer: two rails and three rungs inside a
+## ring, with a small arrow for the way it leads from this layer.
+func _draw_ladder_icon(at: Vector2, cell: float, up: bool) -> void:
+	var r := maxf(3.0, cell * .9)
+	draw_circle(at, r, Palette.BACKDROP)
+	draw_arc(at, r, 0.0, TAU, 20, LADDER_ICON_TINT, maxf(1.0, cell * .14))
+	var w := r * .38
+	var h := r * .62
+	var line := maxf(1.0, cell * .12)
+	draw_line(at + Vector2(-w, -h), at + Vector2(-w, h), LADDER_ICON_TINT, line)
+	draw_line(at + Vector2(w, -h), at + Vector2(w, h), LADDER_ICON_TINT, line)
+	for k in 3:
+		var y := lerpf(-h * .6, h * .6, k / 2.0)
+		draw_line(at + Vector2(-w, y), at + Vector2(w, y), LADDER_ICON_TINT, line)
+	var tip := at + Vector2(r * 1.05, -r * .7 if up else r * .7)
+	var back := -r * .35 if not up else r * .35
+	draw_colored_polygon(PackedVector2Array([tip, tip + Vector2(-r * .3, back), tip + Vector2(r * .3, back)]),
+		LADDER_ICON_TINT)
+
+
 func _draw_stair_icon(at: Vector2, cell: float, up: bool) -> void:
 	var tint := STAIR_ICON_WHITE
 	var shadow := Color(0.02, 0.04, 0.05, 0.9)
@@ -712,9 +1133,15 @@ func _draw_player(origin: Vector2, cell: float) -> void:
 	var at := origin + player_at * cell
 	var forward := player_facing.normalized() if player_facing.length() > 0.01 else Vector2(0, 1)
 	var side := Vector2(-forward.y, forward.x)
-	var reach := cell * 0.95
-	draw_colored_polygon(PackedVector2Array([
+	# full map: a fixed on-screen arrow (arrow_reach) with an outline; minimap: scales with its cells
+	var reach := arrow_reach(cell, interactive)
+	var arrow := PackedVector2Array([
 		at + forward * reach,
 		at - forward * reach * 0.5 + side * reach * 0.6,
 		at - forward * reach * 0.5 - side * reach * 0.6,
-	]), Palette.INK)
+	])
+	if interactive:
+		var outline := arrow.duplicate()
+		outline.append(arrow[0])
+		draw_polyline(outline, Color(0.01, 0.04, 0.05, .95), maxf(2.0, reach * .22), true)
+	draw_colored_polygon(arrow, Palette.INK)

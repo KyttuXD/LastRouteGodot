@@ -25,24 +25,40 @@ const DIFFICULTY_PROFILES := {
 		"lamp_drain": 0.70, "sprint_drain": 0.80,
 		"hunter_speed": 0.82, "hunter_sight": 0.86, "hunter_hearing": 0.86,
 		"capture_distance": 0.90,
+		"search_time": 3.2, "lost_sight_grace": 3.0, "stamina_drain": 14.0, "hide_tell": 1.6, "hide_trail": 3.0, "hide_cooldown": 20.0, "hide_random": 0.0,
+		"taser_stun": 2.8, "taser_cooldown": 8.0, "escape_stun": 3.0, "spawn_distance": 12.0, "emote_chase_scale": 1.0, "emote_spot_p": 0.30,
+		"relay_alert_radius": 0.0, "relay_alert_chance": 0.0,
+		"camp_limit": 6.0,
 	},
 	"standard": {
 		"player_speed": 1.0, "crouch_speed": 1.0, "sprint_speed": 1.0,
 		"lamp_drain": 1.0, "sprint_drain": 1.0,
-		"hunter_speed": 1.0, "hunter_sight": 1.0, "hunter_hearing": 1.0,
+		"hunter_speed": 1.0, "hunter_sight": 1.02, "hunter_hearing": 1.03,
 		"capture_distance": 1.0,
+		"search_time": 3.4, "lost_sight_grace": 3.2, "stamina_drain": 13.5, "hide_tell": 1.5, "hide_trail": 3.2, "hide_cooldown": 19.0, "hide_random": 0.05,
+		"taser_stun": 2.7, "taser_cooldown": 8.5, "escape_stun": 2.9, "spawn_distance": 12.0, "emote_chase_scale": 0.9, "emote_spot_p": 0.27,
+		"relay_alert_radius": 8.0, "relay_alert_chance": 0.25,
+		"camp_limit": 9.0,
 	},
 	"hard": {
 		"player_speed": 0.97, "crouch_speed": 0.97, "sprint_speed": 0.98,
 		"lamp_drain": 1.175, "sprint_drain": 1.10,
-		"hunter_speed": 1.085, "hunter_sight": 1.09, "hunter_hearing": 1.10,
+		"hunter_speed": 1.085, "hunter_sight": 1.1, "hunter_hearing": 1.12,
 		"capture_distance": 1.04,
+		"search_time": 4.0, "lost_sight_grace": 3.6, "stamina_drain": 12.0, "hide_tell": 1.3, "hide_trail": 3.5, "hide_cooldown": 16.0, "hide_random": 0.25,
+		"taser_stun": 2.4, "taser_cooldown": 9.0, "escape_stun": 2.6, "spawn_distance": 11.0, "emote_chase_scale": 0.5, "emote_spot_p": 0.15,
+		"relay_alert_radius": 18.0, "relay_alert_chance": 1.0,
+		"camp_limit": 12.0,
 	},
 	"nightmare": {
 		"player_speed": 0.94, "crouch_speed": 0.94, "sprint_speed": 0.96,
 		"lamp_drain": 1.35, "sprint_drain": 1.20,
-		"hunter_speed": 1.17, "hunter_sight": 1.18, "hunter_hearing": 1.20,
+		"hunter_speed": 1.17, "hunter_sight": 1.22, "hunter_hearing": 1.25,
 		"capture_distance": 1.08,
+		"search_time": 5.0, "lost_sight_grace": 4.5, "stamina_drain": 10.0, "hide_tell": 1.0, "hide_trail": 4.0, "hide_cooldown": 12.0, "hide_random": 0.45,
+		"taser_stun": 2.0, "taser_cooldown": 10.0, "escape_stun": 2.2, "spawn_distance": 10.0, "emote_chase_scale": 0.25, "emote_spot_p": 0.08,
+		"relay_alert_radius": 30.0, "relay_alert_chance": 1.0,
+		"camp_limit": 15.0,
 	},
 }
 
@@ -53,14 +69,43 @@ const SAFE_ZONE_LIMITS_BY_DIFFICULTY := {
 const MAX_STAMINA := 100.0
 const STAMINA_SPRINT_DRAIN := 32.0
 const STAMINA_RECOVERY := 21.0
-const STAMINA_RECOVERY_DELAY := 0.65
+## KT: "no delay before stamina regeneration": regen starts the frame sprinting stops, at the normal rate.
+const STAMINA_RECOVERY_DELAY := 0.0
 const STAMINA_EXHAUSTED_RECOVERY := 25.0
+## Stim Pack (docs/REVIVE.md, KT 2026-10-28): a STIM_INJECT_SECONDS jab, then a full tank and STIM_BOOST_SECONDS of
+## faster sprinting at a lower drain; then STIM_CRASH_SECONDS of slower regen with a heartbeat hunters can hear.
+const STIM_INJECT_SECONDS := .6
+const STIM_BOOST_SECONDS := 6.0
+const STIM_SPEED_SCALE := 1.2
+const STIM_DRAIN_SCALE := .5
+const STIM_CRASH_SECONDS := 10.0
+const STIM_CRASH_REGEN_SCALE := .5
+const STIM_HEARTBEAT_SECONDS := .8
+const STIM_HEARTBEAT_NOISE := 3.0
+## Revive Kit (docs/REVIVE.md): a caught co-op runner can be revived at the spot they went down for REVIVE_WINDOW_SECONDS,
+## by a teammate holding [E] there for REVIVE_HOLD_SECONDS with a kit (used up). Solo it is a one-time second wind.
+const REVIVE_WINDOW_SECONDS := 90.0
+const REVIVE_HOLD_SECONDS := 3.0
+const REVIVE_RANGE := 1.6
+const REVIVE_BREAK_DISTANCE := .5
+const REVIVE_NOISE := 6.0
+const REVIVE_STAMINA := 25.0
+const REVIVE_GRACE_SECONDS := 3.5
+## Per-chunk spawn chances (a separate seeded draw, so every older pickup stays where it was).
+const STIM_PACK_CHANCE := .18
+const REVIVE_KIT_CHANCE_COOP := .06
+const REVIVE_KIT_CHANCE_SOLO := .03
+## Troll mode for caught / flagged cheaters (docs/ANTI_CHEAT.md).
+const TROLL_HUNTER_SPEED_SCALE := 1.15
+const TROLL_STAMINA_DRAIN_SCALE := 1.6
+const TROLL_SCARE_SCALE := 2.5
+const TROLL_FAKE_STEP_SECONDS := Vector2(2.5, 6.0)
 
 ## A modest first-person hop rather than a platforming jump. These produce a
 ## theoretical 0.375 m apex and roughly half a second of air time; enough to
 ## clear a small lip without letting players vault the maze walls or props.
 const PLAYER_GRAVITY := 12.0
-const PLAYER_JUMP_VELOCITY := 3.0
+const PLAYER_JUMP_VELOCITY := 3.3   # a little more than the 3.0 of the 1.60 m runner (hop 0.48 m, inside the restrained 0.24-0.50 m arc)
 const LADDER_CLIMB_SPEED := 2.15
 ## Ordinary room-height drops and imperfect stair transitions remain playable.
 ## Only a near-full-level fall crosses this threshold, and even severe falls
@@ -124,8 +169,11 @@ const FACILITY_SAFE_ZONE_AT_SPAWN := true
 ## the SAME grid-cell units as facility_generator.gd (1 unit = 1 cell) —
 ## hunter_brain.gd is presentation-agnostic and never touches pixels or
 ## meters directly; each presentation layer converts at its own boundary.
-const PLAYER_RADIUS := 0.2
-const HUNTER_RADIUS := 0.22
+const PLAYER_RADIUS := 0.28   # 0.85x of the hunter's 0.33 (the runner is 2.2 m beside a 2.58 m hunter)
+## Brain footprint: 0.22 m at the old size, times HunterRoster.MODEL_SCALE (1.5). Still inside one cell, so cell walkability is unchanged.
+const HUNTER_RADIUS := 0.33
+## Capture reach uses the tuned footprint from before the 1.5x scale, so difficulty catch distances are unchanged.
+const HUNTER_CATCH_RADIUS := 0.22
 const MOVEMENT_STEP := 0.11
 
 const HUNTER_SEARCH_TIME := 3.2
@@ -154,6 +202,11 @@ const UNLIT_SIGHT_SCALE := 0.5
 ## normal per-hunter sight profile still differentiates the roster.
 const FLASHLIGHT_SIGHT_SCALE := 3.0
 const FLASHLIGHT_SIGHT_MIN := 24.0
+## City DAYTIME: outdoors a hunter sees `sight x this` metres whether or not the runner carries a light (about 19 m for an
+## 8 m profile), which is also how far the runner is seen. Per-hunter tuning lives in HunterVision.
+const DAYLIGHT_SIGHT_SCALE := 2.4
+## Daytime thins the streamed hunter population a little (scaled, never below one once hunters are active).
+const DAY_POPULATION_SCALE := 0.8
 
 ## Player noise emitted per frame by movement mode, consumed by hunter hearing.
 const NOISE_CROUCH := 0.9
@@ -211,15 +264,15 @@ const NORMAL_HUNTER_EXTREME_SPEED_SCALE := 1.3
 ## in the original). Consumed via HunterRoster, not referenced directly by
 ## hunter_brain.gd (see src/config/hunter_roster.gd).
 
-## Quirith — flashlight tracker (hunterAbilities.quirith.flashlightTracker in
-## the original). Keeping the flashlight on for QUIRITH_FLASHLIGHT_LOCK_SECONDS
+## Quenelle — flashlight tracker (hunterAbilities.quenelle.flashlightTracker in
+## the original). Keeping the flashlight on for QUENELLE_FLASHLIGHT_LOCK_SECONDS
 ## straight earns a permanent chase lock; every flashlight on/off flick after
-## that ramps her chase speed further, capped at QUIRITH_MAX_SPEED_SCALE after
-## QUIRITH_SPEED_RAMP_ACTIVATIONS flicks. Hard deliberately keeps this Standard
+## that ramps her chase speed further, capped at QUENELLE_MAX_SPEED_SCALE after
+## QUENELLE_SPEED_RAMP_ACTIVATIONS flicks. Hard deliberately keeps this Standard
 ## behaviour; Nightmare's shorter 5s threshold remains reserved with that mode.
-const QUIRITH_FLASHLIGHT_LOCK_SECONDS := 8.0
-const QUIRITH_MAX_SPEED_SCALE := 1.45
-const QUIRITH_SPEED_RAMP_ACTIVATIONS := 10
+const QUENELLE_FLASHLIGHT_LOCK_SECONDS := 8.0
+const QUENELLE_MAX_SPEED_SCALE := 1.45
+const QUENELLE_SPEED_RAMP_ACTIVATIONS := 10
 
 ## Thessine's original soundMimic plan: one authoritative check every ten
 ## seconds, with a one-in-two false cue and a small rare-audio pool.
@@ -227,12 +280,12 @@ const THESSINE_MIMIC_INTERVAL := 10.0
 const THESSINE_MIMIC_CHANCE := 0.5
 const THESSINE_MIMIC_RARE_CHANCE := 0.08
 
-## Eirys — running-data ratchet (hunterAbilities.eirys.runningData). Time spent
+## Elise — running-data ratchet (hunterAbilities.elise.runningData). Time spent
 ## actually sprinting outside a safe zone accumulates and NEVER decays; at
-## EIRYS_SECONDS_TO_FULL she locks into a permanent blind chase. Her
+## ELISE_SECONDS_TO_FULL she locks into a permanent blind chase. Her
 ## `breachesHiding` flag isn't ported — hiding spots don't exist yet, so it
 ## would be a no-op either way.
-const EIRYS_SECONDS_TO_FULL := 50.0
+const ELISE_SECONDS_TO_FULL := 50.0
 
 ## Xivvy — chase accelerator (hunterAbilities.xivvy.chaseAccelerator). Locks on
 ## by pure proximity (no sight/hearing check), then her chase speed ramps the
@@ -266,6 +319,11 @@ const RAVELLE_TRIPWIRE_REFRESH := 30.0
 const RAVELLE_TRIPWIRE_COUNT := 2
 const RAVELLE_TRIGGER_RADIUS := 0.8
 const RAVELLE_SPEED_PER_TRIGGER := 0.08
+## Walking into one of her wires stuns the runner this long (same stun as Ilyra's pounce: movement locked).
+const RAVELLE_TRAP_STUN := 1.6
+## Holding INTERACT this long within reach of a wire cuts it (noisy).
+const RAVELLE_CUT_SECONDS := 1.2
+const RAVELLE_CUT_REACH := 1.3
 
 ## Mavrine — lattice mark (hunterAbilities.mavrine.latticeMark). Cycles
 ## cooldown -> survey (holds still) -> project (an armed frame somewhere on the
@@ -318,6 +376,8 @@ const WYNELLE_DEEP_COLD_THRESHOLD := 30.0
 const WYNELLE_PER_DEGREE_RATE := 0.5
 const WYNELLE_DEEP_COLD_RATE := 1.0
 const WYNELLE_DEATH_GRACE_SECONDS := 10.0
+## 2D Zellia deathChance per trade (relaxed .02, normal .05, hard .075, nightmare .12).
+const ZELLIA_DEATH_CHANCE := {"relaxed": 0.02, "standard": 0.05, "hard": 0.075, "nightmare": 0.12}
 const WYNELLE_DEMATERIALIZE_RESET_PROGRESS := 50.0
 
 ## hunterMovementSpeed()'s relay/depth chase-speed progression terms.
@@ -364,15 +424,15 @@ const STREAMED_HUNTER_RELAY_STEP := {
 ## extra delay: HUD/heartbeat telegraph before Gray Void still wakes on time.
 const ANTI_IDLE_HUNTER_SECONDS := {
 	"relaxed": 360.0,
-	"standard": 270.0,
-	"hard": 150.0,
-	"nightmare": 120.0,
+	"standard": 255.0,
+	"hard": 135.0,
+	"nightmare": 105.0,
 }
 const ANTI_AFK_HUNTER_SECONDS := {
 	"relaxed": 240.0,
-	"standard": 150.0,
-	"hard": 90.0,
-	"nightmare": 75.0,
+	"standard": 142.0,
+	"hard": 80.0,
+	"nightmare": 60.0,
 }
 const ANTI_AFK_WARNING_SECONDS := 8.0
 
@@ -413,13 +473,13 @@ const AKI_BURST_COUNT := 3
 const AKI_BURST_EXPOSURE := 100.0
 
 
-## Jyvra — hiding timeout (hunterAbilities.jyvra.hidingTimeout). The reach is
-## jyvra.js's own `plan.reach || 2`, and the stall is its ejectStall fallback:
+## Javelle — hiding timeout (hunterAbilities.javelle.hidingTimeout). The reach is
+## javelle.js's own `plan.reach || 2`, and the stall is its ejectStall fallback:
 ## the ejection is non-lethal, so she is left briefly winded rather than
 ## capturing the player she just pulled into the open.
-const JYVRA_HIDING_SECONDS := 8.0
-const JYVRA_REACH := 2.0
-const JYVRA_EJECT_STALL := 2.2
+const JAVELLE_HIDING_SECONDS := 8.0
+const JAVELLE_REACH := 2.0
+const JAVELLE_EJECT_STALL := 2.2
 
 
 ## Loxelle — passive incinerator (hunterAbilities.loxelle.passiveIncinerator /
@@ -429,8 +489,18 @@ const LOXELLE_INTERVAL := 5.0
 const LOXELLE_CHANCE := 0.25
 const LOXELLE_REGEN_SECONDS := 30.0
 const LOXELLE_BREAK_STALL := 10.0
+## 2D breaksHiding: the runner she exposes gets +30 temperature and makes 11 noise.
+const LOXELLE_BREAK_TEMPERATURE := 30.0
+const LOXELLE_BREAK_NOISE := 11.0
 const LOXELLE_CHARGE_WINDUP := 0.42
 const LOXELLE_CHARGE_SECONDS := 0.70
+## Any hunter checking a hiding spot (docs/HIDING_PROPS.md). It only checks a spot it tracked you to (its last sighting
+## within HIDE_CHECK_TRAIL cells of the spot), stands at it for HIDE_CHECK_TELL_SECONDS while the furniture rattles and
+## creaks (time to bolt), then pulls the spot open; a checked spot is left alone for HIDE_CHECK_COOLDOWN_SECONDS.
+const HIDE_CHECK_REACH := 1.8
+const HIDE_CHECK_TRAIL := 3.0
+const HIDE_CHECK_TELL_SECONDS := 1.6
+const HIDE_CHECK_COOLDOWN_SECONDS := 20.0
 const LOXELLE_CHARGE_SPEED := 6.8
 const LOXELLE_CHARGE_START_DISTANCE := 0.95
 const LOXELLE_CHARGE_IMPACT_DISTANCE := 0.20
@@ -439,10 +509,17 @@ const LOXELLE_CHARGE_IMPACT_DISTANCE := 0.20
 ## Ceryth — hiding trap (hunterAbilities.ceryth.hidingTrap). lockSeconds is her
 ## own plan's fallback of 30.
 const CERYTH_LOCK_SECONDS := 30.0
+## 2D hidingTrap: she sprints to a new spot at 6.4, at least 7 cells away.
+const CERYTH_RETREAT_SPEED := 6.4
+const CERYTH_MINIMUM_RETREAT := 7.0
 
 ## Briselle — room-entry relay sabotage (hunterAbilities.briselle.saboteur).
 ## dwell is her plan's own value; RELAY_RESECURE_SECONDS is TUNING's
 ## relayResecureSeconds fallback (2.6), the hold time to bring one back online.
+## 2D relayTracker: huntSeconds 12, speedScale 1.25, flashStunSeconds 3.
+const BRISELLE_HUNT_SECONDS := 12.0
+const BRISELLE_SPEED_SCALE := 1.25
+const BRISELLE_FLASH_STUN_SECONDS := 3.0
 const BRISELLE_ROOM_CHANCE := 0.5
 const BRISELLE_SABOTAGE_DWELL := 5.0
 const RELAY_RESECURE_SECONDS := 2.6
@@ -451,15 +528,26 @@ const RELAY_RESECURE_SECONDS := 2.6
 ## is her plan's own value.
 const FERRYN_FLASH_NOISE := 100.0
 
-## Glyra — spawn-room music box (hunterAbilities.glyra.musicBoxThreat).
-## baySeconds/noisePerSecond are her plan's own values.
-const GLYRA_BAY_SECONDS := 20.0
-const GLYRA_NOISE_PER_SECOND := 1.0
+## Glyra and the music boxes (GlyraGimmick, MusicBoxes; KT 2026-10-28). A wound box plays for MUSIC_BOX_WOUND_SECONDS
+## (by difficulty); its last MUSIC_BOX_WINDDOWN_SECONDS go off-key. Glyra is calm while her nearest box plays, restless
+## while it winds down, and hunts fast once it stops. Winding is a hold of MUSIC_BOX_WIND_HOLD seconds.
+const MUSIC_BOX_WOUND_SECONDS := {"standard": 45.0, "hard": 35.0, "nightmare": 25.0}
+const MUSIC_BOX_WINDDOWN_SECONDS := 15.0
+const MUSIC_BOX_WIND_HOLD := 1.5
+const MUSIC_BOXES_PER_REGION := 2
+const GLYRA_CALM_SPEED_SCALE := 0.6
+const GLYRA_CALM_SIGHT := 4.0          # calm, she only chases a runner this close
+const GLYRA_CALM_LEASH := 8.0          # calm, she wanders back toward her box beyond this
+const GLYRA_HUNT_SPEED_SCALE := {"standard": 1.3, "hard": 1.3, "nightmare": 1.5}
+const GLYRA_HUNT_HEARING_SCALE := 1.5
+const GLYRA_CALM_AFTER_WIND := 3.0     # a rewind settles her within this, unless she can see who she is chasing
 
 ## Ilyra — corner observer (hunterAbilities.ilyra.cornerObserver). Relaxed,
 ## Standard and Hard use the counterable Standard values; Nightmare's
 ## zero-delay pounce stays reserved with the unselectable mode.
-const ILYRA_POUNCE_DELAY := 0.75
+## 2D config pounceDelay (Nightmare: 0).
+const ILYRA_POUNCE_DELAY := 15.0
+const ILYRA_SIGHT_SCALE := 1.8
 const ILYRA_STUN_SECONDS := 5.0
 const ILYRA_BANISH_SECONDS := 30.0
 
@@ -470,19 +558,19 @@ const VERRINE_INITIAL_SPEED_SCALE := 0.4
 const VERRINE_SPEED_PER_SECOND := 0.025
 const VERRINE_MAX_SPEED_SCALE := 2.4
 
-## Zephyra — merchant (hunterAbilities.zephyra.merchant):
+## Zellia — merchant (hunterAbilities.zellia.merchant):
 ## {nightmareDeathChance:.1, pesticideSeconds:60,
 ## offers:{cool:{cost:2}, warm:{cost:2}, repair:{cost:3}, pesticide:{cost:4}}}.
 ## Nightmare's instant-death roll stays reserved with the unselectable mode;
 ## Hard never silently turns a shop interaction into an instant death.
-const ZEPHYRA_SHOP_RANGE := 1.35
-const ZEPHYRA_PESTICIDE_SECONDS := 60.0
-const ZEPHYRA_COOL_COST := 2
-const ZEPHYRA_WARM_COST := 2
-const ZEPHYRA_REPAIR_COST := 3
-const ZEPHYRA_PESTICIDE_COST := 4
-const ZEPHYRA_TEMPERATURE_STEP := 15.0
-const ZEPHYRA_LAMP_REPAIR := 25.0
+const ZELLIA_SHOP_RANGE := 1.35
+const ZELLIA_PESTICIDE_SECONDS := 60.0
+const ZELLIA_COOL_COST := 2
+const ZELLIA_WARM_COST := 2
+const ZELLIA_REPAIR_COST := 3
+const ZELLIA_PESTICIDE_COST := 4
+const ZELLIA_TEMPERATURE_STEP := 15.0
+const ZELLIA_LAMP_REPAIR := 25.0
 
 ## Coin pickups, scattered on the floor the same way relays/batteries are.
 ## The original places a variable-value coin scatter (`maze.coins`); this
@@ -494,6 +582,14 @@ const COIN_PICKUP_VALUE := 2
 
 static func difficulty_profile(id: String) -> Dictionary:
 	return DIFFICULTY_PROFILES.get(id, DIFFICULTY_PROFILES["standard"])
+
+
+## One number of a difficulty profile (the per-mode tweaks: search time, hide checks, taser, ...), falling back to Relaxed's value.
+static func profile_value(id: String, key: String) -> float:
+	var profile: Dictionary = difficulty_profile(id)
+	if profile.has(key):
+		return float(profile[key])
+	return float((DIFFICULTY_PROFILES["relaxed"] as Dictionary).get(key, 0.0))
 
 
 static func hunter_activation_relay_count(id: String) -> int:

@@ -27,7 +27,7 @@ var relay_target: int = 1
 ## decreases), while the lift gate reads "collected AND not sabotaged".
 var relays_sabotaged: int = 0
 
-## Zephyra's economy. Per-RUN, not per-floor -- mirrors inventory.js's own
+## Zellia's economy. Per-RUN, not per-floor -- mirrors inventory.js's own
 ## coins field, which survives a descent the same way score does.
 var coins: int = 0
 

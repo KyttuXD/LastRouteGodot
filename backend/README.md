@@ -15,6 +15,13 @@ Native ENet packets are wrapped through the UDP relay, so hosts and guests
 make only outbound connections. Player routers do not need UPnP, a manual port
 forward, or a publicly reachable UDP socket.
 
+A room lives exactly as long as its host. An explicit quit (`/api/enet/rooms/unregister`) closes it at once; a host
+whose process crashes or is killed is dropped within about a second: current clients send `HOST_ALIVE` every 250 ms
+from a background thread (a frozen main loop keeps the room), and the relay times such a host out 1 s after the last
+one (hosts from older builds keep the 15 s timeout). Either way every guest gets `HOST_LEFT` (and an `ERROR` for older
+clients), the code stops resolving (`ROOM NOT FOUND`), and a reserved private room keeps its reservation. Host
+migration happens only when a host hands over on purpose (`/api/enet/rooms/release-host`).
+
 ## Local run
 
 Node 18 or newer is the only dependency.
@@ -118,6 +125,12 @@ Point that DNS name at the panel's public address and expose TCP 8105 plus UDP
 | `LASTROUTE_DATA_DIR` | `./.data` | persistent data directory |
 | `LASTROUTE_ACCOUNT_STORE` | `<data>/accounts.json` | optional exact account-store path |
 | `LASTROUTE_ADMIN_PASSWORD` | empty/disabled | enables `/api/dev/login` |
+| `LASTROUTE_SAVES_DIR` | `<data>/saves` | per-account cloud saves (`<USERNAME>.json`) |
+| `LASTROUTE_MOD_INDEX_STORE` | `<data>/mod_packs.json` | mod pack index (metadata only, see "Mod packs") |
+| `LASTROUTE_MOD_DOWNLOAD_BASE` | empty | public URL of the VPS 2 mod folder, e.g. `https://<vps2>/lr3d/mods` |
+| `LASTROUTE_MOD_RATE_LIMIT` | `120` | `/api/mods/*` requests per address per rate window (own bucket) |
+| `LASTROUTE_MODERATION_STORE` | `moderation.json` beside the account store | flags, kick log, cooldowns, build allow-list |
+| `LASTROUTE_MODERATION_SALT` | generated and persisted in the store | salt for the sha256 of device ids and IPs |
 | `LASTROUTE_RELAY_ENABLED` | `true` | bind the authenticated UDP gameplay relay |
 | `LASTROUTE_RELAY_HOST` | `lastroute.kyttuslab.org` | public relay address returned for room-code joins |
 | `LASTROUTE_RELAY_PORT` | `1105` | UDP relay allocation |
@@ -157,6 +170,17 @@ names from the original deployment remain accepted as compatibility aliases.
 - `POST /api/account/register`, `login`, `session`, `password`, `rename`,
   `save`, `load`, `logout`
 - `POST /api/dev/login`, `reload`
+- `POST /api/moderation/integrity`, `report`, `status`, `peers`
+- `POST /api/admin/flags`, `flags/set`, `builds/add`, `builds/remove` (full owner)
+- `GET`, `PUT /api/v1/saves/:gameId/:slot` (header `x-session-token`): cloud saves. Only
+  `last-route-godot/run` exists; `PUT {data, updatedAt}` with `data: null` deletes it, an
+  older `updatedAt` than the stored one gets `409 STALE`, bodies over 64 KB get `413`, and
+  each account may write 30 times a minute (`game_saves.mjs`).
+- `GET`, `PUT /api/v1/skins/:account`: account skins (`skins.mjs`). `PUT` is the raw PNG (64x64 or the old 64x32,
+  PNG only, at most 64 KB) with the owner's `x-session-token` and `x-skin-arms: auto|classic|slim`; another account
+  gets `403`, 5 uploads per account per 10 minutes. `GET` is public: `{hash|"", arms, updatedAt, versions}`; the PNG
+  comes from `GET /api/skins/files/<hash>.png`. The last 5 versions are kept. The older `POST /api/skins/upload`,
+  `mine`, `clear`, `remove` routes still work. Files live under `<data>/skins` (`LASTROUTE_SKINS_DIR`).
 
 `GET /api/health` reports the exact Git commit currently published for each
 update channel under `updates.<channel>.revision`, together with its version
@@ -281,7 +305,7 @@ the generated manifest and archives:
 ```sh
 gh release create debug --prerelease \
   --title "Last Route debug 0.0.1.0" \
-  builds/LastRoute-*-Debug.zip builds/updates.debug.json
+  builds/KyttusLab-*-Debug.zip builds/updates.debug.json
 ```
 
 Keep the GitHub tags channel-based: use `debug` for debug uploads and
@@ -302,3 +326,97 @@ Run the real Godot integration smoke test against the deployed primary service:
 ```sh
 godot4 --headless --path .. res://scenes/backend_smoke.tscn
 ```
+
+## Mod packs
+
+The pack **index** lives here (VPS 3); the pack **files** live only on VPS 2. The index never serves pack files.
+
+- `GET /api/mods/packs` lists every pack (newest version each): `id`, `name`, `version`, `author`, `description`,
+  `gameVersion`, `overrides`, `sha256` (pack identity, below), `blocked`, `blockedReason`, `files` (`path`, `sha256`,
+  `size`; `pack.json` included), `totalBytes`, `downloadBase`, `versions`. Clients must skip `blocked` packs and verify
+  every downloaded file against its `sha256` before loading it.
+- `GET /api/mods/packs/<id>[?version=<v>]` returns one pack (404 `PACK_NOT_FOUND`).
+- Owner only (body `sessionToken` of an admin owner, as for `/api/admin/flags`):
+  - `POST /api/admin/mods/register` with `{ pack, replace? }` (used by the deploy script). A version that already
+    exists is refused with 409 `VERSION_EXISTS` unless `replace` is set.
+  - `POST /api/admin/mods/block` with `{ id, reason? }` and `POST /api/admin/mods/unblock` with `{ id }`.
+- Caps follow the client loader: 16 MB per file, 128 MB per version, 512 files. The index holds at most 2000 packs and
+  keeps the 5 newest versions of each. Paths must follow the loader's layout: `pack.json`; `props|regions|hunters|grabs/*.json`
+  one level deep; `assets/**` `.glb` `.png` `.ogg` (lower case). Anything else is refused at deploy time.
+  The register body may be up to 256 KB; every other route keeps the 64 KB cap. `/api/mods/*` has its own
+  rate-limit bucket (`LASTROUTE_MOD_RATE_LIMIT`).
+
+Layout on VPS 2: `<remote-root>/<pack_id>/<version>/<files>` (default remote root `/srv/lr3d/mods`), served at
+`<LASTROUTE_MOD_DOWNLOAD_BASE>/<pack_id>/<version>/<path>`. A version folder is never changed in place: publish a new
+version instead.
+
+`pack.json` (`lr.pack/1`, the DATA lane's loader schema; see `docs/DATA_DRIVEN_CONTENT.md`):
+- `schema: "lr.pack/1"` is required, and unknown keys refuse the pack.
+- `id` is `[a-z0-9][a-z0-9_]{2,31}`, with no hyphen: content ids are `<pack_id>_<name>`.
+- `version` is `[0-9A-Za-z.+-]`, at most 32 characters.
+- `name` and `author` are required here.
+- `description`, `game_version` and `overrides` (`"<kind>/<id>"`) are optional.
+- `files` is optional; if present, it must list every file except `pack.json` with its exact sha256 and size.
+
+Pack identity (the client's cache key and room-handshake value) is the sha256 of the `"<file sha256> <path>"` lines,
+sorted by path and joined by `\n`, over every file including `pack.json`.
+
+Deploying a pack (dry run unless `--apply`; the owner session comes only from the environment):
+
+```bash
+LASTROUTE_OWNER_SESSION=... node backend/deploy_mod_pack.mjs path/to/pack --vps2 <ssh-host> --index https://<vps3-host> --apply
+```
+
+The script hashes every file and enforces the caps. It copies the pack to `<id>/<version>.uploading-<pid>` on VPS 2
+and re-hashes the files there with `sha256sum`. Only if every hash matches does it rename the folder into place and
+register the pack in the index. A bad upload is deleted, and nothing is registered.
+
+## Crash reports
+
+The game's `CrashWatch` autoload (`src/autoload/crash_watch.gd`) notices a session that crashed, was killed or froze
+(a sentinel file left in `user://logs`, a freeze watchdog) and sends one `lr.crash/1` report on the next launch, when
+the player's "CRASH REPORTS" setting is on (default) and the run is a real game run (never headless, editor or
+playtest bots, which leave reports queued for the test harness instead).
+
+- `POST /api/v1/crash-reports` with the report. Store and echo only: `201 { ok, id, report }` returns exactly what was
+  stored. Body cap 96 KB; `log_tail` 32 KB, 50 breadcrumbs, 50 recent errors, 400 chars a line, 120 a field. Anything
+  credential-shaped (bearer/basic auth, `token=`/`password:`/`admin_ticket` values, 40+ hex digits) is replaced
+  before storage, on the client and again here. The requester address is a rate-limit key only (6 reports an hour per
+  address and device id) and is never stored.
+- `POST /api/admin/crash-reports` with `{ sessionToken, since?, limit? }` (full admin owner): newest first, at most
+  200; `since` is a report id.
+- Storage: one JSON file per report in `$LASTROUTE_CRASH_REPORTS_DIR` (default `<data dir>/crash-reports`), newest
+  5000 kept. Operators read them with `~/Developer/Claude-Setup/crash-reports.sh` (over SSH, no credentials).
+
+## Moderation
+
+The host client's anti-cheat kicks cheaters in-room; the server keeps the record in `moderation.mjs`. KT ruling: accounts
+are never restricted automatically, only by an owner.
+(store: `moderation.json` beside the accounts, atomic writes). Device ids and IPs are only stored as
+`sha256(salt + value)`. Restrictions cover shared play only: joining the PUBLIC route
+(`/api/public/join`), registering a PUBLIC ENet room (`/api/enet/rooms/register` with a public code), and
+`/api/skins/upload`. Sign-in, solo play and private rooms are never blocked. Refusals are HTTP 403
+`{ok:false, code:"FLAGGED", error, until, permanent, cooldown}`.
+
+- **Review queue.** Every reported kick (`kick`; `kicks` once 2+ *distinct* hosts reported it within 7 days) and
+  every unknown build hash (`integrity`, once per hash per account) opens a review entry
+  `{at, reason, detail, open}` on the account. Nothing is restricted by it; built-in owners are never queued.
+- **Owner actions only.** A flag (`extend`), `ban` and `troll_on` from `/api/admin/flags/set` are the only things
+  that restrict an account or troll it server-side. Any action (including `dismiss`) closes the open reviews.
+  A rename carries the record along. There are no automatic device/IP cooldowns (`cooldownUntil` stays null).
+- **Known builds.** Owner allow-list, or the `sha256` of the published update manifest entry for that
+  channel/platform; owner sessions on the `debug` channel are always known.
+
+| Endpoint | Body | Response |
+| --- | --- | --- |
+| `/api/moderation/integrity` | `sessionToken?, deviceId?, commit, buildHash, platform, channel, context` | `{ok, known, status}` |
+| `/api/moderation/report` | `code, hostToken, username?, deviceId?, reason, strikes, kind:"kick"` | `{ok, flagged, status}` |
+| `/api/moderation/status` | `sessionToken?, deviceId?` | `{ok, status}` |
+| `/api/moderation/peers` | `code, hostToken, usernames[≤16], deviceIds[≤16]` | `{ok, players:{NAME:{flagged,permanent,troll,reason}}, devices:{id:{cooldown,troll}}}` (players also carry `ads`) |
+| `/api/admin/flags` | `sessionToken` | `{ok, accounts, reviews:[NAME with open reviews], builds}` |
+| `/api/admin/flags/set` | `sessionToken, username, action (clear\|extend\|ban\|unban\|troll_on\|troll_off\|ads_on\|ads_off\|dismiss), hours?, note?` | `{ok, record}` |
+| `/api/admin/builds/add` / `remove` | `sessionToken, buildHash, commit?, note?` | `{ok, build?, removed?, builds}` |
+
+`status` is `{flagged, permanent, until, reason, troll, restrictions:{publicRoute, hostPublic, skinUpload},
+cooldownUntil, message}`. Hosts should pass `sessionToken` (and `deviceId`) to `/api/enet/rooms/register` so
+their kick reports count as a distinct host; anonymous rooms count per registered room instance.

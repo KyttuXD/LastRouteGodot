@@ -99,9 +99,15 @@ func _place_mark(brain: HunterBrain, generator) -> void:
 			continue
 		if not generator.can_occupy(candidate.x, candidate.y, 0.16, blocked):
 			continue
+		if candidate.distance_to(brain.position) > 30.0:
+			continue
 		var too_near_relay := false
 		for relay in generator.relays:
 			if candidate.distance_to(Vector2(relay["x"], relay["y"]) + Vector2(0.5, 0.5)) < 1.25:
+				too_near_relay = true
+				break
+		for spot in generator.hiding_spots:
+			if candidate.distance_to(Vector2(spot["x"], spot["y"]) + Vector2(0.5, 0.5)) < 1.25:
 				too_near_relay = true
 				break
 		if too_near_relay:

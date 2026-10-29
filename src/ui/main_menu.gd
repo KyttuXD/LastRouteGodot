@@ -11,7 +11,6 @@ extends Control
 
 @onready var play_button: Button = %PlayButton
 @onready var join_button: Button = %JoinButton
-@onready var offline_button: Button = %OfflineButton
 @onready var settings_button: Button = %SettingsButton
 @onready var account_button: Button = %AccountButton
 @onready var tutorial_button: Button = %TutorialButton
@@ -22,13 +21,6 @@ extends Control
 
 var _modal: Control
 var _join_input: LineEdit
-var _account_username: LineEdit
-var _account_password: LineEdit
-var _account_admin_proof: LineEdit
-var _account_status: Label
-var _manage_username: LineEdit
-var _manage_admin_proof: LineEdit
-var _manage_password: LineEdit
 var _creating_room := false
 var _routes_update_locked := false
 
@@ -48,14 +40,18 @@ func _ready() -> void:
 	# The menu is where every mode lands on the way out, so it is the one place
 	# that can be sure the cursor should be free.
 	MouseLock.release_all()
+	Backend.end_run_offline()   # an offline run ends when the player is back at the menu: online play works again with no restart
 	_apply_palette()
 	_build_hint()
 	TestServerBadge.attach(self)
 	_build_public_button()
-	_build_local_saves_button()
+	_build_offline_ui()
+	_build_continue_button()
+	if not RunSaves.changed.is_connected(_build_continue_button):
+		RunSaves.changed.connect(_build_continue_button)
+	RunSaves.cloud_sync()
 	play_button.pressed.connect(_on_play_pressed)
 	join_button.pressed.connect(_on_join_pressed)
-	offline_button.pressed.connect(_on_offline_pressed)
 	settings_button.pressed.connect(_on_settings_pressed)
 	account_button.pressed.connect(_on_account_pressed)
 	tutorial_button.pressed.connect(_on_tutorial_pressed)
@@ -70,6 +66,9 @@ func _ready() -> void:
 	Backend.account_progress_changed.connect(_on_account_progress_changed)
 	_refresh_account_button()
 	# version_label.text = "VERSION %s // %s // %s" % [Build.VERSION, Build.update_channel().to_upper(), Build.short_revision().to_upper()]
+	if version_label != null and Build.revision() != Build.SOURCE_REVISION:
+		# every exported build updates by commit: show which one this is
+		version_label.text = "VERSION %s // BUILD %s" % [Build.VERSION, Build.short_revision().to_upper()]
 	if not UpdateManager.available.is_empty():
 		_on_update_available(UpdateManager.available)
 	if Build.requires_update_gate():
@@ -86,7 +85,38 @@ func _ready() -> void:
 		_on_update_status(UpdateManager.status_message)
 	if _open_update_progress_if_needed():
 		return
+	_show_room_notice(RoomState.consume_menu_notice())
 	_focus_default_button.call_deferred()
+	# Coming from the hub's shared Account / Settings entries.
+	match GameHub.pending_menu_action:
+		"account":
+			_on_account_pressed.call_deferred()
+		"settings":
+			_on_settings_pressed.call_deferred()
+	GameHub.pending_menu_action = ""
+
+
+## One line at the top after leaving a co-op room (YOU LEFT THE ROOM / HOST LEFT THE ROOM), gone after a few seconds.
+func _show_room_notice(text: String) -> void:
+	if text.is_empty():
+		return
+	var label := Label.new()
+	label.name = "RoomNotice"
+	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	label.offset_left = 20.0
+	label.offset_right = -20.0
+	label.offset_top = 8.0
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_size_override("font_size", 7)
+	label.add_theme_color_override("font_color", Palette.AMBER)
+	add_child(label)
+	get_tree().create_timer(6.0).timeout.connect(func() -> void:
+		if is_instance_valid(label):
+			label.queue_free())
+
 
 ## Mutes the version label (the keyboard hint under the menu was removed).
 func _build_hint() -> void:
@@ -113,89 +143,50 @@ func _build_public_button() -> void:
 		PublicRoute.join())
 	PublicRoute.status_changed.connect(func(message: String) -> void:
 		if is_instance_valid(button) and not message.is_empty():
-			button.text = message.substr(0, 38)
+			button.text = ServerPrivacy.scrub(message).substr(0, 38)
 			button.disabled = not message.begins_with("PUBLIC ROUTE UNAVAILABLE") \
 				and not message.begins_with("PUBLIC ROUTE NEEDS"))
 	box.add_child(button)
 	box.move_child(button, 0)
 
 
-func _build_local_saves_button() -> void:
-	var box := get_node_or_null("ButtonPanel/ButtonBox") as VBoxContainer
-	if box == null or box.has_node("LocalSavesButton"):
+## CONTINUE resumes the run's automatic save (RunSaves). It only shows when there is a run, or a save that cannot
+## load: then it stays greyed out with the reason, never a crash or a broken run.
+func _build_continue_button() -> void:
+	var box := get_node_or_null("ButtonPanel/ButtonBox") as Container
+	if box == null:
 		return
-	var button := Button.new()
-	button.name = "LocalSavesButton"
-	button.text = "LOAD LOCAL SAVE"
-	button.focus_mode = Control.FOCUS_ALL
-	Palette.style_button(button, false, true)
-	button.pressed.connect(_on_local_saves_pressed)
-	box.add_child(button)
-	box.move_child(button, mini(offline_button.get_index() + 1,
-		box.get_child_count() - 1))
+	var button := box.get_node_or_null("ContinueButton") as Button
+	if button == null:
+		button = Button.new()
+		button.name = "ContinueButton"
+		button.focus_mode = Control.FOCUS_ALL
+		Palette.style_button(button, true, true)
+		button.pressed.connect(_on_continue_pressed)
+		box.add_child(button)
+		box.move_child(button, 0)
+	var summary := RunSaves.summary()
+	var message := String(summary.get("message", ""))
+	button.visible = bool(summary.get("ok", false)) or not message.is_empty()
+	button.disabled = not bool(summary.get("ok", false))
+	button.text = "CONTINUE" if not button.disabled else message.substr(0, 38)
+	button.tooltip_text = String(summary.get("status", message))
 
 
-func _on_local_saves_pressed() -> void:
-	_close_modal()
-	var content := _modal_content("ROUTE ARCHIVE // LOCAL", "LOAD SAVED ROUTE",
-		Vector2(390, 242))
-	var note := _modal_label(
-		"TITLE-SCREEN LOAD RESUMES OFFLINE. ONLINE ROOM SAVES REMAIN HOST-AUTHORITATIVE.",
-		Palette.MUTED, 7)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	content.add_child(note)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	content.add_child(scroll)
-	var list := VBoxContainer.new()
-	list.name = "LocalSaveList"
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 4)
-	scroll.add_child(list)
-	var status := _modal_label("", Palette.ALERT, 7)
-	status.name = "LocalSaveStatus"
-	content.add_child(status)
-	var slots := RunSaves.list_slots()
-	if slots.is_empty():
-		list.add_child(_modal_label("NO LOCAL SAVES", Palette.MUTED, 8))
-		return
-	for value in slots:
-		var slot: Dictionary = value
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 4)
-		list.add_child(row)
-		var details := _modal_label("%s\nLEVEL %+d // %s // %s" % [
-			String(slot.get("name", "ROUTE")), int(slot.get("level", 0)),
-			String(slot.get("difficulty", "STANDARD")),
-			_format_save_duration(float(slot.get("elapsed_seconds", 0.0)))],
-			Palette.BODY, 7)
-		details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(details)
-		var load_button := _modal_button("LOAD", true)
-		load_button.pressed.connect(_load_local_save.bind(
-			String(slot.get("slot_id", ""))))
-		row.add_child(load_button)
-
-
-func _load_local_save(slot_id: String) -> void:
-	var result := RunSaves.queue_load(slot_id)
+func _on_continue_pressed() -> void:
+	var result := RunSaves.queue_continue()
 	if not bool(result.get("ok", false)):
-		var status := _modal.find_child("LocalSaveStatus", true, false) as Label \
-			if _modal != null else null
-		if status != null:
-			status.text = String(result.get("message", "SAVE LOAD FAILED"))
+		_build_continue_button()
 		return
 	var payload: Dictionary = result.get("payload", {})
-	Backend.enable_offline_mode()
+	_close_modal()
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	RoomState.seed_text = String(payload.get("seed_text", RoomState.seed_text))
 	RoomState.map_scale = RoomState.Scale.INFINITE
 	RoomState.difficulty = clampi(int(payload.get("difficulty",
 		RoomState.Difficulty.STANDARD)), RoomState.Difficulty.RELAXED,
 		RoomState.Difficulty.HARD)
-	RoomState.status_message = "LOCAL SAVE READY // %s" % String(
-		result.get("name", "ROUTE"))
-	_close_modal()
+	RoomState.status_message = "CONTINUING // %s" % String(result.get("place", "THE ROUTE"))
 	RoomState.enter(get_tree())
 
 
@@ -205,9 +196,10 @@ func _format_save_duration(seconds: float) -> String:
 
 
 func _focus_default_button() -> void:
-	var preferred := offline_button if play_button.disabled else play_button
+	var preferred := play_button
 	if preferred != null and preferred.visible and not preferred.disabled:
-		preferred.grab_focus()
+		if preferred.is_inside_tree():
+			preferred.grab_focus()   # a scene change can take it out of the tree first
 
 
 ## Restyle from Palette at load rather than in the scene file.
@@ -234,7 +226,6 @@ func _apply_palette() -> void:
 		if button != null:
 			Palette.style_button(button, true, true)
 	for path in ["ButtonPanel/ButtonBox/SettingsButton",
-			"ButtonPanel/ButtonBox/OfflineButton",
 			"ButtonPanel/ButtonBox/AccountButton",
 			"ButtonPanel/ButtonBox/TutorialButton",
 			"ButtonPanel/ButtonBox/UpdateButton",
@@ -251,10 +242,79 @@ func _apply_palette() -> void:
 func _on_play_pressed() -> void:
 	if _creating_room or _routes_update_locked:
 		return
+	_open_create_dialog()
+
+
+## CREATE ROOM: an "Offline (solo, no server)" option replaces the old PLAY OFFLINE button. It starts on (with a note) when the
+## server is down or the game is offline already, and an offline choice lasts for this run only.
+var _create_offline := false
+
+
+func _open_create_dialog() -> void:
+	_close_modal()
+	_create_offline = Backend.offline_mode
+	var content := _modal_content("ROUTE SIGNAL // NEW ROOM", "CREATE ROOM", Vector2(220, 110))
+	var toggle := Button.new()
+	toggle.name = "CreateOfflineToggle"
+	toggle.custom_minimum_size = Vector2(0, 16)
+	toggle.add_theme_font_size_override("font_size", 7)
+	toggle.pressed.connect(func() -> void:
+		_create_offline = not _create_offline
+		_refresh_create_dialog())
+	content.add_child(toggle)
+	var note := _modal_label("", Palette.AMBER, 6)
+	note.name = "CreateNote"
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(note)
+	var actions := HBoxContainer.new()
+	actions.alignment = BoxContainer.ALIGNMENT_END
+	actions.add_theme_constant_override("separation", 5)
+	content.add_child(actions)
+	var go_online_button := _modal_button("GO ONLINE", false)
+	go_online_button.name = "CreateGoOnline"
+	go_online_button.pressed.connect(go_online)
+	actions.add_child(go_online_button)
+	var cancel := _modal_button("CANCEL", false)
+	cancel.pressed.connect(_close_modal)
+	actions.add_child(cancel)
+	var create := _modal_button("CREATE ROOM", true)
+	create.name = "CreateConfirm"
+	create.pressed.connect(_confirm_create)
+	actions.add_child(create)
+	_refresh_create_dialog(Backend.OFFLINE_NOTE if Backend.offline_mode else "")
+	create.grab_focus.call_deferred()
+
+
+func _refresh_create_dialog(note_text: String = "") -> void:
+	if _modal == null:
+		return
+	var toggle := _modal.find_child("CreateOfflineToggle", true, false) as Button
+	if toggle != null:
+		Palette.style_state_toggle(toggle, "OFFLINE (SOLO, NO SERVER)", _create_offline, true)
+	var note := _modal.find_child("CreateNote", true, false) as Label
+	if note != null:
+		if not note_text.is_empty():
+			note.text = note_text
+		elif _create_offline:
+			note.text = "SOLO ROOM ON THIS DEVICE. NO SERVER, NO CO-OP. THIS ONLY LASTS UNTIL YOU LEAVE THE ROOM."
+		else:
+			note.text = "ONLINE ROOM: HOSTED THROUGH THE PRIMARY SERVER SO FRIENDS CAN JOIN."
+	var go_button := _modal.find_child("CreateGoOnline", true, false) as Button
+	if go_button != null:
+		go_button.visible = Backend.offline_mode
+
+
+func _confirm_create() -> void:
+	if _creating_room:
+		return
+	if _create_offline:
+		_start_offline_room()
+		return
 	_creating_room = true
-	play_button.disabled = true
-	play_button.text = "CONTACTING PRIMARY SERVER"
-	join_button.disabled = true
+	var create := _modal.find_child("CreateConfirm", true, false) as Button if _modal != null else null
+	if create != null:
+		create.disabled = true
+		create.text = "CONTACTING SERVER"
 	Backend.check_health()
 
 
@@ -262,23 +322,99 @@ func _on_create_health_checked(ok: bool, _message: String) -> void:
 	if not _creating_room:
 		return
 	_creating_room = false
-	RoomState.create_local(RoomState.Mode.DEFAULT)
 	if ok:
+		RoomState.create_local(RoomState.Mode.DEFAULT)
 		RoomState.host_primary_room()
-	else:
-		RoomState.status_message = "PRIMARY SERVER UNAVAILABLE // SOLO ROOM"
-	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+		XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
+		return
+	# the server cannot be reached: switch the Offline option on with a note and let the player decide
+	_create_offline = true
+	var create := _modal.find_child("CreateConfirm", true, false) as Button if _modal != null else null
+	if create != null:
+		create.disabled = false
+		create.text = "CREATE ROOM"
+	_refresh_create_dialog("SERVER NOT REACHABLE // OFFLINE TURNED ON. PRESS CREATE ROOM TO PLAY SOLO, OR GO ONLINE TO TRY AGAIN.")
 
 
-func _on_offline_pressed() -> void:
+## OFFLINE badge and GO ONLINE button while Backend.offline_mode is set (boot fell back, or PLAY OFFLINE / --offline).
+func _build_offline_ui() -> void:
+	var box := get_node_or_null("ButtonPanel/ButtonBox") as Container
+	if box == null or box.has_node("GoOnlineButton"):
+		return
+	var button := Button.new()
+	button.name = "GoOnlineButton"
+	button.text = "GO ONLINE"
+	button.focus_mode = Control.FOCUS_ALL
+	button.add_theme_font_size_override("font_size", 6)
+	Palette.style_button(button, true, true)
+	button.pressed.connect(go_online)
+	box.add_child(button)
+	box.move_child(button, mini(2, box.get_child_count() - 1))
+	var badge := Label.new()
+	badge.name = "OfflineBadge"
+	badge.text = "OFFLINE"
+	badge.add_theme_font_size_override("font_size", 7)
+	badge.add_theme_color_override("font_color", Palette.ON_AMBER)
+	var box_style := StyleBoxFlat.new()
+	box_style.bg_color = Palette.ALERT
+	box_style.content_margin_left = 4
+	box_style.content_margin_right = 4
+	badge.add_theme_stylebox_override("normal", box_style)
+	badge.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	badge.offset_left = 8.0
+	badge.offset_top = 8.0
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(badge)
+	_refresh_offline_ui()
+
+
+func _refresh_offline_ui() -> void:
+	var offline := Backend.offline_mode
+	var button := find_child("GoOnlineButton", true, false) as Button
+	var badge := find_child("OfflineBadge", true, false) as Label
+	if button != null:
+		button.visible = offline
+	if badge != null:
+		badge.visible = offline
+	if _public_button_ref() != null:
+		_public_button_ref().disabled = offline or not Backend.configured()
+
+
+func _public_button_ref() -> Button:
+	return find_child("PublicButton", true, false) as Button
+
+
+## No restart: leave offline mode, re-run the server, update and account checks, and retry a join lookup that was waiting.
+func go_online() -> void:
+	Backend.go_online()
+	UpdateManager.go_online()
+	_refresh_offline_ui()
+	_refresh_account_button()
+	RunSaves.cloud_sync()
+	if _modal != null and _modal.find_child("CreateOfflineToggle", true, false) != null:
+		_create_offline = false
+		_refresh_create_dialog("GOING ONLINE...")
+	var status: Label = null
+	if _modal != null:
+		status = _modal.find_child("JoinStatus", true, false) as Label
+	if status != null:
+		status.text = "GOING ONLINE..."
+		var go_button := _modal.find_child("JoinGoOnline", true, false) as Button
+		if go_button != null:
+			go_button.visible = false
+		if _join_input != null and RoomState.valid_room_code(_join_input.text.strip_edges().to_upper()):
+			_submit_join()
+
+
+func _start_offline_room() -> void:
 	# Explicitly bypasses health, directory, account, and periodic update traffic.
 	# It remains available when the online update gate is waiting so a local test
 	# does not depend on the Pterodactyl deployment matching the worktree.
-	Backend.enable_offline_mode()
-	UpdateManager.enable_offline_mode()
+	Backend.enter_run_offline()
+	_refresh_offline_ui()
 	RoomState.create_local(RoomState.Mode.DEFAULT)
 	RoomState.status_message = "OFFLINE SOLO ROOM"
-	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+	XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 
 
 func _on_join_pressed() -> void:
@@ -293,18 +429,28 @@ func _on_join_pressed() -> void:
 	_join_input.max_length = RoomState.CODE_LENGTH
 	_join_input.add_theme_font_size_override("font_size", 12)
 	_join_input.custom_minimum_size = Vector2(0, 27)
-	_join_input.tooltip_text = "FIVE-CHARACTER PRIMARY ROOM CODE"
 	_join_input.text_changed.connect(_on_join_code_changed)
 	_join_input.text_submitted.connect(func(_value: String) -> void: _submit_join())
 	Palette.style_line_edit(_join_input)
 	content.add_child(_join_input)
+	# a hint below the field, not a tooltip: tooltips ran off the dialog's right edge
+	var hint := _modal_label("FIVE-CHARACTER ROOM CODE, E.G. ABC12", Palette.MUTED, 6)
+	hint.name = "JoinHint"
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(hint)
 	var status := _modal_label("", Palette.ALERT, 6)
 	status.name = "JoinStatus"
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	content.add_child(status)
 	var actions := HBoxContainer.new()
 	actions.alignment = BoxContainer.ALIGNMENT_END
 	actions.add_theme_constant_override("separation", 5)
 	content.add_child(actions)
+	var go_online_button := _modal_button("GO ONLINE", true)
+	go_online_button.name = "JoinGoOnline"
+	go_online_button.visible = Backend.offline_mode
+	go_online_button.pressed.connect(go_online)
+	actions.add_child(go_online_button)
 	var cancel := _modal_button("CANCEL", false)
 	cancel.pressed.connect(_close_modal)
 	actions.add_child(cancel)
@@ -326,6 +472,12 @@ func _submit_join() -> void:
 	if not RoomState.valid_room_code(code):
 		status.text = "ENTER A VALID FIVE-CHARACTER ROOM CODE"
 		return
+	if Backend.offline_mode:
+		status.text = Backend.OFFLINE_JOIN_MESSAGE
+		var go_button := _modal.find_child("JoinGoOnline", true, false) as Button
+		if go_button != null:
+			go_button.visible = true
+		return
 	status.text = "LOOKING UP ROOM %s..." % code
 	Backend.resolve_room(code)
 
@@ -334,8 +486,19 @@ func _on_room_resolved(code: String, endpoint: Dictionary, error: String) -> voi
 	if _modal == null or _join_input == null:
 		return
 	var status := _modal.find_child("JoinStatus", true, false) as Label
-	if not error.is_empty():
+	if error == Backend.OFFLINE_JOIN_MESSAGE:
 		status.text = error
+		var go_button := _modal.find_child("JoinGoOnline", true, false) as Button
+		if go_button != null:
+			go_button.visible = true
+		return
+	if not error.is_empty():
+		# a code that is well formed but not active: say why it may be missing
+		status.text = "ROOM %s NOT FOUND // IT MAY HAVE ENDED OR NOT STARTED YET" % code \
+			if error.to_upper().contains("NOT FOUND") else error
+		return
+	if not RoomState.game_matches(String(endpoint.get("game", "")), RoomState.GAME_LAST_ROUTE):
+		status.text = "THAT ROOM IS FOR ANOTHER GAME // JOIN IT FROM ITS OWN MENU"
 		return
 	var join_error := RoomState.join_room(String(endpoint.get("address", "")),
 		int(endpoint.get("port", RoomState.DEFAULT_PORT)),
@@ -344,7 +507,7 @@ func _on_room_resolved(code: String, endpoint: Dictionary, error: String) -> voi
 		status.text = join_error
 		return
 	_close_modal()
-	get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+	XRFade.change_scene(get_tree(), "res://scenes/room_lobby.tscn")
 
 
 func _on_settings_pressed() -> void:
@@ -352,254 +515,20 @@ func _on_settings_pressed() -> void:
 	settings_overlay.open()
 
 
+## The account panel is the app-wide one (AccountPanel, shared with the hub and every other game's menu); this menu only
+## shows the Last Route save (CONTINUE ROUTE / CLEAR SAVE below) and the signed-in name on the button.
 func _on_account_pressed() -> void:
 	_close_modal()
-	var content := _modal_content("ROUTE SIGNAL // ACCOUNT", "ACCOUNT", Vector2(240, 158))
-	_account_status = _modal_label("", Palette.MUTED, 6)
-	_account_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	content.add_child(_account_status)
-	if Backend.signed_in():
-		_account_status.text = "SIGNED IN AS %s%s" % [Backend.account_username,
-			" // ADMIN" if Backend.account_admin else ""]
-		if not Backend.account_transport_warning().is_empty():
-			_account_status.text += "\n%s" % Backend.account_transport_warning()
-			_account_status.add_theme_color_override("font_color", Palette.ALERT)
-		if Backend.has_route_checkpoint():
-			var checkpoint := Backend.account_progress
-			content.add_child(_modal_label(
-				"SAVED ROUTE // DEPTH %d // SCORE %d // %s" % [
-					int(checkpoint.get("depth", 1)), int(checkpoint.get("score", 0)),
-					String(checkpoint.get("difficulty_id", "standard")).to_upper()],
-				Palette.BODY, 6))
-		else:
-			content.add_child(_modal_label("NO SAVED ROUTE CHECKPOINT", Palette.MUTED, 6))
-		if Backend.has_route_checkpoint():
-			var checkpoint_actions := HBoxContainer.new()
-			checkpoint_actions.add_theme_constant_override("separation", 5)
-			content.add_child(checkpoint_actions)
-			var continue_route := _modal_button("CONTINUE ROUTE", true)
-			continue_route.name = "ContinueRouteButton"
-			continue_route.pressed.connect(_continue_route_checkpoint)
-			checkpoint_actions.add_child(continue_route)
-			var clear_route := _modal_button("CLEAR SAVE", false)
-			clear_route.name = "ClearRouteButton"
-			clear_route.pressed.connect(Backend.account_clear_progress)
-			checkpoint_actions.add_child(clear_route)
-		var account_actions := HBoxContainer.new()
-		account_actions.add_theme_constant_override("separation", 5)
-		content.add_child(account_actions)
-		var manage := _modal_button("ACCOUNT SETTINGS", false)
-		manage.name = "AccountSettingsButton"
-		manage.pressed.connect(_on_account_manage_pressed)
-		account_actions.add_child(manage)
-		var logout := _modal_button("SIGN OUT", false)
-		logout.pressed.connect(Backend.account_logout)
-		account_actions.add_child(logout)
-		return
-	_account_status.text = "NOT SIGNED IN // PLAY WITHOUT AN ACCOUNT OR SIGN IN TO SAVE ACROSS DEVICES"
-	if not Backend.accounts_available():
-		var warning := Backend.account_transport_warning()
-		_account_status.text = warning if not warning.is_empty() \
-			else "ACCOUNT SIGN-IN IS DISABLED FOR THIS BACKEND ORIGIN"
-		_account_status.add_theme_color_override("font_color", Palette.ALERT)
-	elif not Backend.account_transport_warning().is_empty():
-		_account_status.text += "\n%s" % Backend.account_transport_warning()
-		_account_status.add_theme_color_override("font_color", Palette.ALERT)
-	_account_username = LineEdit.new()
-	_account_username.name = "AccountUsernameInput"
-	_account_username.placeholder_text = "USERNAME // 3-24 CHARS: A-Z 0-9 _"
-	_account_username.max_length = 24
-	_account_username.text_direction = Control.TEXT_DIRECTION_LTR
-	_account_username.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_account_username.custom_minimum_size = Vector2(0, 22)
-	Palette.style_line_edit(_account_username)
-	_account_username.text_changed.connect(_on_account_username_changed)
-	content.add_child(_account_username)
-	_account_password = LineEdit.new()
-	_account_password.name = "AccountPasswordInput"
-	_account_password.placeholder_text = "PASSWORD // 6+ CHARACTERS"
-	_account_password.secret = true
-	_account_password.text_direction = Control.TEXT_DIRECTION_LTR
-	_account_password.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_account_password.custom_minimum_size = Vector2(0, 22)
-	Palette.style_line_edit(_account_password)
-	content.add_child(_account_password)
-	_account_admin_proof = LineEdit.new()
-	_account_admin_proof.placeholder_text = "ADMIN SETUP KEY"
-	_account_admin_proof.secret = true
-	_account_admin_proof.custom_minimum_size = Vector2(0, 22)
-	_account_admin_proof.visible = false
-	_account_admin_proof.tooltip_text = "ONLY REQUIRED TO CREATE A RESERVED OWNER ACCOUNT"
-	Palette.style_line_edit(_account_admin_proof)
-	content.add_child(_account_admin_proof)
-	var actions := HBoxContainer.new()
-	actions.add_theme_constant_override("separation", 5)
-	content.add_child(actions)
-	var login := _modal_button("SIGN IN", true)
-	login.name = "AccountLoginButton"
-	login.disabled = not Backend.accounts_available()
-	login.pressed.connect(_submit_account.bind(false))
-	actions.add_child(login)
-	var register := _modal_button("CREATE ACCOUNT", false)
-	register.name = "AccountRegisterButton"
-	register.disabled = not Backend.accounts_available()
-	register.pressed.connect(_submit_account.bind(true))
-	actions.add_child(register)
+	AccountPanel.open(self)
 
 
-func _submit_account(register: bool) -> void:
-	if _account_username == null or _account_password == null:
-		return
-	_account_status.text = "CREATING ACCOUNT..." if register else "SIGNING IN..."
-	if register:
-		Backend.account_register(_account_username.text, _account_password.text,
-			_account_admin_proof.text if _account_admin_proof != null else "")
-	else:
-		Backend.account_login(_account_username.text, _account_password.text)
-
-
-func _on_account_username_changed(value: String) -> void:
-	if _account_username == null:
-		return
-	var canonical := value.strip_edges().to_upper()
-	_replace_normalized_text(_account_username, value, canonical)
-	if _account_admin_proof != null:
-		_account_admin_proof.visible = canonical in ["KYTTU", "AYTTU"]
-
-
-func _on_account_manage_pressed() -> void:
-	if not Backend.signed_in():
-		_on_account_pressed()
-		return
-	_close_modal()
-	var content := _modal_content("ROUTE SIGNAL // ACCOUNT", "ACCOUNT SETTINGS",
-		Vector2(280, 214))
-	_account_status = _modal_label("SIGNED IN AS %s" % Backend.account_username,
-		Palette.MUTED, 6)
-	_account_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	content.add_child(_account_status)
-	content.add_child(_modal_label("USERNAME", Palette.AMBER, 6))
-	_manage_username = LineEdit.new()
-	_manage_username.name = "ManageUsernameInput"
-	_manage_username.text = Backend.account_username
-	_manage_username.max_length = 24
-	_manage_username.custom_minimum_size = Vector2(0, 20)
-	Palette.style_line_edit(_manage_username)
-	_manage_username.text_changed.connect(_on_manage_username_changed)
-	content.add_child(_manage_username)
-	_manage_admin_proof = LineEdit.new()
-	_manage_admin_proof.name = "ManageAdminProofInput"
-	_manage_admin_proof.placeholder_text = "ADMIN SETUP KEY"
-	_manage_admin_proof.secret = true
-	_manage_admin_proof.custom_minimum_size = Vector2(0, 20)
-	_manage_admin_proof.visible = false
-	Palette.style_line_edit(_manage_admin_proof)
-	content.add_child(_manage_admin_proof)
-	var rename := _modal_button("UPDATE USERNAME", false)
-	rename.name = "RenameAccountButton"
-	rename.pressed.connect(_submit_account_rename)
-	content.add_child(rename)
-
-	content.add_child(_modal_label("NEW PASSWORD", Palette.AMBER, 6))
-	_manage_password = LineEdit.new()
-	_manage_password.name = "ManagePasswordInput"
-	_manage_password.placeholder_text = "6-200 CHARACTERS"
-	_manage_password.secret = true
-	_manage_password.custom_minimum_size = Vector2(0, 20)
-	Palette.style_line_edit(_manage_password)
-	content.add_child(_manage_password)
-	var password := _modal_button("UPDATE PASSWORD", false)
-	password.name = "ChangePasswordButton"
-	password.pressed.connect(_submit_account_password)
-	content.add_child(password)
-	var back := _modal_button("BACK TO ACCOUNT", false)
-	back.name = "BackToAccountButton"
-	back.pressed.connect(_on_account_pressed)
-	content.add_child(back)
-
-
-func _on_manage_username_changed(value: String) -> void:
-	if _manage_username == null:
-		return
-	var canonical := value.strip_edges().to_upper()
-	_replace_normalized_text(_manage_username, value, canonical)
-	if _manage_admin_proof != null:
-		_manage_admin_proof.visible = canonical == "KYTTU" \
-			and Backend.account_username != "KYTTU"
-
-
-## Replacing LineEdit.text resets its caret. Preserve the insertion point so
-## uppercase normalization cannot turn normal typing into reversed typing.
-func _replace_normalized_text(field: LineEdit, value: String,
-		normalized: String) -> void:
-	if field == null or normalized == value:
-		return
-	var caret := field.caret_column
-	field.text = normalized
-	field.caret_column = mini(caret, normalized.length())
-
-
-func _submit_account_rename() -> void:
-	if _manage_username == null:
-		return
-	_account_status.text = "UPDATING USERNAME..."
-	Backend.account_rename(_manage_username.text,
-		_manage_admin_proof.text if _manage_admin_proof != null else "")
-
-
-func _submit_account_password() -> void:
-	if _manage_password == null:
-		return
-	_account_status.text = "UPDATING PASSWORD..."
-	Backend.account_change_password(_manage_password.text)
-	_manage_password.clear()
-
-
-func _on_account_changed(signed_in_now: bool, _username: String,
-		_admin: bool, message: String) -> void:
+func _on_account_changed(_signed_in_now: bool, _username: String, _admin: bool, _message: String) -> void:
 	_refresh_account_button()
-	if _account_status != null and is_instance_valid(_account_status):
-		_account_status.text = message
-	# Rebuild only when the account state changed sides: a successful sign-in
-	# replaces the form with the signed-in card, and sign-out restores the
-	# form. Rebuilding an already-signed-out form would immediately erase a
-	# failed login/registration message from the server.
-	var showing_sign_in_form := _account_username != null \
-		and is_instance_valid(_account_username)
-	var showing_management := _manage_username != null \
-		and is_instance_valid(_manage_username)
-	if _account_status != null and _modal != null \
-		and ((signed_in_now and showing_sign_in_form) \
-			or (not signed_in_now and not showing_sign_in_form)):
-		_on_account_pressed()
-	elif signed_in_now and showing_management and is_instance_valid(_manage_username):
-		_manage_username.text = Backend.account_username
+	RunSaves.cloud_sync()   # signing in pulls the account's run (or pushes an offline one)
 
 
-func _on_account_progress_changed(available: bool, _progress: Dictionary,
-		_saved_at: int, message: String) -> void:
-	if _account_status == null or _modal == null:
-		return
-	# A delayed checkpoint/session response must not erase a credential error on
-	# the signed-out form. Progress is meaningful only after the same client has
-	# a currently verified account session.
-	if not Backend.signed_in():
-		return
-	var showing_checkpoint := _modal.find_child("ContinueRouteButton", true, false) != null
-	if Backend.signed_in() and available != showing_checkpoint:
-		_on_account_pressed()
-	elif is_instance_valid(_account_status):
-		_account_status.text = message
-
-
-func _continue_route_checkpoint() -> void:
-	var error := RoomState.prepare_route_checkpoint(Backend.account_progress)
-	if not error.is_empty():
-		if _account_status != null:
-			_account_status.text = error
-		return
-	_close_modal()
-	RoomState.enter(get_tree())
+func _on_account_progress_changed(_available: bool, _progress: Dictionary, _saved_at: int, _message: String) -> void:
+	_build_continue_button()
 
 
 func _refresh_account_button() -> void:
@@ -622,9 +551,9 @@ func _on_tutorial_pressed() -> void:
 		+ "MOVEMENT + VIEW\n"
 		+ "WASD move, Shift sprints, C crouches, Space jumps, and the mouse looks. F1 hides or restores the gameplay HUD for a clean view. On a controller, use the left stick to move, right stick to look, A to jump, B to crouch, and left-stick click to sprint. M or View opens the discovered map. Place a waypoint on discovered floor space to draw a teal GPS route on the map and ground. The minimap shows only your current discovered floor.\n\n"
 		+ "ITEMS + INVENTORY\n"
-		+ "You begin with a flashlight. Find batteries, tasers, lockpicks, crowbars, and rescue axes in the facility. Keys 1-5 or D-pad left/right select a slot. Tab or Y opens the inventory; drag items, or select two slots with A, to swap them. Left click or right trigger uses the held item. E, right click, or X interacts. Q or D-pad down drops the held item.\n\n"
+		+ "You begin with a flashlight. Find batteries, tasers, lockpicks, crowbars, and the rarer axes in the facility. Keys 1-5 or D-pad left/right select a slot. Tab or Y opens the inventory; drag items, or select two slots with A, to swap them. Left click or right trigger uses the held item. E, right click, or X interacts. Q or D-pad down drops the held item. G or LB fires the taser.\n\n"
 		+ "CO-OP\n"
-		+ "Create an online room for friends, join with its five-character code, or choose Play Offline for a server-free solo test. A single world pickup can be claimed by only one runner. The host can archive shared progress; an online solo host may also load it in place, while a room with guests must return to solo before replacing the world. The pause menu also tracks current-run statistics.",
+		+ "Create an online room for friends, join with its five-character code, or turn on Offline (solo, no server) in Create Room for a server-free solo run. A single world pickup can be claimed by only one runner. The host can archive shared progress; an online solo host may also load it in place, while a room with guests must return to solo before replacing the world. The pause menu also tracks current-run statistics.",
 		Palette.BODY, 7)
 	notes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	notes.custom_minimum_size = Vector2(320, 0)
@@ -692,20 +621,11 @@ func _close_modal() -> void:
 		_modal.queue_free()
 	_modal = null
 	_join_input = null
-	_account_username = null
-	_account_password = null
-	_account_admin_proof = null
-	_account_status = null
-	_manage_username = null
-	_manage_admin_proof = null
-	_manage_password = null
 
 
+## The menu's last button no longer quits the app: the hub is the main menu, quitting is its own button there.
 func _on_quit_pressed() -> void:
-	if OS.has_feature("web"):
-		JavaScriptBridge.eval("window.location.assign('/kyttus-lab/');", true)
-		return
-	get_tree().quit()
+	XRFade.change_scene(get_tree(), GameRegistry.HUB_SCENE)
 
 
 ## CREATE and JOIN are one route-entry surface. A mandatory update must lock
@@ -716,7 +636,7 @@ func _set_route_update_locked(title: String = "UPDATING") -> void:
 	# Ignore a pending health response rather than letting a room transition
 	# race past an update discovered immediately after CREATE was pressed.
 	_creating_room = false
-	if _join_input != null:
+	if _modal != null:
 		_close_modal()
 	play_button.disabled = true
 	play_button.text = title
@@ -819,3 +739,14 @@ func _on_update_check_finished(success: bool, needs_update: bool) -> void:
 		if not UpdateManager.status_message.is_empty() else "RETRY UPDATE CHECK"
 	update_button.disabled = false
 	update_button.visible = true
+
+
+## Replacing LineEdit.text resets its caret. Preserve the insertion point so
+## uppercase normalization cannot turn normal typing into reversed typing.
+func _replace_normalized_text(field: LineEdit, value: String,
+		normalized: String) -> void:
+	if field == null or normalized == value:
+		return
+	var caret := field.caret_column
+	field.text = normalized
+	field.caret_column = mini(caret, normalized.length())

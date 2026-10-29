@@ -1,0 +1,45 @@
+[gd_scene load_steps=8 format=3]
+
+[sub_resource type="BoxMesh" id="Cap"]
+size = Vector3(0.1, 0.03, 0.1)
+
+[sub_resource type="BoxMesh" id="Glass"]
+size = Vector3(0.08, 0.1, 0.08)
+
+[sub_resource type="BoxMesh" id="Base"]
+size = Vector3(0.1, 0.025, 0.1)
+
+[sub_resource type="BoxMesh" id="Handle"]
+size = Vector3(0.015, 0.075, 0.015)
+
+[sub_resource type="StandardMaterial3D" id="Metal"]
+albedo_color = Color(0.22, 0.2, 0.19, 1)
+roughness = 1.0
+
+[sub_resource type="StandardMaterial3D" id="Flame"]
+albedo_color = Color(1, 0.78, 0.35, 1)
+emission_enabled = true
+emission = Color(1, 0.62, 0.2, 1)
+emission_energy_multiplier = 1.6
+roughness = 1.0
+
+[node name="Lantern" type="Node3D"]
+
+[node name="Handle" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.09, 0)
+mesh = SubResource("Handle")
+surface_material_override/0 = SubResource("Metal")
+
+[node name="Cap" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.055, 0)
+mesh = SubResource("Cap")
+surface_material_override/0 = SubResource("Metal")
+
+[node name="Glass" type="MeshInstance3D" parent="."]
+mesh = SubResource("Glass")
+surface_material_override/0 = SubResource("Flame")
+
+[node name="Base" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.06, 0)
+mesh = SubResource("Base")
+surface_material_override/0 = SubResource("Metal")

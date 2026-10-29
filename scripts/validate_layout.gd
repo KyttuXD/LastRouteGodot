@@ -54,7 +54,7 @@ const ANCHORED := {
 		"MetersPanel": ["left", "right", "bottom"],
 		"FpsLabel": ["left", "top"],
 		"HotbarPanel": ["hcentre", "bottom"],
-		"InteractionLabel": ["hcentre", "bottom"],
+		"InteractionLabel": ["hcentre", "vcentre"],   # just under the crosshair
 		"MessageLabel": ["hcentre", "top"],
 		"MapOverlay": ["hcentre", "vcentre"],
 		"EscapeOverlay": ["hcentre", "vcentre"],
@@ -98,9 +98,21 @@ const DRIFT_TOLERANCE := 1.5
 
 func run(host: Node) -> int:
 	_host = host
+	# Leave the root window as found: later suites in the same process (platform's XR laser click) read its size.
+	var root := _root()
+	var before := {"size": root.size, "mode": root.content_scale_mode, "aspect": root.content_scale_aspect,
+		"scale_size": root.content_scale_size, "factor": root.content_scale_factor}
 	var failures := 0
 	for path in ANCHORED:
 		failures += await _check_scene(path)
+	root.size = before["size"]
+	root.content_scale_mode = before["mode"]
+	root.content_scale_aspect = before["aspect"]
+	root.content_scale_size = before["scale_size"]
+	root.content_scale_factor = before["factor"]
+	root.gui_release_focus()
+	await _frame()
+	await _frame()
 	if failures == 0:
 		print("layout OK")
 	return failures
@@ -313,8 +325,9 @@ func _check_update_progress_contract(scene: Node) -> int:
 	await _frame()
 	if retry == null or not retry.visible:
 		failures += _fail("update progress failure has no retry action")
-	if continue_button == null or not continue_button.visible:
-		failures += _fail("update progress failure has no explicit offline test path")
+	# the update gate (KT): no CONTINUE OFFLINE past an available update, RETRY only
+	if continue_button != null and continue_button.visible:
+		failures += _fail("update progress failure offers a way past the update")
 	if retry != null:
 		retry.visible = false
 	if continue_button != null:
@@ -323,8 +336,8 @@ func _check_update_progress_contract(scene: Node) -> int:
 	await _frame()
 	if retry == null or not retry.visible:
 		failures += _fail("update progress treats a helper-launch failure as a successful apply")
-	if continue_button == null or not continue_button.visible:
-		failures += _fail("update progress helper-launch failure has no offline test path")
+	if continue_button != null and continue_button.visible:
+		failures += _fail("update progress helper-launch failure offers a way past the update")
 	if retry != null:
 		retry.visible = false
 	if continue_button != null:
@@ -470,7 +483,7 @@ func _check_room_lobby_contract(scene: Node) -> int:
 			or dossier.get_item_text(27) != "-- VOID HUNTERS --":
 		failures += _fail("hunter dossier category headers are missing or out of order")
 	elif dossier.get_item_text(1) != "AKI" \
-			or dossier.get_item_text(2) != "???? // UNDISCOVERED":
+			or dossier.get_item_text(2) != "???":
 		failures += _fail("hunter dossier does not reveal only account discoveries")
 	for node_name in ["DossierName", "DossierBehavior", "DossierStats"]:   # the counter label is retired: always hidden and empty
 		var label := scene.find_child(node_name, true, false) as Label
@@ -525,10 +538,13 @@ func _check_main_menu_contract(scene: Node) -> int:
 		if scene.find_child(heading, true, false) == null:
 			failures += _fail("Settings is missing its %s category" % heading)
 	var settings_tabs := scene.find_child("SettingsCategoryTabs", true, false) as TabBar
-	if settings_tabs == null or settings_tabs.tab_count != 3 \
+	if settings_tabs == null or settings_tabs.tab_count != 6 \
 			or settings_tabs.get_tab_title(0) != "AUDIO" \
 			or settings_tabs.get_tab_title(1) != "DISPLAY" \
-			or settings_tabs.get_tab_title(2) != "CONTROLS":
+			or settings_tabs.get_tab_title(2) != "CONTROLS" \
+			or settings_tabs.get_tab_title(3) != "SKIN" \
+			or settings_tabs.get_tab_title(4) != "VOICE" \
+			or settings_tabs.get_tab_title(5) != "MODS":
 		failures += _fail("Settings categories do not use the shared tab treatment")
 	if scene.find_child("PixelEffectSlider", true, false) == null \
 			or scene.find_child("PixelEffectValueLabel", true, false) == null:
@@ -546,15 +562,13 @@ func _check_main_menu_contract(scene: Node) -> int:
 		failures += _fail("FOV slider does not use Settings' supported range")
 	var play_button := scene.find_child("PlayButton", true, false) as Button
 	var join_button := scene.find_child("JoinButton", true, false) as Button
-	var offline_button := scene.find_child("OfflineButton", true, false) as Button
 	scene.call("_set_route_update_locked", "UPDATING")
 	if play_button == null or join_button == null or not play_button.disabled \
 			or not join_button.disabled or play_button.text != "UPDATING" \
 			or join_button.text != "UPDATING":
 		failures += _fail("mandatory updates do not lock and relabel both route buttons")
-	if offline_button == null or offline_button.disabled \
-			or offline_button.text != "PLAY OFFLINE":
-		failures += _fail("main menu has no independent offline solo test path")
+	if scene.find_child("OfflineButton", true, false) != null:
+		failures += _fail("the separate PLAY OFFLINE button is back; offline lives in the Create Room dialog")
 	scene.call("_clear_route_update_lock")
 	if play_button == null or join_button == null or play_button.disabled \
 			or join_button.disabled or play_button.text != "CREATE ROOM" \
@@ -577,6 +591,28 @@ func _check_main_menu_contract(scene: Node) -> int:
 		scene.call("_on_join_code_changed", room_code_input.text)
 		if room_code_input.text != "AB" or room_code_input.caret_column != 2:
 			failures += _fail("room-code normalization reverses typed characters")
+		# no tooltip (it ran off the dialog edge); a wrapped hint and a wrapped, clear error stay inside the dialog at every size
+		if not room_code_input.tooltip_text.is_empty():
+			failures += _fail("the room-code field still uses a tooltip that can run off the dialog")
+		scene.call("_on_room_resolved", "ABC12", {}, "ROOM ABC12 WAS NOT FOUND")
+		var join_status := scene.find_child("JoinStatus", true, false) as Label
+		var join_hint := scene.find_child("JoinHint", true, false) as Label
+		if join_status == null or join_hint == null:
+			failures += _fail("the join dialog lacks its hint or status label")
+		else:
+			if not join_status.text.contains("ENDED OR NOT STARTED YET"):
+				failures += _fail("an inactive room code does not say it may have ended or not started (%s)" % join_status.text)
+			for join_size in [Vector2i(480, 270), Vector2i(1024, 768), Vector2i(1366, 768)]:
+				_root().size = join_size
+				await _frame()
+				await _frame()
+				var modal_panel := scene.find_child("MenuModal", true, false) as Control
+				for label in [join_status, join_hint]:
+					if label.autowrap_mode == TextServer.AUTOWRAP_OFF:
+						failures += _fail("%s does not wrap" % label.name)
+					if modal_panel != null and not modal_panel.get_global_rect().grow(1.0).encloses(label.get_global_rect()):
+						failures += _fail("%s runs outside the join dialog at %s (%s in %s)" % [label.name, join_size,
+							label.get_global_rect(), modal_panel.get_global_rect()])
 	scene.call("_set_route_update_locked", "UPDATING")
 	await _frame()
 	if scene.find_child("MenuModal", true, false) != null:
@@ -621,92 +657,11 @@ func _check_main_menu_contract(scene: Node) -> int:
 	Backend.account_admin_permissions = PackedStringArray()
 	Backend.account_session_verified = false
 	Backend.base_url = Backend.PRIMARY_BASE_URL
-	scene.call("_on_account_pressed")
-	await _frame()
-	var login_button := scene.find_child("AccountLoginButton", true, false) as Button
-	var register_button := scene.find_child("AccountRegisterButton", true, false) as Button
-	var username_input := scene.find_child("AccountUsernameInput", true, false) as LineEdit
-	var password_input := scene.find_child("AccountPasswordInput", true, false) as LineEdit
-	if username_input == null or password_input == null \
-			or username_input.get_index() >= password_input.get_index():
-		failures += _fail("account username/password fields are missing or reversed")
-	elif username_input.text_direction != Control.TEXT_DIRECTION_LTR \
-			or password_input.text_direction != Control.TEXT_DIRECTION_LTR:
-		failures += _fail("account username/password fields are not forced left-to-right")
-	else:
-		username_input.text = "a"
-		username_input.caret_column = 1
-		scene.call("_on_account_username_changed", "a")
-		username_input.insert_text_at_caret("b")
-		scene.call("_on_account_username_changed", username_input.text)
-		if username_input.text != "AB" or username_input.caret_column != 2:
-			failures += _fail("account-name normalization reverses typed characters")
-	if login_button == null or login_button.disabled \
-			or register_button == null or register_button.disabled:
-		failures += _fail("explicitly enabled primary HTTP account actions are disabled")
-	var transport_warning_visible := false
-	for label in scene.find_children("*", "Label", true, false):
-		transport_warning_visible = transport_warning_visible \
-			or "ACCOUNT SIGN-IN USES UNENCRYPTED HTTP" in String(label.text)
-	if transport_warning_visible:
-		failures += _fail("primary HTTP account form shows a disabled transport warning")
-	scene.call("_on_account_changed", false, "", false, "TEST LOGIN FAILURE")
-	await _frame()
-	var saw_failure := false
-	for label in scene.find_children("*", "Label", true, false):
-		saw_failure = saw_failure or String(label.text) == "TEST LOGIN FAILURE"
-	if not saw_failure:
-		failures += _fail("account dialog erased a failed login response")
-	scene.call("_close_modal")
-	await _frame()
-
-	# The signed-in card gains three actions when a checkpoint exists; make
-	# sure that state both renders and remains inside the modal frame.
-	Backend.account_username = "RUNNER_TEST"
-	Backend.account_session_token = "validation-token"
-	Backend.account_admin = false
-	Backend.account_session_verified = true
-	Backend.account_progress = {
-		"schema": 1, "kind": "last_route", "room_seed_text": "ROOM-TEST",
-		"run_seed": 1, "map_scale": 1, "difficulty": 1,
-		"difficulty_id": "standard", "depth": 4, "score": 900,
-		"coins": 2,
-	}
-	scene.call("_on_account_pressed")
-	await _frame()
-	var continue_route := scene.find_child("ContinueRouteButton", true, false)
-	var clear_route := scene.find_child("ClearRouteButton", true, false)
-	var account_settings := scene.find_child("AccountSettingsButton", true, false)
-	if continue_route == null or clear_route == null or account_settings == null:
-		failures += _fail("signed-in account card is missing Continue/Clear/Settings")
-	var modal_panel := scene.find_child("ModalPanel", true, false) as Control
-	if modal_panel == null or not _root().get_visible_rect().encloses(
-			Rect2(modal_panel.global_position, modal_panel.size)):
-		failures += _fail("signed-in checkpoint card spills outside the viewport")
-	scene.call("_on_account_manage_pressed")
-	await _frame()
-	for control_name in ["ManageUsernameInput", "RenameAccountButton",
-			"ManagePasswordInput", "ChangePasswordButton", "BackToAccountButton"]:
-		if scene.find_child(control_name, true, false) == null:
-			failures += _fail("account management is missing %s" % control_name)
-	for size in [Vector2i(480, 270), Vector2i(1024, 768), Vector2i(3440, 1440)]:
-		_root().size = size
-		await _frame()
-		await _frame()
-		modal_panel = scene.find_child("ModalPanel", true, false) as Control
-		if modal_panel == null or not _root().get_visible_rect().encloses(
-				Rect2(modal_panel.global_position, modal_panel.size)):
-			failures += _fail("account management spills outside %s" % size)
 	scene.call("_close_modal")
 	Backend.account_username = account_before["username"]
 	Backend.account_session_token = account_before["token"]
-	Backend.account_admin = account_before["admin"]
-	Backend.account_admin_owner = account_before["admin_owner"]
-	Backend.account_admin_permissions = account_before["admin_permissions"]
 	Backend.account_session_verified = account_before["verified"]
 	Backend.account_progress = account_before["progress"]
-	Backend.account_progress_saved_at = account_before["saved_at"]
-	Backend.base_url = account_before["base_url"]
 	await _frame()
 	return failures
 

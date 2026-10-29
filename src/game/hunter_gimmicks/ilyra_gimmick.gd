@@ -16,9 +16,7 @@ extends HunterGimmick
 ## invisible and completely inert for ILYRA_BANISH_SECONDS, reusing the same
 ## hidden_from_view() Porcelle already established.
 ##
-## Nightmare's zero-delay pounce is not ported (no difficulty selection
-## exists), so ILYRA_POUNCE_DELAY (the original's Standard value) is the only
-## delay this port has.
+## The pounce delay is the 2D config's 15 s (zero on Nightmare).
 
 var _has_corner := false
 var _hidden_remaining := 0.0
@@ -46,12 +44,12 @@ func after_perception(brain: HunterBrain, delta: float, _target: Dictionary, gen
 	# CHASE intentionally persists around corners now. Use the current visual
 	# evidence rather than the retained state, otherwise looking away would no
 	# longer tag the player and her delayed pounce could never begin.
-	var sees := brain.direct_chase_visible
+	var sees := brain.direct_chase_visible or _shares_room(brain, _target, generator)
 	if sees:
 		_saw_player = true
 	elif _saw_player and not _tagged:
 		_tagged = true
-		_pounce_remaining = GameConfig.ILYRA_POUNCE_DELAY
+		_pounce_remaining = 0.0 if brain.difficulty_id == "nightmare" else GameConfig.ILYRA_POUNCE_DELAY
 		_saw_player = false
 
 	if _tagged:
@@ -65,6 +63,20 @@ func after_perception(brain: HunterBrain, delta: float, _target: Dictionary, gen
 
 func holds_position() -> bool:
 	return true
+
+
+func sight_scale(_brain: HunterBrain) -> float:
+	return GameConfig.ILYRA_SIGHT_SCALE
+
+
+## 2D: standing in her room with a lit player counts as sight even without a clear ray.
+func _shares_room(brain: HunterBrain, target: Dictionary, generator) -> bool:
+	if target.is_empty() or bool(target.get("hidden", false)) or bool(target.get("in_safe_zone", false)):
+		return false
+	var at: Vector2 = target.get("position", Vector2(1.0e6, 1.0e6))
+	var mine: Dictionary = generator.room_at(brain.position.x, brain.position.y)
+	var theirs: Dictionary = generator.room_at(at.x, at.y)
+	return not mine.is_empty() and str(mine.get("id", mine.get("center"))) == str(theirs.get("id", theirs.get("center")))
 
 
 func hidden_from_view() -> bool:
@@ -99,3 +111,8 @@ func _respawn_corner(brain: HunterBrain, generator) -> void:
 	var open: Dictionary = generator.nearest_open_position(
 		chosen.x, chosen.y, brain.radius)
 	brain.position = Vector2(open["x"], open["y"]) if not open.is_empty() else chosen
+
+
+## Non-lethal in 2D (nonLethal / specialist early return): she can never trigger a capture.
+func immune_to_capture() -> bool:
+	return true

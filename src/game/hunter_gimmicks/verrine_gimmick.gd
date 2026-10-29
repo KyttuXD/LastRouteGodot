@@ -18,7 +18,7 @@ extends HunterGimmick
 ## The vent list itself lives on FacilityGenerator (place_vents()), not
 ## here, so the physical grates (facility_view_3d.gd) and this gimmick's own
 ## teleport/transit math read the exact same positions -- the same reason
-## place_hiding_spots() lives there for Ceryth/Jyvra/Loxelle.
+## place_hiding_spots() lives there for Ceryth/Javelle/Loxelle.
 
 var _active_in_vent := false
 var _speed_scale := 1.0
@@ -149,3 +149,8 @@ func _index_of(vents: Array, vent_id: String) -> int:
 		if String(entry.get("id", "")) == vent_id:
 			return int(entry["index"])
 	return -1
+
+
+## 2D: she can only attack a player who is inside the vent network; an idle, invisible Verrine grabs nobody.
+func immune_to_capture() -> bool:
+	return not _active_in_vent

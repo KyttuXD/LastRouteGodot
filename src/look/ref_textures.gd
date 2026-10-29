@@ -16,6 +16,42 @@ const WALL_H := 128
 static var _images := {}
 static var _textures := {}
 static var _materials := {}
+## Content packs' replacement images (docs/modding/content-types.md, "Surfaces"), "floor:<kind>" / "wall:<kind>" -> a
+## loaded pack's PNG path. Empty without packs, so every kind is painted as before.
+static var _pack_images: Dictionary = _collect_pack_images()
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
+
+
+## Packs changed (ContentRegistry.load_packs / unload_packs): drop every cached image, texture, material and array so
+## they are rebuilt from the current packs. Packs change between rooms, so no world mixes old and new layers.
+static func rebuild_from_registry() -> void:
+	_pack_images = _collect_pack_images()
+	for cache in [_images, _textures, _materials, _array_textures, _array_layers, _array_materials]:
+		cache.clear()
+
+
+static func _collect_pack_images() -> Dictionary:
+	var out := {}
+	for def in ContentRegistry.pack_defs("floors"):
+		out["floor:" + String(def["id"])] = String(def["image"])
+	for def in ContentRegistry.pack_defs("walls"):
+		out["wall:" + String(def["id"])] = String(def["image"])
+	return out
+
+
+## One kind's image: a loaded pack's replacement (RGBA8, nearest-scaled to this group's size, so the shared arrays stay
+## uniform), else the painter's.
+static func _paint(group: String, kind: String, entry: Array) -> Image:
+	var path := String(_pack_images.get("%s:%s" % [group, kind], ""))
+	if not path.is_empty():
+		var img := Image.load_from_file(path)
+		if img != null and not img.is_empty():
+			if img.is_compressed():
+				img.decompress()
+			img.convert(Image.FORMAT_RGBA8)
+			img.resize(PX, WALL_H if group == "wall" else PX, Image.INTERPOLATE_NEAREST)
+			return img
+	return Callable(RefTextures, entry[0]).call(entry[1])
 
 # -- tiny painter --------------------------------------------------------------
 
@@ -218,6 +254,83 @@ static func _paint_check(variant: int) -> Image:
 	return img
 
 
+## Patterned carpet (FLOOR_SETS): 0 gothic red with a gold diamond lattice, 1 hotel teal with gold medallions,
+## 2 library green with a fine border, 3 plum lounge.
+static func _paint_carpet(variant: int) -> Image:
+	var rng := _rng("carpet%d" % variant)
+	var img := _new_image(PX, PX)
+	var bases := [Color("3a1014"), Color("0f2a2c"), Color("132a17"), Color("2a1430")]
+	var accents := [Color("6e4a1c"), Color("6a5420"), Color("2e4a24"), Color("5a3a52")]
+	var base: Color = bases[variant]
+	var accent: Color = accents[variant]
+	_noise(img, 0, 0, PX, PX, base, .1, rng, 2)
+	match variant:
+		0:
+			for i in PX:
+				_dot(img, i, (i + 16) % PX, accent)
+				_dot(img, i, (PX - i + 15) % PX, accent)
+			_dot(img, 15, 15, _mul(accent, 1.3), 2, 2)
+		1:
+			for a in 32:
+				_dot(img, roundi(16 + cos(a / 32.0 * TAU) * 7.0), roundi(16 + sin(a / 32.0 * TAU) * 7.0), accent)
+			_dot(img, 15, 15, _mul(accent, 1.2), 2, 2)
+			_dot(img, 0, 0, _mul(accent, .8), 2, 2)
+		2:
+			_dot(img, 1, 1, accent, PX - 2, 1)
+			_dot(img, 1, PX - 2, accent, PX - 2, 1)
+			_dot(img, 1, 1, accent, 1, PX - 2)
+			_dot(img, PX - 2, 1, accent, 1, PX - 2)
+		3:
+			for y in range(4, PX, 8):
+				for x in range(4, PX, 8):
+					_dot(img, x, y, accent, 2, 2)
+	return img
+
+
+## Office carpet tiles: 16 px squares with alternating pile direction (two greys), thin seams.
+static func _paint_carpet_tile(variant: int) -> Image:
+	var rng := _rng("carpet_tile%d" % variant)
+	var img := _new_image(PX, PX)
+	var a := Color("2a2b30") if variant == 0 else Color("23262e")
+	var b := _mul(a, 1.12)
+	for cy in 2:
+		for cx in 2:
+			_noise(img, cx * 16, cy * 16, 16, 16, a if (cx + cy) % 2 == 0 else b, .08, rng)
+	_dot(img, 0, 0, _mul(a, .6), PX, 1)
+	_dot(img, 0, 0, _mul(a, .6), 1, PX)
+	_dot(img, 16, 0, _mul(a, .7), 1, PX)
+	_dot(img, 0, 16, _mul(a, .7), PX, 1)
+	return img
+
+
+## Lab / clinic vinyl: pale sheet with fine flecks and a welded seam.
+static func _paint_vinyl(variant: int) -> Image:
+	var rng := _rng("vinyl%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("3c4240") if variant == 0 else Color("3a3c44")
+	_noise(img, 0, 0, PX, PX, base, .05, rng, 2)
+	for i in 18:
+		_dot(img, rng.randi_range(0, 31), rng.randi_range(0, 31), _mul(base, .75 if i % 2 == 0 else 1.15))
+	_dot(img, 0, 0, _mul(base, .7), PX, 1)
+	return img
+
+
+## Bare concrete (prison, service corridors): mottled grey, a saw-cut joint, a few stains.
+static func _paint_concrete(variant: int) -> Image:
+	var rng := _rng("concrete%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("2c2a2a") if variant == 0 else Color("272828")
+	_noise(img, 0, 0, PX, PX, base, .08, rng, 2)
+	_noise(img, 0, 0, PX, PX, base, .05, rng, 4)
+	_dot(img, 0, 0, _mul(base, .55), PX, 1)
+	if variant == 1:
+		_dot(img, 0, 16, _mul(base, .6), PX, 1)
+	for i in 3:
+		_dot(img, rng.randi_range(2, 26), rng.randi_range(2, 26), _mul(base, .8), rng.randi_range(2, 4), rng.randi_range(1, 3))
+	_crack(img, rng, rng.randi_range(4, 26), rng.randi_range(4, 26), rng.randi_range(4, 8), _mul(base, .5))
+	return img
+
+
 static func _paint_hazard(variant: int) -> Image:
 	var rng := _rng("hazard%d" % variant)
 	var img := _paint_metal(0)
@@ -230,6 +343,53 @@ static func _paint_hazard(variant: int) -> Image:
 		_crack(img, rng, 4, 3, 6, Color("0a0808"))
 	return img
 
+
+
+## Mall terrazzo: polished cream chips in a warm binder, a brass divider strip every metre.
+static func _paint_terrazzo(variant: int) -> Image:
+	var rng := _rng("terrazzo%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("5a5048") if variant == 0 else Color("4c4a50")
+	_noise(img, 0, 0, PX, PX, base, .04, rng, 2)
+	for i in 40:
+		var chip: Color = [Color("8a8278"), Color("2e2a28"), Color("7a5a44"), Color("6a7470")][i % 4]
+		_dot(img, rng.randi_range(0, PX - 2), rng.randi_range(0, PX - 2), chip, 1 + i % 2, 1)
+	_dot(img, 0, 0, Color("7a5c2c"), PX, 1)
+	_dot(img, 0, 0, Color("7a5c2c"), 1, PX)
+	return img
+
+
+## Lab epoxy floor: light grey poured resin on a metre grid, cyan line markers at the joints.
+static func _paint_epoxy(variant: int) -> Image:
+	var rng := _rng("epoxy%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("4b5155")
+	_noise(img, 0, 0, PX, PX, base, .04, rng, 2)
+	_dot(img, 0, 0, _mul(base, .62), PX, 1)
+	_dot(img, 0, 0, _mul(base, .62), 1, PX)
+	_dot(img, 0, 0, Color("2a8f9c"), 3, 1)
+	_dot(img, 0, 0, Color("2a8f9c"), 1, 3)
+	if variant == 1:
+		# yellow keep-clear hatch along one edge
+		for x in PX:
+			if ((x >> 2) & 1) == 0:
+				_dot(img, x, PX - 4, Color("7a5c12"), 1, 3)
+	return img
+
+
+## Greenhouse floor: worn terracotta quarry tiles in dark grout, the odd moss tuft.
+static func _paint_terracotta(variant: int) -> Image:
+	var rng := _rng("terra%d" % variant)
+	var img := _new_image(PX, PX)
+	var grout := Color("1c1612")
+	_dot(img, 0, 0, grout, PX, PX)
+	for ty in 2:
+		for tx in 2:
+			var tone := Color("6a3a26") if (tx + ty + variant) % 2 == 0 else Color("5c3424")
+			_noise(img, tx * 16 + 1, ty * 16 + 1, 14, 14, tone, .1, rng)
+	for i in 3:
+		_dot(img, rng.randi_range(0, PX - 2), rng.randi_range(0, PX - 2), Color("2f4a22"), 2, 1)
+	return img
 
 ## Maroon carpet with a brass-edged runner stripe down the middle (used under
 ## long corridors so a run of cells reads as one runner like the references).
@@ -538,6 +698,89 @@ static func _paint_wall_office(variant: int) -> Image:
 	return img
 
 
+
+static func _paint_wall_hospital(variant: int) -> Image:
+	# clinical two-tone: washable mint lower wall, off-white upper, a teal crash rail between
+	var rng := _rng("whosp%d" % variant)
+	var img := _new_image(PX, WALL_H)
+	_wall_base(img, rng, Color("39504b"), Color("575a55"))
+	_dot(img, 0, RAIL_Y - 4, Color("0a0c0c"), PX, 1)
+	_dot(img, 0, RAIL_Y - 3, Color("2f6a74"), PX, 4)
+	_dot(img, 0, RAIL_Y + 1, Color("173a40"), PX, 1)
+	_skirt(img, Color("2a3a38"))
+	_cornice(img, Color("4a4c48"))
+	if variant == 1:
+		# a ward direction stripe and a small room plate
+		_dot(img, 0, RAIL_Y + 14, Color("2c5f8a"), PX, 2)
+		_dot(img, 10, 30, Color("1b3a5c"), 12, 6)
+		_dot(img, 12, 32, Color("c8cfd0"), 8, 2)
+	_grime(img, rng, 3)
+	return img
+
+
+static func _paint_wall_lab(variant: int) -> Image:
+	# white composite panels with shadow seams, a cyan guide line, a hazard foot on variant 1
+	var rng := _rng("wlab%d" % variant)
+	var img := _new_image(PX, WALL_H)
+	_noise(img, 0, 0, PX, WALL_H, Color("5a5f63"), .04, rng, 2)
+	for y in range(CORNICE_H, WALL_H, 40):
+		_dot(img, 0, y, Color("1e2224"), PX, 1)
+	_dot(img, PX - 1, 0, Color("1e2224"), 1, WALL_H)
+	_dot(img, 0, RAIL_Y, Color("1d8a96"), PX, 2)
+	for y in [CORNICE_H + 4, CORNICE_H + 44]:
+		_rivet(img, 3, y, Color("5a5f63"))
+		_rivet(img, PX - 5, y, Color("5a5f63"))
+	if variant == 1:
+		for y in range(WALL_H - 12, WALL_H):
+			for x in PX:
+				_dot(img, x, y, Color("7a5c12") if ((x + y) >> 2) & 1 == 1 else Color("14110e"))
+	else:
+		_skirt(img, Color("2c3134"))
+	_cornice(img, Color("3a3f42"))
+	return img
+
+
+static func _paint_wall_glasshouse(variant: int) -> Image:
+	# conservatory glazing: green-painted iron bars over night panes, a low brick plinth
+	var rng := _rng("wglass%d" % variant)
+	var img := _new_image(PX, WALL_H)
+	_noise(img, 0, 0, PX, WALL_H, Color("1e2a2e"), .08, rng, 2)
+	for i in 5:
+		var x := rng.randi_range(2, PX - 6)
+		var y := rng.randi_range(CORNICE_H + 2, RAIL_Y)
+		_dot(img, x, y, Color("3a4e52"), 1, 6)
+	var bar := Color("2b4a30")
+	for x in [0, 15, PX - 2]:
+		_dot(img, x, 0, bar, 2, WALL_H)
+	for y in range(CORNICE_H, WALL_H - 26, 24):
+		_dot(img, 0, y, bar, PX, 2)
+	for by in range(WALL_H - 26, WALL_H, 6):
+		for bx in range(-((by / 6) % 2) * 4, PX, 8):
+			_noise(img, maxi(0, bx), by, 7, 5, Color("4a2a22"), .1, rng)
+	if variant == 1:
+		# leaves pressed against the glass
+		for i in 10:
+			_dot(img, rng.randi_range(0, PX - 3), rng.randi_range(RAIL_Y - 20, WALL_H - 28), Color("2f5a28"), 3, 2)
+	_cornice(img, bar)
+	return img
+
+static func _paint_wall_mall(variant: int) -> Image:
+	# arcade wall: warm cream plaster over a dark tiled dado, a lit cove strip under the cornice
+	var rng := _rng("wmall%d" % variant)
+	var img := _new_image(PX, WALL_H)
+	_wall_base(img, rng, Color("3a2c2a"), Color("5c524a"))
+	for y in range(RAIL_Y + 2, WALL_H - SKIRT_H, 8):
+		_dot(img, 0, y, Color("1e1614"), PX, 1)
+	for x in [0, 16]:
+		_dot(img, x, RAIL_Y, Color("1e1614"), 1, WALL_H - RAIL_Y - SKIRT_H)
+	_dot(img, 0, RAIL_Y - 2, Color("7a5c2c"), PX, 2)
+	_dot(img, 0, CORNICE_H + 2, Color("c89a5a") if variant == 0 else Color("5fb0b8"), PX, 2)
+	_skirt(img, Color("1e1614"))
+	_cornice(img, Color("4a423c"))
+	_grime(img, rng, 2)
+	return img
+
+
 static func _paint_wall_corridor(variant: int) -> Image:
 	# service corridor: bay of dark metal with hazard-striped foot and an amber conduit
 	var rng := _rng("wcorr%d" % variant)
@@ -575,6 +818,64 @@ static func _paint_wall_inferno(variant: int) -> Image:
 	return img
 
 
+## Basalt for the Inferno's caves: no paving, no panels. A dark volcanic ground with grit, pits, paler flecks and the odd ember
+## crack, so a chunk of cave floor never reads as plates.
+static func _paint_rock_floor(variant: int) -> Image:
+	var rng := _rng("rockfloor%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("2c2527") if variant != 1 else Color("30272a")
+	_noise(img, 0, 0, PX, PX, base, .2, rng, 2)
+	_noise(img, 0, 0, PX, PX, base, .1, rng)
+	for i in 34:
+		var shade := Color("0f0b0c") if i % 3 != 0 else Color("4a403f")
+		_dot(img, rng.randi_range(0, 31), rng.randi_range(0, 31), shade, rng.randi_range(1, 3), rng.randi_range(1, 2))
+	for i in 3:
+		_crack(img, rng, rng.randi_range(2, 29), rng.randi_range(2, 29), rng.randi_range(5, 12), Color("0c0809"))
+	if variant == 2:
+		for i in 2:
+			_crack(img, rng, rng.randi_range(2, 29), rng.randi_range(2, 29), rng.randi_range(5, 11), Color("c8481a") if i == 0 else Color("7a2a14"))
+	return img
+
+
+## Cave wall: strata in uneven bands, vertical weathering streaks, ember cracks, and a ragged dark top instead of a cornice.
+static func _paint_wall_rock(variant: int) -> Image:
+	var rng := _rng("rockwall%d" % variant)
+	var img := _new_image(PX, WALL_H)
+	var base := Color("2a2224") if variant % 2 == 0 else Color("2f2325")
+	_noise(img, 0, 0, PX, WALL_H, base, .16, rng, 2)
+	var y := 0
+	while y < WALL_H:
+		var band := rng.randi_range(6, 18)
+		var tone := rng.randf_range(.78, 1.18)
+		for x in PX:
+			if rng.randf() < .7:
+				_dot(img, x, y, _mul(base, tone * rng.randf_range(.9, 1.1)), 1, band)
+		_dot(img, 0, y, Color("0d0909"), PX, 1)
+		y += band
+	for i in 10:
+		_dot(img, rng.randi_range(0, 31), rng.randi_range(0, WALL_H - 8), Color("0c0808"), 1, rng.randi_range(4, 20))
+	# ember cracks: how many (none on some variants) and where differs per variant, so no pattern repeats along a wall
+	var cracks: int = [3, 0, 2, 4, 1, 0, 3, 2][variant % 8]
+	for i in cracks:
+		_crack(img, rng, rng.randi_range(2, 29), rng.randi_range(12, WALL_H - 16), rng.randi_range(8, 24),
+			Color("c8481a") if i % 2 == 0 else Color("7a2a14"))
+	# ragged top: the rock above the cave ceiling bites down unevenly
+	for x in PX:
+		_dot(img, x, 0, Color("0c0809"), 1, rng.randi_range(2, 9))
+	_dot(img, 0, WALL_H - 3, Color("100b0c"), PX, 3)
+	return img
+
+
+static func _paint_rock_ceiling(variant: int) -> Image:
+	var rng := _rng("rockceil%d" % variant)
+	var img := _new_image(PX, PX)
+	var base := Color("151012")
+	_noise(img, 0, 0, PX, PX, base, .22, rng, 2)
+	for i in 14:
+		_dot(img, rng.randi_range(0, 31), rng.randi_range(0, 31), Color("07040a") if i % 2 == 0 else Color("2a2022"), rng.randi_range(2, 5), rng.randi_range(2, 4))
+	return img
+
+
 # -- ceilings ------------------------------------------------------------------
 
 static func _paint_ceiling(variant: int) -> Image:
@@ -591,6 +892,22 @@ static func _paint_ceiling(variant: int) -> Image:
 		_rivet(img, r[0], r[1], base)
 	if variant == 1:
 		_dot(img, 14, 14, _mul(base, .6), 6, 6)
+	return img
+
+
+## The sewer's barrel vault: damp concrete with a faint course line in one
+## direction only, so a long tunnel ceiling reads as a plain vault instead of
+## the coffered beam grid (whose 1 m beams read as a lattice of crosses). Light
+## enough to read as a slab under the lamps (KT: "floating lights" — at 110e0e
+## the vault rendered as black space and every ceiling lamp hung in a void).
+static func _paint_vault(_variant: int) -> Image:
+	var rng := _rng("vault")
+	var img := _new_image(PX, PX)
+	var base := Color("4a443d")
+	_noise(img, 0, 0, PX, PX, base, .18, rng)
+	_dot(img, 0, 0, _mul(base, 1.35), PX, 1)
+	for i in 4:
+		_dot(img, rng.randi_range(1, PX - 3), rng.randi_range(3, PX - 3), _mul(base, .55), 2, 1)
 	return img
 
 
@@ -627,7 +944,15 @@ const FLOOR_PAINTERS := {
 	"grate": [&"_paint_grate", 0], "runnerz": [&"_paint_runner_z", 0],
 	"safe": [&"_paint_safe", 0], "safe_plain": [&"_paint_safe_plain", 0], "safe_mark": [&"_paint_safe_mark", 0],
 	"runner_l": [&"_paint_runner_l", 0], "runner_c": [&"_paint_runner_c", 0], "runner_r": [&"_paint_runner_r", 0],
+	"carpet_red": [&"_paint_carpet", 0], "carpet_teal": [&"_paint_carpet", 1], "carpet_green": [&"_paint_carpet", 2],
+	"carpet_plum": [&"_paint_carpet", 3], "carpet_tile0": [&"_paint_carpet_tile", 0], "carpet_tile1": [&"_paint_carpet_tile", 1],
+	"vinyl0": [&"_paint_vinyl", 0], "vinyl1": [&"_paint_vinyl", 1], "concrete0": [&"_paint_concrete", 0],
+	"concrete1": [&"_paint_concrete", 1],
 	"runnerz_l": [&"_paint_runnerz_l", 0], "runnerz_c": [&"_paint_runnerz_c", 0], "runnerz_r": [&"_paint_runnerz_r", 0],
+	"terrazzo0": [&"_paint_terrazzo", 0], "terrazzo1": [&"_paint_terrazzo", 1],
+	"epoxy0": [&"_paint_epoxy", 0], "epoxy1": [&"_paint_epoxy", 1],
+	"terracotta0": [&"_paint_terracotta", 0], "terracotta1": [&"_paint_terracotta", 1],
+	"rock0": [&"_paint_rock_floor", 0], "rock1": [&"_paint_rock_floor", 1], "rock2": [&"_paint_rock_floor", 2],
 }
 const WALL_PAINTERS := {
 	"panel0": [&"_paint_wall_panel", 0], "panel1": [&"_paint_wall_panel", 1],
@@ -639,10 +964,19 @@ const WALL_PAINTERS := {
 	"office0": [&"_paint_wall_office", 0], "office1": [&"_paint_wall_office", 1],
 	"corridor0": [&"_paint_wall_corridor", 0], "corridor1": [&"_paint_wall_corridor", 1],
 	"inferno0": [&"_paint_wall_inferno", 0],
+	"rockwall0": [&"_paint_wall_rock", 0], "rockwall1": [&"_paint_wall_rock", 1], "rockwall2": [&"_paint_wall_rock", 2],
+	"rockwall3": [&"_paint_wall_rock", 3], "rockwall4": [&"_paint_wall_rock", 4], "rockwall5": [&"_paint_wall_rock", 5], "rockwall6": [&"_paint_wall_rock", 6],
+	"rockwall7": [&"_paint_wall_rock", 7],
+	"hospital0": [&"_paint_wall_hospital", 0], "hospital1": [&"_paint_wall_hospital", 1],
+	"lab0": [&"_paint_wall_lab", 0], "lab1": [&"_paint_wall_lab", 1],
+	"mall0": [&"_paint_wall_mall", 0], "mall1": [&"_paint_wall_mall", 1],
+	"glasshouse0": [&"_paint_wall_glasshouse", 0], "glasshouse1": [&"_paint_wall_glasshouse", 1],
 }
 const CEILING_PAINTERS := {
 	"ceil0": [&"_paint_ceiling", 0], "ceil1": [&"_paint_ceiling", 1],
 	"glass": [&"_paint_glass", 0],
+	"rockceil": [&"_paint_rock_ceiling", 0],
+	"vault": [&"_paint_vault", 0],
 }
 
 
@@ -652,8 +986,9 @@ static func texture(group: String, kind: String) -> Texture2D:
 		return _textures[key]
 	var table: Dictionary = {"floor": FLOOR_PAINTERS, "wall": WALL_PAINTERS,
 		"ceiling": CEILING_PAINTERS}[group]
-	var entry: Array = table.get(kind, table[table.keys()[0]])
-	var img: Image = Callable(RefTextures, entry[0]).call(entry[1])
+	var known := table.has(kind)
+	var entry: Array = table[kind] if known else table[table.keys()[0]]
+	var img: Image = _paint(group, kind if known else String(table.keys()[0]), entry)
 	img.generate_mipmaps()
 	var tex := ImageTexture.create_from_image(img)
 	_textures[key] = tex
@@ -669,8 +1004,8 @@ static func material(group: String, kind: String) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = texture(group, kind)
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
-	m.roughness = .9
-	m.metallic_specular = .15
+	m.roughness = MaterialLook.ROUGHNESS_MATTE
+	m.metallic_specular = MaterialLook.SPECULAR_DEFAULT
 	# painted values are deliberately dark; lift them so a lamp pool reads
 	m.albedo_color = Color(1.4, 1.4, 1.45)
 	if group == "ceiling":
@@ -683,19 +1018,11 @@ static func material(group: String, kind: String) -> StandardMaterial3D:
 	elif group == "floor" and (kind.begins_with("metal") or kind == "grate" or kind == "hazard"):
 		m.albedo_color = Color(1.2, 1.2, 1.25)
 	if group == "floor":
-		if kind.begins_with("floral") or kind.begins_with("star") or kind == "runner":
-			m.roughness = .85
-			m.metallic_specular = .25
-		elif kind.begins_with("metal") or kind == "hazard" or kind == "grate":
-			m.roughness = .30
-			m.metallic = .35
-			m.metallic_specular = .9
-		elif kind.begins_with("stone"):
-			m.roughness = .22
-			m.metallic_specular = .85
-		elif kind.begins_with("parquet") or kind.begins_with("check"):
-			m.roughness = .38
-			m.metallic_specular = .6
+		if not (kind.begins_with("floral") or kind.begins_with("star") or kind == "runner"):
+			var response := MaterialLook.floor_response(kind)
+			m.roughness = response.x
+			m.metallic = response.y
+			m.metallic_specular = response.z
 	_materials[key] = m
 	return m
 
@@ -726,7 +1053,8 @@ static func _build_array(group: String) -> void:
 		var table: Dictionary = WALL_PAINTERS if group == "wall" else (
 			FLOOR_PAINTERS if FLOOR_PAINTERS.has(kind) else CEILING_PAINTERS)
 		var entry: Array = table[kind]
-		var img: Image = Callable(RefTextures, entry[0]).call(entry[1])
+		var img: Image = _paint("wall" if group == "wall" else ("floor" if FLOOR_PAINTERS.has(kind) else "ceiling"), kind,
+			entry)
 		img.generate_mipmaps()
 		images.append(img)
 	var arr := Texture2DArray.new()
@@ -743,21 +1071,19 @@ static func layer(group: String, kind: String) -> float:
 
 ## Vertex-colour surface response: r = roughness, g = metallic, b = emission.
 static func params(group: String, kind: String) -> Color:
-	var rough := .9
-	var metal := 0.0
+	var rough := MaterialLook.ROUGHNESS_MATTE
+	var metal := MaterialLook.METALLIC_DEFAULT
 	var emit := 0.0
 	if group == "floor":
-		if kind.begins_with("floral") or kind.begins_with("star") or kind.begins_with("runner"):
-			rough = .85
-		elif kind.begins_with("metal") or kind == "hazard" or kind == "grate" or kind.begins_with("safe"):
-			rough = .30
-			metal = .35
-		elif kind.begins_with("stone"):
-			rough = .22
-		elif kind.begins_with("parquet") or kind.begins_with("check"):
-			rough = .38
+		var response := MaterialLook.floor_response(kind)
+		rough = response.x
+		metal = response.y
 	elif group == "ceiling" and kind == "glass":
 		emit = .55
+	elif group == "ceiling" and kind == "vault":
+		# the sewer has no ambient fill and its lamps light downward: a faint glow keeps the vault a visible slab
+		# over the fittings instead of black space (KT: "floating lights")
+		emit = .16
 	return Color(rough, metal, emit)
 
 
@@ -770,5 +1096,7 @@ static func array_material(group: String) -> ShaderMaterial:
 	m.shader = ARRAY_SHADER
 	m.set_shader_parameter("tex", _array_textures[group])
 	m.set_shader_parameter("tint", Vector3(1.25, 1.22, 1.3))
+	m.set_shader_parameter("specular_base", MaterialLook.SPECULAR_DEFAULT)
+	m.set_shader_parameter("specular_metal", MaterialLook.SPECULAR_METAL)
 	_array_materials[group] = m
 	return m

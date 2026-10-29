@@ -4,6 +4,7 @@ extends Node
 ## the runner to one room of each type and saves viewport PNGs.
 ##
 ##   godot --path . res://tools/look/capture.tscn -- OUTDIR TAG [SEED]
+## Add CAP_FULLBRIGHT=1 (or FULLBRIGHT=1) as an extra argument for the flat fullbright look (DebugView).
 ##
 ## Environment: CAP_ONLY=<substring of "region_roomtype">, CAP_MAX=<n rooms>,
 ## CAP_YAWS="0,90" (degrees), CAP_FPS=1 to print the frame time instead of
@@ -16,8 +17,14 @@ var _tag := "x"
 func _ready() -> void:
 	LampField.optimise = OS.get_environment("CAP_LEGACY_LIGHTS") == ""
 	var args := OS.get_cmdline_user_args()
+	# extra "KEY=VALUE" arguments become environment variables (mini-run.sh cannot prefix env vars)
+	for extra in args.slice(3):
+		var pair := String(extra).split("=", false, 1)
+		if pair.size() == 2:
+			OS.set_environment(pair[0], pair[1])
 	_out_dir = args[0] if args.size() > 0 else "/tmp"
 	_tag = args[1] if args.size() > 1 else "x"
+	DirAccess.make_dir_recursive_absolute(_out_dir)
 	RoomState.seed_text = args[2] if args.size() > 2 else "REFLOOK"
 	if OS.get_environment("CAP_FPS") != "":
 		Settings.fps_limit = 0
@@ -136,11 +143,21 @@ func _place_hunters(origin: Vector3, yaw_deg: float) -> Array:
 		if node == null:
 			continue
 		_scene.add_child(node)
+		# CAP_SCALE=1.5: draw them at the in-game hunter scale (HunterRoster.MODEL_SCALE)
+		if OS.get_environment("CAP_SCALE") != "":
+			node.scale = Vector3.ONE * float(OS.get_environment("CAP_SCALE"))
 		node.global_position = origin + forward * distance + side * lateral
 		node.rotation.y = deg_to_rad(yaw_deg)
 		placed.append(node)
 		distance += 2.5
 		lateral = -lateral
+	if OS.get_environment("CAP_MANNEQUIN") != "":
+		# CAP_MANNEQUIN=1: the player model 1.5 m to the right of the nearest hunter, for scale
+		var mannequin: Node3D = (load(PlayerModels.BLOCKY) as PackedScene).instantiate()
+		_scene.add_child(mannequin)
+		mannequin.global_position = origin + forward * 3.5 + side * 1.2
+		mannequin.rotation.y = deg_to_rad(yaw_deg)
+		placed.append(mannequin)
 	return placed
 
 
@@ -159,12 +176,17 @@ func _run(scene: Node) -> void:
 	var player: PlayerController3D = scene.get_node("%Player")
 	if OS.get_environment("CAP_HUD") == "":
 		scene.get_node("%HUD").visible = false
+	if OS.get_environment("CAP_COLLISION") != "":
+		# CAP_COLLISION=1: the admin SHOW COLLISION overlay (colliders red, door keep-clear zones green)
+		scene.call("_set_show_collision", true)
 	var gen := facility.generator
 	var cs := StreamedRouteGenerator.CHUNK_SIZE
 	var picks := []
 	var seen := {}
 	var level_env := OS.get_environment("CAP_LEVELS")
 	var reach := 3 if level_env != "" else 2
+	if OS.get_environment("CAP_REACH") != "":
+		reach = int(OS.get_environment("CAP_REACH"))
 	for level_text in (level_env if level_env != "" else "0").split(","):
 		_scan_level(gen, int(level_text), reach, cs, picks, seen)
 	if OS.get_environment("CAP_SUITE") != "":
@@ -186,12 +208,153 @@ func _run(scene: Node) -> void:
 							picks.append({"name": "suite_%s" % room["room_type"], "pos": Vector3(
 								cx * cs + rect.position.x + rect.size.x * .5, .05,
 								cz * cs + rect.position.y + rect.size.y * .5)})
+	if OS.get_environment("CAP_GREAT") != "":
+		# CAP_GREAT=1: the first great hall (21x21 gathering room) of each district, seen from its door
+		picks = []
+		var seen_regions := {}
+		for gr in range(0, 12):
+			for gz in range(-gr, gr + 1):
+				for gx in range(-gr, gr + 1):
+					var gc := Vector3i(gx, 0, gz)
+					if maxi(absi(gx), absi(gz)) != gr or not gen.is_chunk_allowed(gc):
+						continue
+					var gb := gen.region_for(gc)
+					if seen_regions.has(gb):
+						continue
+					var plan := gen.large_plan(gc)
+					for side in ["W", "E"]:
+						if String(plan[side]).is_empty() or seen_regions.has(gb):
+							continue
+						seen_regions[gb] = true
+						var west: bool = side == "W"
+						picks.append({"name": "great_%s_%s" % [gb, plan[side]], "yaw": 90.0 if west else -90.0,
+							"pos": Vector3(gx * cs + (17.5 if west else 27.5), 0.05, gz * cs + 22.5)})
 	if OS.get_environment("CAP_AT") not in ["", "start"]:
 		# CAP_AT="x,z;x,z": world metres, one pick per pair
 		picks = []
 		for pair in OS.get_environment("CAP_AT").split(";"):
 			var xz := pair.split(",")
-			picks.append({"name": "at_%s_%s" % [xz[0], xz[1]], "pos": Vector3(float(xz[0]), .05, float(xz[1]))})
+			var pick := {"name": "at_%s_%s" % [xz[0], xz[1]], "pos": Vector3(float(xz[0]), .05, float(xz[1]))}
+			if xz.size() > 2:
+				pick["yaw"] = float(xz[2])   # optional third value: the heading in degrees
+			if xz.size() > 3:
+				pick["pos"].y = float(xz[3])   # optional fourth value: the standing height (a lower level's floor)
+			picks.append(pick)
+	if OS.get_environment("CAP_JUNCTION") != "":
+		# CAP_JUNCTION=gothic: one T and one cross junction of that region in THIS run's generator, 5 m down an arm
+		picks = []
+		for entry in GeometryAudit.junction_spots(facility.generator, OS.get_environment("CAP_JUNCTION")):
+			var xz := String(entry).split(",")
+			picks.append({"name": "junction_%s_%s" % [xz[0], xz[1]], "pos": Vector3(float(xz[0]), .05, float(xz[1])), "yaw": float(xz[2])})
+	if OS.get_environment("CAP_CRAWL") != "":
+		# CAP_CRAWL=1: the first crawl-under pipe of the sewer layer, 4 m down its branch looking at it (CAP_LEVELS is ignored)
+		picks = []
+		var sewers := SewerRouteGenerator.new(facility.generator)
+		for cz in range(-4, 5):
+			for cx in range(-4, 5):
+				if picks.size() >= 2:
+					continue
+				for prop in sewers.chunk(Vector3i(cx, SewerRouteGenerator.LEVEL, cz))["region_props"]:
+					if prop.get("crawl_under", false) and picks.size() < 2:
+						var step: Vector2i = prop["crawl_step"]
+						var at := Vector2(cx * 45 + (prop["cell"] as Vector2i).x + .5, cz * 45 + (prop["cell"] as Vector2i).y + .5) + Vector2(step) * 4.0
+						picks.append({"name": "crawl_%d_%d" % [cx, cz], "pos": Vector3(at.x, SewerRouteGenerator.LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT + .05, at.y),
+							"yaw": rad_to_deg(atan2(float(step.x), float(step.y)))})
+						break
+	if OS.get_environment("CAP_FALLS") != "":
+		# CAP_FALLS=1: the first waterfall of this run's generator: the top (level -1, on the spur looking at the lip) and the
+		# bottom (level -2, across the cistern looking at the landing); CAP_FALLS=pit: the first cage pit on level -3
+		picks = []
+		var fsize := StreamedRouteGenerator.CHUNK_SIZE
+		for cz in range(-4, 5):
+			for cx in range(-4, 5):
+				if not picks.is_empty():
+					continue
+				if OS.get_environment("CAP_FALLS") == "ramp":
+					var ramp: Dictionary = facility.generator.sewer().ramp_between(cx, cz, SewerRouteGenerator.LOWER_LEVEL)
+					if ramp.is_empty():
+						continue
+					var rz := cz * fsize + float(ramp["row"]) + .5
+					var top_rect: Rect2i = ramp["top"]
+					var bottom_rect: Rect2i = ramp["bottom"]
+					var slope_rect: Rect2i = ramp["ramp"]
+					var top_cx := cx * fsize + top_rect.position.x + 1.5
+					var bot_cx := cx * fsize + bottom_rect.position.x + 1.5
+					var slope_mid := cx * fsize + slope_rect.position.x + slope_rect.size.x * .5
+					var low2 := SewerRouteGenerator.LOWER_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+					var low3 := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+					var away := -1.0 if top_cx > slope_mid else 1.0       # from the landing toward the slope
+					picks.append({"name": "ramp_top", "pos": Vector3(top_cx - away * 1.5, low2 + .05, rz), "yaw": 0.0,
+						"look": Vector3(slope_mid, low3 + 1.2, rz)})
+					picks.append({"name": "ramp_bottom", "pos": Vector3(bot_cx + away * 1.0, low3 + .05, rz), "yaw": 0.0,
+						"look": Vector3(slope_mid, low2 + .6, rz)})
+					picks.append({"name": "ramp_bottom_side", "pos": Vector3(bot_cx, low3 + .05, rz), "yaw": 0.0,
+						"look": Vector3(bot_cx, low3 + 1.4, cz * fsize + float((ramp["connector"] as Rect2i).position.y) + (ramp["connector"] as Rect2i).size.y * .5)})
+					continue
+				if OS.get_environment("CAP_FALLS") == "seal":
+					var seal_y := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+					for spec in facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz)).get("breakables", []):
+						var seal_centre: Vector2 = spec["extras"]["centre"]
+						var seal_dir: Vector2 = spec["extras"]["dir"]
+						var from_cell: Vector2 = seal_centre - seal_dir * 5.0
+						picks.append({"name": "seal_%s" % String(spec["variant"]), "yaw": 0.0,
+							"pos": Vector3(cx * fsize + from_cell.x, seal_y + .05, cz * fsize + from_cell.y),
+							"look": Vector3(cx * fsize + seal_centre.x, seal_y + 1.4, cz * fsize + seal_centre.y)})
+						break
+					continue
+				if OS.get_environment("CAP_FALLS") == "sewerseal":
+					# CAP_FALLS=sewerseal: the first sealed utility room of the sewer (-1) and the collector (-2), 5 m back from its gate
+					for seal_level in [StreamedRouteGenerator.SEWER_LEVEL, StreamedRouteGenerator.LOWER_SEWER_LEVEL]:
+						for spec in facility.generator.chunk(Vector3i(cx, seal_level, cz)).get("breakables", []):
+							if String(spec["kind"]) != Breach.KIND_SEAL:
+								continue
+							var gate_centre: Vector2 = spec["extras"]["centre"]
+							var gate_dir: Vector2 = spec["extras"]["dir"]
+							var stand: Vector2 = gate_centre + gate_dir * 5.0   # on the tunnel side, looking into the room
+							var gate_y: float = seal_level * StreamedFacilityView3D.LEVEL_HEIGHT
+							picks.append({"name": "sewerseal_%d_%s" % [seal_level, String(spec["variant"])], "yaw": 0.0,
+								"pos": Vector3(cx * fsize + stand.x, gate_y + .05, cz * fsize + stand.y),
+								"look": Vector3(cx * fsize + gate_centre.x, gate_y + 1.4, cz * fsize + gate_centre.y)})
+							break
+					continue
+				if OS.get_environment("CAP_FALLS") == "cave":
+					var cave_data: Dictionary = facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz))
+					var cave_chambers: Array = cave_data.get("inferno_caverns", [])
+					if cave_chambers.is_empty() or cx != 1 or cz != 1:
+						continue
+					var cave_y := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+					var mid := Vector2i(StreamedRouteGenerator.CHUNK_SIZE / 2, StreamedRouteGenerator.CHUNK_SIZE / 2)
+					# from the middle chamber looking along a tunnel toward the seam, and across the chamber
+					var home: Vector2i = InfernoCaverns.landing(cave_data)
+					for heading in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
+						picks.append({"name": "cave_%d_%d" % [heading.x, heading.y], "yaw": 0.0,
+							"pos": Vector3(cx * fsize + home.x + .5, cave_y + .05, cz * fsize + home.y + .5),
+							"look": Vector3(cx * fsize + home.x + .5 + heading.x * 12, cave_y + 1.2, cz * fsize + home.y + .5 + heading.y * 12)})
+					continue
+				if OS.get_environment("CAP_FALLS") == "pit":
+					for pit in InfernoCaverns.pits_in(facility.generator.chunk(Vector3i(cx, StreamedRouteGenerator.INFERNO_LEVEL, cz))):
+						var span: Rect2i = pit["bridge"]
+						var pit_north: bool = pit["north"]
+						var pit_y := StreamedRouteGenerator.INFERNO_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+						var pit_z := float(span.end.y) + 5.0 if pit_north else float(span.position.y) - 5.0
+						picks.append({"name": "pit_stand", "pos": Vector3(cx * fsize + span.position.x + 1.5, pit_y + .05, cz * fsize + pit_z + (3.0 if pit_north else -3.0)),
+							"yaw": 0.0, "look": Vector3(cx * fsize + span.position.x + 1.5, pit_y - .7, cz * fsize + float(span.position.y) + 1.5)})
+						break
+					continue
+				var falls: Dictionary = facility.generator.sewer().falls_between(cx, cz)
+				if falls.is_empty():
+					continue
+				var qc: Vector2i = falls["center"]
+				var falls_north: bool = falls["north"]
+				var lip_z := cz * fsize + float(falls["edge_z"])
+				var fx := cx * fsize + qc.x + .5
+				var top_y := SewerRouteGenerator.LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+				var low_y := SewerRouteGenerator.LOWER_LEVEL * StreamedFacilityView3D.LEVEL_HEIGHT
+				var back := 6.0 if falls_north else -6.0
+				picks.append({"name": "falls_top", "pos": Vector3(fx, top_y + .05, lip_z + back),
+					"yaw": 0.0, "look": Vector3(fx, top_y - 1.0, lip_z)})
+				picks.append({"name": "falls_bottom", "pos": Vector3(fx, low_y + .05, lip_z - back * 1.1),
+					"yaw": 0.0, "look": Vector3(fx, low_y + 1.2, lip_z)})
 	if OS.get_environment("CAP_AT") == "start":
 		# CAP_AT=start: only the spawn (the starting safe room), 4 m back from its centre
 		picks = [{"name": "start", "pos": player.global_position + Vector3(0, 0, 4)}]
@@ -220,10 +383,25 @@ func _run(scene: Node) -> void:
 			player.global_position = p["pos"]
 			player._yaw = deg_to_rad(float(yaw_text))
 			player._pitch = deg_to_rad(float(OS.get_environment("CAP_PITCH")) if OS.get_environment("CAP_PITCH") != "" else -2.0)
+			if p.has("look") or OS.get_environment("CAP_LOOK") != "":
+				# CAP_LOOK="x,y,z": aim every CAP_AT pick at that world point (eye height 1.6 m)
+				var d := Vector3.ZERO
+				if p.has("look"):
+					d = (p["look"] as Vector3) - (p["pos"] as Vector3 + Vector3(0, 1.6, 0))
+				else:
+					var target := PackedStringArray(OS.get_environment("CAP_LOOK").split(","))
+					d = Vector3(float(target[0]), float(target[1]), float(target[2])) - (p["pos"] as Vector3 + Vector3(0, 1.6, 0))
+				player._yaw = atan2(-d.x, -d.z)
+				player._pitch = atan2(d.y, Vector2(d.x, d.z).length())
 			player._apply_look_rotation()
 			facility.refresh_at_tracked_player()
+			# CAP_FULLBRIGHT=1 (or FULLBRIGHT=1): DebugView's flat, shadowless look, so dark levels can be judged; the shot name
+			# gets a _fb suffix. Capture tools only: DebugView stays admin-gated in the game.
+			if OS.get_environment("CAP_FULLBRIGHT") != "" or OS.get_environment("FULLBRIGHT") != "":
+				DebugView.tool_override = true
+				DebugView.set_mode(DebugView.Mode.FULLBRIGHT, get_viewport())
 			var hunter_nodes := _place_hunters(p["pos"], float(yaw_text))
-			await _wait(14)
+			await _wait(int(OS.get_environment("CAP_WAIT")) if OS.get_environment("CAP_WAIT") != "" else 14)
 			if OS.get_environment("CAP_FPS") != "":
 				var t0 := Time.get_ticks_usec()
 				await _wait(60)
@@ -257,8 +435,63 @@ func _run(scene: Node) -> void:
 							by_owner[key] = int(by_owner.get(key, 0)) + 1
 					print("UNBUDGETED ", by_owner)
 				print("LIGHTS %s yaw %s: omni=%d visible=%d shadowed(omni=%d spot=%d)" % [p["name"], yaw_text, omni, omni_visible, omni_shadow, spot_shadow])
+			var map_layer: CanvasLayer = null
+			if OS.get_environment("CAP_MAP") != "":
+				map_layer = await _show_map(scene, player)
 			var img := get_viewport().get_texture().get_image()
+			if map_layer != null:
+				map_layer.queue_free()
+				img = img.get_region(Rect2i(0, 0, mini(img.get_width(), img.get_height()), mini(img.get_width(), img.get_height())))
+				img.resize(480, 480, Image.INTERPOLATE_BILINEAR)
 			img.save_png("%s/%s_%s_%s.png" % [_out_dir, _tag, p["name"], yaw_text])
 			for node in hunter_nodes:
 				node.queue_free()
 	get_tree().quit()
+
+
+## CAP_MAP=1: the HUD map widget (FacilityMap, revealed, CAP_MAP_RADIUS cells around the runner, default 9) drawn over the
+## frame, with the prop collision shapes that really exist in the 3D scene outlined in red on top: on an accurate map the
+## grey boxes fill the red outlines exactly.
+func _show_map(scene: Node, player: PlayerController3D) -> CanvasLayer:
+	scene.set("_admin_reveal_map", true)
+	scene.call("_discover_loaded_chunks")
+	var layer := CanvasLayer.new()
+	layer.layer = 100
+	var side := float(mini(get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y))
+	var map := FacilityMap.new()
+	map.size = Vector2(side, side)
+	layer.add_child(map)
+	var truth := _ShapeOutlines.new()
+	truth.map = map
+	truth.size = map.size
+	layer.add_child(truth)
+	get_tree().root.add_child(layer)
+	var radius := int(OS.get_environment("CAP_MAP_RADIUS")) if OS.get_environment("CAP_MAP_RADIUS") != "" else 9
+	var facility: StreamedFacilityView3D = scene.get_node("%StreamedFacility")
+	map.show_streamed_state(scene.call("_local_map_chunks"), facility.current_chunk_coord().y, StreamedRouteGenerator.CHUNK_SIZE,
+		Vector2(player.global_position.x, player.global_position.z), Vector2(0, 1), [], false, radius)
+	for shape_node in facility.find_children("*", "CollisionShape3D", true, false):
+		var shape := (shape_node as CollisionShape3D).shape
+		if shape is BoxShape3D and StreamedFacilityView3D._box_shapes.values().has(shape):
+			truth.boxes.append([(shape_node as CollisionShape3D).global_transform, (shape as BoxShape3D).size])
+	await _wait(4)
+	return layer
+
+
+class _ShapeOutlines extends Control:
+	var map: FacilityMap
+	var boxes: Array = []
+
+	func _draw() -> void:
+		var cell: float = map._last_cell_scale
+		for entry in boxes:
+			var xf: Transform3D = entry[0]
+			var size: Vector3 = entry[1]
+			var points := PackedVector2Array()
+			for corner in [Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(1, 0, 1), Vector3(-1, 0, 1), Vector3(-1, 0, -1)]:
+				var w: Vector3 = xf * ((corner as Vector3) * size * .5)
+				points.append(map._last_screen_origin + (Vector2(w.x, w.z) - map._last_world_origin) * cell)
+			draw_polyline(points, Color(1, .2, .2), 1.5)
+
+	func _process(_delta: float) -> void:
+		queue_redraw()

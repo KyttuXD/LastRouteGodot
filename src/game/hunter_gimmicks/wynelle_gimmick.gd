@@ -41,7 +41,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 	var heater_unfrozen: bool = target.get("heater_unfrozen", false)
 
 	if materialized:
-		if heater_unfrozen:
+		if heater_unfrozen or bool(target.get("in_safe_zone", false)):
 			# Not a full reset — powering the station is the only thing that
 			# stops her building toward this again.
 			materialized = false
@@ -58,7 +58,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 	brain.active = false
 	brain.state = HunterBrain.State.IDLE
 
-	if heater_powered or meters == null:
+	if heater_powered or meters == null or bool(target.get("in_safe_zone", false)):
 		progress = 0.0
 		return
 	var temperature := meters.temperature

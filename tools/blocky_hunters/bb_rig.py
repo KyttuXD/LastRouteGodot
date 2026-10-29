@@ -9,6 +9,14 @@ them, so one clip set plays on all hunters.
 import json, math, pathlib
 from bb_core import quat_from_euler, quat_mul
 
+# One shared amplitude scale for every sway: idle breathing/weight shift, gait torso and head counter-motion, arm drift, and the
+# procedural swing of hair / tails / ears / wings (extra bones). 1.0 = the old, much busier motion. A hunter that needs more or
+# less sets "sway" in hunters/motion.py PROFILES (a multiplier on this). Deliberate poses (head_roll, lean, stride, emotes) are not
+# touched, so each hunter keeps its silhouette and personality.
+SWAY_SCALE = 0.5
+# Hanging parts swing at a lower, calmer frequency: cycles per clip are scaled by this (kept whole so loops still close).
+SWAY_FREQUENCY = 0.6
+
 HERE = pathlib.Path(__file__).resolve().parent
 CLIPS = json.loads((HERE / "clips.json").read_text())
 HYTALE_PELVIS_Y = 0.796875
@@ -23,7 +31,7 @@ CORE = [
     ("R-Thigh", "Pelvis"), ("R-Calf", "R-Thigh"), ("R-Foot", "R-Calf"),
 ]
 CORE_NAMES = [b for b, _ in CORE]
-REQUIRED_CLIPS = ["idle", "walk", "chase", "sprint", "crouch", "stun", "stun_recover", "charge", "flight", "jumpscare"]
+REQUIRED_CLIPS = ["idle", "walk", "chase", "sprint", "crouch", "stun", "stun_recover", "charge", "flight", "jumpscare", "climb"]
 # the gameplay clips the roster/jumpscare code asks for by name (blink etc. are faces)
 
 
@@ -63,6 +71,7 @@ def _lerp_key_times(length, n):
 def build_clips(bones, hip_y, profile=None, emotes=None):
     """Return {clip: {"length": s, "tracks": {bone: {"rotation": (t, v), "translation": (t, v)}}}}.
     Core tracks come from the Hytale clips; charge/flight/jumpscare are authored here."""
+    sw = SWAY_SCALE * float((profile or {}).get("sway", 1.0))
     names = {b["name"] for b in bones}
     restq = {b["name"]: b["rot"] for b in bones}
     pel = next(b for b in bones if b["name"] == "Pelvis")["pivot"]
@@ -136,6 +145,21 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
         }.get(b)
     clips["jumpscare"] = authored(0.8, 6, scare, lambda i: -0.05 + 0.012 * (1 if i % 2 else -1))
 
+    # climb: on a sewer ladder facing the rungs, one hand reaching overhead while the opposite knee lifts to the next
+    # rung (contralateral, like a real ladder climb), torso tucked in to the ladder, a small lift each hand-over-hand
+    def climb(b, i):
+        s = math.sin(2 * math.pi * i / 8)
+        return {
+            "Belly": (5, 0, 0), "Chest": (6, 0, 2 * s), "Head": (-6, 0, 0),
+            "L-Arm": (150 + 22 * s, 0, -6), "R-Arm": (150 - 22 * s, 0, 6),
+            "L-Forearm": (28 - 18 * s, 0, 0), "R-Forearm": (28 + 18 * s, 0, 0),
+            "L-Hand": (10, 0, 0), "R-Hand": (10, 0, 0),
+            "L-Thigh": (48 - 26 * s, 0, 0), "R-Thigh": (48 + 26 * s, 0, 0),
+            "L-Calf": (-58 + 22 * s, 0, 0), "R-Calf": (-58 - 22 * s, 0, 0),
+            "L-Foot": (10, 0, 0), "R-Foot": (10, 0, 0),
+        }.get(b)
+    clips["climb"] = authored(1.0, 8, climb, lambda i: 0.04 * math.sin(4 * math.pi * i / 8))
+
     # stun: a per-hunter style (stun.py) of staggering / toppling / curling ..., and the wake-up that follows it
     import stun as stun_mod
     st = stun_mod.style((profile or {}).get("stun_style", "base"), (profile or {}).get("stun_over"))
@@ -192,8 +216,8 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
     # torso counter-rotation + hip sway + head bob a real gait has to walk / chase / sprint / charge
     for name, specs in OVERLAYS.items():
         if name in clips:
-            overlay(clips[name], restq, specs)
-    _apply_profile(clips, restq, pel, profile or {})
+            overlay(clips[name], restq, [(b, tuple(a * sw for a in amp), c, ph) for b, amp, c, ph in specs])
+    _apply_profile(clips, restq, pel, dict(profile or {}, _sw=sw))
     ground_fit(clips, bones, restq, st["buckle"] <= .2)
     clips.update(emotes or {})            # one-shot emotes are added after the profile: they keep their own timing
 
@@ -217,6 +241,9 @@ def build_clips(bones, hip_y, profile=None, emotes=None):
                         "stun": 4, "flight": 10, "jumpscare": 8}.get(clip_name, max(2, round(length * 3)))
             else:
                 cyc2 = cyc * mult
+            if not (b["name"].endswith("Wing") and clip_name == "flight"):    # the flap is the flight
+                amp *= sw
+                cyc2 = max(1, math.ceil(cyc2 * SWAY_FREQUENCY))
             rule = stun_mod.extra_rule(st, b["name"]) if clip_name in ("stun", "stun_recover") else None
             off = (0.0, 0.0, 0.0)
             if rule:
@@ -281,7 +308,7 @@ def _apply_profile(clips, restq, pel, prof):
             if name in LOCOMOTION:
                 k = p["stride"] if bone in LEG else p["knee"] * p["stride"] if bone in KNEE else p["arm_swing"] if bone in ARM else 1.0
             elif name == "idle":
-                k = p["idle_amp"]
+                k = p["idle_amp"] * p.get("_sw", 1.0)
             if k != 1.0:
                 v = [_scale_about(rest, q, k) for q in v]
             if name != "jumpscare":
@@ -298,10 +325,11 @@ def _apply_profile(clips, restq, pel, prof):
                     v = [quat_mul(quat_from_euler(*off), q) for q in v]
             tr["rotation"] = (t, v)
         pt = clip["tracks"].get("Pelvis", {}).get("translation")
-        if pt and p["bounce"] != 1.0 and name in LOCOMOTION + ("idle",):
+        bounce = p["bounce"] * (p.get("_sw", 1.0) if name == "idle" else 1.0)
+        if pt and bounce != 1.0 and name in LOCOMOTION + ("idle",):
             t, v = pt
-            clip["tracks"]["Pelvis"]["translation"] = (t, [(pel[0] + (x - pel[0]) * p["bounce"], pel[1] + (y - pel[1]) * p["bounce"],
-                                                            pel[2] + (z - pel[2]) * p["bounce"]) for x, y, z in v])
+            clip["tracks"]["Pelvis"]["translation"] = (t, [(pel[0] + (x - pel[0]) * bounce, pel[1] + (y - pel[1]) * bounce,
+                                                            pel[2] + (z - pel[2]) * bounce) for x, y, z in v])
 
 
 # How far the lowest sole may rise above the floor per clip (airborne phase of a run); everything else is fitted so

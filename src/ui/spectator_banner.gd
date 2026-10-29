@@ -22,7 +22,7 @@ func _init() -> void:
 	set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
 	grow_vertical = Control.GROW_DIRECTION_BEGIN
-	offset_bottom = -18
+	offset_bottom = -54  # above the hotbar (-42) and the stamina bar (-50)
 	visible = false
 
 

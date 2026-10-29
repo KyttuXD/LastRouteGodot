@@ -17,6 +17,8 @@ const PRESENTATION_LAYER := 1 << 18
 const ENABLED := false
 
 var duration := 1.15
+## Troll mode stretches the scare (GameConfig.TROLL_SCARE_SCALE, docs/ANTI_CHEAT.md).
+var duration_scale := 1.0
 var playing := false
 ## True for the sustained "grabbed" hold shown while an escape struggle is
 ## running; play() continues the same presentation into its final hit.
@@ -60,13 +62,13 @@ const JUMPSCARE_PROFILES := {
 		"overlay_tint": Color(0.70, 0.02, 0.03),
 	},
 	# Example bespoke A-Z tweaks (feel free to add more)
-	"eirys": {
+	"elise": {
 		"duration": 1.20,
 		"roll": 0.18,
 		"scale": 1.10,
 		"overlay_tint": Color(0.58, 0.06, 0.10),
 	},
-	"quirith": {
+	"quenelle": {
 		"duration": 1.05,
 		"roll": 0.14,
 		"scale": 1.06,
@@ -130,7 +132,7 @@ func _build_presentation(source_camera: Camera3D, hunter_id: String) -> void:
 	# Per-hunter profile (duration, anchor motion, roll, scale, tint)
 	var profile := _profile_for(last_hunter_id)
 	# Never so quick it reads as a flicker, even for the faster Void profiles.
-	duration = maxf(float(profile.get("duration", duration)), 1.0)
+	duration = maxf(float(profile.get("duration", duration)), 1.0) * duration_scale
 	var side := 1.0 if abs(last_hunter_id.hash()) % 2 == 0 else -1.0
 	var start: Vector3 = profile.get("anchor_start", Vector3(0.14, -1.48, -1.85))
 	start.x *= side

@@ -7,6 +7,23 @@ extends RefCounted
 ## time streamed terrain brings a couch, locker or pickup into view.
 static var _pixel_material_cache := {}
 static var _blocky_prop_material_cache := {}
+## Every blocky prop GLB (art/props-3d/props/blocky) carries its own extracted copy of the same 128x64 pixel atlas (the builder is
+## deterministic and scripts/validate_props_rework.gd checks the size), so keying the material caches by the source material's RID gave
+## each of the ~600 models its own materials (and two duplicates each). Their atlas is keyed by name instead, so all of them share one
+## material per style profile. No pixels are read back: Texture2D.get_image() on a GPU texture stalls the renderer.
+const BLOCKY_ATLAS_DIR := "res://art/props-3d/props/blocky/"
+## Switch for A/B measurements (tools/look/prop_perf.gd): false gives every model its own materials again.
+static var share_blocky_materials := true
+
+
+static var _watching: bool = ContentRegistry.watch(clear_material_caches)
+
+
+## Drop every shared material, so none from an unloaded content pack stays referenced. Rebuilt on demand.
+static func clear_material_caches() -> void:
+	_pixel_material_cache.clear()
+	_blocky_prop_material_cache.clear()
+
 
 ## Loads visuals from art/props-3d/ scene files so gameplay code never
 ## hardcodes placeholder geometry — swap a slot's .tscn contents for a real
@@ -93,7 +110,9 @@ static func _find_collision_shape(node: Node) -> CollisionShape3D:
 ## needs to be (skeleton, AnimationPlayer, multiple mesh parts) with no
 ## assumptions about its internal structure at all.
 static func instantiate(scene_path: String) -> Node3D:
-	var scene: PackedScene = load(scene_path)
+	# pack models load at runtime through ContentRegistry (stripped glTF), never through ResourceLoader
+	var scene: PackedScene = ContentRegistry.pack_scene(scene_path) if scene_path.begins_with("user://") \
+		else load(scene_path)
 	if scene == null:
 		push_warning("ModelSlot: could not load %s" % scene_path)
 		return null
@@ -101,7 +120,7 @@ static func instantiate(scene_path: String) -> Node3D:
 	# UVs by a stale 64x64 project grid instead of the embedded PNG's true atlas
 	# height, which made solid faces sample transparent padding and prompted a
 	# blanket opaque-material workaround. With atlas UVs fixed, that workaround
-	# turns legitimate transparent torso overlays (Eirys/Quirith) into black
+	# turns legitimate transparent torso overlays (Elise/Quenelle) into black
 	# boxes and hair/wing cards into rectangles.
 	var instance := scene.instantiate() as Node3D
 	if instance != null:
@@ -124,7 +143,11 @@ static func instantiate_hunter(identity: Dictionary) -> Node3D:
 		var sprite := SpriteBillboard.create(front, String(identity.get("sprite_back", "")))
 		if sprite != null:
 			return sprite
-	return instantiate(String(identity.get("model_scene", "")))
+	var model := instantiate(String(identity.get("model_scene", "")))
+	if model != null:
+		# data-driven rig add-ons (extra bones, parts, held props): docs/HUNTER_ADDONS.md
+		HunterAddons.mount(model, String(identity.get("id", "")))
+	return model
 
 
 ## Prop-only companion to instantiate(). Character materials keep their
@@ -136,6 +159,13 @@ static func instantiate_prop(scene_path: String, style_hint: String = "") -> Nod
 	if instance != null:
 		apply_blocky_prop_style(instance,
 			style_hint if not style_hint.is_empty() else scene_path)
+		# hunter-scale rescale (PropModelCatalog.HUNTER_SCALE): scaling the children keeps the root free for the
+		# view's yaw and position, and the local bounds everyone measures include it
+		var factor := PropModelCatalog.hunter_scale(style_hint)
+		if factor != 1.0:
+			for child in instance.get_children():
+				if child is Node3D:
+					(child as Node3D).transform = Transform3D(Basis.from_scale(Vector3.ONE * factor), Vector3.ZERO) * (child as Node3D).transform
 	return instance
 
 
@@ -163,6 +193,24 @@ static func _enable_stable_texture_filtering(node: Node) -> void:
 ## while walls/floors/stairs retain anisotropic filtering for stable motion.
 ## Mipmaps remain enabled so a distant couch or rug does not recreate the
 ## camera-motion moire that plain nearest sampling caused.
+## Content key of a material: the shared blocky atlas (any GLB) gives one key, everything else keeps its own resource identity.
+static func material_content_key(source: StandardMaterial3D) -> String:
+	var texture_key := "none"
+	var texture := source.albedo_texture
+	if texture != null:
+		var path := texture.resource_path
+		if share_blocky_materials and path.begins_with(BLOCKY_ATLAS_DIR) and path.ends_with("_BlockyAtlas.png") \
+				and texture.get_size() == Vector2(128, 64):
+			texture_key = "blocky_atlas"
+		else:
+			texture_key = "rid%d" % texture.get_rid().get_id()
+	else:
+		texture_key = "mat%d" % source.get_rid().get_id()
+	# the name keeps trim / hardware / inset reads apart now that matte-ing makes their roughness and metallic identical
+	return "%s|%s|%.3f|%.3f|%d|%d|%d|%s|%s" % [texture_key, source.albedo_color.to_html(true), source.roughness, source.metallic,
+		source.transparency, source.cull_mode, source.shading_mode, str(source.emission_enabled), source.resource_name]
+
+
 static func apply_prop_pixel_filter(node: Node) -> void:
 	if node.has_meta("pixel_material_filter_applied"):
 		return
@@ -174,7 +222,7 @@ static func apply_prop_pixel_filter(node: Node) -> void:
 				var source := mesh_node.get_active_material(surface)
 				if source is StandardMaterial3D:
 					var source_material := source as StandardMaterial3D
-					var key := source_material.get_rid()
+					var key := material_content_key(source_material)
 					var material := _pixel_material_cache.get(key) as StandardMaterial3D
 					if material == null:
 						material = source_material.duplicate() as StandardMaterial3D
@@ -186,7 +234,7 @@ static func apply_prop_pixel_filter(node: Node) -> void:
 							BaseMaterial3D.TEXTURE_FILTER_NEAREST \
 							if material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR \
 							else BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
-						material.roughness = maxf(material.roughness, .72)
+						MaterialLook.tame(material)
 						_pixel_material_cache[key] = material
 					mesh_node.set_surface_override_material(surface, material)
 	for child in node.get_children():
@@ -209,7 +257,7 @@ static func apply_blocky_prop_style(node: Node, style_hint: String = "") -> void
 				if source is StandardMaterial3D:
 					var source_material := source as StandardMaterial3D
 					var profile_key := _blocky_style_key(style_hint)
-					var key := "%s|%s" % [str(source_material.get_rid()), profile_key]
+					var key := "%s|%s" % [material_content_key(source_material), profile_key]
 					var material := _blocky_prop_material_cache.get(key) \
 						as StandardMaterial3D
 					if material == null:
@@ -219,6 +267,7 @@ static func apply_blocky_prop_style(node: Node, style_hint: String = "") -> void
 						# made authored props clash with block characters.
 						material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
 						_apply_blocky_style_profile(material, profile_key)
+						MaterialLook.tame(material)
 						_blocky_prop_material_cache[key] = material
 					mesh_node.set_surface_override_material(surface, material)
 	for child in node.get_children():
@@ -314,7 +363,7 @@ static func _collect_local_bounds(node: Node, relative: Transform3D,
 		state: Dictionary) -> void:
 	if node is MeshInstance3D:
 		var mesh_node := node as MeshInstance3D
-		if mesh_node.mesh != null:
+		if mesh_node.mesh != null and not HunterAddons.is_addon(mesh_node):
 			var box := relative * mesh_node.get_aabb()
 			state["bounds"] = (state["bounds"] as AABB).merge(box) \
 				if bool(state["found"]) else box

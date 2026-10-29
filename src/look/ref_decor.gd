@@ -40,6 +40,14 @@ var _heights := {}
 var _corridor_h := 3.3
 var _room_ids := {}
 var _budget := {}          # room id -> {"lamp": n, "window": n}
+## Rooms whose recipe placed its own ceiling fixture (a fan, a ceiling light, a chandelier prop): the prop owns that
+## ceiling, so the decor adds no chandelier, pendant or strip lamp there -- one fixture family per room.
+var _prop_ceiling_rooms := {}
+## Cells under a sewer outflow main: its hangers own the vault there, no lamp.
+var _overhead_cells := {}
+var _room_rects := {}        # room id -> interior Rect2i (symmetric sconces)
+## Ceiling points (x, z, ceiling height) of chandeliers that get a mansion ceiling medallion.
+var _medallions: Array = []
 
 
 func _init(root: Node3D, data: Dictionary, room_map: Dictionary,
@@ -54,6 +62,25 @@ func _init(root: Node3D, data: Dictionary, room_map: Dictionary,
 	_room_map = room_map
 	_size = (data["grid"] as Array).size()
 	_salt = hash(String(data.get("chunk_id", "")))
+	for room_value in data.get("rooms", []):
+		_room_rects[String((room_value as Dictionary).get("id", ""))] = (room_value as Dictionary).get("rect", Rect2i())
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if bool(prop.get("outflow", false)):
+			for cell in prop.get("occupied_cells", []):
+				_overhead_cells[cell] = true
+		if CEILING_FIXTURE_PROPS.has(String(prop.get("type", ""))):
+			var room_id := String(prop.get("room_id", ""))
+			if not room_id.is_empty():
+				_prop_ceiling_rooms[room_id] = true
+			if _region == "mansion":
+				var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+				var offset: Vector2 = prop.get("placement_offset", Vector2.ZERO)
+				_medallions.append(Vector2(cell.x + .5, cell.y + .5) + offset)
+
+
+## Template props that are ceiling fixtures (StreamedRouteGenerator.CEILING_FIXTURE_FAMILY has the families).
+const CEILING_FIXTURE_PROPS := ["ceilingFan", "ceilingLight", "diningChandelier"]
 
 
 ## Builds SLICE_ROWS grid rows; returns true once the whole chunk is done and
@@ -76,7 +103,7 @@ func step() -> bool:
 
 ## Archways: the generator opens three-cell doorways ("arch" room-door props).
 ## Each gets a header wall above the opening, stepped corner blocks and
-## pilasters with brass caps on both faces of both shoulders.
+## pilasters with caps in the district's accent on both faces of both shoulders.
 func _arches() -> void:
 	for prop_value in _data.get("region_props", []):
 		var prop: Dictionary = prop_value
@@ -96,39 +123,209 @@ func _arches() -> void:
 		var hall_h := _hh((cells[1] as Vector2i) + outward)
 		var top := maxf(room_h, hall_h)
 		var along_x := absi(across.x) > 0
-		_add("arch_header", _box_t(centre + Vector3(0, (3.0 + top) * .5, 0),
-			Vector3(3.0 if along_x else 1.0, top - 3.0, 1.0 if along_x else 3.0)))
+		var out3 := Vector3(outward.x, 0, outward.y)
+		# Two-sided: each half of the arch takes the wall theme of the space it faces (room inside, hall outside).
+		var side_key := {}
+		for face in [-1.0, 1.0]:
+			var faced: Vector2i = (cells[1] as Vector2i) + outward * int(face)
+			side_key[face] = "arch_wall:%s@%.1f" % [arch_wall_kind(faced), _hh(faced)]
+		for face in [-1.0, 1.0]:
+			_add(side_key[face], _box_t(centre + out3 * face * .25 + Vector3(0, (3.0 + top) * .5, 0),
+				Vector3(3.0 if along_x else .5, top - 3.0, .5 if along_x else 3.0)))
 		_arch_trim(centre, along_x, outward, top)
+		var middle_cell: Vector2i = cells[1]
+		arch_log.append({"kind": "door3", "centre": centre, "hall_centre": Vector3(middle_cell.x + .5, 0, middle_cell.y + .5),
+			"span": 3.0, "between": 3.0, "faces": [centre + out3 * .5, centre - out3 * .5], "wall_key": side_key[1.0]})
 		for side in [-1.0, 1.0]:
 			var off: Vector3 = Vector3(across.x, 0, across.y) * side
-			_add("arch_header", _box_t(centre + off * 1.28 + Vector3(0, 2.8, 0),
-				Vector3(.44 if along_x else 1.0, .44, 1.0 if along_x else .44)))
-			# second step of the stepped corner: two blocks climb toward the middle of the opening
-			_add("arch_header", _box_t(centre + off * .88 + Vector3(0, 2.88, 0),
-				Vector3(.4 if along_x else 1.0, .24, 1.0 if along_x else .4)))
+			for face in [-1.0, 1.0]:
+				_add(side_key[face], _box_t(centre + off * 1.28 + out3 * face * .25 + Vector3(0, 2.8, 0),
+					Vector3(.44 if along_x else .5, .44, .5 if along_x else .44)))
+				# second step of the stepped corner: two blocks climb toward the middle of the opening
+				_add(side_key[face], _box_t(centre + off * .88 + out3 * face * .25 + Vector3(0, 2.88, 0),
+					Vector3(.4 if along_x else .5, .24, .5 if along_x else .4)))
 			for face in [-1.0, 1.0]:
 				var depth: Vector3 = Vector3(outward.x, 0, outward.y) * face * .62
 				var column: Vector3 = centre + off * 1.7 + depth
 				var size := Vector3(.42 if along_x else .34, 1.0, .34 if along_x else .42)
-				_add("arch_header", _box_t(column + Vector3(0, top * .5, 0), size * Vector3(1, top - .12, 1)))
+				_add(side_key[face], _box_t(column + Vector3(0, top * .5, 0), size * Vector3(1, top - .12, 1)))
 				for cap in [.06, top - .08]:
-					_add("arch_cap", _box_t(column + Vector3(0, cap, 0),
+					_add(_trim_key(), _box_t(column + Vector3(0, cap, 0),
 						Vector3(.56 if along_x else .46, .12, .46 if along_x else .56)))
 
 
-## Brass trim on both faces of an arch: a keystone over the middle, a moulding band under
+## Wall kind of the face of an arch that looks into `cell` (chunk-local): same rule as the walls (RefLook.wall_kind).
+func arch_wall_kind(cell: Vector2i) -> String:
+	return RefLook.wall_kind(_region, String(_room_map.get(cell, "")),
+		_coord.x * _size + cell.x, _coord.z * _size + cell.y)
+
+
+## Hall pilasters stand on wall cells every PILASTER_EVERY cells along a wall
+## run (chunk-local x for walls facing z, z for walls facing x), at this phase;
+## every second one springs an arch. Shared with placement that must keep clear
+## of them (sewer ladders: SewerRouteGenerator._shaft_cell).
+const PILASTER_EVERY := 6
+const PILASTER_PHASE := 3
+
+
+static func is_pilaster_column(along: int) -> bool:
+	return posmod(along, PILASTER_EVERY) == PILASTER_PHASE
+
+
+## True when a fixture against the wall behind `cell` (toward `wall`) would be
+## within `clearance` cells of a hall pilaster position on that wall.
+static func near_pilaster(cell: Vector2i, wall: Vector2i, clearance: int = 1) -> bool:
+	var along := cell.x if wall.y != 0 else cell.y
+	for k in range(-clearance, clearance + 1):
+		if is_pilaster_column(along + k):
+			return true
+	return false
+
+
+## How far a hall pilaster stands out of the wall.
+const PILASTER_DEPTH := .32
+
+## Every arch this decor built, for the wall_themes checks: {"kind", "centre", "hall_centre", "span", "between",
+## "spring", "top", "ceiling", "wall_key"}.
+var arch_log: Array = []
+
+
+## One arch across a hall: voussoirs on a half ellipse in the hall's wall theme, a keystone in the accent.
+func _hall_arch(grid: Array, x: int, z: int, d: Vector2i, base: Vector3, n: Vector3, hall_top: float, wall_key: String) -> void:
+	var width := 0
+	while width < 12 and _open(grid, x + d.x * (width + 1), z + d.y * (width + 1)):
+		width += 1
+	# the far wall must be there (and carry its pilaster: an open run on its side too)
+	var far := Vector2i(x + d.x * (width + 1), z + d.y * (width + 1))
+	if width < 2 or width >= 12 or _open(grid, far.x, far.y) or not _open_run(grid, far.x, far.y, -d):
+		return
+	if _region == "sewer":
+		_sewer_haunch(x, z, base, n, float(width), hall_top, wall_key)
+		return
+	var half := float(width) * .5 - PILASTER_DEPTH
+	var rise := clampf(half * .55, .45, 1.1)
+	var spring := hall_top - rise - .18
+	var centre := base + n * (float(width) * .5) + Vector3.UP * spring
+	var along := n.cross(Vector3.UP).normalized()
+	var segments := 10
+	var previous := centre + n * half
+	for i in range(1, segments + 1):
+		var theta := PI * float(i) / float(segments)
+		var point := centre + n * (half * cos(theta)) + Vector3.UP * (rise * sin(theta))
+		var tangent := point - previous
+		var radial := along.cross(tangent.normalized())
+		_add(wall_key, Transform3D(Basis(tangent * 1.06, radial * .3, along * .5), (point + previous) * .5))
+		previous = point
+	_add(_trim_key(), _box_t(centre + Vector3.UP * rise, Vector3(.3, .42, .3) + along.abs() * .26))
+	arch_log.append({"kind": "hall", "centre": centre, "hall_centre": base + n * (float(width) * .5), "span": half * 2.0,
+		"between": float(width) - PILASTER_DEPTH * 2.0, "spring": spring, "top": spring + rise + .15,
+		"ceiling": hall_top + .1, "wall_key": wall_key})
+
+
+
+## The sewers' rib (KT: "half a C, not a full C"): the open span stops at the channel's edge, so a full arch over
+## the walkway dropped its far leg into the air above the water. Instead a quarter ellipse springs from the pilaster
+## face and curves up to meet the vault ceiling, with its keystone pressed flush against the ceiling: nothing hangs
+## below the spring line or stands in the walkway.
+func _sewer_haunch(x: int, z: int, base: Vector3, n: Vector3, width: float, hall_top: float, wall_key: String) -> void:
+	var reach := clampf(width * .5 - PILASTER_DEPTH, .55, 1.2)
+	var rise := clampf(reach * .8, .45, .9)
+	var ceiling := hall_top + .1
+	var spring := ceiling - rise
+	var centre := base + n * (PILASTER_DEPTH + reach) + Vector3.UP * spring
+	var along := n.cross(Vector3.UP).normalized()
+	var segments := 6
+	var previous := centre - n * reach
+	var lowest := INF
+	for i in range(1, segments + 1):
+		var theta := PI - PI * .5 * float(i) / float(segments)
+		var point := centre + n * (reach * cos(theta)) + Vector3.UP * (rise * sin(theta))
+		var tangent := point - previous
+		var radial := along.cross(tangent.normalized())
+		_add(wall_key, Transform3D(Basis(tangent * 1.06, radial * .3, along * .5), (point + previous) * .5))
+		lowest = minf(lowest, minf(point.y, previous.y) - .16)
+		previous = point
+	_add(_trim_key(), _box_t(centre + Vector3.UP * (rise - .21), Vector3(.3, .42, .3) + along.abs() * .26))
+	arch_log.append({"kind": "haunch", "centre": centre, "spring": spring, "lowest": lowest, "top": ceiling,
+		"ceiling": ceiling, "reach": PILASTER_DEPTH + reach, "width": width, "wall_key": wall_key,
+		"cell": Vector2i(x, z)})
+
+static var _arch_materials := {}
+const PLANE_UV_SHADER := preload("res://src/look/ref_plane_uv.gdshader")
+
+
+## The wall's own texture on an arch block (`key` = "<wall kind>@<room height>"), mapped from each face's own plane on
+## the wall grid (ref_plane_uv.gdshader): the paper, panels and brick continue across the arch from the wall, level and
+## unstretched on rotated or sloped arches too.
+static func arch_wall_material(key: String) -> ShaderMaterial:
+	if _arch_materials.has(key):
+		return _arch_materials[key]
+	var kind := key.get_slice("@", 0)
+	var height := float(key.get_slice("@", 1)) if key.contains("@") else 4.0
+	var source := RefTextures.material("wall", kind) as StandardMaterial3D
+	var m := ShaderMaterial.new()
+	m.shader = PLANE_UV_SHADER
+	m.set_shader_parameter("albedo_tex", source.albedo_texture)
+	m.set_shader_parameter("tint", source.albedo_color)
+	m.set_shader_parameter("room_height", height)
+	m.set_shader_parameter("tiers", float(RefLook.wall_tiers(height)))
+	m.set_shader_parameter("roughness_value", maxf(source.roughness, MaterialLook.ROUGHNESS_MATTE))
+	m.set_shader_parameter("specular_value", MaterialLook.SPECULAR_DEFAULT)
+	m.set_meta("arch_wall_kind", kind)
+	_arch_materials[key] = m
+	return m
+
+
+## What ref_plane_uv.gdshader computes for a point on a face (world position, world normal, the floor's world y): the
+## wall_themes check compares arches with walls and flat with rotated / sloped arches through this.
+static func plane_uv(world: Vector3, normal: Vector3, floor_y: float, room_height: float) -> Vector2:
+	var n := normal.normalized()
+	if absf(n.y) > .95:
+		return Vector2(world.x, world.z)
+	var along := Vector3.UP.cross(n).normalized()
+	return Vector2(world.dot(along), float(RefLook.wall_tiers(room_height)) * (1.0 - (world.y - floor_y) / room_height))
+
+
+static var _trim_materials := {}
+
+
+## The district's accent on arch and pilaster trim (RefLook.ARCH_ACCENT): a painted pixel texture, tinted, on the same
+## world grid as the walls, so trim is never a flat untextured face.
+static func arch_trim_material(region: String) -> ShaderMaterial:
+	if _trim_materials.has(region):
+		return _trim_materials[region]
+	var accent := RefLook.arch_accent(region)
+	var source := RefTextures.material(String(accent[0]), String(accent[1])) as StandardMaterial3D
+	var m := ShaderMaterial.new()
+	m.shader = PLANE_UV_SHADER
+	m.set_shader_parameter("albedo_tex", source.albedo_texture)
+	m.set_shader_parameter("tint", accent[2])
+	var metal := bool(accent[3])
+	m.set_shader_parameter("roughness_value", MaterialLook.ROUGHNESS_METAL if metal else MaterialLook.ROUGHNESS_MATTE)
+	m.set_shader_parameter("specular_value", MaterialLook.SPECULAR_METAL if metal else MaterialLook.SPECULAR_DEFAULT)
+	m.set_shader_parameter("metallic_value", MaterialLook.METALLIC_METAL if metal else 0.0)
+	m.set_meta("arch_accent", region)
+	_trim_materials[region] = m
+	return m
+
+
+func _trim_key() -> String:
+	return "arch_trim:" + _region
+
+
+## Trim on both faces of an arch (the district's accent): a keystone over the middle, a moulding band under
 ## the header and a frieze band near the ceiling, so the arch has more to it than a slab.
 func _arch_trim(centre: Vector3, along_x: bool, outward: Vector2i, top: float) -> void:
 	var out := Vector3(outward.x, 0, outward.y)
 	for face in [-1.0, 1.0]:
 		var lip: Vector3 = out * face * .56
 		var wide := Vector3(3.5 if along_x else .1, .1, .1 if along_x else 3.5)
-		_add("arch_cap", _box_t(centre + lip + Vector3(0, 3.06, 0), wide))
-		_add("arch_cap", _box_t(centre + lip + Vector3(0, top - .22, 0),
+		_add(_trim_key(), _box_t(centre + lip + Vector3(0, 3.06, 0), wide))
+		_add(_trim_key(), _box_t(centre + lip + Vector3(0, top - .22, 0),
 			Vector3(3.9 if along_x else .1, .14, .1 if along_x else 3.9)))
-		_add("arch_cap", _box_t(centre + lip + Vector3(0, 2.86, 0),
+		_add(_trim_key(), _box_t(centre + lip + Vector3(0, 2.86, 0),
 			Vector3(.34 if along_x else .12, .46, .12 if along_x else .34)))
-		_add("arch_cap", _box_t(centre + lip + Vector3(0, 2.62, 0),
+		_add(_trim_key(), _box_t(centre + lip + Vector3(0, 2.62, 0),
 			Vector3(.2 if along_x else .14, .14, .14 if along_x else .2)))
 
 
@@ -143,42 +340,98 @@ func _room_lamps() -> void:
 	for room_value in _data.get("rooms", []):
 		var room: Dictionary = room_value
 		var rect: Rect2i = room.get("rect", Rect2i())
-		if mini(rect.size.x, rect.size.y) < 4:
-			continue
+		if mini(rect.size.x, rect.size.y) < 4 or bool(room.get("suite_parent", false)):
+			continue    # a suite's parent spans its child rooms; each child lights itself
+		var room_id := String(room.get("id", ""))
 		var cx := rect.position.x + rect.size.x / 2
 		var cz := rect.position.y + rect.size.y / 2
 		var height := _hh(Vector2i(cx, cz))
-		var garden: bool = _region == "beach" and RefLook.GREENHOUSE_ROOMS.has(String(room.get("room_type", "")))
-		if height > RefLook.TALL_ROOM:
-			_tall_room(rect, height, garden)
-		if garden:
-			_greenery(rect, height, String(room.get("id", "")))
-		if _h(cx, cz, 111, 100) >= _lit_percent(style):
-			continue
-		if not _take(String(room.get("id", "")), "lamp"):
-			continue
-		var world := Vector3(cx + .5, 0, cz + .5)
+		var garden: bool = RefLook.is_glasshouse(_region, String(room.get("room_type", "")))
+		var prop_owned := _prop_ceiling_rooms.has(room_id)
+		var tall := height > RefLook.TALL_ROOM
 		var fancy := _region in ["mansion", "hotel", "apartment", "gothic", "carnival"] \
 			and String(room.get("room_type", "")) not in ["hotel_bathroom", "house_bathroom", "stairwell"]
-		if fancy or height > RefLook.TALL_ROOM:
-			_pendant(world, height, cx, cz)
-		else:
-			_ceiling_lamp(world, cx, cz, height)
-		_decal_pool.append(Vector3(world.x, 0, world.z))
+		var pendants := fancy or (tall and _region not in ["hospital", "lab"])
+		# Even fixture layout (docs/LIGHT_SWITCHES.md, KT: "center or even with the room"): a grid centred on the room's
+		# interior, equal margins to every wall, rows along the long axis; one fixture sits at the exact centre.
+		var grid := fixture_grid(rect, PENDANT_SPACING if pendants else STRIP_SPACING)
+		if tall and not prop_owned and not garden:
+			_roof_ribs(rect, height, grid)
+		if garden:
+			_greenery(rect, height, room_id)
+		if prop_owned or not _room_lit(room_id, style):
+			continue
+		for at_value in grid:
+			var at: Vector2 = at_value
+			var world := Vector3(at.x, 0, at.y)
+			var ix := floori(at.x)
+			var iz := floori(at.y)
+			if pendants:
+				# mansion: a lone chandelier in a big room is the grand three-tier one
+				_pendant(world, height, ix, iz, _region == "mansion" and grid.size() == 1 and rect.size.x * rect.size.y >= 150)
+			else:
+				_ceiling_lamp(world, ix, iz, height)
+			_decal_pool.append(Vector3(world.x, 0, world.z))
 
 
-## Iron roof ribs across a tall room, and pendant lights on a lattice.
-func _tall_room(rect: Rect2i, height: float, garden: bool = false) -> void:
-	for z in range(rect.position.y + 2, rect.end.y - 1, 6) if not garden else []:
-		var rib := Transform3D(Basis.IDENTITY.scaled(Vector3(float(rect.size.x), 1.0, 1.0)),
-			Vector3(rect.position.x + rect.size.x * .5, height - .22, z + .5))
-		_add("rib", rib)
-	for z in range(rect.position.y + 3, rect.end.y - 2, 7):
-		for x in range(rect.position.x + 3, rect.end.x - 2, 7):
-			if x == rect.position.x + rect.size.x / 2 and z == rect.position.y + rect.size.y / 2:
-				continue
-			if _h(x, z, 113, 3) != 0:
-				_pendant(Vector3(x + .5, 0, z + .5), height, x, z)
+const PENDANT_SPACING := 7.0
+const STRIP_SPACING := 5.0
+
+
+## Fixture centres for a room: n = round(length / spacing) per axis (at least one), each at the middle of its equal
+## share of the interior, so the layout is symmetric about the room centre with equal margins to opposite walls.
+static func fixture_grid(rect: Rect2i, spacing: float) -> Array:
+	var out := []
+	for z in even_positions(float(rect.position.y), float(rect.size.y), spacing):
+		for x in even_positions(float(rect.position.x), float(rect.size.x), spacing):
+			out.append(Vector2(x, z))
+	return out
+
+
+static func even_positions(start: float, length: float, spacing: float) -> Array:
+	var count := maxi(1, roundi(length / spacing))
+	var out := []
+	for i in count:
+		out.append(start + length * (float(i) + .5) / float(count))
+	return out
+
+
+## The exact along-wall position of a sconce on this wall cell, or NAN: positions are evenly spaced over the room's
+## interior length (even_positions with the region's spacing), shared by both walls of the pair.
+func _sconce_spot(room_id: String, d: Vector2i, along: int, spacing: int) -> float:
+	if not _room_rects.has(room_id):
+		return NAN
+	var rect: Rect2i = _room_rects[room_id]
+	var start := float(rect.position.x if d.y != 0 else rect.position.y)
+	var length := float(rect.size.x if d.y != 0 else rect.size.y)
+	for p_value in even_positions(start, length, float(maxi(spacing, 6))):
+		if floori(float(p_value)) == along:
+			return float(p_value)
+	return NAN
+
+
+## Whether a room's lights are on in this region's lit share (one decision per room, not per cell).
+func _room_lit(room_id: String, style: Dictionary) -> bool:
+	return room_id == "" or absi(hash(room_id + ":lit")) % 100 < _lit_percent(style)
+
+
+## Iron roof ribs across a tall room, on the lines halfway between pendant rows (never through a pendant's chain);
+## with one row, at the thirds.
+func _roof_ribs(rect: Rect2i, height: float, grid: Array) -> void:
+	var rows := {}
+	for at_value in grid:
+		rows[snappedf((at_value as Vector2).y, .01)] = true
+	var zs: Array = rows.keys()
+	zs.sort()
+	var lines := []
+	if zs.size() <= 1:
+		lines = [rect.position.y + rect.size.y / 3.0, rect.position.y + rect.size.y * 2.0 / 3.0]
+	else:
+		for i in range(1, zs.size()):
+			lines.append((float(zs[i - 1]) + float(zs[i])) * .5)
+	for z in lines:
+		_add("rib", Transform3D(Basis.IDENTITY.scaled(Vector3(float(rect.size.x), 1.0, 1.0)),
+			Vector3(rect.position.x + rect.size.x * .5, height - .22, float(z))))
 
 
 ## The greenhouse: a vaulted iron roof (arched ribs and purlins), foliage canopy and hanging
@@ -257,10 +510,10 @@ func _greenery(rect: Rect2i, height: float, room_id: String) -> void:
 
 ## A chandelier hung on a chain. Short chain in ordinary rooms; in tall rooms it
 ## hangs well below the roof so its light actually reaches the floor.
-func _pendant(world: Vector3, height: float, x: int, z: int) -> void:
+func _pendant(world: Vector3, height: float, x: int, z: int, grand: bool = false) -> void:
 	# The mesh hangs from its hook (origin) down about `total` metres; tall rooms get the big
 	# three-tier one on a long chain, ordinary rooms a two-tier one close to the ceiling.
-	var tall := height > RefLook.TALL_ROOM
+	var tall := height > RefLook.TALL_ROOM or grand
 	var total := 1.6 if tall else 1.05
 	var bottom := 3.0 if tall else maxf(2.3, height - 1.35)
 	var hook_y := minf(bottom + total, height)
@@ -270,8 +523,10 @@ func _pendant(world: Vector3, height: float, x: int, z: int) -> void:
 	if chain > .2:
 		_add("chain", Transform3D(Basis.IDENTITY.scaled(Vector3(1, chain, 1)),
 			Vector3(world.x, hook_y + chain * .5, world.z)))
+	if _region == "mansion":
+		_medallions.append(Vector2(world.x, world.z))
 	var pos := Vector3(world.x, hook_y - total * .62, world.z)
-	lamps.append([_root.position + pos, RefLook.AMBER_SOFT,
+	lamps.append([_root.position + pos, _lamp_color(true),
 		2.6 if tall else 1.6, 1, 16.0 if tall else 9.0])
 	_halo.append(pos)
 
@@ -319,13 +574,27 @@ static func _facing_basis(normal: Vector3) -> Basis:
 
 
 func _style() -> Dictionary:
-	return STYLE.get(_region, STYLE["maze"])
+	var style: Dictionary = STYLE.get(_region, STYLE["maze"])
+	var density := PlatformProfile.decor_density
+	if density >= 1.0:
+		return style
+	# Lower quality tiers (the Quest): pipes, cables, frames and teal trims are "one in N" draws; N grows so fewer spawn.
+	# Lamps keep their spacing (they light the way).
+	var thinned := style.duplicate()
+	for key in ["teal", "pipe", "cable", "frame"]:
+		var every := int(thinned.get(key, 0))
+		if every > 0 and every < 90:
+			thinned[key] = mini(89, ceili(every / maxf(density, .05)))
+	return thinned
 
 
 ## Per-region fixture recipe: which lamp family, how dense, which wall extras.
 const STYLE := {
 	"maze": {"lamp": "ceiling", "wall_lamp": 11, "teal": 9, "pipe": 3, "cable": 20, "frame": 0, "lit_rooms": .8},
-	"mansion": {"lamp": "sconce", "wall_lamp": 6, "teal": 22, "pipe": 8, "cable": 40, "frame": 7, "lit_rooms": .9},
+	# luxury (docs/MANSION_LUXURY.md): every room lit, sconces at the closest spacing, warm candle-gold light, crown
+	# moulding and coffered ceilings in the rooms
+	"mansion": {"lamp": "sconce", "wall_lamp": 6, "teal": 22, "pipe": 99, "cable": 99, "frame": 7, "lit_rooms": 1.0,
+		"tint": Color("ffc27a"), "stutter": 0, "luxury": true},
 	"hotel": {"lamp": "sconce", "wall_lamp": 5, "teal": 14, "pipe": 8, "cable": 40, "frame": 6, "lit_rooms": .9},
 	"apartment": {"lamp": "sconce", "wall_lamp": 7, "teal": 20, "pipe": 6, "cable": 30, "frame": 8, "lit_rooms": .85},
 	"beach": {"lamp": "lantern", "wall_lamp": 3, "teal": 28, "pipe": 99, "cable": 99, "frame": 0, "lit_rooms": .9},
@@ -333,6 +602,17 @@ const STYLE := {
 	"carnival": {"lamp": "ceiling", "wall_lamp": 6, "teal": 20, "pipe": 6, "cable": 20, "frame": 0, "lit_rooms": .9},
 	"prison": {"lamp": "ceiling", "wall_lamp": 10, "teal": 9, "pipe": 2, "cable": 14, "frame": 0, "lit_rooms": .7},
 	"inferno": {"lamp": "ceiling", "wall_lamp": 8, "teal": 99, "pipe": 3, "cable": 20, "frame": 0, "lit_rooms": .7},
+	# dim caged lamps far apart, pipes everywhere along the brick
+	"sewer": {"lamp": "ceiling", "wall_lamp": 14, "teal": 99, "pipe": 2, "cable": 12, "frame": 0, "lit_rooms": .55},
+	# lighting mood: tint replaces the amber lamp colour; stutter is the share (1 in n) of lamps on the failing-tube flicker
+	"hospital": {"lamp": "ceiling", "wall_lamp": 9, "teal": 14, "pipe": 6, "cable": 40, "frame": 0, "lit_rooms": .8,
+		"tint": Color("e4f4ef"), "stutter": 3, "handrail": true},
+	"lab": {"lamp": "ceiling", "wall_lamp": 7, "teal": 12, "pipe": 4, "cable": 16, "frame": 0, "lit_rooms": .95,
+		"tint": Color("c8f2ff"), "stutter": 0},
+	"mall": {"lamp": "ceiling", "wall_lamp": 6, "teal": 16, "pipe": 99, "cable": 99, "frame": 0, "lit_rooms": .95,
+		"tint": Color("ffe9cc"), "stutter": 0},
+	"greenhouse": {"lamp": "lantern", "wall_lamp": 5, "teal": 30, "pipe": 4, "cable": 99, "frame": 0, "lit_rooms": .9,
+		"tint": Color("e6dc96"), "stutter": 0},
 }
 
 const DIRS := [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]
@@ -347,12 +627,21 @@ func _cell(grid: Array, x: int, z: int) -> void:
 
 
 func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
+	# In the sewers the walk grid marks channels, the falls' drop and ramp tunnels
+	# as blocked too: only real brick carries wall lamps, pipes and cables (a
+	# lamp on a channel's edge hung in the air over the water).
+	var sewer_grid: Array = _data.get("sewer_grid", [])
+	if not sewer_grid.is_empty() and int(sewer_grid[z][x]) != SewerRouteGenerator.SOLID:
+		return
 	for dir_value in DIRS:
 		var d: Vector2i = dir_value
 		if not _open(grid, x + d.x, z + d.y):
 			continue
 		var n := Vector3(d.x, 0, d.y)
 		var base := Vector3(x + .5 + d.x * .5, 0, z + .5 + d.y * .5)
+		# a ramp tunnel's side wall is one face two storeys tall: wall-top pipes, pilasters and arches sized for one
+		# storey ran across the shaft at the storey line (KT: a dark band down the collector ramp)
+		var beside_ramp := (_data.get("ramp_cells", {}) as Dictionary).has(Vector2i(x + d.x, z + d.y))
 		# position along the wall run, so spacing is regular instead of random
 		var along: int = x if d.y != 0 else z
 		var line: int = z if d.y != 0 else x
@@ -360,6 +649,8 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 		var lit_room := rt == "" or _h(x + d.x, z + d.y, 91, 100) < _lit_percent(style)
 		var spacing: int = maxi(int(style["wall_lamp"]), 6)
 		var rid := _room_id_at(Vector2i(x + d.x, z + d.y))
+		if rid != "":
+			lit_room = _room_lit(rid, style)    # one decision per room keeps its sconces symmetric
 		var wants_lamp := false
 		if lit_room and int(style["wall_lamp"]) < 90:
 			if rid == "":
@@ -367,8 +658,14 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 				wants_lamp = (along + _h(0, line, 5, 12)) % 12 == 0 and (along / 12 + line) % 2 == 0 \
 					and _corridor_lit(x + d.x, z + d.y)
 			else:
-				wants_lamp = (along + line * 3 + _h(0, line, 5, spacing)) % spacing == 0 \
-					and _take(rid, "lamp")
+				# rooms: sconces evenly spaced along each wall, at the same places on opposite walls (symmetric pairs)
+				var spot := _sconce_spot(rid, d, along, spacing)
+				if not is_nan(spot):
+					wants_lamp = _room_lit(rid, style)
+					if d.y != 0:
+						base.x = spot
+					else:
+						base.z = spot
 		if wants_lamp:
 			_wall_lamp(base, n, String(style["lamp"]) if String(style["lamp"]) != "ceiling" else "sconce_short", x, z)
 		elif int(style["teal"]) < 90 and _h(x, z, 21 + d.x * 3 + d.y, int(style["teal"]) * 3) == 0:
@@ -379,6 +676,8 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 			_add("frame%d" % frame_variant, Transform3D(_facing_basis(n),
 				base + Vector3(0, 1.75, 0) + n * .03))
 		var face_height := _hh(Vector2i(x + d.x, z + d.y))
+		if bool(style.get("luxury", false)) and rid != "":
+			_add("crown", Transform3D(_facing_basis(n), base + Vector3(0, face_height - .09, 0) + n * .05))
 		var tiers := RefLook.wall_tiers(face_height)
 		var tier_height := face_height / tiers
 		# windows only in a few room kinds, 1-2 per room, never in corridors or the greenhouse (outside is a void)
@@ -399,28 +698,26 @@ func _wall_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 				_add("lantern" if String(style["lamp"]) == "lantern" else "sconce",
 					Transform3D(tier_basis, up))
 				_halo.append(up + n * .1)
-		# pilasters down both sides of halls, between the lamps
-		if rid == "" and along % 6 == 3 and _open_run(grid, x, z, d):
+		# pilasters down both sides of halls, between the lamps, in the hall's own wall with the district's trim
+		if rid == "" and not beside_ramp and is_pilaster_column(along) and _open_run(grid, x, z, d):
 			var hall_top := _hh(Vector2i(x + d.x, z + d.y)) - .1
 			var across_x := d.y != 0
-			var column := base + n * .16 + Vector3(0, hall_top * .5, 0)
-			_add("arch_header", _box_t(column, Vector3(.42 if across_x else .32, hall_top, .32 if across_x else .42)))
+			var wall_key := "arch_wall:%s@%.1f" % [arch_wall_kind(Vector2i(x + d.x, z + d.y)), _hh(Vector2i(x + d.x, z + d.y))]
+			var column := base + n * PILASTER_DEPTH * .5 + Vector3(0, hall_top * .5, 0)
+			_add(wall_key, _box_t(column, Vector3(.42 if across_x else PILASTER_DEPTH, hall_top, PILASTER_DEPTH if across_x else .42)))
 			for cap in [.06, hall_top - .06]:
-				_add("arch_cap", _box_t(base + n * .16 + Vector3(0, cap, 0),
+				_add(_trim_key(), _box_t(base + n * PILASTER_DEPTH * .5 + Vector3(0, cap, 0),
 					Vector3(.54 if across_x else .42, .12, .42 if across_x else .54)))
-			# every second pilaster springs a stepped (corbelled) half arch across the hall; the two
-			# facing halves leave a narrow gap, so the hall reads as an arched vault, not a box
-			if along % 12 == 3:
-				var reach: float = StreamedRouteGenerator.CORRIDOR_WIDTH * .5 - .5
-				for step in 3:
-					var proj: float = reach * (.3 + .35 * step)
-					var y: float = hall_top - .95 + .36 * step
-					var size := Vector3(.5 if across_x else proj, .34, proj if across_x else .5)
-					_add("arch_header", _box_t(base + n * (proj * .5) + Vector3(0, y, 0), size))
-				_add("arch_cap", _box_t(base + n * (reach * .65 * .5) + Vector3(0, hall_top - 1.14, 0),
-					Vector3(.58 if across_x else reach * .65, .08, reach * .65 if across_x else .58)))
+			# every second pair springs one arch across the hall: from the +x / +z wall only (the facing wall has the
+			# matching pilaster), centred on the hall's centreline and spanning pilaster face to pilaster face
+			if along % 12 == 3 and d.x + d.y > 0:
+				_hall_arch(grid, x, z, d, base, n, hall_top, wall_key)
+		# hospital corridors: a continuous handrail at hip height on every hall wall
+		if rid == "" and bool(style.get("handrail", false)):
+			var rail_axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
+			_add("handrail", Transform3D(rail_axis, base + Vector3(0, .9, 0) + n * .07))
 		# pipes run along the top of the wall in multi-cell stretches
-		if int(style["pipe"]) < 90 and _h(along / 7, line, 61 + d.x + d.y * 2, int(style["pipe"]) * 2) == 0:
+		if int(style["pipe"]) < 90 and not beside_ramp and _h(along / 7, line, 61 + d.x + d.y * 2, int(style["pipe"]) * 2) == 0:
 			var axis := Basis(Vector3.UP, 0.0) if d.y != 0 else Basis(Vector3.UP, PI * .5)
 			var pipe_top := minf(_hh(Vector2i(x + d.x, z + d.y)), 3.6)
 			var pipe_pos := base + Vector3(0, pipe_top - 0.30, 0) + n * .09
@@ -450,16 +747,22 @@ func _wants_window(room_type: String) -> bool:
 
 func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 	var rt: String = _room_map.get(Vector2i(x, z), "")
+	if bool(style.get("luxury", false)) and _room_id_at(Vector2i(x, z)) != "":
+		# coffered ceiling: a beam grid every two cells, both ways
+		var ceiling := _hh(Vector2i(x, z))
+		if x % 2 == 0:
+			_add("coffer", Transform3D(Basis(Vector3.UP, PI * .5), Vector3(x, ceiling - .06, z + .5)))
+		if z % 2 == 0:
+			_add("coffer", Transform3D(Basis.IDENTITY, Vector3(x + .5, ceiling - .06, z)))
 	var lit_room := _h(x, z, 77, 100) < _lit_percent(style)
 	var world := Vector3(x + .5, 0, z + .5)
 	if String(style["lamp"]) == "ceiling":
 		var rid := _room_id_at(Vector2i(x, z))
 		# lamps sit on a lattice inside rooms (budgeted) and every ten metres down halls
 		if rid != "":
-			if x % 5 == 2 and z % 5 == 2 and _lit_block(x, z, style) \
-					and _hh(Vector2i(x, z)) <= RefLook.TALL_ROOM and _take(rid, "lamp"):
-				_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)))
-		elif _is_corridor_mid(grid, x, z) and (x + z) % 12 == 0 and _corridor_lit(x, z):
+			pass    # rooms: the even grid in _room_lamps
+		elif _is_corridor_mid(grid, x, z) and (x + z) % 12 == 0 and _corridor_lit(x, z) \
+				and not _overhead_cells.has(Vector2i(x, z)):
 			_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)))
 	# (sconce regions light their corridors from the walls only)
 	if int(style["cable"]) < 90 and _h(x, z, 71, int(style["cable"]) * 2) == 0 and lit_room \
@@ -467,7 +770,7 @@ func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 		var yaw := PI * .5 if _h(x, z, 72, 2) == 0 else 0.0
 		_add("swag", Transform3D(Basis(Vector3.UP, yaw), world + Vector3(0, _hh(Vector2i(x, z)) - 0.01, 0)))
 	# cables snaking along the foot of the wall in the industrial regions
-	if _region in ["maze", "prison", "inferno", "carnival"] and _h(x, z, 141, 60) == 0:
+	if _region in ["maze", "prison", "inferno", "carnival", "sewer"] and _h(x, z, 141, 60) == 0:
 		for d in DIRS:
 			var dd: Vector2i = d
 			if not _open(grid, x + dd.x, z + dd.y):
@@ -546,9 +849,9 @@ func _wall_lamp(base: Vector3, n: Vector3, kind: String, x: int, z: int) -> void
 	if key == "lantern":
 		lamp_basis = lamp_basis.scaled(Vector3.ONE * 1.7)
 	_add(key, Transform3D(lamp_basis, pos))
-	var flicker := _h(x, z, 41, 4)
+	var flicker := _lamp_flicker(_h(x, z, 41, 4), x, z)
 	var light_pos := pos + n * .45
-	lamps.append([_root.position + light_pos, RefLook.AMBER_SOFT if flicker != 0 else RefLook.AMBER, 1.0, flicker])
+	lamps.append([_root.position + light_pos, _lamp_color(flicker != 0), 1.0, flicker])
 	_halo.append(light_pos - n * .35)
 	# warm pool and glossy streak on the floor in front of the wall
 	var floor_pos := Vector3(base.x, 0, base.z) + n * .85
@@ -560,14 +863,38 @@ func _ceiling_lamp(world: Vector3, x: int, z: int, height: float, small: bool = 
 	var pos := world + Vector3(0, height, 0)
 	var yaw := PI * .5 if _h(x, z, 51, 2) == 0 else 0.0
 	_add("ceiling_small" if small else "ceiling", Transform3D(Basis(Vector3.UP, yaw), pos))
-	var flicker := _h(x, z, 52, 5)
-	lamps.append([_root.position + pos - Vector3(0, .5, 0), RefLook.AMBER_SOFT, 1.1, flicker])
+	var flicker := _lamp_flicker(_h(x, z, 52, 5), x, z)
+	lamps.append([_root.position + pos - Vector3(0, .5, 0), _lamp_color(true), 1.1, flicker])
 	_halo.append(pos - Vector3(0, .2, 0))
 	_decal_pool.append(Vector3(world.x, 0, world.z))
 	_decal_streak.append(Vector3(world.x, 0, world.z))
 
 
+## Lamp colour for this region: amber by default, the region's tint where it sets one.
+func _lamp_color(soft: bool) -> Color:
+	var tint: Variant = _style().get("tint")
+	if tint == null:
+		return RefLook.AMBER_SOFT if soft else RefLook.AMBER
+	return (tint as Color).darkened(.06) if soft else tint
+
+
+## Flicker mode (LampField._flicker): a region with a stutter share puts that many of its lamps on the failing-tube
+## stutter (the hospital); a tinted region without one keeps clinical steady light.
+func _lamp_flicker(base: int, x: int, z: int) -> int:
+	var style := _style()
+	if not style.has("stutter"):
+		return base
+	var stutter := int(style["stutter"])
+	if stutter > 0 and _h(x, z, 57, stutter) == 0:
+		return 2
+	return 0 if stutter == 0 else mini(base, 1)
+
+
 func _flush() -> void:
+	for at_value in _medallions:
+		var at: Vector2 = at_value
+		_add("medallion", Transform3D(Basis.IDENTITY, Vector3(at.x, _hh(Vector2i(floori(at.x), floori(at.y))) - .025, at.y)))
+	_medallions.clear()
 	for key in _transforms:
 		var list: Array = _transforms[key]
 		if list.is_empty():
@@ -647,12 +974,28 @@ static func mesh_for(key: String) -> Mesh:
 		"frame1": mesh = _build_frame(Vector2(.8, .56))
 		"pipe": mesh = _build_pipe(false)
 		"pipe_brass": mesh = _build_pipe(true)
+		"handrail": mesh = _merge([["brass", _box(Vector3(1.0, .06, .07)), Transform3D.IDENTITY],
+			["iron", _box(Vector3(.05, .1, .1)), _t(0, -.05, -.03)]])
 		"swag": mesh = _build_swag()
-		"arch_header": mesh = _merge([["stone", _box(Vector3.ONE), Transform3D.IDENTITY]])
-		"arch_cap": mesh = _merge([["brass", _box(Vector3.ONE), Transform3D.IDENTITY]])
+		_ when key.begins_with("arch_wall:"):
+			mesh = _box(Vector3.ONE)
+			(mesh as BoxMesh).material = arch_wall_material(key.trim_prefix("arch_wall:"))
+		_ when key.begins_with("arch_trim:"):
+			mesh = _box(Vector3.ONE)
+			(mesh as BoxMesh).material = arch_trim_material(key.trim_prefix("arch_trim:"))
 		"rib": mesh = _merge([["iron", _box(Vector3(1.0, .3, .3)), _t(0, 0, 0)],
 			["brass", _box(Vector3(1.0, .05, .34)), _t(0, -.17, 0)]])
 		"chain": mesh = _build_chain()
+		# mansion ceilings (docs/MANSION_LUXURY.md)
+		"crown": mesh = _merge([["plaster", _box(Vector3(1.0, .18, .1)), Transform3D.IDENTITY],
+			["plaster", _box(Vector3(1.0, .06, .16)), _t(0, .06, .03)],
+			["brass", _box(Vector3(1.0, .03, .12)), _t(0, -.1, .01)]])
+		"coffer": mesh = _merge([["plaster", _box(Vector3(1.0, .12, .12)), Transform3D.IDENTITY],
+			["brass", _box(Vector3(1.0, .02, .14)), _t(0, -.065, 0)]])
+		"medallion": mesh = _merge([["plaster", _box(Vector3(1.1, .05, 1.1)), Transform3D.IDENTITY],
+			["plaster", _box(Vector3(.78, .08, .78)), _t(0, -.03, 0)],
+			["brass", _box(Vector3(.5, .1, .5)), _t(0, -.05, 0)],
+			["brass", _box(Vector3(.2, .14, .2)), _t(0, -.08, 0)]])
 		"pool": mesh = _build_decal(3.4, "pool")
 		"streak": mesh = _build_decal(2.0, "streak")
 		"halo": mesh = _build_halo(1.1)
@@ -670,20 +1013,23 @@ static func material(key: String) -> Material:
 		"brass":
 			var s := StandardMaterial3D.new()
 			s.albedo_color = Color("5a4020")
-			s.metallic = .7
-			s.roughness = .45
+			s.metallic = MaterialLook.METALLIC_METAL
+			s.roughness = MaterialLook.ROUGHNESS_METAL
+			s.metallic_specular = MaterialLook.SPECULAR_METAL
 			m = s
 		"iron":
 			var s := StandardMaterial3D.new()
 			s.albedo_color = Color("1a1617")
-			s.metallic = .5
-			s.roughness = .5
+			s.metallic = MaterialLook.METALLIC_METAL
+			s.roughness = MaterialLook.ROUGHNESS_METAL
+			s.metallic_specular = MaterialLook.SPECULAR_METAL
 			m = s
 		"rust":
 			var s := StandardMaterial3D.new()
 			s.albedo_color = Color("3a2418")
-			s.metallic = .5
-			s.roughness = .6
+			s.metallic = MaterialLook.METALLIC_METAL
+			s.roughness = MaterialLook.ROUGHNESS_METAL
+			s.metallic_specular = MaterialLook.SPECULAR_METAL
 			m = s
 		"canvas":
 			var s := StandardMaterial3D.new()
@@ -697,6 +1043,11 @@ static func material(key: String) -> Material:
 			s.emission = Color(1.0, .52, .13)
 			s.emission_energy_multiplier = 1.15 * RefLook.BULB_EMISSION_SCALE
 			s.roughness = .3
+			m = s
+		"plaster":
+			var s := StandardMaterial3D.new()
+			s.albedo_color = Color("b9a88a")
+			s.roughness = 1.0
 			m = s
 		"stone":
 			var s := StandardMaterial3D.new()

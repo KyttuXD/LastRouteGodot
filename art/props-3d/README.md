@@ -48,7 +48,7 @@ Forward/up axes remain Godot +Y up and -Z forward after Blender export.
 | `environment/floor_tile.tscn` | one 1m² floor cell | Yes — `GridMap` item, `facility_view_3d.gd` | 1m × 1m | 0.1m (thin slab, top flush at y=0) |
 | `characters/player.tscn` | the player's own body (visible in third-person view) | Yes — `player_controller_3d.gd` | 0.5m diameter | 1.7m |
 | `characters/dovelle.tscn` | hunter "Dovelle" | Yes — `hunter_view_3d.gd` | 0.44m diameter | 1.8m |
-| `characters/quirith.tscn` | hunter "Quirith" | Yes — `hunter_view_3d.gd` | 0.44m diameter | 1.8m |
+| `characters/quenelle.tscn` | hunter "Quenelle" | Yes — `hunter_view_3d.gd` | 0.44m diameter | 1.8m |
 | `interactables/relay.tscn` | signal relay pickup | Yes — `route_interactable_3d.gd` | 0.52m diameter | 0.52m |
 | `interactables/battery.tscn` | battery pickup | Yes — `route_interactable_3d.gd` | 0.52m diameter | 0.52m |
 | `interactables/safe_zone.tscn` | rest/safe-zone marker | Yes — `route_interactable_3d.gd` | 0.52m diameter | 0.52m |

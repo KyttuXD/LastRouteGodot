@@ -76,7 +76,7 @@ func runs_while_inactive() -> bool:
 
 
 ## True for a gimmick whose hunter can never trigger a capture at all --
-## Zephyra, who is a stationary shopkeeper the player stands right next to on
+## Zellia, who is a stationary shopkeeper the player stands right next to on
 ## every single trade. The original's merchant prep short-circuits her whole
 ## update before the shared capture-distance check ever runs; this is that
 ## same short-circuit, since HunterBrain.update()'s own check is otherwise
@@ -85,10 +85,27 @@ func immune_to_capture() -> bool:
 	return false
 
 
+## Multiplies the brain's sight range (2D `gimmickModifiers.sightScale`: Ilyra 1.8, Mavrine's survey .7).
+func sight_scale(_brain: HunterBrain) -> float:
+	return 1.0
+
+
+## True for a hunter who can sense and grab a player hidden in a hiding spot (2D `breachesHiding`/`breaksHiding`:
+## Elise, Loxelle). The brain then ignores the hidden flag while her last known point is within reach of it.
+func breaches_hiding() -> bool:
+	return false
+
+
 ## Small presentation/interaction state which a non-authoritative peer needs
 ## in addition to the shared HunterBrain fields. Timers and AI decisions stay
 ## host-only; subclasses expose only values a guest must render or consult
 ## while resolving its own input (Ceryth's riddle, Opalie's guard, etc.).
+## Corner peeking (HunterPeek): the chance a qualifying corner gets a peek, given the hunter's tuned chance. A gimmick
+## whose mood changes how she searches (Glyra) overrides it.
+func peek_chance(_brain: HunterBrain, base: float) -> float:
+	return base
+
+
 func network_state() -> Dictionary:
 	return {}
 
@@ -101,12 +118,16 @@ func apply_network_state(_state: Dictionary) -> void:
 ## any id with no behavior-changing gimmick (tuning-only hunters like
 ## Dovelle, and every not-yet-ported id) — HunterBrain treats null as "skip
 ## every hook", so adding a hunter here is opt-in, never a stub to fill in.
-static func for_id(hunter_id: String) -> HunterGimmick:
-	match hunter_id:
-		"quirith":
-			return QuirithGimmick.new()
-		"eirys":
-			return EirysGimmick.new()
+static func for_id(requested_id: String) -> HunterGimmick:
+	match HunterIdAliases.canonical(requested_id):
+		"white_wolf_spider":
+			return WhiteWolfSpiderGimmick.new()
+		"black_wolf_spider":
+			return BlackWolfSpiderGimmick.new()
+		"quenelle":
+			return QuenelleGimmick.new()
+		"elise":
+			return EliseGimmick.new()
 		"xivvy":
 			return XivvyGimmick.new()
 		"kathy":
@@ -135,8 +156,8 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return AkiGimmick.new()
 		"porcelle":
 			return PorcelleGimmick.new()
-		"jyvra":
-			return JyvraGimmick.new()
+		"javelle":
+			return JavelleGimmick.new()
 		"loxelle":
 			return LoxelleGimmick.new()
 		"ceryth":
@@ -151,7 +172,31 @@ static func for_id(hunter_id: String) -> HunterGimmick:
 			return IlyraGimmick.new()
 		"verrine":
 			return VerrineGimmick.new()
-		"zephyra":
-			return ZephyraGimmick.new()
+		"zellia":
+			return ZelliaGimmick.new()
+		"void_black":
+			return VoidBlackGimmick.new()
+		"void_blue":
+			return VoidBlueGimmick.new()
+		"void_brown":
+			return VoidBrownGimmick.new()
+		"void_cyan":
+			return VoidCyanGimmick.new()
+		"void_gray":
+			return VoidGrayGimmick.new()
+		"void_green":
+			return VoidGreenGimmick.new()
+		"void_orange":
+			return VoidOrangeGimmick.new()
+		"void_pink":
+			return VoidPinkGimmick.new()
+		"void_purple":
+			return VoidPurpleGimmick.new()
+		"void_red":
+			return VoidRedGimmick.new()
+		"void_white":
+			return VoidWhiteGimmick.new()
+		"void_yellow":
+			return VoidYellowGimmick.new()
 		_:
 			return null

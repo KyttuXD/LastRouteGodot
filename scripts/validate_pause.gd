@@ -44,7 +44,8 @@ func _frame() -> Signal:
 var _failures := 0
 ## Keep validation off the real gameplay port so this suite can run while a
 ## developer has an ordinary local room open in another window.
-const TEST_PORT := 28422
+## VALIDATE_PORT_OFFSET lets parallel runs on one machine use distinct ports.
+var TEST_PORT := 28422 + int(OS.get_environment("VALIDATE_PORT_OFFSET"))
 
 
 func _fail(message: String) -> void:
@@ -59,12 +60,16 @@ func _expect(condition: bool, message: String) -> void:
 
 func run(host: Node) -> int:
 	_host = host
+	var was_pausing := Settings.pause_on_focus_loss
+	Settings.pause_on_focus_loss = true   # the solo/online checks below run with the setting ON
 	await _check_lock()
 	await _check_maze()
 	await _check_online_maze()
 	await _check_share_copy()
 	await _check_menus_ignore_unfocus()
 	await _check_unfocus_afk()
+	await _check_focus_rules()
+	Settings.pause_on_focus_loss = was_pausing
 	if _failures == 0:
 		print("pause and mouse lock OK")
 	return _failures
@@ -223,14 +228,9 @@ func _check_online_maze() -> void:
 	menu.close()
 	_expect(not scene.player.input_frozen, "resuming left the online runner frozen")
 	_simulate_lost_focus(menu)
-	_expect(menu.is_open(), "losing focus online did not open the local pause")
-	_expect(not _tree().paused,
-		"focus-loss pause froze the host simulation for every peer")
-	_expect(scene.player.input_frozen,
-		"focus-loss pause left the online runner able to move")
-	menu.close()
-	_expect(not scene.player.input_frozen,
-		"resuming a focus-loss pause left the online runner frozen")
+	_expect(not menu.is_open(), "losing focus in a room opened the pause menu")
+	_expect(not _tree().paused, "losing focus in a room froze the host simulation")
+	_expect(not scene.player.input_frozen, "losing focus in a room froze the local runner")
 	scene.queue_free()
 	await _frame()
 	RoomState.leave_network()
@@ -295,12 +295,8 @@ func _check_share_copy() -> void:
 	menu.call("_set_section", "statistics")
 	_expect(menu.copy_route_share() == copied,
 		"a guest lost the read-only route-share copy")
-	_expect(menu.save_new_request.is_valid() == false
-			and menu.save_load_request.is_valid() == false,
-		"the share-copy path wired guest save/load authority")
-	var save_new := menu.find_child("SaveNew", true, false)
-	_expect(save_new != null,
-		"pause archives vanished after a guest opened the share block")
+	_expect(not menu.save_status_source.is_valid(),
+		"the share-copy path wired a guest save line")
 	menu.close()
 	menu.queue_free()
 	await _frame()
@@ -406,3 +402,66 @@ func _check_unfocus_afk() -> void:
 	menu.queue_free()
 	await _frame()
 	print("  unfocus   lost focus opens pause; AFK/void stays frozen until Resume")
+
+
+## Focus loss rules: the setting, rooms, text focus, admin overlays, and held keys.
+func _check_focus_rules() -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
+	_root().add_child(scene)
+	await _frame()
+	await _frame()
+	var menu: PauseMenu = scene.pause_menu
+	var was := Settings.pause_on_focus_loss
+	# solo, setting ON: pauses
+	Settings.pause_on_focus_loss = true
+	_simulate_lost_focus(menu)
+	_expect(menu.is_open(), "solo with the setting on did not pause on focus loss")
+	menu.close()
+	_simulate_regained_focus(menu)
+	# solo, setting OFF: no pause, held movement released
+	Settings.pause_on_focus_loss = false
+	Input.action_press("move_up")
+	_simulate_lost_focus(menu)
+	_expect(not menu.is_open(), "solo with the setting off paused on focus loss")
+	_expect(not Input.is_action_pressed("move_up"), "a held movement key stayed pressed after focus loss")
+	_simulate_regained_focus(menu)
+	# setting ON but a text field has the keyboard: no pause
+	Settings.pause_on_focus_loss = true
+	var field := LineEdit.new()
+	scene.add_child(field)
+	field.grab_focus()
+	await _frame()
+	_simulate_lost_focus(menu)
+	_expect(not menu.is_open(), "focus loss paused while a text field had the keyboard")
+	field.queue_free()
+	await _frame()
+	_simulate_regained_focus(menu)
+	# an admin overlay is open: no pause
+	AdminMenu.overlay_open = true
+	_simulate_lost_focus(menu)
+	_expect(not menu.is_open(), "focus loss paused over an open admin overlay")
+	AdminMenu.overlay_open = false
+	_simulate_regained_focus(menu)
+	# other players present (even with the setting on): no pause
+	var old_online := RoomState.online
+	var old_peers := RoomState.peers.duplicate(true)
+	RoomState.online = true
+	RoomState.peers = {1: "HOST", 2: "GUEST"}
+	_simulate_lost_focus(menu)
+	_expect(not menu.is_open(), "focus loss paused with other players connected")
+	RoomState.online = old_online
+	RoomState.peers = old_peers
+	_simulate_regained_focus(menu)
+	var old_public := RoomState.public_route
+	RoomState.public_route = true
+	_simulate_lost_focus(menu)
+	_expect(not menu.is_open(), "focus loss paused on a public route")
+	RoomState.public_route = old_public
+	# the default: off outside release builds
+	_expect(Settings.default_pause_on_focus_loss() == not (OS.is_debug_build() or Build.is_beta() or OS.has_feature("test_server")),
+		"the focus-loss default does not follow the build type")
+	Settings.pause_on_focus_loss = was
+	scene.queue_free()
+	await _frame()
+	print("  focus     setting on/off, rooms, text focus, admin overlay: only solo + setting pauses; held keys released")

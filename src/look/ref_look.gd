@@ -61,6 +61,8 @@ static func make_environment() -> Environment:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("5a3550")
 	env.ambient_light_energy = AMBIENT_ENERGY
+	# No reflections of the flat background colour: that is what put pale sheen over dark surfaces.
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	env.fog_enabled = true
 	env.fog_light_color = Color("140812")
 	env.fog_density = .03 if POST_EFFECTS else .006
@@ -82,6 +84,7 @@ static func make_environment() -> Environment:
 ## Replaces the scene's flat environment and adds the pixel post-process.
 ## `host` is any node in the tree; `world_env` the scene's WorldEnvironment.
 static func install(host: Node, world_env: WorldEnvironment) -> void:
+	MaterialLook.install(host.get_tree())
 	if world_env != null:
 		world_env.environment = make_environment()
 	if not POST_EFFECTS or host.has_node(POST_NAME):
@@ -110,7 +113,7 @@ static func _update_grid(host: Node, material: ShaderMaterial) -> void:
 
 # -- surface style tables ----------------------------------------------------
 #
-# Region = the multi-chunk biome the generator picked; room type = the finer
+# Region = the multi-chunk region the generator picked; room type = the finer
 # label on each room rectangle. Floors/walls are chosen per cell from these.
 # Kinds are RefTextures keys (floor/wall groups). The room families of the
 # references map onto the generator's regions like this:
@@ -123,6 +126,9 @@ static func _update_grid(host: Node, material: ShaderMaterial) -> void:
 #   carnival  prize room: star carpet, brass, checker
 #   prison    service bays: riveted metal, hazard striping
 #   inferno   warehouse/foundry: hazard plates and ember cracks
+#   hospital  sage vinyl, mint/white walls with a teal crash rail
+#   lab       Kyttu's Lab: white epoxy and composite panels, cyan guide line, hazard feet
+#   greenhouse terracotta quarry tiles, iron-and-glass glazing, glass roofs over the glasshouses
 
 const REGION_STYLE := {
 	"maze": {"corridor": ["metal0", "metal1", "metal2", "metal3", "grate"],
@@ -142,9 +148,41 @@ const REGION_STYLE := {
 		"wall": ["paper1", "panel1"], "ceiling": "ceil1", "runner": false},
 	"prison": {"corridor": ["metal1", "metal2", "grate"], "room": ["metal2", "metal3"],
 		"wall": ["corridor0", "corridor1", "panel0"], "ceiling": "ceil0", "runner": false},
-	"inferno": {"corridor": ["hazard", "metal3"], "room": ["metal3", "stone1"],
-		"wall": ["inferno0", "brick1"], "ceiling": "ceil0", "runner": false},
+	"inferno": {"corridor": ["rock0", "rock1"], "room": ["rock0", "rock1"],
+		"wall": ["rockwall0", "rockwall1", "rockwall2", "rockwall3", "rockwall4", "rockwall5", "rockwall6", "rockwall7"],
+		"ceiling": "rockceil", "runner": false},
+	# the sewer under the maze: brick tunnels over worn stone walkways
+	"sewer": {"corridor": ["stone0", "stone1"], "room": ["concrete0", "concrete1"],
+		"wall": ["brick0", "brick1", "brick1"], "ceiling": "vault", "runner": false},
+	"hospital": {"corridor": ["vinyl0", "vinyl1"], "room": ["vinyl0", "vinyl1"],
+		"wall": ["hospital0", "hospital1"], "ceiling": "ceil0", "runner": false},
+	"lab": {"corridor": ["epoxy0", "epoxy0", "epoxy1"], "room": ["epoxy0"],
+		"wall": ["lab0", "lab0", "lab1"], "ceiling": "ceil0", "runner": false},
+	"mall": {"corridor": ["terrazzo0", "terrazzo1"], "room": ["terrazzo0"],
+		"wall": ["mall0", "mall1"], "ceiling": "ceil1", "runner": false},
+	"greenhouse": {"corridor": ["terracotta0", "terracotta1", "stone2"], "room": ["terracotta0", "terracotta1"],
+		"wall": ["glasshouse0", "glasshouse1"], "ceiling": "glass", "runner": false},
 }
+
+## The trim of archways and hall pilasters (caps, mouldings, keystones) per district: [texture group, kind, tint, metal].
+## The jambs and arches themselves are the hall's own wall (RefDecor.arch_wall_material); this is only the accent. Gold
+## only where the district uses it.
+const ARCH_ACCENT := {
+	"mansion": ["floor", "metal0", Color("c9a25a"), true], "hotel": ["floor", "metal0", Color("c9a25a"), true],
+	"apartment": ["floor", "metal0", Color("b8955a"), true], "carnival": ["floor", "metal0", Color("d4a84a"), true],
+	"maze": ["floor", "concrete0", Color("b0aaa0"), false], "office": ["floor", "concrete0", Color("b0aaa0"), false],
+	"prison": ["floor", "metal1", Color("8a96a0"), true], "inferno": ["floor", "metal3", Color("9a6a50"), true],
+	"lab": ["floor", "metal1", Color("c8d4dc"), true], "hospital": ["floor", "metal1", Color("e4e8ea"), true],
+	"industrial": ["floor", "metal1", Color("6f8a96"), true],
+	"gothic": ["floor", "stone1", Color("a8a29a"), false], "sewer": ["floor", "stone0", Color("9a948a"), false],
+	"beach": ["floor", "stone2", Color("d8ccb0"), false], "mall": ["floor", "terrazzo0", Color("e0dcd4"), false],
+	"greenhouse": ["floor", "metal2", Color("5f7a5a"), true],
+}
+
+
+static func arch_accent(region: String) -> Array:
+	return ARCH_ACCENT.get(region, ARCH_ACCENT["maze"])
+
 
 ## Room-type overrides: which floor and wall kinds a room gets regardless of
 ## the region default (offices are carpeted, restrooms are tiled...).
@@ -179,7 +217,31 @@ const ROOM_STYLE := {
 	"tide_pool": {"floor": ["stone2"], "wall": ["hedge1", "stone0"]},
 	"thermal_chamber": {"floor": ["hazard", "metal3"], "wall": ["inferno0", "panel2"]},
 	"forge": {"floor": ["hazard", "metal3"], "wall": ["inferno0", "panel0"]},
+	"operating_theatre": {"floor": ["check1", "vinyl0"], "wall": ["hospital0"]},
+	"morgue": {"floor": ["metal2", "check1"], "wall": ["corridor0", "hospital0"]},
+	"waiting_room": {"floor": ["vinyl1"], "wall": ["hospital1"]},
+	"supply_closet": {"floor": ["metal2"], "wall": ["panel0", "hospital0"]},
+	"containment": {"floor": ["epoxy1", "hazard"], "wall": ["lab1"]},
+	"server_hall": {"floor": ["grate", "epoxy0"], "wall": ["lab0", "panel2"]},
+	"decon": {"floor": ["grate", "epoxy1"], "wall": ["lab1"]},
+	"cold_storage": {"floor": ["metal1", "epoxy0"], "wall": ["lab0"]},
+	"lab_office": {"floor": ["floral1", "epoxy0"], "wall": ["office0", "lab0"]},
+	"potting_shed": {"floor": ["parquet1", "terracotta1"], "wall": ["glasshouse0"]},
+	"irrigation_room": {"floor": ["grate", "terracotta0"], "wall": ["glasshouse0", "panel2"]},
+	"cactus_room": {"floor": ["stone2", "terracotta1"], "wall": ["glasshouse0"]},
+	"overgrown_room": {"floor": ["stone2", "terracotta0"], "wall": ["glasshouse1", "hedge1"]},
 }
+
+## The wall kind of a face that looks into a space: the room purpose's paper if the space is a room interior, else the
+## district wall. Patches of four cells so a wall changes paper in runs. Walls, door jambs, lintels and archways all call this.
+static func wall_kind(region: String, room_type: String, gx: int, gz: int) -> String:
+	var style: Dictionary = REGION_STYLE.get(region, REGION_STYLE["maze"])
+	var kinds: Array = (ROOM_STYLE.get(room_type, {}) as Dictionary).get("wall", style["wall"]) if room_type != "" else style["wall"]
+	# cave rock changes every cell (no 4-cell blocks of one texture), so nothing tiles along a wall
+	if region == "inferno":
+		return kinds[pick(gx, gz, 2, kinds.size())]
+	return kinds[pick(gx / 4, gz / 4, 2, kinds.size())]
+
 
 ## Deterministic 0..n-1 choice from a cell position and a salt, so every peer
 ## picks the same tile without sharing any state.
@@ -230,7 +292,8 @@ static func _graded_material(source: StandardMaterial3D, strength: float) -> Sta
 ## Above this a room counts as "tall": pendants on chains, roof ribs, tiered walls.
 const TALL_ROOM := 4.6
 const CORRIDOR_RANGE := Vector2(4.0, 4.6)   # taller than wide so a hall does not read as a low box
-const ROOM_RANGE := Vector2(3.2, 4.4)
+## Low end raised so every door frame (raised for the 1.5x hunters, DoorwayFrames.FRAME_TOP_CAP) fits under it.
+const ROOM_RANGE := Vector2(3.7, 4.4)
 const HALL_RANGE := Vector2(4.8, 6.0)
 const GREENHOUSE_RANGE := Vector2(6.4, 7.5)
 const MAX_HEIGHT := 7.5
@@ -238,9 +301,19 @@ const MAX_HEIGHT := 7.5
 const WALL_TEXTURE_SPAN := 4.0
 
 const GREENHOUSE_ROOMS := ["cove", "tide_pool", "beach_hut", "boardwalk_room"]
+## The greenhouse region's glasshouses get the same vaulted glass roof and canopy as the beach conservatories;
+## its potting sheds and plant rooms keep an ordinary ceiling.
+const GLASSHOUSE_ROOMS := ["glasshouse", "palm_house", "cactus_room", "overgrown_room", "dome_atrium"]
 const HALL_ROOMS := ["drawing_room", "dining_room", "lobby", "big_top", "chapel",
 	"crypt", "archive", "storage", "forge", "thermal_chamber", "lava_gallery",
-	"altar_room", "prison_cafeteria", "midway", "restaurant_dining"]
+	"altar_room", "prison_cafeteria", "midway", "restaurant_dining",
+	"ward", "operating_theatre", "server_hall", "containment", "clean_room"]
+
+
+## True for rooms that read as a glass conservatory (tall glazed roof, canopy and greenery).
+static func is_glasshouse(region: String, room_type: String) -> bool:
+	return (region == "beach" and GREENHOUSE_ROOMS.has(room_type)) \
+		or (region == "greenhouse" and GLASSHOUSE_ROOMS.has(room_type))
 
 
 static func _ranged(key: String, bounds: Vector2) -> float:
@@ -249,9 +322,15 @@ static func _ranged(key: String, bounds: Vector2) -> float:
 
 
 static func room_range(region: String, room_type: String) -> Vector2:
+	if region == "sewer":
+		# one fixed low vault so every ladder shaft has the same height
+		return Vector2(SewerRouteGenerator.CEILING_HEIGHT, SewerRouteGenerator.CEILING_HEIGHT)
+	if region == "gothic" and not HALL_ROOMS.has(room_type):
+		# the gothic door frames' crest (DoorwayFrames.GOTHIC_FRAME_TOP_CAP) needs the headroom, on both sides of a door
+		return Vector2(4.1, 4.6)
 	if room_type == "":
-		return ROOM_RANGE if region == "beach" else CORRIDOR_RANGE
-	if region == "beach" and GREENHOUSE_ROOMS.has(room_type):
+		return ROOM_RANGE if region in ["beach", "greenhouse"] else CORRIDOR_RANGE
+	if is_glasshouse(region, room_type):
 		return GREENHOUSE_RANGE
 	if HALL_ROOMS.has(room_type):
 		return HALL_RANGE

@@ -25,6 +25,7 @@ const ACTION_LABELS := {
 	"drop_item": "DROP HELD ITEM",
 	"chat": "ROOM CHAT",
 	"toggle_map": "TOGGLE MAP",
+	"player_list": "PLAYER LIST (HOLD)",
 	"pause": "PAUSE",
 	"office_left_door": "OFFICE — LEFT DOOR",
 	"office_right_door": "OFFICE — RIGHT DOOR",
@@ -40,26 +41,12 @@ const ACTION_LABELS := {
 
 ## The web build prints a bound key in amber, the colour it uses everywhere
 ## for "this is a system readout".
-const KEY_LABEL_COLOR := Palette.AMBER
 const LISTENING_TEXT := "PRESS A KEY..."
 
-## Bindings grouped the way the web build's Controls screen groups them, in
-## order. A flat alphabetical list of every action is a wall of text; the
-## same list under four headings is a thing you can scan. OFFICE MODE is last
-## and named as its own section because those are the SAME physical keys shown
-## by their office role, which is otherwise baffling to read.
-const SECTIONS := [
-	{"title": "MOVEMENT", "actions": ["move_up", "move_down", "move_left",
-		"move_right", "look_up", "look_down", "look_left", "look_right",
-		"sprint", "crouch", "jump"]},
-	{"title": "ACTIONS", "actions": ["interact", "flashlight", "taser",
-		"tool_use", "inventory", "drop_item", "chat", "toggle_map"]},
-	{"title": "SYSTEM", "actions": ["pause"]},
-	{"title": "OFFICE MODE", "actions": ["office_left_door", "office_right_door",
-		"office_desk_light", "office_vent", "office_cameras", "office_radio",
-		"office_breaker", "office_reboot", "office_emergency_flash",
-		"office_rear_flash"]},
-]
+## Bindings are grouped under tabs, the way the web build's Controls screen groups them: a flat list of every action is a wall
+## of text. The tabs shown come from ControlsRegistry for the game that is open (GameRegistry.active_game_id): Last Route shows
+## MOVEMENT / ACTIONS / SYSTEM; other games register their own (Night Watch: OFFICE).
+var SECTIONS: Array = ControlsRegistry.tabs_for(GameRegistry.active_game_id)
 
 @onready var volume_slider: HSlider = %VolumeSlider
 @onready var volume_value_label: Label = %VolumeValueLabel
@@ -82,6 +69,8 @@ const SECTIONS := [
 @onready var controls_list: VBoxContainer = %ControlsList
 @onready var close_button: Button = %CloseButton
 
+var _focus_pause_button: Button
+var _waypoint_button: Button
 var _listening_action := ""
 var _listening_button: Button = null
 var _listening_append := false
@@ -90,6 +79,9 @@ var _section_tabs: TabBar
 var _active_section := 0
 var _settings_tabs: TabBar
 var _active_settings_category := 0
+var _skin_panel: SkinPanel
+var _voice_panel: VoicePanel
+var _mods_panel: ModsPanel
 
 
 func _ready() -> void:
@@ -110,6 +102,9 @@ func _ready() -> void:
 	# while it is open.
 	Settings.display_changed.connect(_refresh_from_settings)
 	close_button.pressed.connect(close)
+	_build_focus_pause_row()
+	_build_waypoint_toggle_row()
+	_build_voice_rows()
 	_apply_palette()
 	_build_settings_tabs()
 	_build_control_rows()
@@ -170,6 +165,8 @@ func _refresh_from_settings() -> void:
 	Palette.set_state_toggle(fullscreen_button, Settings.fullscreen)
 	vsync_button.set_pressed_no_signal(Settings.vsync_enabled)
 	Palette.set_state_toggle(vsync_button, Settings.vsync_enabled)
+	_focus_pause_button.set_pressed_no_signal(Settings.pause_on_focus_loss)
+	Palette.set_state_toggle(_focus_pause_button, Settings.pause_on_focus_loss)
 	fps_limit_slider.set_value_no_signal(Settings.fps_limit)
 	_update_fps_limit_label(Settings.fps_limit)
 	fov_slider.set_value_no_signal(Settings.field_of_view)
@@ -293,6 +290,10 @@ func _apply_palette() -> void:
 	if fullscreen != null:
 		Palette.style_state_toggle(fullscreen, "FULLSCREEN", Settings.fullscreen)
 	Palette.style_state_toggle(vsync_button, "VSYNC", Settings.vsync_enabled)
+	Palette.style_state_toggle(_focus_pause_button, "PAUSE WHEN WINDOW LOSES FOCUS", Settings.pause_on_focus_loss)
+	if _waypoint_button != null:
+		_waypoint_button.set_pressed_no_signal(Settings.teammate_waypoints)
+		Palette.style_state_toggle(_waypoint_button, "TEAMMATE WAYPOINTS", Settings.teammate_waypoints)
 
 
 func _build_control_rows() -> void:
@@ -306,27 +307,183 @@ func _build_control_rows() -> void:
 	_show_control_section(0)
 
 
+## DISPLAY: teammate waypoints on the HUD (and on the maps), on by default.
+func _build_waypoint_toggle_row() -> void:
+	var row := HBoxContainer.new()
+	row.name = "TeammateWaypointsRow"
+	row.offset_left = 20.0
+	row.offset_top = 226.0
+	row.offset_right = 420.0
+	row.offset_bottom = 240.0
+	var button := Button.new()
+	button.name = "TeammateWaypointsButton"
+	button.toggle_mode = true
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.tooltip_text = "Name and distance markers for your co-op teammates, also shown on the minimap and map."
+	button.toggled.connect(func(enabled: bool) -> void:
+		Settings.set_teammate_waypoints(enabled)
+		Palette.set_state_toggle(button, enabled))
+	row.add_child(button)
+	add_child(row)
+	_waypoint_button = button
+
+
+func _build_focus_pause_row() -> void:
+	var row := HBoxContainer.new()
+	row.name = "FocusPauseRow"
+	row.offset_left = 20.0
+	row.offset_top = 208.0
+	row.offset_right = 420.0
+	row.offset_bottom = 224.0
+	_focus_pause_button = Button.new()
+	_focus_pause_button.name = "FocusPauseButton"
+	_focus_pause_button.toggle_mode = true
+	_focus_pause_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_focus_pause_button.toggled.connect(func(enabled: bool) -> void:
+		Settings.set_pause_on_focus_loss(enabled)
+		Palette.set_state_toggle(_focus_pause_button, enabled))
+	row.add_child(_focus_pause_button)
+	# GRAPHICS: AUTO follows the detected device tier (PlatformProfile / QualityTier); the label shows what AUTO picked.
+	var graphics_button := Button.new()
+	graphics_button.name = "GraphicsQualityButton"
+	graphics_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var graphics_label := func() -> String:
+		return "GRAPHICS: %s" % (("AUTO (%s)" % QualityTier.name_of(PlatformProfile.tier)) \
+			if Settings.graphics_quality == "AUTO" else Settings.graphics_quality)
+	graphics_button.text = graphics_label.call()
+	graphics_button.tooltip_text = "Detected: %s" % PlatformProfile.tier_readout()
+	graphics_button.pressed.connect(func() -> void:
+		var choices: Array = Settings.GRAPHICS_CHOICES
+		Settings.set_graphics_quality(choices[(choices.find(Settings.graphics_quality) + 1) % choices.size()])
+		graphics_button.text = graphics_label.call()
+		graphics_button.tooltip_text = "Detected: %s" % PlatformProfile.tier_readout())
+	row.add_child(graphics_button)
+	if PlatformProfile.is_phone:
+		# Phones only: the movement control for TouchControls (desktop never shows this button).
+		var move_button := Button.new()
+		move_button.name = "TouchMoveButton"
+		move_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		move_button.text = "MOVE: %s" % ("STICK" if Settings.touch_move == "stick" else "ARROWS")
+		move_button.pressed.connect(func() -> void:
+			Settings.set_touch_move("dpad" if Settings.touch_move == "stick" else "stick")
+			move_button.text = "MOVE: %s" % ("STICK" if Settings.touch_move == "stick" else "ARROWS"))
+		row.add_child(move_button)
+	add_child(row)
+	# In-world ads (flavour, TrollAds): OFF / GENTLE / ANNOYING, OFF by default. Troll mode overrides it for cheaters.
+	var ads_button := Button.new()
+	ads_button.name = "AdsModeButton"
+	ads_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ads_button.tooltip_text = "In-world joke ads on shop signs, plus pop-ups (GENTLE: rare, skip any time; ANNOYING: frequent, sneaky skip)."
+	ads_button.text = "ADS: %s" % Settings.ads_mode.to_upper()
+	ads_button.pressed.connect(func() -> void:
+		var modes: Array = TrollAds.MODES
+		Settings.set_ads_mode(modes[(modes.find(Settings.ads_mode) + 1) % modes.size()])
+		ads_button.text = "ADS: %s" % Settings.ads_mode.to_upper())
+	$DisplayRow.add_child(ads_button)
+
+
+## AUDIO: spoken chat volume, and voices / subtitles toggles (voices off = subtitles only).
+func _build_voice_rows() -> void:
+	var row := HBoxContainer.new()
+	row.name = "VoiceVolumeRow"
+	row.offset_left = 20.0
+	row.offset_top = 142.0
+	row.offset_right = 420.0
+	row.offset_bottom = 158.0
+	var label := Label.new()
+	label.text = "SPOKEN CHAT"
+	label.custom_minimum_size = Vector2(96, 0)
+	label.add_theme_font_size_override("font_size", 8)
+	row.add_child(label)
+	var slider := HSlider.new()
+	slider.name = "VoiceVolumeSlider"
+	slider.min_value = 0
+	slider.max_value = 100
+	slider.step = 5
+	slider.value = Settings.voice_volume
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(slider)
+	var readout := Label.new()
+	readout.text = "%d%%" % int(Settings.voice_volume)
+	readout.custom_minimum_size = Vector2(34, 0)
+	readout.add_theme_font_size_override("font_size", 8)
+	row.add_child(readout)
+	slider.value_changed.connect(func(value: float) -> void:
+		readout.text = "%d%%" % int(value)
+		Settings.set_voice(value, Settings.voice_enabled, Settings.voice_subtitles))
+	add_child(row)
+	var toggles := HBoxContainer.new()
+	toggles.name = "VoiceToggleRow"
+	toggles.offset_left = 20.0
+	toggles.offset_top = 166.0
+	toggles.offset_right = 420.0
+	toggles.offset_bottom = 182.0
+	for pair in [["VOICES", "voice_enabled"], ["SUBTITLES", "voice_subtitles"]]:
+		var button := Button.new()
+		button.name = "Voice%sButton" % String(pair[0]).capitalize()
+		button.toggle_mode = true
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		Palette.style_state_toggle(button, String(pair[0]), bool(Settings.get(String(pair[1]))))
+		button.set_pressed_no_signal(bool(Settings.get(String(pair[1]))))
+		var key := String(pair[1])
+		button.toggled.connect(func(enabled: bool) -> void:
+			Settings.set_voice(Settings.voice_volume, enabled if key == "voice_enabled" else Settings.voice_enabled,
+				enabled if key == "voice_subtitles" else Settings.voice_subtitles)
+			Palette.set_state_toggle(button, enabled))
+		toggles.add_child(button)
+	var crash := Button.new()
+	crash.name = "SendCrashReportsButton"
+	crash.toggle_mode = true
+	crash.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	Palette.style_state_toggle(crash, "CRASH REPORTS", Settings.send_crash_reports)
+	crash.set_pressed_no_signal(Settings.send_crash_reports)
+	crash.tooltip_text = "Send a crash or freeze report on the next launch (build, device, log tail; never passwords)"
+	crash.toggled.connect(func(enabled: bool) -> void:
+		Settings.set_send_crash_reports(enabled)
+		Palette.set_state_toggle(crash, enabled))
+	toggles.add_child(crash)
+	add_child(toggles)
+
+
 func _build_settings_tabs() -> void:
 	_settings_tabs = TabBar.new()
 	_settings_tabs.name = "SettingsCategoryTabs"
 	_settings_tabs.position = Vector2(20, 37)
 	_settings_tabs.size = Vector2(400, 22)
 	_settings_tabs.tab_alignment = TabBar.ALIGNMENT_CENTER
-	for title in ["AUDIO", "DISPLAY", "CONTROLS"]:
+	for title in ["AUDIO", "DISPLAY", "CONTROLS", "SKIN", "VOICE", "MODS"]:
 		_settings_tabs.add_tab(title)
 	_settings_tabs.tab_changed.connect(_show_settings_category)
 	add_child(_settings_tabs)
+	_skin_panel = SkinPanel.new()
+	_skin_panel.position = Vector2(20, 66)
+	_skin_panel.size = Vector2(400, 176)
+	add_child(_skin_panel)
+	_voice_panel = VoicePanel.new()
+	_voice_panel.position = Vector2(20, 66)
+	_voice_panel.size = Vector2(400, 176)
+	add_child(_voice_panel)
+	_mods_panel = ModsPanel.new()
+	_mods_panel.position = Vector2(20, 66)
+	_mods_panel.size = Vector2(400, 176)
+	add_child(_mods_panel)
 	_show_settings_category(0)
 
 
 func _show_settings_category(index: int) -> void:
-	_active_settings_category = clampi(index, 0, 2)
-	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow"]:
+	_active_settings_category = clampi(index, 0, 5)
+	for name in ["VolumeRow", "SfxVolumeRow", "UiVolumeRow", "VoiceVolumeRow", "VoiceToggleRow"]:
 		get_node(name).visible = _active_settings_category == 0
 	for name in ["DisplayRow", "VsyncRow", "FpsLimitRow", "FovRow",
-			"PixelEffectRow", "PlayerHueRow", "SensitivityRow"]:
+			"PixelEffectRow", "PlayerHueRow", "SensitivityRow", "FocusPauseRow", "TeammateWaypointsRow"]:
 		get_node(name).visible = _active_settings_category == 1
 	$ControlsScroll.visible = _active_settings_category == 2
+	if _skin_panel != null:
+		_skin_panel.visible = _active_settings_category == 3
+	if _voice_panel != null:
+		_voice_panel.visible = _active_settings_category == 4
+	if _mods_panel != null:
+		_mods_panel.visible = _active_settings_category == 5
 
 
 func _show_control_section(index: int) -> void:
@@ -335,19 +492,20 @@ func _show_control_section(index: int) -> void:
 		if child != _section_tabs:
 			child.queue_free()
 	_key_labels.clear()
+	if PlatformProfile.is_phone and _active_section == 0:
+		_build_touch_look_rows()
 	var active: Dictionary = SECTIONS[_active_section]
 	for action in active["actions"]:
 		if Settings.REBINDABLE_ACTIONS.has(action):
 			_build_control_row(action)
+	if String(active["title"]) == "ACTIONS" and SECTIONS.size() == ControlsRegistry.LAST_ROUTE_TABS.size():
+		_build_waypoint_preferences()
 	# Anything omitted from the organized categories is still reachable from
 	# System instead of becoming an invisible binding.
-	var placed := {}
-	for section_value in SECTIONS:
-		for action in section_value["actions"]:
-			placed[action] = true
+	var placed := ControlsRegistry.registered_actions()
 	var orphans: Array = Settings.REBINDABLE_ACTIONS.filter(
 		func(a: String) -> bool: return not placed.has(a))
-	if _active_section == 2 and not orphans.is_empty():
+	if _active_section == SECTIONS.size() - 1 and not orphans.is_empty():
 		var heading := Label.new()
 		heading.text = Palette.track("OTHER")
 		heading.add_theme_color_override("font_color", Palette.AMBER)
@@ -355,6 +513,128 @@ func _show_control_section(index: int) -> void:
 		controls_list.add_child(heading)
 		for action in orphans:
 			_build_control_row(action)
+
+
+## Phones only: TOUCH LOOK (TouchControls.look_turn) at the top of the first CONTROLS section. Desktop never builds it.
+func _build_touch_look_rows() -> void:
+	var heading := Label.new()
+	heading.name = "TouchLookHeading"
+	heading.text = Palette.track("TOUCH LOOK")
+	heading.add_theme_color_override("font_color", Palette.AMBER)
+	heading.add_theme_font_size_override("font_size", 8)
+	controls_list.add_child(heading)
+	_touch_slider("LOOK SPEED", 0.25, 3.0, Settings.touch_look_speed, func(value: float) -> void:
+		Settings.set_touch_look(value, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, Settings.touch_look_accel))
+	_touch_slider("VERTICAL SPEED", 0.3, 1.5, Settings.touch_look_vertical, func(value: float) -> void:
+		Settings.set_touch_look(Settings.touch_look_speed, value, Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, Settings.touch_look_accel))
+	var row := HBoxContainer.new()
+	row.name = "TouchLookToggles"
+	controls_list.add_child(row)
+	var invert := _touch_toggle(row, func() -> String: return "INVERT Y: %s" % ("ON" if Settings.touch_look_invert_y else "OFF"))
+	invert.pressed.connect(func() -> void:
+		Settings.set_touch_look(Settings.touch_look_speed, Settings.touch_look_vertical, not Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, Settings.touch_look_accel)
+		invert.text = "INVERT Y: %s" % ("ON" if Settings.touch_look_invert_y else "OFF"))
+	var smooth := _touch_toggle(row, func() -> String: return "SMOOTHING: %s" % Settings.touch_look_smoothing.to_upper())
+	smooth.pressed.connect(func() -> void:
+		var order := ["off", "low", "high"]
+		var next: String = order[(order.find(Settings.touch_look_smoothing) + 1) % order.size()]
+		Settings.set_touch_look(Settings.touch_look_speed, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+			next, Settings.touch_look_accel)
+		smooth.text = "SMOOTHING: %s" % Settings.touch_look_smoothing.to_upper())
+	var accel := _touch_toggle(row, func() -> String: return "ACCELERATION: %s" % ("ON" if Settings.touch_look_accel else "OFF"))
+	accel.pressed.connect(func() -> void:
+		Settings.set_touch_look(Settings.touch_look_speed, Settings.touch_look_vertical, Settings.touch_look_invert_y,
+			Settings.touch_look_smoothing, not Settings.touch_look_accel)
+		accel.text = "ACCELERATION: %s" % ("ON" if Settings.touch_look_accel else "OFF"))
+
+
+func _touch_slider(label_text: String, low: float, high: float, value: float, changed: Callable) -> void:
+	var row := HBoxContainer.new()
+	row.name = label_text.replace(" ", "") + "Row"
+	var label := Label.new()
+	label.text = label_text
+	label.custom_minimum_size = Vector2(96, 0)
+	label.add_theme_font_size_override("font_size", 8)
+	row.add_child(label)
+	var slider := HSlider.new()
+	slider.min_value = low
+	slider.max_value = high
+	slider.step = 0.05
+	slider.value = value
+	slider.custom_minimum_size = Vector2(0, 22)   # a thumb-sized track on a phone
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(slider)
+	var readout := Label.new()
+	readout.text = "%.2fx" % value
+	readout.custom_minimum_size = Vector2(34, 0)
+	readout.add_theme_font_size_override("font_size", 8)
+	row.add_child(readout)
+	slider.value_changed.connect(func(next: float) -> void:
+		readout.text = "%.2fx" % next
+		changed.call(next))
+	controls_list.add_child(row)
+
+
+func _touch_toggle(row: HBoxContainer, label: Callable) -> Button:
+	var button := Button.new()
+	button.text = String(label.call())
+	button.custom_minimum_size = Vector2(0, 22)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 8)
+	row.add_child(button)
+	return button
+
+
+## WAYPOINT HUD preferences, under the waypoint keys (docs/WAYPOINTS.md).
+func _build_waypoint_preferences() -> void:
+	var heading := Label.new()
+	heading.name = "WaypointHeading"
+	heading.text = Palette.track("WAYPOINT")
+	heading.add_theme_color_override("font_color", Palette.AMBER)
+	heading.add_theme_font_size_override("font_size", 8)
+	controls_list.add_child(heading)
+	var guidance := Button.new()
+	guidance.name = "WaypointGuidanceButton"
+	guidance.text = "GUIDANCE: %s" % Settings.waypoint_guidance.to_upper()
+	guidance.tooltip_text = "OFF: pin only // ARROW: pin and screen-edge arrow // PATH: also floor chevrons along the route"
+	guidance.pressed.connect(func() -> void:
+		var modes: Array = Settings.WAYPOINT_GUIDANCE_MODES
+		Settings.set_waypoint_guidance(modes[(modes.find(Settings.waypoint_guidance) + 1) % modes.size()])
+		guidance.text = "GUIDANCE: %s" % Settings.waypoint_guidance.to_upper())
+	controls_list.add_child(guidance)
+	var distance := Button.new()
+	distance.name = "WaypointDistanceButton"
+	Palette.style_state_toggle(distance, "SHOW WAYPOINT DISTANCE", Settings.waypoint_show_distance)
+	distance.pressed.connect(func() -> void:
+		Settings.set_waypoint_show_distance(not Settings.waypoint_show_distance)
+		Palette.style_state_toggle(distance, "SHOW WAYPOINT DISTANCE", Settings.waypoint_show_distance))
+	controls_list.add_child(distance)
+	var chime := Button.new()
+	chime.name = "WaypointChimeButton"
+	Palette.style_state_toggle(chime, "ARRIVAL CHIME", Settings.waypoint_arrival_chime)
+	chime.pressed.connect(func() -> void:
+		Settings.set_waypoint_arrival_chime(not Settings.waypoint_arrival_chime)
+		Palette.style_state_toggle(chime, "ARRIVAL CHIME", Settings.waypoint_arrival_chime))
+	controls_list.add_child(chime)
+	var size_button := Button.new()
+	size_button.name = "WaypointSizeButton"
+	size_button.text = "PIN SIZE: %d%%" % roundi(Settings.waypoint_scale * 100.0)
+	size_button.pressed.connect(func() -> void:
+		var next := Settings.waypoint_scale + .2
+		Settings.set_waypoint_scale(next if next <= 1.61 else .6)
+		size_button.text = "PIN SIZE: %d%%" % roundi(Settings.waypoint_scale * 100.0))
+	controls_list.add_child(size_button)
+	var opacity_button := Button.new()
+	opacity_button.name = "WaypointOpacityButton"
+	opacity_button.text = "PIN OPACITY: %d%%" % roundi(Settings.waypoint_opacity * 100.0)
+	opacity_button.pressed.connect(func() -> void:
+		var next := Settings.waypoint_opacity - .2
+		Settings.set_waypoint_opacity(next if next >= .29 else 1.0)
+		opacity_button.text = "PIN OPACITY: %d%%" % roundi(Settings.waypoint_opacity * 100.0))
+	controls_list.add_child(opacity_button)
 
 
 func _build_control_row(action: String) -> void:
@@ -370,7 +650,7 @@ func _build_control_row(action: String) -> void:
 	var key_label := Label.new()
 	key_label.text = Settings.get_action_key_label(action)
 	key_label.custom_minimum_size = Vector2(92, 0)
-	key_label.add_theme_color_override("font_color", KEY_LABEL_COLOR)
+	key_label.add_theme_color_override("font_color", Palette.AMBER)
 	key_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(key_label)
 	_key_labels[action] = key_label

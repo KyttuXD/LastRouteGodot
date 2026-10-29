@@ -17,7 +17,8 @@ extends Node3D
 ##  * every other real OmniLight3D in the world (interactable glows, the checkpoint light, braziers)
 ##    is registered with make_budgeted() and only the BUDGET_COUNT nearest ones within reach stay on.
 
-const POOL_SIZE := 8
+## Real lights in the pool: 8 on desktop, fewer on phones and headsets (PlatformProfile.lamp_pool).
+var POOL_SIZE := 8
 const RANGE := 17.0
 const LIGHT_RANGE := 9.0 * RefLook.LAMP_RANGE_SCALE
 const BASE_ENERGY := 3.0 * RefLook.LAMP_ENERGY_SCALE
@@ -44,6 +45,7 @@ var _enabled := true
 
 func _ready() -> void:
 	name = "LampField"
+	POOL_SIZE = PlatformProfile.lamp_pool
 	for i in POOL_SIZE:
 		var light := OmniLight3D.new()
 		light.omni_range = LIGHT_RANGE
@@ -51,7 +53,7 @@ func _ready() -> void:
 		light.light_energy = 0.0
 		light.shadow_enabled = false
 		light.visible = false
-		light.light_specular = 1.2
+		light.light_specular = MaterialLook.LIGHT_SPECULAR
 		add_child(light)
 		_lights.append(light)
 		_targets.append(null)
@@ -160,6 +162,7 @@ func _home(i: int) -> void:
 	l.global_position = (lamp as Array)[0]
 	l.light_color = (lamp as Array)[1]
 	l.omni_range = float((lamp as Array)[4]) if (lamp as Array).size() > 4 else LIGHT_RANGE
+	l.light_cull_mask = StoreyLayers.light_mask(StoreyLayers.level_at(l.global_position.y))
 
 
 func _assign(origin: Vector3) -> void:

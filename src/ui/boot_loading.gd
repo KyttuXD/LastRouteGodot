@@ -10,7 +10,7 @@ extends Control
 ## visible through download, verify, and staging.
 
 const SIGNAL_BACKDROP_SCRIPT := preload("res://src/ui/signal_backdrop.gd")
-const MAIN_MENU_PATH := "res://scenes/main_menu.tscn"
+const MAIN_MENU_PATH := "res://scenes/game_hub.tscn"
 const MIN_VISIBLE_SECONDS := 0.8
 
 @export var auto_start := true
@@ -20,6 +20,9 @@ var _menu_loaded := false
 var _may_open_menu := false
 var _opening_menu := false
 var _update_discovered := false
+## Pauses before each retry of the first update/server check; when they run out the game starts offline.
+const RETRY_DELAYS := [1.5, 3.0, 5.0]
+var _check_attempts := 0
 
 var _phase: Label
 var _status: Label
@@ -88,6 +91,15 @@ func _poll_menu_load() -> void:
 		_show_terminal_error("MAIN MENU RESOURCES COULD NOT BE LOADED")
 
 
+const UPDATE_SCREEN_PATH := "res://scenes/update_progress.tscn"
+
+
+## An update was found: the hub and the games never load; the update screen takes over until it is installed.
+func _open_update_screen() -> void:
+	# no blocking screen: the update downloads in the background (UpdateBadge) and applies on quit / RESTART NOW
+	_allow_main_menu("UPDATE AVAILABLE // DOWNLOADING IN THE BACKGROUND")
+
+
 func _handoff_desktop_update() -> bool:
 	return UpdateManager.uses_in_progress_screen() \
 		and (UpdateManager.downloading or UpdateManager.preparing \
@@ -96,9 +108,12 @@ func _handoff_desktop_update() -> bool:
 
 
 func _sync_update_state() -> void:
+	if UpdateManager.is_dev_build() and not UpdateManager.available.is_empty():
+		_allow_main_menu("DEV BUILD // UPDATE AVAILABLE")
+		return
 	if _handoff_desktop_update():
 		_update_discovered = true
-		_allow_main_menu("UPDATE FOUND // OPENING MENU")
+		_open_update_screen()
 		return
 	if UpdateManager.installing:
 		_on_update_status(UpdateManager.status_message)
@@ -123,32 +138,60 @@ func _sync_update_state() -> void:
 
 
 func _on_update_available(update: Dictionary) -> void:
+	if UpdateManager.is_dev_build():
+		return   # _on_update_check_finished shows the dev notice
 	_update_discovered = true
 	var revision := String(update.get("revision", "")).strip_edges()
 	var identity := revision.left(8).to_upper() if not revision.is_empty() \
 		else String(update.get("version", ""))
 	_set_state("UPDATE FOUND", "PREPARING UPDATE %s" % identity, 0.18, true)
 	if _handoff_desktop_update():
-		_allow_main_menu("UPDATE FOUND // OPENING MENU")
+		_open_update_screen()
+
+
+var _dev_notice := false
+
+
+## A dev (unstamped) build hears about the published build but is never held: notice + CONTINUE (online).
+func _show_dev_notice() -> void:
+	_dev_notice = true
+	_may_open_menu = false
+	_set_state("UPDATE AVAILABLE (BUILD %d)" % int(UpdateManager.available.get("build", 0)),
+		"DEV BUILD // NOT UPDATED AUTOMATICALLY", 1.0, false)
+	_retry_button.visible = false
+	_continue_button.text = "CONTINUE"
+	_continue_button.visible = true
+	_continue_button.grab_focus.call_deferred()
 
 
 func _on_update_check_finished(success: bool, update_needed: bool) -> void:
+	if update_needed and UpdateManager.is_dev_build():
+		_allow_main_menu("DEV BUILD // UPDATE AVAILABLE")   # the badge says so
+		return
 	if update_needed:
 		_update_discovered = true
 		if not UpdateManager.downloading and not UpdateManager.preparing \
 				and not UpdateManager.installing and not UpdateManager.ready_to_install:
 			UpdateManager.download_update()
 		if _handoff_desktop_update():
-			_allow_main_menu("UPDATE FOUND // OPENING MENU")
+			_open_update_screen()
 		return
 	if success:
 		_allow_main_menu("BUILD IS UP TO DATE")
 		return
-	if Build.requires_update_gate():
-		_show_retry(UpdateManager.status_message if not UpdateManager.status_message.is_empty() \
-			else "UPDATE CHECK REQUIRED", false)
-	else:
-		_allow_main_menu("UPDATE SERVICE UNAVAILABLE // STARTING OFFLINE")
+	# server unreachable or the check timed out (UpdateManager.MANIFEST_TIMEOUT_SECONDS): retry a few times with a growing pause
+	# (a flaky first packet should not cost the player online play), then play offline; never block
+	if _check_attempts < RETRY_DELAYS.size():
+		var delay: float = RETRY_DELAYS[_check_attempts]
+		_check_attempts += 1
+		_status.text = "SERVER NOT REACHABLE // RETRYING (%d/%d)" % [_check_attempts, RETRY_DELAYS.size()]
+		get_tree().create_timer(delay).timeout.connect(func() -> void:
+			if is_inside_tree() and not _may_open_menu:
+				UpdateManager.check())
+		return
+	UpdateManager.enable_offline_mode()
+	Backend.enable_offline_mode()
+	_allow_main_menu("UPDATE SERVICE UNAVAILABLE // STARTING OFFLINE")
 
 
 func _on_update_status(message: String) -> void:
@@ -157,7 +200,10 @@ func _on_update_status(message: String) -> void:
 	var upper := message.to_upper()
 	_status.text = upper
 	if UpdateManager.is_failure_status(upper):
-		_show_retry(upper, not Build.requires_update_gate())
+		if _update_discovered or not UpdateManager.available.is_empty():
+			_allow_main_menu("UPDATE DOWNLOAD FAILED // PLAYING THIS BUILD")   # the badge retries later; never blocks
+		else:
+			_show_retry(upper, false)
 	elif upper.contains("CHECKING"):
 		_phase.text = "CHECKING FOR UPDATES"
 		_set_progress(0.12, true)
@@ -190,7 +236,7 @@ func _on_download_progress(received_bytes: int, total_bytes: int) -> void:
 func _on_update_ready(_path: String) -> void:
 	_update_discovered = true
 	if _handoff_desktop_update():
-		_allow_main_menu("UPDATE STAGED // OPENING MENU")
+		_open_update_screen()
 		return
 	_set_state("APPLYING UPDATE", "INSTALLING UPDATE // RESTARTING", 1.0, true)
 	if not UpdateManager.installing and UpdateManager._should_install_automatically():
@@ -209,6 +255,9 @@ func _retry_update() -> void:
 
 
 func _continue_offline() -> void:
+	if _dev_notice:
+		_allow_main_menu("DEV BUILD // UPDATE SKIPPED")
+		return
 	Backend.enable_offline_mode()
 	UpdateManager.enable_offline_mode()
 	_allow_main_menu("UPDATE DEFERRED // STARTING OFFLINE")
@@ -310,9 +359,9 @@ func _build_ui() -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	panel.add_child(column)
-	column.add_child(_label("ROUTE SYSTEM // STARTUP", Palette.AMBER, 7,
+	column.add_child(_label("LAB SYSTEM // STARTUP", Palette.AMBER, 7,
 		"BootKicker"))
-	var title := _label("LAST ROUTE", Palette.INK, 18, "BootTitle")
+	var title := _label("KYTTU'S LAB", Palette.INK, 18, "BootTitle")
 	title.add_theme_font_override("font", Palette.title_font())
 	column.add_child(title)
 

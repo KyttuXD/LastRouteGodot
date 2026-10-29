@@ -1,0 +1,50 @@
+{
+ "name": "gp_sewer_falls",
+ "area": "sewer_tunnels",
+ "seconds": 2.2,
+ "gameplay": true,
+ "dark": 0.0,
+ "world_dim": 1.0,
+ "torch_energy": 0,
+ "min_run": 8.0,
+ "start": [
+  0.0,
+  0.0
+ ],
+ "face_at": [
+  6.0,
+  0.0,
+  2.4
+ ],
+ "actors": {},
+ "camera": [],
+ "flashlight": [],
+ "inputs": [
+  {
+   "t": 0.0,
+   "until": 2.2,
+   "move": [
+    0.0,
+    0.4
+   ]
+  }
+ ],
+ "events": [],
+ "expects": [
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 1.0,
+   "label": "walk",
+   "player_moving": 0.6
+  }
+ ],
+ "world_at": {
+  "x": 125.5,
+  "z": -130.5,
+  "y": -7.95,
+  "yaw": 0
+ }
+}

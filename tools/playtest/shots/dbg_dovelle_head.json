@@ -1,0 +1,107 @@
+{
+ "name": "dbg_dovelle_head",
+ "area": "hospital",
+ "seconds": 6,
+ "dark": 1.0,
+ "world_dim": 1.2,
+ "torch_energy": 0,
+ "actors": {
+  "dovelle": {
+   "id": "dovelle",
+   "at": [
+    2.6,
+    0.0
+   ],
+   "face": "shot_camera",
+   "pose": "stare_camera",
+   "head": {
+    "max_yaw": 60,
+    "max_pitch": 30,
+    "sway": 0.0,
+    "ease": 20
+   }
+  }
+ },
+ "camera": [
+  {
+   "t": 0,
+   "at": [
+    0.5,
+    0.0,
+    1.75
+   ],
+   "look": "dovelle:@Head",
+   "fov": 30
+  },
+  {
+   "t": 1.4,
+   "at": [
+    0.5,
+    0.0,
+    1.75
+   ],
+   "look": "dovelle:@Head",
+   "fov": 30
+  },
+  {
+   "t": 2.4,
+   "at": [
+    1.47,
+    1.13,
+    1.75
+   ],
+   "look": "dovelle:@Head",
+   "fov": 30
+  },
+  {
+   "t": 3.4,
+   "at": [
+    1.47,
+    1.13,
+    1.75
+   ],
+   "look": "dovelle:@Head",
+   "fov": 30
+  },
+  {
+   "t": 4.4,
+   "at": [
+    2.6,
+    1.2,
+    1.75
+   ],
+   "look": "dovelle:@Head",
+   "fov": 30
+  },
+  {
+   "t": 6,
+   "at": [
+    2.6,
+    1.2,
+    1.75
+   ],
+   "look": "dovelle:@Head",
+   "fov": 30
+  }
+ ],
+ "flashlight": [],
+ "events": [],
+ "expects": [
+  {
+   "t": 1.2,
+   "label": "front",
+   "actor": "dovelle",
+   "dump_meshes": "dovelle"
+  },
+  {
+   "t": 3.2,
+   "label": "turn45",
+   "actor": "dovelle"
+  },
+  {
+   "t": 5.8,
+   "label": "side",
+   "actor": "dovelle"
+  }
+ ]
+}

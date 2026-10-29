@@ -18,8 +18,13 @@ extends HunterGimmick
 
 
 func after_perception(brain: HunterBrain, _delta: float, _target: Dictionary, generator) -> void:
-	var relay := _nearest_uncollected(brain.position, generator.relays)
-	if relay == Vector2.ZERO and generator.uncollected(generator.relays).is_empty():
+	# 2D relay-pursuer split: while more than one relay is still out, leave the one Opalie guards (the first) to her.
+	var pursuit: Array = generator.relays
+	var open_relays: Array = generator.uncollected(pursuit)
+	if open_relays.size() > 1:
+		pursuit = pursuit.filter(func(entry: Dictionary) -> bool: return entry != open_relays[0])
+	var relay := _nearest_uncollected(brain.position, pursuit)
+	if relay == Vector2.ZERO and generator.uncollected(pursuit).is_empty():
 		return
 	brain.state = HunterBrain.State.INVESTIGATE
 	brain.has_last_known = true

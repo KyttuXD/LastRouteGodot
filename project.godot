@@ -10,7 +10,10 @@ config_version=5
 
 [application]
 
-config/name="KYTTU: The Last Route"
+config/name="Kyttu's Lab"
+config/use_custom_user_dir=true
+config/custom_user_dir_name="Godot/app_userdata/KYTTU- The Last Route"
+config/custom_user_dir_name.linuxbsd="godot/app_userdata/KYTTU- The Last Route"
 config/version="0.0.1.0"
 run/main_scene="res://scenes/boot_loading.tscn"
 run/print_header=false
@@ -23,6 +26,8 @@ config/icon="res://assets/branding/logo_1024.png"
 
 [autoload]
 
+CrashWatch="*res://src/autoload/crash_watch.gd"
+PlatformProfile="*res://src/autoload/platform_profile.gd"
 GameState="*res://src/autoload/game_state.gd"
 Settings="*res://src/autoload/settings.gd"
 RunSaves="*res://src/autoload/run_saves.gd"
@@ -32,24 +37,49 @@ Backend="*res://src/autoload/backend_client.gd"
 UpdateManager="*res://src/autoload/update_manager.gd"
 RoomState="*res://src/autoload/room_state.gd"
 PublicRoute="*res://src/autoload/public_route.gd"
+Playtest="*res://src/playtest/playtest_bridge.gd"
+
+[audio]
+
+driver/enable_input=true
+
+[debug]
+
+file_logging/enable_file_logging=true
+file_logging/enable_file_logging.pc=true
+file_logging/log_path="user://logs/godot.log"
+file_logging/max_log_files=5
 
 [display]
 
 window/size/viewport_width=480
 window/size/viewport_height=270
-window/size/transparent=true
 window/size/window_width_override=960
 window/size/window_height_override=540
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/per_pixel_transparency/allowed=true
-window/handheld/orientation=1
+window/handheld/orientation=4
 
 [gui]
 
 theme/custom="res://src/ui/ref_theme.tres"
 
+[importer_defaults]
+
+; Generated mesh LODs decimate the few-hundred-triangle cube models once the 3D viewport LOD threshold is high
+; (hand/limb loss on hunters, merged cubes on props), so every scene import keeps full detail.
+scene={
+"meshes/generate_lods": false
+}
+
 [input]
+
+quick_chat={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":96,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":11,"pressure":0.0,"pressed":false,"script":null)
+]
+}
 
 move_left={
 "deadzone": 0.25,
@@ -101,7 +131,7 @@ flashlight={
 }
 taser={
 "deadzone": 0.5,
-"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":16,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":81,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":16,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":71,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
 , Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":9,"pressure":0.0,"pressed":false,"script":null)
 ]
 }
@@ -140,6 +170,11 @@ toggle_map={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":16,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":77,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
 , Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":4,"pressure":0.0,"pressed":false,"script":null)
+]
+}
+player_list={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":16,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":79,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
 ]
 }
 toggle_fullscreen={
@@ -295,7 +330,13 @@ environment/defaults/default_clear_color=Color(0.015, 0.02, 0.028, 1)
 
 [xr]
 
+openxr/enabled.quest=true
+openxr/reference_space.quest=2
 openxr/foveation_level=3
 openxr/foveation_dynamic=true
 openxr/startup_alert=false
 shaders/enabled=true
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/kyttu_installer/plugin.cfg")

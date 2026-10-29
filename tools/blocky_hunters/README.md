@@ -3,7 +3,6 @@
 All 26 A-Z hunters as cube models built from KT's Minecraft (Alex) skins, on one shared rig (Hytale bone names).
 
     python3 tools/blocky_hunters/build.py all            # every hunter -> assets/hunters_blocky/<id>/
-    python3 tools/blocky_hunters/build.py kathy --tall=5 # taller variant -> kathy_tall
     python3 tools/blocky_hunters/build_scythe.py         # Kathy's scythe -> assets/props_3d/kathy_scythe.glb
     python3 tools/blocky_hunters/check_gaps.py           # joint wedge gaps + seamless loops, every clip
     Godot --headless --path . res://scenes/validate.tscn -- blocky

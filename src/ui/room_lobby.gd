@@ -27,6 +27,8 @@ var _dossier_gimmick_heading: Label
 var _dossier_gimmick: Label
 var _dossier_stats: Label
 var _default_focus: Control
+## Persistent across _rebuild(): the mod-pack confirm/progress/error overlay for joining a room that runs mods.
+var mod_join: ModJoinDialog
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -39,6 +41,8 @@ func _ready() -> void:
 	MouseLock.release_all()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	RoomState.changed.connect(_rebuild)
+	mod_join = ModJoinDialog.new()
+	add_child(mod_join)
 	if not RoomState.status_message.is_empty():
 		_notice = RoomState.status_message
 	_rebuild()
@@ -49,7 +53,9 @@ func _rebuild() -> void:
 	_default_focus = null
 	_clear_dossier_fields()
 	for child in get_children():
-		child.queue_free()
+		if child != mod_join:
+			child.queue_free()
+	move_child.call_deferred(mod_join, -1)
 
 	var background := SIGNAL_BACKDROP_SCRIPT.new()
 	background.name = "SignalBackdrop"
@@ -114,8 +120,7 @@ func _rebuild() -> void:
 	column.add_child(_seed_block())
 	column.add_child(_config_block())
 	column.add_child(_label(Palette.track("CONNECTED PLAYERS"), Palette.AMBER, 7))
-	for row in RoomState.roster_rows():
-		column.add_child(_player_row(row))
+	column.add_child(_player_list())
 	var notice := _notice if not _notice.is_empty() else RoomState.status_message
 	if not notice.is_empty():
 		column.add_child(_label(notice, Palette.ALERT, 7))
@@ -174,39 +179,46 @@ func _config_block() -> Control:
 	# The route is now the game rather than a selectable experimental mode, so
 	# MODE and MAP SCALE were redundant controls. Difficulty remains the one
 	# meaningful room choice; the freed above-fold space exposes local archives.
-	groups.add_child(_config_group("DIFFICULTY", RoomState.DIFFICULTY_LABELS,
+	var difficulty_group := _config_group("DIFFICULTY", RoomState.DIFFICULTY_LABELS,
 		RoomState.difficulty,
 		func(value: int) -> void: RoomState.set_difficulty(value),
 		func(value: int) -> bool:
-			return RoomState.is_host and RoomState.difficulty_available(value)))
+			return RoomState.is_host and RoomState.difficulty_available(value),
+		RoomState.DIFFICULTY_BLURBS)
+	difficulty_group.add_child(_label(String(RoomState.DIFFICULTY_BLURBS.get(RoomState.difficulty, "")), Palette.MUTED, 6))
+	groups.add_child(difficulty_group)
 	groups.add_child(_archive_group())
 
-	stack.add_child(_label("SAVE DURING A ROUTE // LOAD FROM STAGING",
-		Palette.MUTED, 6))
+	stack.add_child(_label("THE RUN SAVES ITSELF // DEATH ENDS IT", Palette.MUTED, 6))
 	return box
 
 
+## The run's automatic save (RunSaves): one CONTINUE, for the solo player or a host who is still alone.
 func _archive_group() -> Control:
 	var group := VBoxContainer.new()
 	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	group.add_theme_constant_override("separation", 2)
-	group.add_child(_label("ROUTE ARCHIVES", Palette.MUTED, 6))
-	var slots := RunSaves.list_slots()
-	var status := "NO LOCAL SAVES" if slots.is_empty() else "%d LOCAL SAVE%s" % [
-		slots.size(), "" if slots.size() == 1 else "S"]
+	group.add_child(_label("SAVED RUN", Palette.MUTED, 6))
+	var summary := RunSaves.summary()
+	var has_run := bool(summary.get("ok", false))
+	var status := String(summary.get("status", "")) if has_run else String(summary.get("message", ""))
+	if status.is_empty():
+		status = "NO SAVED RUN"
 	if RoomState.online and not RoomState.is_host:
-		status = "HOST CONTROLS SAVES"
-	elif RoomState.online and RoomState.roster().size() > 1:
-		status = "LOAD REQUIRES EMPTY ROOM"
-	group.add_child(_label(status, Palette.BODY, 7))
+		status = "THE HOST'S RUN SAVES ITSELF"
+	elif has_run and RoomState.online and RoomState.roster().size() > 1:
+		status = "CONTINUE NEEDS AN EMPTY ROOM"
+	var status_label := _label(status, Palette.BODY, 7)
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	group.add_child(status_label)
 	var button := Button.new()
-	button.name = "LobbyLoadSaveButton"
-	button.text = "LOAD SAVE" if slots.is_empty() else "LOAD SAVE (%d)" % slots.size()
+	button.name = "LobbyContinueButton"
+	button.text = "CONTINUE RUN"
 	button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
 	button.focus_mode = Control.FOCUS_ALL
 	Palette.style_button(button, false)
-	button.disabled = not _archive_load_allowed() or slots.is_empty()
-	button.pressed.connect(_on_saves_pressed)
+	button.disabled = not _archive_load_allowed() or not has_run
+	button.pressed.connect(_continue_saved_run)
 	group.add_child(button)
 	return group
 
@@ -216,64 +228,13 @@ func _archive_load_allowed() -> bool:
 		and (not RoomState.online or (RoomState.is_host and RoomState.roster().size() <= 1))
 
 
-func _on_saves_pressed() -> void:
-	_close_modal()
-	var content := _modal_content("ROUTE ARCHIVE // LOCAL", "LOAD SAVED ROUTE",
-		Vector2(390, 242))
-	var note := _label(
-		"LOADING REBUILDS THIS ROOM FROM THE SAVE. ONLINE LOAD REQUIRES THE HOST TO BE ALONE.",
-		Palette.MUTED, 7)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	content.add_child(note)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	content.add_child(scroll)
-	var list := VBoxContainer.new()
-	list.name = "LobbySaveList"
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 4)
-	scroll.add_child(list)
-	var status := _label("", Palette.ALERT, 7)
-	status.name = "LobbySaveStatus"
-	content.add_child(status)
-	var slots := RunSaves.list_slots()
-	if slots.is_empty():
-		list.add_child(_label("NO LOCAL SAVES", Palette.MUTED, 8))
-		return
-	for value in slots:
-		var slot: Dictionary = value
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 4)
-		list.add_child(row)
-		var details := _label("%s\nLEVEL %+d // %s // %s" % [
-			String(slot.get("name", "ROUTE")), int(slot.get("level", 0)),
-			String(slot.get("difficulty", "STANDARD")),
-			_format_save_duration(float(slot.get("elapsed_seconds", 0.0)))],
-			Palette.BODY, 7)
-		details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(details)
-		var load_button := Button.new()
-		load_button.text = "LOAD"
-		load_button.focus_mode = Control.FOCUS_ALL
-		Palette.style_button(load_button, false)
-		load_button.pressed.connect(_load_saved_route.bind(
-			String(slot.get("slot_id", ""))))
-		row.add_child(load_button)
-
-
-func _load_saved_route(slot_id: String) -> void:
+func _continue_saved_run() -> void:
 	if not _archive_load_allowed():
-		var denied := _modal.find_child("LobbySaveStatus", true, false) as Label \
-			if _modal != null else null
-		if denied != null:
-			denied.text = "LOAD REQUIRES THE HOST TO BE ALONE"
 		return
-	var result := RunSaves.queue_load(slot_id)
+	var result := RunSaves.queue_continue()
 	if not bool(result.get("ok", false)):
-		var status := _modal.find_child("LobbySaveStatus", true, false) as Label \
-			if _modal != null else null
-		if status != null:
-			status.text = String(result.get("message", "SAVE LOAD FAILED"))
+		RoomState.status_message = String(result.get("message", "SAVED RUN COULD NOT BE READ"))
+		RoomState.changed.emit()
 		return
 	var payload: Dictionary = result.get("payload", {})
 	RoomState.mode = RoomState.Mode.DEFAULT
@@ -282,35 +243,31 @@ func _load_saved_route(slot_id: String) -> void:
 	RoomState.difficulty = clampi(int(payload.get("difficulty",
 		RoomState.Difficulty.STANDARD)), RoomState.Difficulty.RELAXED,
 		RoomState.Difficulty.HARD)
-	RoomState.status_message = "SAVE READY // %s" % String(result.get("name", "ROUTE"))
+	RoomState.status_message = "CONTINUING // %s" % String(result.get("place", "THE ROUTE"))
 	_close_modal()
 	RoomState.enter(get_tree())
 
 
-func _format_save_duration(seconds: float) -> String:
-	var total := maxi(0, floori(seconds))
-	return "%02d:%02d:%02d" % [total / 3600, (total / 60) % 60, total % 60]
-
-
 func _config_group(title: String, labels: Dictionary, selected: int,
-		on_pick: Callable, is_allowed: Callable) -> Control:
+		on_pick: Callable, is_allowed: Callable, tips: Dictionary = {}) -> Control:
 	var group := VBoxContainer.new()
 	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	group.add_theme_constant_override("separation", 2)
 	group.add_child(_label(title, Palette.MUTED, 6))
-	group.add_child(_toggles(labels, selected, on_pick, is_allowed))
+	group.add_child(_toggles(labels, selected, on_pick, is_allowed, tips))
 	return group
 
 
 ## A row of mutually exclusive buttons, amber-filled when selected -- the web
 ## build's quick button groups.
 func _toggles(labels: Dictionary, selected: int, on_pick: Callable,
-		is_allowed: Callable) -> Control:
+		is_allowed: Callable, tips: Dictionary = {}) -> Control:
 	var row := HFlowContainer.new()
 	row.add_theme_constant_override("separation", 3)
 	for value in labels:
 		var button := Button.new()
 		button.text = String(labels[value])
+		button.tooltip_text = String(tips.get(value, ""))
 		button.add_theme_font_size_override("font_size", 7)
 		button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
 		button.focus_mode = Control.FOCUS_ALL
@@ -329,24 +286,15 @@ func _toggles(labels: Dictionary, selected: int, on_pick: Callable,
 
 ## One seat. Every part of this used to be hardcoded, so a guest's window
 ## showed itself as the host.
-func _player_row(entry: Dictionary) -> Control:
-	var box := PanelContainer.new()
-	box.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET,
-		Palette.PANEL_EDGE, 4))
-	var row := HBoxContainer.new()
-	box.add_child(row)
-	var you: bool = entry["you"]
-	var label: String = String(entry["name"])
-	if you:
-		label += "  //  YOU"
-	row.add_child(_label(label, Palette.INK if you else Palette.BODY, 7))
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(spacer)
-	var role: String = "HOST" if entry["host"] else "GUEST"
-	row.add_child(_label("%s // STAGING" % role,
-		Palette.AMBER if entry["host"] else Palette.MUTED, 6))
-	return box
+## The same list as in a run (name, ping, status, floor, host badge, voice), live with joins and leaves because the staging screen
+## rebuilds on RoomState.changed. Before the route there is no replicated state, so status reads IN LOBBY.
+func _player_list() -> Control:
+	var list := PlayerListPanel.new()
+	list.name = "LobbyPlayerList"
+	var rows := RoomPlayerList.build(RoomState.roster_rows(), {}, {}, {}, {}, false, Time.get_ticks_usec(), false)
+	list.custom_minimum_size = Vector2(0, mini(26 + 14 * rows.size(), 100))
+	list.set_rows(rows)
+	return list
 
 
 func _actions() -> Control:
@@ -394,13 +342,20 @@ func _actions() -> Control:
 
 	var leave := Button.new()
 	leave.name = "BackToMenuButton"
-	leave.text = "BACK TO MAIN MENU"
+	leave.text = RoomState.menu_back_label()   # "BACK TO LAST ROUTE": this game's menu, not the games hub
 	leave.add_theme_font_size_override("font_size", 7)
 	leave.custom_minimum_size = Vector2(0, 18)
 	Palette.style_button(leave, false)
 	leave.pressed.connect(func() -> void:
-		RoomState.leave_network()
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn"))
+		var menu_scene := RoomState.menu_scene_path()
+		# the host leaving staging closes the room; a guest leaves it. Both end up at the menu with the room state cleared.
+		if RoomState.online and RoomState.is_host:
+			RoomState.close_room()
+		elif RoomState.online:
+			RoomState.reset_after_leaving("YOU LEFT THE ROOM")
+		else:
+			RoomState.leave_network()
+		XRFade.change_scene(get_tree(), menu_scene))
 	row.add_child(leave)
 
 	return stack
@@ -421,6 +376,9 @@ func _on_dossier_pressed() -> void:
 	roster.custom_minimum_size = Vector2(108, 0)
 	roster.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	roster.allow_reselect = true
+	roster.fixed_icon_size = Vector2i(48, 48)
+	roster.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # 2D pixel-art portraits
+	roster.icon_mode = ItemList.ICON_MODE_LEFT
 	roster.add_theme_font_size_override("font_size", 7)
 	roster.add_theme_color_override("font_color", Palette.BODY)
 	roster.add_theme_color_override("font_selected_color", Palette.ON_AMBER)
@@ -474,18 +432,20 @@ func _on_dossier_pressed() -> void:
 	details.add_child(_dossier_stats)
 
 	var ids: Array = []
-	for category in ["az", "void"]:
-		var header_text := "A-Z HUNTERS" if category == "az" else "VOID HUNTERS"
+	for category in ["az", "void"] + SecretCreatures.dossier_categories():
+		var header_text := HunterDossier.category_title(category)
 		var header := roster.add_item("-- %s --" % header_text)
 		roster.set_item_disabled(header, true)
 		for hunter_id in HunterDossier.category_ids(category):
 			ids.append(hunter_id)
 			var discovered := Backend.hunter_discovered(hunter_id)
-			var profile: Dictionary = HunterRoster.PROFILES[hunter_id]
+			var profile: Dictionary = HunterDossier.profile(hunter_id)
 			var label := String(profile["name"]).to_upper() if discovered \
-				else "???? // UNDISCOVERED"
-			var index := roster.add_item(label)
+				else "???"
+			var index := roster.add_item(label, HunterDossier.portrait(hunter_id))
 			roster.set_item_metadata(index, hunter_id)
+			if not discovered:
+				roster.set_item_icon_modulate(index, HunterDossier.SILHOUETTE)
 	roster.item_selected.connect(func(index: int) -> void:
 		_show_dossier_entry(String(roster.get_item_metadata(index))))
 	if not ids.is_empty():
@@ -503,36 +463,37 @@ func _dossier_copy(node_name: String) -> Label:
 
 
 func _show_dossier_entry(hunter_id: String) -> void:
-	var profile: Dictionary = HunterRoster.PROFILES.get(hunter_id, {})
+	var profile: Dictionary = HunterDossier.profile(hunter_id)
 	var entry: Dictionary = HunterDossier.entry(hunter_id)
 	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
 		return
 	if not Backend.hunter_discovered(hunter_id):
-		_dossier_name.text = "UNDISCOVERED SIGNAL"
-		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" if Backend.signed_in() \
-			else "SIGN IN TO RETAIN DISCOVERIES"
-		_dossier_behavior.text = "ENCOUNTER THIS HUNTER IN THE ROUTE TO REVEAL HER DOSSIER. SPAWN ROLLS AND ROOM SNAPSHOTS DO NOT COUNT."
-		_dossier_gimmick_heading.visible = false
-		_dossier_gimmick.visible = false
-		_dossier_gimmick.text = ""
+		_dossier_name.text = "??? (LOCKED)"
+		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" \
+			if Backend.signed_in() else "SIGN IN TO RETAIN DISCOVERIES"
+		_dossier_behavior.text = HunterDossier.redacted(hunter_id, String(entry["behavior"]))
+		var locked_chart := entry.has("gimmick_behavior")
+		_dossier_gimmick_heading.visible = locked_chart
+		_dossier_gimmick.visible = locked_chart
+		_dossier_gimmick.text = HunterDossier.redacted(hunter_id,
+			String(entry.get("gimmick_behavior", ""))) if locked_chart else ""
 		_dossier_counter.text = ""
-		_dossier_stats.text = "IDENTITY // ABILITY // TUNING HIDDEN"
+		_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
+			float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
+			float(profile["hearing"])]
 		return
 	_dossier_name.text = String(profile["name"]).to_upper()
 	var category := String(profile.get("category", "az"))
 	var special := HunterRoster.SPECIAL_IDS.has(hunter_id)
 	_dossier_status.text = "VOID INCURSION // EXTRA HUNTER" if category == "void" \
+		else "SECRET // FOUND IN THE CITY" if category == "secret" \
 		else "RULE-SUMMONED // A-Z SPECIAL" if special \
 		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
-	_dossier_behavior.text = "%s // %s" % [String(entry["ability"]),
-		String(entry["behavior"])]
+	_dossier_behavior.text = String(entry["behavior"])
 	var has_chart := entry.has("gimmick_behavior")
 	_dossier_gimmick_heading.visible = has_chart
 	_dossier_gimmick.visible = has_chart
-	_dossier_gimmick.text = "%s // %s" % [
-		String(entry.get("gimmick_title", "UNASSIGNED")),
-		String(entry.get("gimmick_behavior", "")),
-	] if has_chart else ""
+	_dossier_gimmick.text = String(entry.get("gimmick_behavior", "")) if has_chart else ""
 	_dossier_counter.text = ""
 	_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
 		float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),

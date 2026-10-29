@@ -20,4 +20,4 @@ def _modify(canvas):
 
 
 def build():
-    return source_hunter(NAME, globals(), lambda canvas: _modify(canvas) + pony.apply(canvas))
+    return source_hunter(NAME, globals(), lambda canvas: _modify(canvas) + pony.apply(canvas, keep_long=True))

@@ -8,6 +8,10 @@ prop type uses today), so every rebuilt prop keeps its old size, pivot and front
 (+Z in Godot). Each prop is a handful of axis-aligned boxes in fractions of that
 footprint, textured from one shared 128x64 pixel atlas (8x4 tiles of 16 px) with
 nearest sampling; colour variants swap the `@cloth` / `@wood` placeholders.
+
+Rotation (DONE13): a box may carry two optional trailing items, (x0, y0, z0, x1, y1, z1, kind, (rx, ry, rz), (px, py, pz)): degrees
+about the prop axes (x right, y up, z front) and a pivot in the same fractions as the box (default: the box centre). Use it for
+backrest tilt (5-15 deg about x), splayed legs, angled lamp shades, lids and rocker curves; everything else stays axis aligned.
 """
 import json
 import math
@@ -25,7 +29,9 @@ os.makedirs(OUT, exist_ok=True)
 # ---- atlas ---------------------------------------------------------------------
 TILES = ["oak", "dark", "red", "plum", "steel", "brass", "screen", "paper",
          "stone", "black", "green", "glass", "amber", "concrete", "porcelain", "rust",
-         "sand", "water", "leaf", "bark", "white", "mirror", "yellow", "blue"]
+         "sand", "water", "leaf", "bark", "white", "mirror", "yellow", "blue",
+         # DONE14: eight more finishes in the free tiles (appended, so every older UV is unchanged)
+         "walnut", "pine", "ash", "mahogany", "linen", "teal", "tile", "grey"]
 COLS = 8                 # atlas is 8 tiles wide, 4 tall (128 x 64)
 AW, AH = COLS * 16, 64
 BASE = {"oak": (150, 112, 62), "dark": (82, 54, 34), "red": (138, 34, 44), "plum": (86, 40, 84),
@@ -33,7 +39,11 @@ BASE = {"oak": (150, 112, 62), "dark": (82, 54, 34), "red": (138, 34, 44), "plum
         "stone": (110, 108, 108), "black": (30, 28, 32), "green": (52, 104, 52), "glass": (70, 110, 160),
         "amber": (255, 176, 64), "concrete": (126, 124, 120), "porcelain": (226, 224, 218), "rust": (128, 74, 44),
         "sand": (214, 190, 126), "water": (52, 140, 190), "leaf": (58, 138, 52), "bark": (92, 66, 40),
-        "white": (232, 232, 228), "mirror": (150, 190, 204), "yellow": (222, 190, 52), "blue": (44, 84, 160)}
+        "white": (232, 232, 228), "mirror": (150, 190, 204), "yellow": (222, 190, 52), "blue": (44, 84, 160),
+        "walnut": (96, 62, 42), "pine": (200, 164, 106), "ash": (186, 172, 148), "mahogany": (112, 46, 36),
+        "linen": (208, 198, 172), "teal": (36, 100, 104), "tile": (212, 224, 226), "grey": (98, 102, 110)}
+WOODISH = ("oak", "dark", "walnut", "pine", "ash", "mahogany")
+CLOTHISH = ("red", "plum", "green", "teal", "linen", "grey")
 
 
 def paint_atlas():
@@ -48,16 +58,20 @@ def paint_atlas():
             for x in range(16):
                 shade = 1.0 + rng.choice([-1, 0, 0, 1]) * .09
                 r, g, b = base
-                if name in ("oak", "dark") and y % 5 == 4:
+                if name in WOODISH and y % 5 == 4:
                     shade *= .72
                 if name == "steel" and x % 4 == 0:
                     shade *= .9
                 if name == "screen":
                     shade *= .8 if y % 2 else 1.15
-                if name in ("red", "plum", "green") and (x + y) % 4 == 0:
+                if name in CLOTHISH and (x + y) % 4 == 0:
                     shade *= .82
                 if name == "stone" and (x % 8 == 0 or y % 8 == 0):
                     shade *= .7
+                if name == "tile" and (x % 8 == 0 or y % 8 == 0):
+                    shade *= .8                                  # grout lines, 8 px tiles
+                if name == "pine" and (x * 5 + y * 2) % 11 < 2:
+                    shade *= .86                                 # knots
                 if name == "porcelain" and (x in (0, 15) or y in (0, 15)):
                     shade *= .88
                 if name == "leaf" and (x * 3 + y * 5) % 7 < 2:
@@ -134,8 +148,20 @@ def add_face(bm, uv_layer, quad, tile):
                 loop[uv_layer].uv = uv
 
 
-def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind):
-    """Blender coords, snapped to the voxel grid (never thinner than one voxel)."""
+def rotation_matrix(rot):
+    """rot = (rx, ry, rz) degrees about the prop's own axes (x right, y up, z front, applied z, then y, then x).
+    Godot axes map to Blender axes as (x, y, z) -> (X, -Z... i.e. Blender X = x, Blender Y = -z, Blender Z = y), so a turn about
+    the prop's +x is a turn about Blender +X, about +y is about Blender +Z, and about +z is about Blender -Y."""
+    mu = __import__("mathutils")
+    rx, ry, rz = [math.radians(a) for a in rot]
+    mx = mu.Matrix.Rotation(rx, 3, mu.Vector((1, 0, 0)))
+    my = mu.Matrix.Rotation(ry, 3, mu.Vector((0, 0, 1)))
+    mz = mu.Matrix.Rotation(rz, 3, mu.Vector((0, -1, 0)))
+    return mx @ my @ mz
+
+
+def snap_extent(x0, y0, z0, x1, y1, z1):
+    """The voxel-snapped extent add_box gives a box (never thinner than one voxel; a box that starts at z == 0 keeps its floor)."""
     def fix(lo, hi, keep_lo=False):
         lo2 = lo if keep_lo else snap(lo)
         hi2 = snap(hi)
@@ -145,6 +171,73 @@ def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind):
     x0, x1 = fix(x0, x1)
     y0, y1 = fix(y0, y1)
     z0, z1 = fix(z0, z1, keep_lo=(z0 == 0.0))
+    return x0, y0, z0, x1, y1, z1
+
+
+COPLANAR_EPS = 0.006      # the earlier box's face is set back this far behind the later box's face (6 mm)
+COPLANAR_TOL = 0.0035     # planes closer than this fight in the depth buffer at room distances
+
+
+def aligned_axes(rot):
+    """Blender axes whose faces stay axis-aligned under `rot` (degrees about the prop axes x, y up, z front = Blender x, z, -y)."""
+    if rot is None or not any(abs(v) > 1e-6 for v in rot):
+        return {0, 1, 2}
+    turned = [i for i, v in enumerate(rot) if abs(v) > 1e-6]
+    if len(turned) > 1:
+        return set()
+    return {(0, 2, 1)[turned[0]]}
+
+
+def resolve_coplanar(extents, movable):
+    """extents: snapped (x0, y0, z0, x1, y1, z1) per box in build order; movable: False for rotated boxes (skipped). Two same-facing faces of
+    different boxes on one plane (and overlapping) z-fight. The LATER box (the detail laid on a base) keeps its plane and the EARLIER box's
+    face is set back COPLANAR_EPS behind it (inward, so a prop's overall size never grows: the derived collider sizes stay put).
+    Returns the extents with the set-backs applied, and the pairs found (earlier, later, axis, side, overlap area)."""
+    cur = [list(e) for e in extents]
+    floor = min(e[2] for e in extents) if extents else 0.0
+    found = []
+    for _pass in range(8):          # a stack of three layers needs the middle one moved again after the bottom one
+        before = len(found)
+        _resolve_pass(cur, movable, floor, found)
+        if len(found) == before:
+            break
+    return [tuple(e) for e in cur], found
+
+
+def _resolve_pass(cur, movable, floor, found):
+    for i, ei in enumerate(cur):
+        for axis in sorted(movable[i]):
+            other = [k for k in range(3) if k != axis]
+            for side in (-1, 1):
+                idx = axis if side < 0 else axis + 3
+                plane = ei[idx]
+                if axis == 2 and side < 0 and plane <= floor + 1e-6:
+                    continue                       # floor contact: the underside is never seen
+                for j in range(i):
+                    if axis not in movable[j]:
+                        continue
+                    ej = cur[j]
+                    pj = ej[idx]
+                    if abs(pj - plane) >= COPLANAR_TOL:
+                        continue
+                    ov = 1.0
+                    for k in other:
+                        ov *= max(0.0, min(ei[k + 3], ej[k + 3]) - max(ei[k], ej[k]))
+                    if ov < 1e-4:
+                        continue
+                    found.append((j, i, axis, side, ov))
+                    wanted = plane - side * COPLANAR_EPS
+                    opposite = ej[axis + 3] if side < 0 else ej[axis]
+                    if abs(wanted - opposite) >= 0.02:        # never collapse a thin box
+                        ej[idx] = wanted if (side > 0 and wanted < pj) or (side < 0 and wanted > pj) else pj
+
+
+def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind, rot=None, pivot=None, extent=None):
+    """Blender coords, snapped to the voxel grid (never thinner than one voxel). `rot` (degrees about the prop axes) turns the
+    snapped box about `pivot` (Blender coords, default the box centre), so tilted backs, splayed legs and angled shades keep the
+    constant texel density and the voxel-sized thickness of the straight boxes. `extent` replaces the snapped extent (build() passes the
+    one with its coplanar faces raised)."""
+    x0, y0, z0, x1, y1, z1 = extent if extent is not None else snap_extent(x0, y0, z0, x1, y1, z1)
     quads = [
         [(x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)],   # +z top-facing order handled by winding fix below
         [(x1, y0, z0), (x0, y0, z0), (x0, y1, z0), (x1, y1, z0)],
@@ -154,6 +247,12 @@ def add_box(bm, uv_layer, x0, y0, z0, x1, y1, z1, kind):
         [(x0, y0, z0), (x1, y0, z0), (x1, y0, z1), (x0, y0, z1)],
     ]
     outward = [(0, 0, 1), (0, 0, -1), (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0)]
+    if rot is not None and any(abs(a) > 1e-6 for a in rot):
+        mu = __import__("mathutils")
+        m = rotation_matrix(rot)
+        c0 = mu.Vector(pivot) if pivot is not None else mu.Vector(((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2))
+        quads = [[tuple(c0 + m @ (mu.Vector(p) - c0)) for p in q] for q in quads]
+        outward = [tuple(m @ mu.Vector(o)) for o in outward]
     for quad, out in zip(quads, outward):
         a, b, c = [__import__("mathutils").Vector(q) for q in quad[:3]]
         if (b - a).cross(c - a).dot(__import__("mathutils").Vector(out)) < 0:
@@ -166,14 +265,28 @@ def build(name, boxes, size, center, min_y, subst):
     bm = bmesh.new()
     uv = bm.loops.layers.uv.new("UVMap")
     sx, sy, sz = size
-    for (a, b, c, d, e, f, kind) in boxes:
+    placed = []
+    for box in boxes:
+        a, b, c, d, e, f, kind = box[:7]
+        rot = box[7] if len(box) > 7 else None          # (rx, ry, rz) degrees about the prop axes
+        piv = box[8] if len(box) > 8 else None          # pivot as prop fractions (x, y, z), default the box centre
         kind = subst.get(kind, kind)
         # normalised: x left..right, y bottom..top, z back..front; front = Blender -Y
         x0 = center[0] + (a - .5) * sx
         x1 = center[0] + (d - .5) * sx
         y_lo = -(center[1] + (f - .5) * sz)
         y_hi = -(center[1] + (c - .5) * sz)
-        add_box(bm, uv, min(x0, x1), min(y_lo, y_hi), min_y + b * sy, max(x0, x1), max(y_lo, y_hi), min_y + e * sy, kind)
+        pivot = None
+        if piv is not None:
+            pivot = (center[0] + (piv[0] - .5) * sx, -(center[1] + (piv[2] - .5) * sz), min_y + piv[1] * sy)
+        raw = (min(x0, x1), min(y_lo, y_hi), min_y + b * sy, max(x0, x1), max(y_lo, y_hi), min_y + e * sy)
+        placed.append((raw, kind, rot, pivot))
+    extents = [snap_extent(*p[0]) for p in placed]
+    extents, pairs = resolve_coplanar(extents, [aligned_axes(p[2]) for p in placed])
+    if pairs:
+        print("BLOCKYCOPLANAR %s %d" % (name, len(pairs)))
+    for (raw, kind, rot, pivot), extent in zip(placed, extents):
+        add_box(bm, uv, *raw, kind, rot=rot, pivot=pivot, extent=extent)
     bm.to_mesh(me)
     bm.free()
     me.materials.append(MAT)
@@ -212,10 +325,10 @@ PROPS["woodenTable"] = ([(0, .86, 0, 1, 1, 1, "@wood")] + legs(.86, .1, "dark", 
 PROPS["diningTable"] = ([(0, .88, 0, 1, 1, 1, "dark"), (.04, .82, .06, .96, .88, .94, "@wood")] +
                         [(.02, 0, .1, .08, .82, .9, "dark"), (.92, 0, .1, .98, .82, .9, "dark")], {"@wood": WOODS})
 PROPS["restaurantPartyTable"] = PROPS["woodenTable"]
-bed_frame = [(0, .12, 0, 1, .42, 1, "dark"), (0, .12, 0, 1, .62, .05, "dark"), (0, .12, .95, 1, .5, 1, "dark"),
+bed_frame = [(0, .30, 0, 1, .42, 1, "dark"), (0, 0, 0, 1, .62, .05, "dark"), (0, .30, .95, 1, .5, 1, "dark"),   # raised: 0.40 m under the bed
              (.03, .42, .05, .97, .66, .95, "paper"), (.05, .66, .07, .95, .78, .3, "paper"),
-             (.03, .42, .4, .97, .7, .95, "@cloth")] + [(0, 0, 0, .08, .12, .05, "dark"), (.92, 0, 0, 1, .12, .05, "dark"),
-                                                       (0, 0, .95, .08, .12, 1, "dark"), (.92, 0, .95, 1, .12, 1, "dark")]
+             (.03, .42, .4, .97, .7, .95, "@cloth")] + [(0, 0, .9, .08, .30, .95, "dark"), (.92, 0, .9, 1, .30, .95, "dark"),
+                                                       (0, 0, .05, .08, .30, .1, "dark"), (.92, 0, .05, 1, .30, .1, "dark")]
 PROPS["singleBed"] = (bed_frame, {"@cloth": CLOTH})
 PROPS["doubleBed"] = (bed_frame, {"@cloth": CLOTH})
 PROPS["bedroomNightstand"] = ([(0, 0, 0, 1, 1, .94, "@wood"), (.06, .08, .94, .94, .46, 1, "oak"), (.06, .54, .94, .94, .92, 1, "oak"),
@@ -293,20 +406,48 @@ PROPS["woodenDresserSideboard"] = PROPS["bedroomDresser"]
 
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_extra.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_variants.py")).read())
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_seating.py")).read())
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_doors.py")).read())
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework2.py")).read())   # DONE13: TARGET_SIZE, rotated parts
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework3.py")).read())   # DONE14: chests, lamps, kitchen, bathroom, crates
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_rework4.py")).read())   # room-purpose catalog: infirmary, library, storage, lobby
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_regions.py")).read())    # hospital, lab, greenhouse
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_mall.py")).read())      # shopping arcade
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_music.py")).read())     # music wing (Rehearsal Hall)
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_pods.py")).read())      # lab pod room (dive lab)
 
 # Props rebuilt larger than the old footprint (generator and RoomCatalog footprints follow).
-SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1.55)}
+SIZE_SCALE = {"loungeCouch": (1.65, 1.0, 1.55), "loungeCouchWide": (1.48, 1.0, 1.55),
+              # DONE11: chairs 0.94 m tall (seat 0.44), tables 0.75 m, restaurant table keeps its 2.23 m balloon cluster over a 0.75 m top
+              "woodenChair": (1.0, 0.94 / 1.01, 1.0), "woodenChairCushion": (1.0, 0.94 / 1.01, 1.0),
+              "diningChair": (1.0, 0.94 / 1.2, 1.0), "diningChairCushion": (1.0, 0.94 / 1.2, 1.0),
+              "woodenTable": (1.0, 0.75 / 0.79, 1.0), "diningTable": (1.0, 0.75 / 1.025, 1.0),
+              "normalEntryBench": (1.0, 0.65, 1.0), "gothicPedestalTable": (1.0, 0.75 / 0.9225, 1.0),
+              # scale fit (docs/SCALE_FIT.md): beds about 2.25 m long including boards (the old models were 2.67 m)
+              "singleBed": (1.0, 1.0, 2.25 / 2.665), "doubleBed": (1.0, 1.0, 2.25 / 2.665)}
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocky_props_mansion.py")).read())   # mansion finishes (after SIZE_SCALE)
 
 # ---- build & export -------------------------------------------------------------------------
 manifest = {}
+# BLOCKY_ONLY=a,b builds just those types and merges them into the existing manifest (the rest stay as built).
+ONLY = [n for n in os.environ.get("BLOCKY_ONLY", "").split(",") if n]
+if ONLY and os.path.exists(os.path.join(OUT, "manifest.json")):
+    manifest = json.load(open(os.path.join(OUT, "manifest.json")))
 for name, (base_boxes, base_subs) in PROPS.items():
+    if ONLY and name not in ONLY:
+        continue
+    if name not in BOUNDS and name in TARGET_SIZE:
+        BOUNDS[name] = {"size": list(TARGET_SIZE[name]), "center": [0.0, 0.0], "min_y": 0.0}   # new types: no older model
     if name not in BOUNDS:
         print("skip (no bounds):", name)
         continue
     info = dict(BOUNDS[name])
     if name in SIZE_SCALE:
         info["size"] = [c * f for c, f in zip(info["size"], SIZE_SCALE[name])]
+    if name in TARGET_SIZE:
+        info["size"] = list(TARGET_SIZE[name])       # DONE13: designs authored in metres are built at exactly this size
+        if info["min_y"] < 0.1:
+            info["min_y"] = 0.0                      # floor props stand on the floor (the old beach chair model floated 4 cm)
     files = []
     shapes = [(base_boxes, base_subs)] + list(VARIANTS.get(name, []))
     combos = []     # (boxes, substitution) for every shape x colour option

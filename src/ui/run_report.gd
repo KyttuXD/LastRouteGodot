@@ -15,6 +15,7 @@ var _surface: Control
 var _kicker: Label
 var _title: Label
 var _reason: Label
+var _line: Label
 var _stats: GridContainer
 var _primary: Button
 var _secondary: Button
@@ -39,9 +40,16 @@ func open(report: Dictionary) -> void:
 		"RUNNER SIGNAL // INTERRUPTED" if online else "ROUTE SIGNAL // ARCHIVED"))
 	_title.text = String(report.get("title",
 		"SIGNAL LOST" if online else "ROUTE ENDED"))
-	_reason.text = String(report.get("reason", "THE ROUTE CAUGHT UP WITH YOU"))
+	_reason.text = String(report.get("reason",
+		"THE ROUTE CAUGHT UP WITH YOU"))
+	var line := String(report.get("line", ""))
+	_line.text = "\u201c%s\u201d" % line if not line.is_empty() else ""
+	_line.visible = not line.is_empty()
+	var caption := String(report.get("line_style", "")) == "caption"
+	_line.add_theme_color_override("font_color", Palette.MUTED if caption else Palette.BODY)
 	_clear_stats()
-	_add_stat("DEPTH REACHED", str(maxi(1, int(report.get("depth", 1)))))
+	if true:
+		_add_stat("DEPTH REACHED", str(maxi(1, int(report.get("depth", 1)))))
 	_add_stat("SCORE", str(maxi(0, int(report.get("score", 0)))))
 	_add_stat("FLOOR RELAYS", "%d / %d" % [
 		maxi(0, int(report.get("relays", 0))),
@@ -57,8 +65,8 @@ func open(report: Dictionary) -> void:
 		_secondary.visible = true
 		_set_button_action(_secondary, leave_requested)
 	else:
-		_primary.text = ("END ROUTE" if host else "LEAVE ROOM") if online \
-			else "RESTART ROUTE"
+		_primary.text = "END ROUTE" if (online and host) \
+			else ("LEAVE ROOM" if online else "RESTART ROUTE")
 		_secondary.text = "MAIN MENU"
 		_set_button_action(_primary, leave_requested if online else restart_requested)
 		_secondary.visible = not online
@@ -161,6 +169,10 @@ func _build() -> void:
 	_reason = _label("THE ROUTE CAUGHT UP WITH YOU", Palette.ALERT, 7, "EndReason")
 	_reason.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_reason)
+	_line = _label("", Palette.BODY, 7, "EndLine")
+	_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_line.visible = false
+	column.add_child(_line)
 
 	var stat_panel := PanelContainer.new()
 	stat_panel.name = "StatsPanel"

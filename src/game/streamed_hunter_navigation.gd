@@ -19,7 +19,11 @@ var safe_zones: Array = []
 var relays: Array = []
 var batteries: Array = []
 var vents: Array = []
+## Music boxes on this level: {"id", "x", "y", "source_chunk"} (Glyra reads her nearest).
+var music_boxes: Array = []
 var hiding_spots: Array = []
+## Free seats a patrolling hunter may sit on (HunterSeats, docs/SEATING.md): one per sit point of every sit prop.
+var seat_spots: Array = []
 var start := Vector2i.ZERO
 var exit_cell := Vector2i.ZERO
 
@@ -34,6 +38,9 @@ var _refresh_generation := 0
 var _path_grid := AStarGrid2D.new()
 var _path_grid_coords: Array[Vector3i] = []
 var _path_grid_level := 0x7fffffff
+
+
+const INVALID_CELL := -2147483648
 
 
 func _init(route_generator: StreamedRouteGenerator, route_level: int = 0,
@@ -67,7 +74,9 @@ func refresh(route_level: int, coords: Array) -> void:
 	relays.clear()
 	batteries.clear()
 	vents.clear()
+	music_boxes.clear()
 	hiding_spots.clear()
+	seat_spots.clear()
 	_active_coords = canonical
 	_refresh_revision = revision
 	_refresh_generation += 1
@@ -108,6 +117,12 @@ func refresh(route_level: int, coords: Array) -> void:
 				relays.append(pickup_entry)
 			elif kind == "battery":
 				batteries.append(pickup_entry)
+		for box_value in data.get("music_boxes", []):
+			var box: Dictionary = box_value
+			var box_cell: Vector2i = box.get("cell", Vector2i.ZERO)
+			music_boxes.append({"id": String(box.get("id", "")),
+				"x": coord.x * StreamedRouteGenerator.CHUNK_SIZE + box_cell.x,
+				"y": coord.z * StreamedRouteGenerator.CHUNK_SIZE + box_cell.y, "source_chunk": coord})
 		for fixture_value in data.get("fixtures", []):
 			var fixture: Dictionary = fixture_value
 			var cell: Vector2i = fixture.get("cell", Vector2i.ZERO)
@@ -119,11 +134,40 @@ func refresh(route_level: int, coords: Array) -> void:
 				# this authored direction in the navigation snapshot prevents the
 				# gimmick from placing a player inside the destination grate/wall.
 				"open_direction": open_direction,
-				"source_chunk": coord}
+				"source_chunk": coord,
+				# furniture hiding spots: the bed or wardrobe itself (hunter naps use the beds, docs/REST_AND_SLEEP.md)
+				"style": String(fixture.get("style", "")),
+				"prop_at": Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE, coord.z * StreamedRouteGenerator.CHUNK_SIZE) \
+					+ (fixture.get("local_position", Vector2(cell) + Vector2(.5, .5)) as Vector2),
+				"yaw": float(fixture.get("yaw", 0.0)),
+				"prop_size": fixture.get("blocker_size", Vector3.ONE)}
 			if String(fixture.get("kind", "")) == "vent":
 				vents.append(fixture_entry)
 			else:
 				hiding_spots.append(fixture_entry)
+		var origin := Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE, coord.z * StreamedRouteGenerator.CHUNK_SIZE)
+		for prop_value in data.get("region_props", []):
+			var prop: Dictionary = prop_value
+			var type := String(prop.get("type", ""))
+			if PropModelCatalog.interaction_for(type) != "sit":
+				continue
+			# the same size and position the view spawns the sit interactables at (StreamedFacilityView3D._spawn_region_prop)
+			var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+			var yaw := float(prop.get("yaw", 0.0))
+			var centre := origin + Vector2(prop.get("cell", Vector2i.ZERO)) + Vector2(.5, .5) \
+				+ (prop.get("placement_offset", Vector2.ZERO) as Vector2) + (prop.get("mount_offset", Vector2.ZERO) as Vector2)
+			var points: Array = PropModelCatalog.seat_points(type, size)
+			for index in points.size():
+				var point: Dictionary = points[index]
+				# gameplay-local (x, z) turned by yaw into the plan, as the view places the sit interactables
+				var local := Vector3(float(point["x"]), 0.0, float(point["z"])).rotated(Vector3.UP, yaw)
+				var at := centre + Vector2(local.x, local.z)
+				var exit_local := Vector3((point["exit"] as Vector2).x, 0.0, (point["exit"] as Vector2).y).rotated(Vector3.UP, yaw)
+				var exit_dir := Vector2(exit_local.x, exit_local.z)
+				var exit_reach := (size.x * .5 - absf(float(point["x"])) if absf(exit_dir.dot(Vector2(cos(yaw), -sin(yaw)))) > .5 \
+					else size.z * .5 + absf(float(point["z"]))) + .6
+				seat_spots.append({"id": "%s#%d" % [String(prop.get("id", "%s@%s" % [type, at])), index], "type": type,
+					"seat_at": at, "stand_at": at + exit_dir * exit_reach, "yaw": yaw + float(point["turn"])})
 	vents.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return String(a.get("id", "")) < String(b.get("id", "")))
 	for index in vents.size():
@@ -187,10 +231,16 @@ func find_path(from_cell: Vector2i, to_cell: Vector2i) -> Array:
 	if from_cell == to_cell:
 		return [from_cell] if can_occupy(from_cell.x + .5, from_cell.y + .5) else []
 	if absi(to_cell.x - from_cell.x) > MAX_PATH_SPAN \
-			or absi(to_cell.y - from_cell.y) > MAX_PATH_SPAN \
-			or not can_occupy(from_cell.x + .5, from_cell.y + .5) \
-			or not can_occupy(to_cell.x + .5, to_cell.y + .5):
+			or absi(to_cell.y - from_cell.y) > MAX_PATH_SPAN:
 		return []
+	# A hunter pressed against a prop or wall (or a goal on a prop's edge) stands in a cell whose capsule samples
+	# fail can_occupy although it is open floor: path from the nearest roomy neighbour instead of giving up.
+	from_cell = _roomy_cell(from_cell)
+	to_cell = _roomy_cell(to_cell)
+	if from_cell.x == INVALID_CELL or to_cell.x == INVALID_CELL:
+		return []
+	if from_cell == to_cell:
+		return [from_cell]
 	# AStarGrid2D executes the hot search in engine code. The solid-cell grid is
 	# rebuilt only when the streamed 3x3 authority window moves; relay claims
 	# can refresh fixture lists without paying for another navigation bake.
@@ -203,6 +253,27 @@ func find_path(from_cell: Vector2i, to_cell: Vector2i) -> Array:
 	for cell in packed:
 		result.append(cell)
 	return result
+
+
+## The cell itself when a hunter capsule fits, else the nearest of its 8 neighbours (then ring two) that does.
+func _roomy_cell(cell: Vector2i) -> Vector2i:
+	if can_occupy(cell.x + .5, cell.y + .5):
+		return cell
+	for ring in [1, 2]:
+		var best := Vector2i(INVALID_CELL, 0)
+		var best_distance := 1.0e9
+		for dz in range(-ring, ring + 1):
+			for dx in range(-ring, ring + 1):
+				if maxi(absi(dx), absi(dz)) != ring:
+					continue
+				var candidate := cell + Vector2i(dx, dz)
+				var distance := float(dx * dx + dz * dz)
+				if distance < best_distance and can_occupy(candidate.x + .5, candidate.y + .5):
+					best = candidate
+					best_distance = distance
+		if best.x != INVALID_CELL:
+			return best
+	return Vector2i(INVALID_CELL, 0)
 
 
 func _rebuild_path_grid_if_needed() -> void:
@@ -239,6 +310,7 @@ func _rebuild_path_grid_if_needed() -> void:
 			var cell := Vector2i(x, z)
 			if not can_occupy(x + .5, z + .5):
 				_path_grid.set_point_solid(cell, true)
+
 
 
 func has_line_of_sight(from: Vector2, to: Vector2) -> bool:
@@ -345,15 +417,70 @@ func _chunk(coord: Vector3i) -> Dictionary:
 	return _chunk_cache[coord]
 
 
+## A capsule rides up a ledge this low (the player has no step-up; its rounded bottom climbs it): a solid prop whose
+## collider is no taller is floor to the runner, so it is floor to the hunters too.
+const WALK_ON_HEIGHT := 0.25
+## can_occupy's default capsule radius: a cell whose centre is this far clear of every collider can be stood on.
+const NAV_RADIUS := 0.23
+
+
+static func blocks_nothing(prop: Dictionary) -> bool:
+	var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+	return size.y <= WALK_ON_HEIGHT and float(prop.get("collider_y0", 0.0)) <= 0.0
+
+
+## The prop's collider boxes on the chunk plan (chunk-local metres), each the axis-aligned bounds of its turned box grown
+## by `grow`: the same boxes the view builds (StreamedFacilityView3D._spawn_authored_prop).
+static func collider_plan_rects(prop: Dictionary, grow: float = 0.0) -> Array:
+	var type := String(prop.get("type", ""))
+	var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+	var yaw := float(prop.get("yaw", 0.0))
+	var centre := Vector2(prop.get("cell", Vector2i.ZERO)) + Vector2(.5, .5) \
+		+ (prop.get("placement_offset", Vector2.ZERO) as Vector2) + (prop.get("mount_offset", Vector2.ZERO) as Vector2)
+	var out := []
+	for box in PropColliderBoxes.boxes(type, size):
+		var c: Vector2 = box["c"]
+		var h: Vector2 = box["h"]
+		var rect := Rect2()
+		var first := true
+		for corner in [Vector2(-h.x, -h.y), Vector2(h.x, -h.y), Vector2(-h.x, h.y), Vector2(h.x, h.y)]:
+			var turned := Vector3(c.x + corner.x, 0.0, c.y + corner.y).rotated(Vector3.UP, yaw)
+			var at := centre + Vector2(turned.x, turned.z)
+			rect = Rect2(at, Vector2.ZERO) if first else rect.expand(at)
+			first = false
+		out.append(rect.grow(grow))
+	return out
+
+
 func _cache_solid_prop_cells(coord: Vector3i, data: Dictionary) -> void:
 	var base := Vector2i(coord.x, coord.z) * StreamedRouteGenerator.CHUNK_SIZE
+	# a closed seal (or any breakable that blocks) is a wall to the hunters until somebody breaks it open
+	for spec_value in data.get("breakables", []):
+		var spec: Dictionary = spec_value
+		if String((spec.get("extras", {}) as Dictionary).get("blocks", "")) == "" and String(spec.get("kind", "")) != Breach.KIND_SEAL:
+			continue
+		if world_state != null and world_state.breach_open(String(spec["id"])):
+			continue
+		for local_value in (spec["extras"] as Dictionary).get("cells", []):
+			_solid_prop_cells[base + (local_value as Vector2i)] = true
 	for prop_value in data.get("region_props", []):
 		var prop: Dictionary = prop_value
 		if not bool(prop.get("solid", true)) \
 				or bool(prop.get("room_door", false)):
 			continue
+		# a sewer pipe somebody broke with the Axe is gone (Breach, "breakable_id")
+		if prop.has("breakable_id") and world_state != null and world_state.breach_open(String(prop["breakable_id"])):
+			continue
 		var occupied: Array = prop.get("occupied_cells", [])
 		if occupied.is_empty():
 			occupied = [prop.get("cell", Vector2i.ZERO)]
+		# walkability and navigation agree (docs/NAV_WALKABLE.md): a prop low enough to walk onto is floor, and a reserved
+		# cell is blocked only where the collider (grown by the navigation's capsule radius) covers its centre: the open
+		# corner of an L desk, the gap between two potted palms, the free end of a cart's cell all stay open
+		if blocks_nothing(prop):
+			continue
+		var rects := collider_plan_rects(prop, NAV_RADIUS)
 		for local_value in occupied:
-			_solid_prop_cells[base + (local_value as Vector2i)] = true
+			var centre := Vector2(local_value as Vector2i) + Vector2(.5, .5)
+			if rects.is_empty() or rects.any(func(r: Rect2) -> bool: return r.has_point(centre)):
+				_solid_prop_cells[base + (local_value as Vector2i)] = true

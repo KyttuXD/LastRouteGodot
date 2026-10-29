@@ -26,7 +26,7 @@ Last Route-specific map.
 
 The `Windows SteamVR Debug` export has the `xr` feature, so it attempts OpenXR
 automatically. Set SteamVR as the active OpenXR runtime, connect the headset,
-then launch `builds/LastRoute-Windows-SteamVR-Debug.exe` with its matching
+then launch `builds/KyttusLab-Windows-SteamVR-Debug.exe` with its matching
 `.pck` beside it. The ordinary Windows build does not start XR. From an editor
 or ordinary debug executable, the equivalent opt-in is a user argument after
 Godot's separator: `-- --xr`.
@@ -51,7 +51,7 @@ This workspace does not currently have Java, the Android SDK, `adb`, a Quest,
 or a signing identity, so the preset is prepared but its APK cannot yet be
 exported or device-verified here. Once configured,
 `./scripts/export_test_builds.sh --quest` writes
-`builds/LastRoute-Quest-Debug.apk`.
+`builds/KyttusLab-Quest-Debug.apk`.
 
 ## Hardware-test work still required
 

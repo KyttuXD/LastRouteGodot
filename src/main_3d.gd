@@ -31,6 +31,14 @@ var hunter_view: HunterView3D
 ## against the right hunter rather than always the route one.
 var capturing_view: HunterView3D
 var jumpscare: HunterJumpscare
+## Every catch plays the catching hunter's grab (GrabStyles pool, host roll, the runner's surroundings) before the end.
+var grab: HunterGrab
+## The host's roll for the catch being resolved (GrabStyles.roll_for), and the host's count of catches it has rolled.
+var _grab_roll := -1.0
+var _grab_catches := 0
+var _death_moment: DeathMoment
+## How the local runner is dying, for the death line pick: contact (default), deal (Zellia), cold (Wynelle).
+var _death_via := "contact"
 var pixel_signal_effect: PixelSignalEffect
 var _capture_resolving := false
 ## Admin-only: shows every hunter on both maps, active or not -- see
@@ -109,6 +117,7 @@ func _ready() -> void:
 	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
 	hud.inventory_open_changed.connect(_on_inventory_open_changed)
 	hud.map_open_changed.connect(_on_map_open_changed)
+	_void_fx = VoidPlayerEffects.new(player, hud, _report_void_route)
 	# Last Route taps ESC: it is a co-op mode, so pausing has to be quick.
 	pause_menu = PauseMenu.new()
 	pause_menu.abandon_label = "ABANDON ROUTE"
@@ -124,6 +133,10 @@ func _ready() -> void:
 	run_report.leave_requested.connect(_leave_after_report)
 	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
 	world.add_child(jumpscare)
+	grab = HunterGrab.new()
+	world.add_child(grab)
+	_death_moment = DeathMoment.new()
+	add_child(_death_moment)
 	pixel_signal_effect = PixelSignalEffect.new()
 	pixel_signal_effect.name = "PixelSignalEffect"
 	add_child(pixel_signal_effect)
@@ -142,6 +155,7 @@ func _ready() -> void:
 	_remotes.snapshot_source = _build_snapshot
 	world.add_child(_remotes)
 	_room_chat = RoomChat.attach(self, _remotes)
+	_room_chat.ping_posted.connect(hud.add_map_ping)
 	_room_chat.open_changed.connect(_on_chat_open_changed)
 	if not Backend.admin_ticket_verified.is_connected(_on_admin_ticket_verified):
 		Backend.admin_ticket_verified.connect(_on_admin_ticket_verified)
@@ -168,6 +182,8 @@ func _on_background_update_ready(_path: String) -> void:
 
 
 func _process(delta: float) -> void:
+	if _void_fx != null:
+		_void_fx.tick(delta)
 	if RoomState.online and not RoomState.is_host and Backend.admin_authorized():
 		_admin_ticket_refresh_elapsed += delta
 		if _admin_ticket_refresh_elapsed >= 5.0:
@@ -224,7 +240,7 @@ func _process(delta: float) -> void:
 	var remote_map_players := _remotes.remote_player_marks(GameState.depth) \
 		if _remotes != null else []
 	hud.update_minimap(facility_view.generator, player.grid_position(),
-		player.facing, _map_marks(true) if _admin_reveal_hunters else [],
+		player.facing, _map_marks(true) if _admin_reveal_hunters else _radar_marks(),
 		remote_map_players)
 	if hud.map_is_open():
 		hud.update_map(facility_view.generator, player.grid_position(),
@@ -293,6 +309,7 @@ func _update_gameplay(delta: float) -> void:
 	# not-yet-updated sibling, then have that sibling's own update() overwrite
 	# it right back a moment later.
 	var facility_alerts: Array = []
+	_direct_hunters(delta, local_target, generator)
 	for view in hunter_views:
 		var selected := _remotes.best_target(view.brain.position,
 			local_target, GameState.depth)
@@ -326,6 +343,9 @@ func _update_gameplay(delta: float) -> void:
 					"message": String(event.get("message", "")),
 				})
 				continue
+			if what in ["signal_route", "system_outage", "radar_corrupt"]:
+				_dispatch_player_event(target, event)
+				continue
 			facility_view.apply_event(event)
 			_play_world_audio(event)
 			_remotes.broadcast_event(event)
@@ -333,13 +353,13 @@ func _update_gameplay(delta: float) -> void:
 			if not note.is_empty():
 				hud.show_message(note)
 		view.brain.world_events.clear()
-		# Jyvra reaching into a locker. Resolved here rather than in the gimmick
+		# Javelle reaching into a locker. Resolved here rather than in the gimmick
 		# because it moves the PLAYER, which the brain has no handle on.
-		if view.brain.gimmick is JyvraGimmick and view.brain.gimmick.ejecting:
+		if view.brain.gimmick is JavelleGimmick and view.brain.gimmick.ejecting:
 			_dispatch_player_event(target, {
 				"what": "eject",
 				"at": view.brain.gimmick.ejected_to,
-				"message": "JYVRA PULLED YOU OUT OF HIDING",
+				"message": "JAVELLE PULLED YOU OUT OF HIDING",
 			})
 		if view.brain.gimmick is LoxelleGimmick:
 			for toggle in view.brain.gimmick.toggles:
@@ -351,6 +371,9 @@ func _update_gameplay(delta: float) -> void:
 						"at": toggle["eject_to"],
 						"message": "LOXELLE BROKE YOUR COVER",
 					})
+					_dispatch_player_event(target, {"what": "meter_effect",
+						"temperature_add": float(toggle.get("temperature_add", 0.0)),
+						"noise_add": float(toggle.get("noise_add", 0.0))})
 				else:
 					var spot := facility_view.hiding_spot_at(cell)
 					if spot:
@@ -363,6 +386,8 @@ func _update_gameplay(delta: float) -> void:
 		# Wynelle's freeze grace is a second way to lose that isn't a grab:
 		# if it runs out you die where you stand, with no struggle.
 		if view.brain.gimmick is WynelleGimmick and view.brain.gimmick.has_frozen_player():
+			if int(target.get("peer_id", 1)) == (multiplayer.get_unique_id() if RoomState.online else 1):
+				_death_via = "cold"
 			_capture_target(view, target, true)
 			view.brain.gimmick.consume_frozen_player(view.brain)
 			view.sync_from_brain()
@@ -396,7 +421,7 @@ func _local_hunter_target() -> Dictionary:
 		"noise": player.noise,
 		"flashlight_on": player.flashlight_enabled,
 		# Actually moving under sprint, not merely holding the key — the
-		# original gates on `sprinting && travelSpeed > .1` (Eirys).
+		# original gates on `sprinting && travelSpeed > .1` (Elise).
 		"sprinting": player.movement_mode == "sprint" and player.noise > 0.0,
 		# For beam-aim checks (Nyxie's dispel).
 		"facing": player.facing,
@@ -410,9 +435,10 @@ func _local_hunter_target() -> Dictionary:
 		# network she lurks in -- see VerrineGimmick.after_perception.
 		"in_vent": player.in_vent,
 		"vent_time_in": player.vent_time_in,
-		# Zephyra's pesticide trade -- Loxelle/Ysolde read this to skip their
+		# Zellia's pesticide trade -- Loxelle/Ysolde read this to skip their
 		# own passive ability for its duration.
 		"pesticide_active": player.pesticide_timer > 0.0,
+		"map_open": hud.map_is_open(),
 		"no_target": player.admin_no_target,
 		"god_mode": player.admin_god_mode,
 		"escape_active": GameState.escape_active,
@@ -424,6 +450,20 @@ func _local_hunter_target() -> Dictionary:
 ## RPC dictionaries cannot contain RefCounted objects. Remote meter values are
 ## reconstructed into the same shape hunter gimmicks expect; a baseline lets
 ## us turn host-side mutations of that copy into targeted owner events.
+var _hunter_director: HunterDirector
+
+
+## Hunters work together on every mode (HunterDirector): share sightings, split into small teams, spread out, cap per runner.
+func _direct_hunters(delta: float, local_target: Dictionary, generator) -> void:
+	if _hunter_director == null or _hunter_director.mode_id != RoomState.difficulty_id():
+		_hunter_director = HunterDirector.new(RoomState.difficulty_id(), "%s-director" % str(RoomState.seed_text if "seed_text" in RoomState else "ROUTE"))
+	var entries: Array = []
+	for view in hunter_views:
+		var selected := _remotes.best_target(view.brain.position, local_target, GameState.depth)
+		entries.append({"id": str(view.get_instance_id()), "brain": view.brain, "target": selected})
+	_hunter_director.tick(delta, entries, generator)
+
+
 func _target_with_runtime(source: Dictionary) -> Dictionary:
 	var target := source.duplicate(true)
 	if not target.has("meters"):
@@ -523,6 +563,7 @@ func _collect_hunter_report() -> void:
 			"wake": wake,
 			"gimmick": view.brain.gimmick.network_state()
 				if view.brain.gimmick != null else {},
+			"hard": view.brain.hard.network_state() if view.brain.hard != null else {},
 		})
 
 
@@ -584,6 +625,11 @@ func _map_marks(include_inactive: bool = false) -> Array:
 	return marks
 
 
+## The only hunter the minimap may show without admin reveal: Porcelle, while she is active (her radar ping).
+func _radar_marks() -> Array:
+	return _map_marks(false).filter(func(mark: Dictionary) -> bool: return String(mark.get("hunter_id", "")) == "porcelle")
+
+
 ## Ceryth's riddle, asked at the moment the player tries to hide in the spot
 ## she has staked out. Not a veto -- unlike Opalie's, a wrong answer does not
 ## refuse the interaction, it changes what happens inside it.
@@ -602,7 +648,7 @@ func _ceryth_trap_check(cell: Vector2i, flashlight_active: bool) -> Dictionary:
 ## hunter roll could still draw someone else as the route hunter while she
 ## sits inert as a special-like fixture; if there is no Glyra on this floor
 ## at all, there is nothing to wind.
-func _wind_music_box() -> String:
+func _wind_music_box(_box_id := "") -> String:
 	if RoomState.online and not RoomState.is_host:
 		_remotes.request_interaction({"what": "music_box",
 			"cell": facility_view.music_box.source_cell if facility_view.music_box else Vector2i(-1, -1)})
@@ -631,13 +677,13 @@ func _use_vent(vent_id: String) -> String:
 	return "The grate won't budge."
 
 
-## Zephyra's shop. `action` is "open" ([E] near her) or "1".."4" (a digit
+## Zellia's shop. `action` is "open" ([E] near her) or "1".."4" (a digit
 ## key while her menu is open) -- see PlayerController3D.shop_resolver.
 func _use_shop(action: String) -> String:
 	for view in hunter_views:
-		if not view.brain.gimmick is ZephyraGimmick:
+		if not view.brain.gimmick is ZelliaGimmick:
 			continue
-		var gimmick: ZephyraGimmick = view.brain.gimmick
+		var gimmick: ZelliaGimmick = view.brain.gimmick
 		if action == "open":
 			return gimmick.open_shop(player.grid_position(), view.brain.position, player.facing)
 		if not gimmick.shop_open:
@@ -645,25 +691,25 @@ func _use_shop(action: String) -> String:
 		gimmick.shop_open = false
 		var offer_index := int(action)
 		if RoomState.online and not RoomState.is_host:
-			_remotes.request_interaction({"what": "zephyra_trade", "offer": offer_index})
-			return "ZYTTU // VERIFYING TRADE..."
-		return _perform_zephyra_trade(
+			_remotes.request_interaction({"what": "zellia_trade", "offer": offer_index})
+			return "ZELLIA'S STORE // VERIFYING TRADE..."
+		return _perform_zellia_trade(
 			multiplayer.get_unique_id() if RoomState.online else 1,
 			offer_index, _local_hunter_target(), gimmick)
 	return ""
 
 
-## What the interaction prompt shows near Zephyra -- checked after the
+## What the interaction prompt shows near Zellia -- checked after the
 ## ordinary nearest-interactable prompt, since she is not one.
 func _shop_prompt() -> String:
 	for view in hunter_views:
-		if not view.brain.active or not view.brain.gimmick is ZephyraGimmick:
+		if not view.brain.active or not view.brain.gimmick is ZelliaGimmick:
 			continue
-		var gimmick: ZephyraGimmick = view.brain.gimmick
+		var gimmick: ZelliaGimmick = view.brain.gimmick
 		if gimmick.shop_open:
 			return gimmick.offer_menu_text()
 		if gimmick.in_range(player.grid_position(), view.brain.position, player.facing):
-			return "OPEN ZYTTU COIN EXCHANGE"
+			return "OPEN ZELLIA'S STORE"
 	return ""
 
 
@@ -750,10 +796,12 @@ func _apply_interaction_request(peer_id: int, event: Dictionary) -> void:
 						vent_id, view.brain, facility_view.generator)
 					view.sync_from_brain()
 					return
-		"zephyra_trade":
+		"signal_route_result":
+			VoidPlayerEffects.host_route_result(hunter_views, peer_id, bool(event.get("ok", false)))
+		"zellia_trade":
 			for view in hunter_views:
-				if view.brain.active and view.brain.gimmick is ZephyraGimmick:
-					_perform_zephyra_trade(peer_id, int(event.get("offer", 0)),
+				if view.brain.active and view.brain.gimmick is ZelliaGimmick:
+					_perform_zellia_trade(peer_id, int(event.get("offer", 0)),
 						source, view.brain.gimmick, view.brain.position)
 					return
 
@@ -769,12 +817,12 @@ func _target_can_interact(target: Dictionary, cell: Vector2i) -> bool:
 	return offset.normalized().dot(facing) >= cos(GameConfig.INTERACTION_FACING_HALF_ANGLE)
 
 
-func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
-		gimmick: ZephyraGimmick, merchant_position: Vector2 = Vector2.INF) -> String:
+func _perform_zellia_trade(peer_id: int, offer_index: int, target: Dictionary,
+		gimmick: ZelliaGimmick, merchant_position: Vector2 = Vector2.INF) -> String:
 	if merchant_position != Vector2.INF and not gimmick.in_range(
 			target.get("position", Vector2.ZERO), merchant_position,
 			target.get("facing", Vector2.ZERO)):
-		var rejected := "ZYTTU // TRADE REJECTED // MOVE CLOSER"
+		var rejected := "ZELLIA'S STORE // TRADE REJECTED // MOVE CLOSER"
 		if peer_id != (multiplayer.get_unique_id() if RoomState.online else 1):
 			_remotes.send_player_event(peer_id, {"what": "message", "message": rejected})
 		return rejected
@@ -784,7 +832,7 @@ func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
 	if offer_id.is_empty():
 		return ""
 	if GameState.coins < cost:
-		var refused := "ZYTTU // NOT ENOUGH COINS FOR %s (%d)" % [label, cost]
+		var refused := "ZELLIA'S STORE // NOT ENOUGH COINS FOR %s (%d)" % [label, cost]
 		if peer_id != (multiplayer.get_unique_id() if RoomState.online else 1):
 			_remotes.send_player_event(peer_id, {"what": "message", "message": refused})
 		return refused
@@ -796,16 +844,30 @@ func _perform_zephyra_trade(peer_id: int, offer_index: int, target: Dictionary,
 		if relay:
 			relay.set_sabotaged(false)
 			personal_offer = ""
-	var message := "ZYTTU TRADE COMPLETE // %s // -%d COINS" % [label, cost]
+	var message := "ZELLIA'S STORE // TRADE COMPLETE // %s // -%d COINS" % [label, cost]
 	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 	if peer_id == local_id:
 		if not personal_offer.is_empty():
 			gimmick.apply_personal_offer(personal_offer, player)
 	else:
-		_remotes.send_player_event(peer_id, {"what": "zephyra_trade",
+		_remotes.send_player_event(peer_id, {"what": "zellia_trade",
 			"offer": personal_offer, "coins": GameState.coins, "message": message})
 	if RoomState.online:
 		_remotes.broadcast_event({"what": "coins", "coins": GameState.coins})
+	# 2D: any deal can be fatal. She grabs through the normal capture path, the death line is drawn from the "deal" pool.
+	var zellia_view: HunterView3D = null
+	for view in hunter_views:
+		if view.brain.gimmick == gimmick:
+			zellia_view = view
+	if zellia_view != null and zellia_view.brain.next_random_float() < float(
+			GameConfig.ZELLIA_DEATH_CHANCE.get(RoomState.difficulty_id(), 0.05)):
+		if peer_id == local_id:
+			_death_via = "deal"
+			_trigger_capture(zellia_view, true)
+		else:
+			_remotes.send_player_event(peer_id, {"what": "capture", "hunter_id": "zellia",
+				"inescapable": true, "via": "deal"})
+		return "ZELLIA'S STORE // THE DEAL COST MORE THAN COINS"
 	return message
 
 
@@ -880,8 +942,10 @@ func _capture_target(view: HunterView3D, target: Dictionary,
 			or bool(target.get("god_mode", false))):
 		return
 	var peer_id := int(target.get("peer_id", 1))
+	_grab_catches += 1
 	_remotes.send_player_event(peer_id, {
 		"what": "capture",
+		"grab_roll": GrabStyles.roll_for(RoomState.seed_text, peer_id, _grab_catches),
 		"hunter_id": view.brain.hunter_id,
 		"inescapable": force_inescapable or (view.brain.gimmick != null
 			and view.brain.gimmick.capture_is_inescapable()),
@@ -999,7 +1063,7 @@ func _resolve_escape_success() -> void:
 		})
 	elif capturing_view:
 		capturing_view.brain.enter_search_from(new_pos, 1.8)
-		capturing_view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+		capturing_view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 		capturing_view.sync_from_brain()
 
 	hud.show_message("You broke free!")
@@ -1024,10 +1088,14 @@ func _resolve_capture_outcome() -> void:
 			"what": "caught",
 			"hunter_id": hunter_id,
 		})
+	if capturing_view != null:
+		hud.set_death_flow(true)   # the grab owns the screen: no hotbar, minimap or stamina over it
+		await grab.play(player, capturing_view, hunter_id, _take_grab_roll())
 	if HunterJumpscare.ENABLED:
 		Sound.office_jumpscare(hunter_id)
 	await jumpscare.play(player.active_camera(), hunter_id)
 	print("[capture] presentation-complete: hunter=%s" % hunter_id)
+	await _play_death_moment(hunter_id)
 	# Keep the run non-terminal while the capture presentation owns the camera.
 	# Setting game_over before this await lets the main loop and co-op snapshot
 	# path observe the death before the player sees the hunter.
@@ -1035,6 +1103,53 @@ func _resolve_capture_outcome() -> void:
 	_enter_game_over()
 	_capture_resolving = false
 	_force_disable_admin_cheats()
+
+
+## The short death cutscene (a line from the catcher, no jumpscare). Online it is an overlay only, solo the end card waits.
+func _play_death_moment(hunter_id: String) -> void:
+	if _death_moment == null:
+		return
+	var cause := {"hunter_id": hunter_id, "via": _death_via, "detail": ""}
+	_death_via = "contact"
+	if hunter_id == "nyxie" and capturing_view != null and capturing_view.brain.gimmick != null:
+		cause["detail"] = "lamp" if capturing_view.brain.gimmick.capture_is_inescapable() else "darkness"
+	var name := String(HunterRoster.get_identity(hunter_id).get("display_name", hunter_id))
+	var picked := DeathLines.pick(cause, RoomState.seed_text, GameState.depth, name)
+	if not DeathMoment.plays(picked):
+		return
+	var is_void := HunterRoster.VOID_IDS.has(hunter_id)
+	hud.set_death_flow(true)   # the line owns the screen: the gameplay HUD is faded out under it
+	if RoomState.online:
+		_death_moment.play(name, picked, is_void)
+	else:
+		await _death_moment.play(name, picked, is_void)
+		if not run_report.is_open():
+			hud.set_death_flow(false)
+
+
+## The end card never opens over the catcher's line (online the line is not awaited): wait for it to be dismissed.
+func _finish_death_moment() -> void:
+	if _death_moment != null and _death_moment.is_open():
+		await _death_moment.finished
+
+
+## The host's roll for this catch, or a seeded local one when the event carried none (an older host, a scripted catch).
+func _take_grab_roll() -> float:
+	var roll := _grab_roll
+	_grab_roll = -1.0
+	if roll < 0.0:
+		_grab_catches += 1
+		roll = GrabStyles.roll_for(RoomState.seed_text, multiplayer.get_unique_id() if RoomState.online else 1, _grab_catches)
+	return roll
+
+
+## Debug/recording hook (playtest sequencer, capture rigs): `view` grabs the local runner now with `style` (GrabStyles), the
+## same presentation a real catch plays, without the run ending. Returns when the hold starts; call grab.release() after.
+func admin_force_grab(view: HunterView3D, style: String) -> void:
+	if view == null or grab == null or not GrabStyles.STYLES.has(style):
+		return
+	grab.release()
+	await grab.play(player, view, view.brain.hunter_id, .5, style)
 
 
 func _enter_game_over() -> void:
@@ -1052,6 +1167,8 @@ func _enter_game_over() -> void:
 	# A completed solo run must not remain available as a Continue checkpoint.
 	if not RoomState.online and Backend.signed_in():
 		Backend.account_clear_progress()
+	await _finish_death_moment()
+	hud.set_death_flow(true)
 	run_report.open({
 		"online": RoomState.online,
 		"host": RoomState.is_host,
@@ -1069,7 +1186,9 @@ func _enter_game_over() -> void:
 
 
 func _restore_gameplay_after_report() -> void:
+	grab.release()
 	run_report.close()
+	hud.set_death_flow(false)
 	player.look_frozen = false
 	pause_menu.tap_to_pause = true
 	pause_menu.set_process(true)
@@ -1096,12 +1215,10 @@ func _leave_after_report() -> void:
 	if RoomState.online and RoomState.is_host:
 		RoomState.end_session("HOST ENDED THE ROUTE // BACK IN STAGING")
 	elif RoomState.online:
-		RoomState.status_message = "LEFT THE ROUTE"
-		RoomState.leave_network()
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		RoomState.leave_room_to_menu("YOU LEFT THE ROOM")
 	else:
 		RoomState.session_active = false
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 
 
 func _update_hud() -> void:
@@ -1270,6 +1387,18 @@ func _player_controls_blocked() -> bool:
 		or (hud != null and hud.map_is_open()) \
 		or (_room_chat != null and _room_chat.is_open()) \
 		or (admin_menu != null and admin_menu.is_open())
+
+
+var _void_fx: VoidPlayerEffects
+
+
+## A signal route (Gray) ended on this player's machine: the host decides what it means.
+func _report_void_route(ok: bool) -> void:
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction({"what": "signal_route_result", "ok": ok})
+	else:
+		VoidPlayerEffects.host_route_result(hunter_views,
+			multiplayer.get_unique_id() if RoomState.online else 1, ok)
 
 
 func _on_map_open_changed(_shown: bool) -> void:
@@ -1489,6 +1618,8 @@ func _apply_hunters(data: Array) -> void:
 			var gimmick_state = entry.get("gimmick", {})
 			if gimmick_state is Dictionary:
 				view.brain.gimmick.apply_network_state(gimmick_state)
+		if view.brain.hard != null and entry.get("hard") is Dictionary:
+			view.brain.hard.apply_network_state(entry["hard"])
 		view.sync_from_brain()
 
 
@@ -1559,10 +1690,15 @@ func _dispatch_player_event(target: Dictionary, event: Dictionary) -> void:
 
 
 func _apply_player_event(event: Dictionary) -> void:
+	if _void_fx != null and _void_fx.apply(event):
+		return
 	match String(event.get("what", "")):
 		"capture":
+			if String(event.get("via", "")) != "":
+				_death_via = String(event.get("via", "contact"))
 			var view := _find_hunter(String(event.get("hunter_id", "")))
 			if view:
+				_grab_roll = float(event.get("grab_roll", -1.0))
 				_trigger_capture(view, bool(event.get("inescapable", false)))
 		"stun":
 			player.stun_timer = maxf(player.stun_timer,
@@ -1591,12 +1727,12 @@ func _apply_player_event(event: Dictionary) -> void:
 				player.meters.heat_locked = true
 				player.meters.temperature = maxf(player.meters.temperature,
 					GameConfig.TEMPERATURE_OVERHEAT)
-		"zephyra_trade":
+		"zellia_trade":
 			GameState.coins = int(event.get("coins", GameState.coins))
 			var offer_id := String(event.get("offer", ""))
 			if not offer_id.is_empty():
 				for view in hunter_views:
-					if view.brain.gimmick is ZephyraGimmick:
+					if view.brain.gimmick is ZelliaGimmick:
 						view.brain.gimmick.apply_personal_offer(offer_id, player)
 						break
 			var trade_note := String(event.get("message", ""))
@@ -1622,7 +1758,7 @@ func _apply_hunter_event(event: Dictionary) -> void:
 			var at = event.get("at")
 			if view and at is Vector2:
 				view.brain.enter_search_from(at, 1.8)
-				view.brain.apply_stun(GameConfig.ESCAPE_STUN_DURATION)
+				view.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 				view.sync_from_brain()
 		"caught":
 			# The remote state packet marks this runner game-over; no hunter reset
@@ -1647,7 +1783,7 @@ func _resolve_taser_request(peer_id: int) -> void:
 	var now := Time.get_ticks_usec()
 	if now < int(_taser_ready_usec_by_peer.get(peer_id, 0)):
 		return
-	_taser_ready_usec_by_peer[peer_id] = now + int(GameConfig.TASER_COOLDOWN_SECONDS * 1_000_000.0)
+	_taser_ready_usec_by_peer[peer_id] = now + int(GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown") * 1_000_000.0)
 	var target := _remotes.state_for_peer(peer_id, _local_hunter_target(), GameState.depth)
 	if target.is_empty() or bool(target.get("hidden", false)) \
 			or bool(target.get("game_over", false)):
@@ -1673,13 +1809,13 @@ func _resolve_taser_request(peer_id: int) -> void:
 		_remotes.send_player_event(peer_id, {"what": "message",
 			"message": "TASER // NO TARGET"})
 		return
-	hit.brain.apply_stun(GameConfig.TASER_STUN_SECONDS)
+	hit.brain.apply_stun(GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun"))
 	hit.sync_from_brain()
 	var identity := HunterRoster.get_identity(hit.brain.hunter_id)
 	_remotes.send_player_event(peer_id, {"what": "message",
 		"message": "TASER HIT // %s STUNNED %.1fs" % [
 			String(identity.get("display_name", hit.brain.hunter_id)).to_upper(),
-			GameConfig.TASER_STUN_SECONDS]})
+			GameConfig.profile_value(RoomState.difficulty_id(), "taser_stun")]})
 
 
 ## Something the local player did that the room shares. Sent as-is; the effect
@@ -1829,7 +1965,7 @@ func _play_world_audio(event: Dictionary) -> void:
 	if what == "thessine_mimic":
 		_play_thessine_mimic(event)
 		return
-	if what in ["sabotage", "hiding_disabled", "sound_alert"] \
+	if what in ["sabotage", "hiding_disabled", "sound_alert"] or String(event.get("sound", "")) == "alert" \
 			or (what == "pickup" and note.begins_with("YSOLDE")):
 		Sound.alert()
 
@@ -1951,11 +2087,9 @@ func _on_abandoned() -> void:
 	if RoomState.online and RoomState.is_host:
 		RoomState.end_session("HOST ENDED THE ROUTE // BACK IN STAGING")
 	elif RoomState.online:
-		RoomState.status_message = "LEFT THE ROUTE // BACK IN STAGING"
-		RoomState.leave_network()
-		get_tree().change_scene_to_file("res://scenes/room_lobby.tscn")
+		RoomState.leave_room_to_menu("YOU LEFT THE ROOM")
 	else:
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		get_tree().change_scene_to_file(RoomState.menu_scene_path())
 
 
 func _on_pause_opened() -> void:

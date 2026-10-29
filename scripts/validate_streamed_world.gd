@@ -16,15 +16,17 @@ func run(host: Node) -> int:
 	var world := StreamedRouteGenerator.new("STREAM-CHECK")
 	_expect(StreamedRouteGenerator.CORRIDOR_WIDTH == 3,
 		"Infinite corridors are no longer three cells wide")
-	_expect(world.stair_links(Vector3i.ZERO).is_empty() and not world.is_chunk_allowed(Vector3i(0, 1, 0)) \
-		and not world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
-		"the route is not a single unbounded level")
+	_expect(world.stair_links(Vector3i.ZERO).is_empty() and world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.MEZZANINE_LEVEL, 0)) and not world.is_chunk_allowed(Vector3i(0, 2, 0)) \
+		and world.is_chunk_allowed(Vector3i(0, -1, 0)) and world.is_chunk_allowed(Vector3i(0, -2, 0)) \
+		and world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL, 0)) \
+		and not world.is_chunk_allowed(Vector3i(0, StreamedRouteGenerator.INFERNO_LEVEL - 1, 0)) and world.is_chunk_allowed(Vector3i(9, 0, -9)),
+		"the route is not one unbounded maze level under the Mezzanine and over the two sewers and the Inferno")
 	_expect(FacilityMap.RELAY_TEAL_BLUE.is_equal_approx(Color("32c9d8")),
 		"relay map markers are not the distinct teal-blue palette colour")
 	_expect(FacilityMap.STAIR_ICON_WHITE.is_equal_approx(Color("f4f7f6")),
 		"admin/fullscreen stair markers are not the requested white icon")
 	var map_region_colours := {}
-	for region in StreamedRouteGenerator.BIOMES:
+	for region in StreamedRouteGenerator.REGIONS:
 		_expect(ResourceLoader.exists("res://art/props-3d/environment/floor_%s.png" % region) \
 			and ResourceLoader.exists("res://art/props-3d/environment/wall_%s.png" % region),
 			"%s is missing its regional floor/wall texture pair" % region)
@@ -125,10 +127,10 @@ func run(host: Node) -> int:
 		_expect(not bool(arrival_state.get("active", true)),
 			"streamed hunter state starts active before its difficulty gate")
 
-	var biomes := {}
+	var regions := {}
 	var pickup_ids := {}
 	var hunter_ids := {}
-	var dressed_biomes := {}
+	var dressed_regions := {}
 	var first_hunter_spawn: Dictionary = {}
 	var saw_hotel_layout := false
 	var saw_prison_layout := false
@@ -150,14 +152,15 @@ func run(host: Node) -> int:
 	var saw_dual_upper := false
 	var saw_dual_carousel := false
 	var saw_two_cell_double_door := false
-	for level in [0]:
+	# the maze level, and a window of the Inferno (no longer a maze district: the whole of level -3)
+	for level in [0, StreamedRouteGenerator.INFERNO_LEVEL]:
 		for z in range(-12, 13):
 			for x in range(-12, 13):
 				var sampled_coord := Vector3i(x, level, z)
-				if not world.is_chunk_allowed(sampled_coord):
+				if not world.is_chunk_allowed(sampled_coord) or (level != 0 and (absi(x) > 3 or absi(z) > 3)):
 					continue
 				var data := world.chunk(sampled_coord)
-				biomes[data["biome"]] = true
+				regions[data["region"]] = true
 				var dual_contract: Dictionary = data.get("dual_level_room", {})
 				if not dual_contract.is_empty():
 					if String(dual_contract.get("role", "")) == "lower":
@@ -214,7 +217,7 @@ func run(host: Node) -> int:
 							return child_roles.has(role)),
 						"%s suite omitted a required amenity: %s" % [suite_id,
 							expected_roles])
-				if String(data.get("biome", "")) == "apartment":
+				if String(data.get("region", "")) == "apartment":
 					var apartment_units := (data.get("suites", []) as Array).filter(
 						func(suite: Dictionary) -> bool:
 							return String(suite.get("kind", "")) == "apartment")
@@ -239,26 +242,32 @@ func run(host: Node) -> int:
 							"%s generated intersecting stair access at %s" \
 							% [data["coord"], access_cell])
 						occupied_stair_access[access_cell] = stair.get("id", "")
-				if data["biome"] == "hotel":
+				if data["region"] == "hotel":
 					saw_hotel_layout = data["rooms"].size() >= 6 \
 						and data["corridors"].any(func(hall):
 							return bool(hall.get("serves_many_rooms", false)))
-				if data["biome"] == "prison":
+				if data["region"] == "prison":
 					saw_prison_layout = saw_prison_layout or (data["rooms"].size() >= 6 \
 						and data["rooms"].all(func(room):
 							return room["room_type"] in ["prison_cell",
-								"prison_cafeteria", "stairwell"]))
+								"prison_cafeteria", "infirmary", "stairwell"]))
 				var center := StreamedRouteGenerator.CHUNK_SIZE / 2
-				for axis_offset in range(-1, 2):
+				# A great hall (docs/ROOM_SIZES.md) trims the middle east-west hall on its side and the neighbour's; the
+				# vertical hall and the untrimmed part of the middle hall must stay whole.
+				var trim_west: bool = world.hall_trimmed(data["coord"], -1)
+				var trim_east: bool = world.hall_trimmed(data["coord"], 1)
+				# level -3 is a cave network (InfernoCaverns), with no central cross to keep whole
+				for axis_offset in range(-1, 2) if int(data["coord"].y) != StreamedRouteGenerator.INFERNO_LEVEL else []:
 					for axis_cell in range(1, StreamedRouteGenerator.CHUNK_SIZE - 1):
-						_expect(int(data["grid"][center + axis_offset][axis_cell]) == 0 \
-							and int(data["grid"][axis_cell][center + axis_offset]) == 0,
+						var horizontal_ok: bool = int(data["grid"][center + axis_offset][axis_cell]) == 0 \
+							or (trim_west and axis_cell < center - 1) or (trim_east and axis_cell > center + 1)
+						_expect(horizontal_ok and int(data["grid"][axis_cell][center + axis_offset]) == 0,
 							"%s central hall narrowed below three cells" % data["coord"])
 				for corridor_value in data["corridors"]:
 					var corridor: Dictionary = corridor_value
 					_expect(int(corridor.get("width", 0)) == StreamedRouteGenerator.CORRIDOR_WIDTH,
 						"recorded corridor is not three cells wide: %s" % corridor)
-				_expect((data["corridors"] as Array).any(func(corridor: Dictionary) -> bool:
+				_expect(int(data["coord"].y) == StreamedRouteGenerator.INFERNO_LEVEL or (data["corridors"] as Array).any(func(corridor: Dictionary) -> bool:
 					return bool(corridor.get("branch", false)) \
 						and bool(corridor.get("from_main_hall", false))),
 					"%s has no secondary hall branching from its main cross" % data["coord"])
@@ -333,7 +342,7 @@ func run(host: Node) -> int:
 							"stairwell contains an ordinary prop: %s" % room_prop)
 				for prop_value in data.get("region_props", []):
 					var prop: Dictionary = prop_value
-					dressed_biomes[data["biome"]] = true
+					dressed_regions[data["region"]] = true
 					_expect(PropModelCatalog.has_model(String(prop.get("type", ""))) \
 							or bool(prop.get("arch", false)),
 						"streamed region prop has no authored model: %s" % prop)
@@ -377,7 +386,7 @@ func run(host: Node) -> int:
 						_expect(seated,
 							"surface prop %s is floating off its desk/table: %s" \
 							% [prop_type, prop.get("id", prop_type)])
-					if data["biome"] == "prison" \
+					if data["region"] == "prison" \
 							and prop_type in ["restaurantPartyTable",
 								"woodenTable", "woodenChair",
 								"normalKitchenCounter", "normalKitchenSink"]:
@@ -487,6 +496,8 @@ func run(host: Node) -> int:
 					var fixture_cell: Vector2i = fixture.get("cell", Vector2i.ZERO)
 					_expect(int(data["grid"][fixture_cell.y][fixture_cell.x]) == 0,
 						"streamed hiding fixture landed off-floor at %s" % fixture)
+					if not String(fixture.get("style", "")).is_empty():
+						continue    # furniture hiding spots (beds, wardrobes): checked by the hiding_props suite
 					var backing_wall: Vector2i = fixture.get("backing_wall", Vector2i.ZERO)
 					var open_direction: Vector2i = fixture.get("open_direction", Vector2i.ZERO)
 					_expect(backing_wall == -open_direction \
@@ -511,8 +522,8 @@ func run(host: Node) -> int:
 						"streamed route selected an unsupported hunter %s" % spawn["hunter_id"])
 					if first_hunter_spawn.is_empty():
 						first_hunter_spawn = spawn.duplicate(true)
-	_expect(biomes.size() == StreamedRouteGenerator.BIOMES.size(),
-		"seeded sample did not produce every biome: %s" % [biomes.keys()])
+	_expect(regions.size() == StreamedRouteGenerator.REGIONS.size(),
+		"seeded sample did not produce every region: %s" % [regions.keys()])
 	_expect(saw_hotel_layout,
 		"hotel region did not create a long multi-room corridor floor")
 	_expect(saw_prison_layout,
@@ -525,10 +536,10 @@ func run(host: Node) -> int:
 			"office_reception", "cubicle_room", "office_job", "private_office"]:
 		_expect(suite_roles_seen.has(suite_role),
 			"generated suites never exposed the %s amenity" % suite_role)
-	for biome in StreamedRouteGenerator.BIOMES:
-		if biome != "prison":
-			_expect(dressed_biomes.has(biome),
-				"%s region produced no authored streamed dressing" % biome)
+	for region in StreamedRouteGenerator.REGIONS:
+		if region != "prison":
+			_expect(dressed_regions.has(region),
+				"%s region produced no authored streamed dressing" % region)
 	# Rooms are furnished properly now: nothing below 9x9 here (no closets or 3x3 cells).
 	for expected_size in [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(11, 13)]:
 		_expect(StreamedRouteGenerator.ROOM_SIZES.has(expected_size),
@@ -742,6 +753,15 @@ func run(host: Node) -> int:
 	var facility := live_scene.get_node("World/StreamedFacility") as StreamedFacilityView3D
 	var player := live_scene.get_node("World/Player") as PlayerController3D
 	var remotes := live_scene.get_node("World/RemotePlayers") as RemotePlayers
+	# The runner must not start wedged in a wall junction (a headset camera ends up inside the walls).
+	for _settle in 20:
+		await host.get_tree().physics_frame
+	_expect(not player.spot_blocked(player.global_position),
+		"the runner starts inside level geometry or off the floor at %s" % player.global_position)
+	var spawn_marker := live_scene.find_child("StartingSafeZoneMarker", true, false) as Node3D
+	_expect(spawn_marker == null or Vector2(spawn_marker.global_position.x - player.global_position.x,
+		spawn_marker.global_position.z - player.global_position.z).length() >= 0.6,
+		"the runner starts on the safe-zone marker post (a headset camera ends up inside it)")
 	var pixel_effect := live_scene.get("pixel_signal_effect") as PixelSignalEffect
 	_expect(pixel_effect != null and Settings.DEFAULT_PIXEL_EFFECT_PERCENT > 0.0 \
 		and PixelSignalEffect.SHADER_CODE.contains("floor(pixel / block_size)"),
@@ -755,8 +775,8 @@ func run(host: Node) -> int:
 			"zero pixel-effect strength still leaves a screen-space filter visible")
 		Settings.pixel_effect_percent = old_pixel_strength
 		pixel_effect.call("_refresh")
-	_expect(facility != null and facility.loaded_chunk_count() == 9,
-		"live stream did not hold the 3x3 chunk window of the single floor")
+	_expect(facility != null and facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 18,
+		"live stream did not hold the 3x3 chunk window of the maze floor (plus the sewer under a ladder, and the other level around a walked stairwell)")
 	_expect(not facility.get_tree().get_nodes_in_group("streamed_region_prop").is_empty(),
 		"live streamed regions loaded no authored dressing models")
 	var live_lower := facility.generator.chunk(Vector3i.ZERO)
@@ -1039,10 +1059,12 @@ func run(host: Node) -> int:
 				validation_waypoint_route = candidate_route
 	_expect(validation_waypoint_route.size() >= 2,
 		"discovered floor produced no reachable waypoint destination")
+	var guidance_before: String = Settings.waypoint_guidance
+	Settings.waypoint_guidance = "path"
 	live_scene.call("_on_map_waypoint_requested",
 		Vector2(validation_waypoint_cell) + Vector2(.2, .2),
 		facility.current_level())
-	var waypoints: Array = live_scene.get("_map_waypoints")
+	var waypoints: Array = live_scene.call("_active_waypoints")
 	_expect(waypoints.size() == 1 \
 		and (waypoints[0].get("at", Vector2.ZERO) as Vector2).is_equal_approx(
 			Vector2(validation_waypoint_cell) + Vector2(.5, .5)) \
@@ -1053,16 +1075,37 @@ func run(host: Node) -> int:
 	_expect(gps_route.size() >= 2 \
 		and live_scene.hud.minimap.waypoint_path == gps_route \
 		and live_scene.hud.plan.waypoint_path == gps_route,
-		"player waypoint did not produce a discovery-safe GPS map line")
+		"player waypoint did not produce a GPS map line")
 	_expect(gps_trail != null and gps_trail.mesh != null,
-		"player waypoint did not produce a visible ground trail")
+		"PATH guidance produced no floor chevrons")
+	# placing a second waypoint REPLACES the first: one waypoint, one map pin, one trail mesh
+	var second_cell := waypoint_player_cell
+	for candidate_cell in [Vector2i(-2, 0), Vector2i(2, 0), Vector2i(0, 2), Vector2i(0, -2),
+			Vector2i(-4, 0), Vector2i(4, 0)]:
+		if (live_scene.get("_navigation") as StreamedHunterNavigation).can_occupy(
+				waypoint_player_cell.x + candidate_cell.x + .5, waypoint_player_cell.y + candidate_cell.y + .5) \
+				and waypoint_player_cell + candidate_cell != validation_waypoint_cell:
+			second_cell = waypoint_player_cell + candidate_cell
+			break
+	live_scene.call("_place_waypoint_at", Vector2(second_cell) + Vector2(.5, .5), facility.current_level())
+	waypoints = live_scene.call("_active_waypoints")
+	_expect(waypoints.size() == 1 and (waypoints[0]["at"] as Vector2).is_equal_approx(Vector2(second_cell) + Vector2(.5, .5))
+		and (live_scene.world_state.waypoints.by_peer as Dictionary).size() == 1
+		and live_scene.hud.plan.waypoints.size() == 1,
+		"a second waypoint did not replace the first")
+	var trail_meshes := 0
+	for child in live_scene.world.get_children():
+		if child is MeshInstance3D and (child as MeshInstance3D).name == "WaypointGroundTrail":
+			trail_meshes += 1
+	_expect(trail_meshes == 1, "waypoint trail meshes leaked: %d" % trail_meshes)
 	var waypoint_player_position := player.global_position
 	var waypoint_at: Vector2 = waypoints[0].get("at", Vector2.ZERO)
-	player.global_position = Vector3(waypoint_at.x + 4.0,
+	player.global_position = Vector3(waypoint_at.x + 1.5,
 		waypoint_player_position.y, waypoint_at.y)
 	live_scene.call("_clear_reached_waypoints", facility.current_level())
-	_expect((live_scene.get("_map_waypoints") as Array).is_empty(),
-		"waypoint remained after the player entered its five-cell arrival radius")
+	_expect((live_scene.call("_active_waypoints") as Array).is_empty(),
+		"waypoint remained after the player entered its arrival radius")
+	Settings.waypoint_guidance = guidance_before
 	player.global_position = waypoint_player_position
 	live_scene.hud.map_overlay.visible = true
 	live_scene.call("_update_hud")
@@ -1118,7 +1161,7 @@ func run(host: Node) -> int:
 		# one hunter picker: every A-Z and Void hunter, with callable summon / remove / emote actions
 		var hunter_tool: Dictionary = admin_headings.get("HUNTER", {})
 		_expect(not hunter_tool.is_empty() \
-				and (hunter_tool.get("hunters", []) as Array).size() == 26 + HunterRoster.VOID_IDS.size() \
+				and (hunter_tool.get("hunters", []) as Array).size() == 26 + HunterRoster.VOID_IDS.size() + SecretCreatures.admin_ids().size() \
 				and (hunter_tool.get("hunter_tool", []) as Array).size() >= 3,
 			"Infinite admin menu lacks the complete hunter picker (A-Z + Void)")
 		for act in hunter_tool.get("hunter_tool", []):
@@ -1277,7 +1320,8 @@ func run(host: Node) -> int:
 				StreamedRouteGenerator.CHUNK_SIZE * 20, 0.0, 0.0)
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
-			_expect(facility.loaded_chunk_count() == 9,
+			await _await_stream(host, facility)   # far chunks of a teleport window stream in over a few frames
+			_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 18,
 				"long-distance hunter unload leaked streamed chunks")
 			player.global_position = Vector3(
 				(hunter_coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE,
@@ -1303,9 +1347,12 @@ func run(host: Node) -> int:
 				(hunter_coord.z - 2 - step * 2) * StreamedRouteGenerator.CHUNK_SIZE + chunk_center)
 			await host.get_tree().process_frame
 			await host.get_tree().process_frame
-			_expect(facility.loaded_chunk_count() == 9,
+			await _await_stream(host, facility)   # far chunks of a teleport window stream in over a few frames
+			# nine on the runner's level, plus the far end of a ladder, or the other level's chunks around a walked
+			# stairwell / ramp (StreamedFacilityView3D.WALKED_LINKS), bounded to the same 3x3 column
+			_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 18,
 				"long-session stream exceeded its nine-chunk window at step %d" % step)
-			_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 9,
+			_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == facility.loaded_chunk_count(),
 				"long-session scene retained an evicted chunk at step %d" % step)
 		var live_navigation := live_scene.get("_navigation") as StreamedHunterNavigation
 		# Stair selection samples a five-by-five ring, while an active hunter may
@@ -1322,7 +1369,7 @@ func run(host: Node) -> int:
 			if prison_coord.x != 999:
 				break
 			for x in range(-6, 7):
-				if facility.generator.biome_for(Vector3i(x, level, z)) == "prison":
+				if facility.generator.region_for(Vector3i(x, level, z)) == "prison":
 					prison_coord = Vector3i(x, level, z)
 					break
 	_expect(prison_coord.x != 999, "validation seed produced no reachable prison test chunk")
@@ -1338,9 +1385,11 @@ func run(host: Node) -> int:
 			"live stream did not follow the runner into the lower prison region")
 		_expect(not host.get_tree().get_nodes_in_group("streamed_prison_prop").is_empty(),
 			"live prison chunk contains no authored prison models")
-		_expect(facility.loaded_chunk_count() == 9,
+		await _await_stream(host, facility)   # far chunks of a teleport window stream in over a few frames
+		# (the same bound as the long session: 9 here plus at most a 3x3 of the linked level)
+		_expect(facility.loaded_horizontal_coords().size() == 9 and facility.loaded_chunk_count() <= 18,
 			"moving far away leaked old streamed chunks instead of evicting them")
-		_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == 9,
+		_expect(host.get_tree().get_nodes_in_group("streamed_chunk").size() == facility.loaded_chunk_count(),
 			"streamed scene tree retained evicted chunk nodes")
 
 	# The live Infinite route -- not the legacy main_3d.tscn -- is what a
@@ -1409,10 +1458,17 @@ func run(host: Node) -> int:
 		print("  chunks    deterministic topology, canonical seams and stable pickup ids")
 		print("  vertical  unbounded levels; central spawn links both up and down")
 		print("  regions   %d area identities; Gothic/Prison/Inferno constrained below" \
-			% StreamedRouteGenerator.BIOMES.size())
+			% StreamedRouteGenerator.REGIONS.size())
 		print("  rooms     %d sizes; hotel/prison corridors serve many rooms" % room_sizes.size())
 		print("  survival  checkpoints, pickups and hunter state persist across unload")
 		print("  hunters   deterministic spawns, seam navigation and live pursuit load")
 		print("  renderer  bounded collidable stream, vertical flights and regional art load")
 		print("streamed_world OK")
 	return _failures
+
+
+func _await_stream(host: Node, facility: StreamedFacilityView3D) -> void:
+	for _i in 900:
+		if not facility.is_streaming():
+			return
+		await host.get_tree().process_frame

@@ -20,7 +20,8 @@ const WALL_TEXTURE := "res://art/props-3d/environment/wall_texture.png"
 
 ## Corridor height, and the thickness of the slabs that cap it. 3 m matches the
 ## office rooms, so a player moving between modes reads the same scale.
-const WALL_HEIGHT := 3.0
+## 3.6 m since the hunter-scale world (docs/SCALE_FIT.md): boarded doorways raised for the 1.5x hunters fit under it.
+const WALL_HEIGHT := 3.6
 const SLAB := 0.1
 
 const ITEM_FLOOR := 0
@@ -270,7 +271,7 @@ func _spawn_interactables() -> void:
 	# never leaves that room either -- she is stationary infrastructure, not
 	# a hunter who has to be found.
 	music_box = _spawn_interactable(RouteInteractable3D.Kind.MUSIC_BOX,
-		_near_start(MUSIC_BOX_MIN_DISTANCE, MUSIC_BOX_MAX_DISTANCE), "WIND MUSIC BOX")
+		_near_start(MUSIC_BOX_MIN_DISTANCE, MUSIC_BOX_MAX_DISTANCE), "HOLD INTERACT // WIND MUSIC BOX")
 	# Verrine's vent network: one grate per generator.vents entry, at the exact
 	# positions VerrineGimmick itself reads -- see FacilityGenerator.place_vents.
 	for vent in generator.place_vents(GameConfig.VERRINE_VENT_COUNT):
@@ -289,7 +290,7 @@ func _spawn_interactables() -> void:
 			node.set_meta("vent_mount", "low_wall")
 		else:
 			node.set_meta("vent_mount", "floor")
-	# Zephyra's economy. Placed last so it reads generator.vents (already
+	# Zellia's economy. Placed last so it reads generator.vents (already
 	# built above) and avoids landing on a vent grate, the same collision
 	# avoidance relays/batteries/safe_zones/hiding_spots already get.
 	for coin in generator.place_coins(GameConfig.COIN_PICKUP_COUNT):
@@ -342,6 +343,8 @@ func _spawn_tool_pickups() -> void:
 			available.remove_at(index)
 	var rng := SeededRandom.new("%s:EQUIPMENT-PICKUPS" % generator.seed_text)
 	for item_id in PlayerController3D.COLLECTIBLE_ITEMS:
+		if item_id == "flashlight":
+			continue    # every runner starts with one
 		if available.is_empty():
 			push_error("NO FREE CELL FOR EQUIPMENT PICKUP // %s" % item_id)
 			break
@@ -636,6 +639,7 @@ func _fallback_prop_visual(type: String, entry: Dictionary,
 	material.albedo_color = RoomCatalog.color_for_region(
 		String(entry.get("region", "")))
 	material.roughness = .78
+	MaterialLook.tame(material)
 	box.material = material
 	mesh.mesh = box
 	mesh.position.y = PropModelCatalog.visual_y(type, WALL_HEIGHT, mount_y) \
@@ -842,7 +846,7 @@ func _at(cell: Vector2i, kind: int) -> RouteInteractable3D:
 	return null
 
 
-## Zephyra's repair offer: whichever relay is currently offline, or null if
+## Zellia's repair offer: whichever relay is currently offline, or null if
 ## none is. Scans the same _interactables list shared_state() already reads
 ## sabotage off of, rather than generator.relays -- sabotage is presentation-
 ## node state (see route_interactable_3d.gd's own note on why), not the
@@ -1010,6 +1014,7 @@ func _build_mesh_library() -> MeshLibrary:
 			floor_style.uv1_scale = REGION_FLOOR_REPEAT.get(region, Vector3.ONE)
 			floor_style.roughness = .72 if region in ["office", "arcade"] else .88
 			floor_style.metallic = .12 if region in ["office", "maintenance"] else 0.0
+			MaterialLook.tame(floor_style, false, true)
 		_add_box(library, next_id, Vector3(CELL_SIZE, SLAB, CELL_SIZE),
 			Vector3(0.0, -SLAB * 0.5, 0.0), tinted, true)
 		_region_floor_items[region] = next_id
@@ -1021,6 +1026,7 @@ func _build_mesh_library() -> MeshLibrary:
 			wall_style.uv1_scale = Vector3(2.0 if region in ["mansion", "arcade"] else 1.0,
 				WALL_HEIGHT, 1.0)
 			wall_style.roughness = .78 if region in ["office", "maintenance"] else .92
+			MaterialLook.tame(wall_style)
 		_add_box(library, next_id, Vector3(CELL_SIZE, WALL_HEIGHT, CELL_SIZE),
 			Vector3(0.0, WALL_HEIGHT * .5, 0.0), wall_tinted, true)
 		_region_wall_items[region] = next_id

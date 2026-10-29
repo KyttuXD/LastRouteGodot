@@ -89,6 +89,11 @@ func _on_update_check_finished(success: bool, update_needed: bool) -> void:
 	if success:
 		_return_to_menu("BUILD IS UP TO DATE")
 		return
+	if UpdateManager.available.is_empty():
+		# no update known and the server is unreachable: nothing to hold the player for
+		UpdateManager.enable_offline_mode()
+		_return_to_menu("UPDATE SERVICE UNAVAILABLE // STARTING OFFLINE")
+		return
 	_show_retry(UpdateManager.status_message if not UpdateManager.status_message.is_empty() \
 		else "UPDATE CHECK REQUIRED")
 
@@ -129,11 +134,29 @@ func _on_download_progress(received_bytes: int, total_bytes: int) -> void:
 		_format_bytes(received_bytes), _format_bytes(total_bytes)]
 
 
+## Never silent: a staged update waits for the player to press INSTALL & RESTART.
 func _on_update_ready(_path: String) -> void:
-	_set_state("APPLYING UPDATE", "UPDATE STAGED // PREPARING RESTART", 1.0, true)
-	_pending_install = true
-	if _elapsed >= MIN_HANDOFF_SECONDS:
-		_start_install()
+	_set_state("UPDATE READY", "UPDATE %s STAGED // INSTALL & RESTART WHEN READY" % String(UpdateManager.available.get("revision", "")).left(8).to_upper(), 1.0, false)
+	_show_install_button()
+
+
+var _install_button: Button
+
+
+func _show_install_button() -> void:
+	if _install_button == null:
+		_install_button = Button.new()
+		_install_button.name = "InstallUpdateButton"
+		_install_button.text = "INSTALL & RESTART"
+		Palette.style_button(_install_button, true)
+		_install_button.pressed.connect(func() -> void:
+			_install_button.visible = false
+			_start_install())
+		_retry_button.get_parent().add_child(_install_button)
+		_retry_button.get_parent().move_child(_install_button, 0)
+	_install_button.visible = true
+	_continue_button.visible = false   # the update gate: no way past this screen but installing
+	_install_button.grab_focus.call_deferred()
 
 
 func _start_install() -> void:
@@ -166,7 +189,7 @@ func _continue_offline() -> void:
 
 
 func _return_to_menu(_message: String) -> void:
-	var error := get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+	var error := get_tree().change_scene_to_file("res://scenes/game_hub.tscn")
 	if error != OK:
 		_show_retry("MAIN MENU COULD NOT OPEN // ERROR %d" % error)
 
@@ -179,7 +202,7 @@ func _show_retry(message: String) -> void:
 	_status.add_theme_color_override("font_color", Palette.ALERT)
 	_set_progress(0.0, false)
 	_retry_button.visible = true
-	_continue_button.visible = true
+	_continue_button.visible = false   # stay here with RETRY; no skipping the update
 
 
 func _set_state(phase_text: String, status_text: String, amount: float,
@@ -240,9 +263,9 @@ func _build_ui() -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	panel.add_child(column)
-	column.add_child(_label("ROUTE SYSTEM // UPDATE", Palette.AMBER, 7,
+	column.add_child(_label("LAB SYSTEM // UPDATE", Palette.AMBER, 7,
 		"UpdateKicker"))
-	var title := _label("LAST ROUTE", Palette.INK, 18, "UpdateTitle")
+	var title := _label("KYTTU'S LAB", Palette.INK, 18, "UpdateTitle")
 	title.add_theme_font_override("font", Palette.title_font())
 	column.add_child(title)
 

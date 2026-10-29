@@ -22,16 +22,22 @@ export_one() { # preset file zip-name
   "$GODOT" --headless --path "$ROOT" --export-debug "$1" "$OUT/$2"
 }
 if [ "$want" = all ] || [ "$want" = macos ]; then
-  export_one "macOS Test Server" LastRoute-TEST-macOS.zip
-  mv "$OUT/LastRoute-TEST-macOS.zip" "$OUT/LastRoute-TEST-$STAMP-macOS.zip"
+  export_one "macOS Test Server" KyttusLab-TEST-macOS.zip
+  # Godot exports universal (its templates only ship universal binaries); KT ships Apple Silicon only, so the zip is
+  # thinned to arm64 and re-signed. MAC_UNIVERSAL=1 also writes a separate Intel zip (KyttusLab-TEST-...-macOS-Intel).
+  if [ "${MAC_UNIVERSAL:-0}" = 1 ]; then
+    "$ROOT/tools/macos/thin_app.sh" "$OUT/KyttusLab-TEST-macOS.zip" x86_64 "$OUT/KyttusLab-TEST-$STAMP-macOS-Intel.zip"
+  fi
+  "$ROOT/tools/macos/thin_app.sh" "$OUT/KyttusLab-TEST-macOS.zip" arm64 "$OUT/KyttusLab-TEST-$STAMP-macOS.zip"
+  rm -f "$OUT/KyttusLab-TEST-macOS.zip"
 fi
 if [ "$want" = all ] || [ "$want" = windows ]; then
-  export_one "Windows Test Server" LastRoute-TEST-Windows.exe
-  (cd "$OUT" && zip -q -FS "LastRoute-TEST-$STAMP-Windows.zip" LastRoute-TEST-Windows.exe && rm -f LastRoute-TEST-Windows.exe)
+  export_one "Windows Test Server" KyttusLab-TEST-Windows.exe
+  (cd "$OUT" && zip -q -FS "KyttusLab-TEST-$STAMP-Windows.zip" KyttusLab-TEST-Windows.exe && rm -f KyttusLab-TEST-Windows.exe)
 fi
 if [ "$want" = all ] || [ "$want" = linux ]; then
-  export_one "Linux Test Server" LastRoute-TEST-Linux.x86_64
-  (cd "$OUT" && zip -q -FS "LastRoute-TEST-$STAMP-Linux.zip" LastRoute-TEST-Linux.x86_64 && rm -f LastRoute-TEST-Linux.x86_64)
+  export_one "Linux Test Server" KyttusLab-TEST-Linux.x86_64
+  (cd "$OUT" && zip -q -FS "KyttusLab-TEST-$STAMP-Linux.zip" KyttusLab-TEST-Linux.x86_64 && rm -f KyttusLab-TEST-Linux.x86_64)
 fi
 rm -f "$ROOT/build_revision.json"
 echo "test builds in $OUT:"; ls -la "$OUT"

@@ -39,11 +39,17 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, gen
 	for wire in _wires:
 		if wire["triggered"]:
 			continue
-		if target_position.distance_to(wire["position"]) > GameConfig.RAVELLE_TRIGGER_RADIUS:
+		if _distance_to_segment(target_position, wire["a"], wire["b"]) > GameConfig.RAVELLE_TRIGGER_RADIUS:
 			continue
 		wire["triggered"] = true
 		_window_triggered = true
 		triggered_count += 1
+		# RAVELLE TRAPS (docs/RAVELLE_TRAPS.md): the wire trips the runner -- a short stun for the one who walked into it,
+		# and the bells ring: nearby hunters come to the spot (Ravelle herself is already locked on below).
+		brain.world_events.append({"what": "stun", "seconds": GameConfig.RAVELLE_TRAP_STUN,
+			"message": "TRIPWIRE // STUNNED"})
+		brain.world_events.append({"what": "facility_alert", "at": target_position, "sound": "alert",
+			"message": "BELLS RING DOWN THE HALL"})
 		brain.state = HunterBrain.State.CHASE
 		brain.has_last_known = true
 		brain.last_known = target_position
@@ -62,8 +68,13 @@ func _place_wires(brain: HunterBrain, generator) -> void:
 		var index := brain.next_random_index(candidates.size())
 		var cell: Vector2i = candidates[index]
 		candidates.remove_at(index)
+		# 2D hallwayCrossingSpan: the wire spans the whole 3-wide hall, not just the doorway cell's centre.
+		var centre := Vector2(cell) + Vector2(0.5, 0.5)
+		var across := Vector2(0, 1.42) if generator.is_floor(cell.x - 1 + 0.5, cell.y + 0.5) \
+			and generator.is_floor(cell.x + 1 + 0.5, cell.y + 0.5) else Vector2(1.42, 0)
 		_wires.append({
-			"position": Vector2(cell) + Vector2(0.5, 0.5),
+			"position": centre,
+			"a": centre - across, "b": centre + across,
 			"cell": cell,
 			"triggered": false,
 		})
@@ -85,3 +96,43 @@ static func _doorway_cells(generator) -> Array:
 		if horizontal or vertical:
 			cells.append(cell)
 	return cells
+
+
+## Cuts a wire (the runner's slow, noisy disarm); returns true when one was cut. `index` is the wire's slot.
+func cut_wire(index: int) -> bool:
+	if index < 0 or index >= _wires.size() or bool(_wires[index]["triggered"]):
+		return false
+	_wires[index]["triggered"] = true
+	return true
+
+
+## The wires every peer draws (live ones shimmer; spent ones are gone) and the host's trap state for late joiners.
+func wires() -> Array:
+	return _wires
+
+
+func network_state() -> Dictionary:
+	var out := []
+	for wire in _wires:
+		out.append({"a": wire["a"], "b": wire["b"], "t": bool(wire["triggered"])})
+	return {"wires": out, "n": triggered_count}
+
+
+func apply_network_state(state: Dictionary) -> void:
+	var list = state.get("wires", [])
+	if not list is Array:
+		return
+	_wires.clear()
+	for entry in list:
+		if entry is Dictionary and entry.get("a") is Vector2 and entry.get("b") is Vector2:
+			var a: Vector2 = entry["a"]
+			var b: Vector2 = entry["b"]
+			_wires.append({"a": a, "b": b, "position": (a + b) * .5, "cell": Vector2i((a + b) * .5), "triggered": bool(entry.get("t", false))})
+	_has_wires = true
+	triggered_count = int(state.get("n", triggered_count))
+
+
+static func _distance_to_segment(point: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var t := clampf((point - a).dot(ab) / maxf(ab.length_squared(), 0.0001), 0.0, 1.0)
+	return point.distance_to(a + ab * t)

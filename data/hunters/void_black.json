@@ -1,0 +1,15 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "void_black",
+	"name": "Black",
+	"tier": "void",
+	"category": "void",
+	"speed": 0.94,
+	"chase": 4.55,
+	"prog": 0.24,
+	"sight": 9.4,
+	"hearing": 1.22,
+	"spawn": 15,
+	"model": "res://art/props-3d/characters/void_black.tscn",
+	"chase_style": "lope"
+}

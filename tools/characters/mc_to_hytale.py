@@ -40,12 +40,12 @@ DEFAULT_TEMPLATE = "/home/kyttu/Documents/blockbench test/test-base.bbmodel"
 # Official LastRoute hunter names per source letter (from char-design/ROSTER.md).
 # Models and their textures are named for the character, never the Xyttu tag.
 HUNTER_NAMES = {
-    "A": "Aki", "B": "Briselle", "C": "Ceryth", "D": "Dovelle", "E": "Eirys",
-    "F": "Ferryn", "G": "Glyra", "H": "Haelith", "I": "Ilyra", "J": "Jyvra",
+    "A": "Aki", "B": "Briselle", "C": "Ceryth", "D": "Dovelle", "E": "Elise",
+    "F": "Ferryn", "G": "Glyra", "H": "Haelith", "I": "Ilyra", "J": "Javelle",
     "K": "Kathy", "L": "Loxelle", "M": "Mavrine", "N": "Nyxie", "O": "Opalie",
-    "P": "Porcelle", "Q": "Quirith", "R": "Ravelle", "S": "Solyth",
+    "P": "Porcelle", "Q": "Quenelle", "R": "Ravelle", "S": "Solyth",
     "T": "Thessine", "U": "Umbriel", "V": "Verrine", "W": "Wynelle",
-    "X": "Xivvy", "Y": "Ysolde", "Z": "Zephyra",
+    "X": "Xivvy", "Y": "Ysolde", "Z": "Zellia",
 }
 
 SKIN_TONE = (255, 233, 219)   # #ffe9db -- the roster's shared skin tone

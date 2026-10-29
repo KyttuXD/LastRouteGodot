@@ -1,0 +1,80 @@
+{
+ "name": "gp_flashlight_find",
+ "area": "hospital",
+ "seconds": 2.1,
+ "gameplay": true,
+ "dark": 0.0,
+ "world_dim": 0.2,
+ "torch_energy": 0,
+ "min_run": 12.0,
+ "start": [
+  1.0,
+  0.0
+ ],
+ "face_at": [
+  9.0,
+  0.0,
+  1.6
+ ],
+ "actors": {},
+ "camera": [],
+ "flashlight": [],
+ "inputs": [],
+ "events": [
+  {
+   "t": 0.0,
+   "turn": {
+    "yaw": 75,
+    "dur": 0.01
+   }
+  },
+  {
+   "t": 0.0,
+   "summon": "quenelle",
+   "at": [
+    8.5,
+    0.4
+   ]
+  },
+  {
+   "t": 0.45,
+   "pulse": [
+    "flashlight"
+   ]
+  },
+  {
+   "t": 0.75,
+   "turn": {
+    "yaw": -75,
+    "dur": 0.75
+   }
+  }
+ ],
+ "expects": [
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 0.3,
+   "label": "dark",
+   "hunter_seen": {
+    "id": "quenelle",
+    "visible": false
+   }
+  },
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 1.9,
+   "label": "found",
+   "hunter_seen": {
+    "id": "quenelle"
+   }
+  }
+ ],
+ "fade_in": 0.12,
+ "fade_out": 0.12
+}

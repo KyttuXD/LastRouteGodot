@@ -1,0 +1,1531 @@
+{
+ "aki": {
+  "chase": {
+   "contacts": 73,
+   "cycle": 0.556,
+   "forward_ok": true,
+   "ref": 3.131,
+   "reverse": false,
+   "slip_rms": 0.39,
+   "stance": 3.42
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 71,
+   "cycle": 0.741,
+   "forward_ok": true,
+   "ref": 2.802,
+   "reverse": false,
+   "slip_rms": 0.385,
+   "stance": 3.636
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 1.111,
+   "forward_ok": true,
+   "ref": 1.198,
+   "reverse": false,
+   "slip_rms": 0.394,
+   "stance": 1.04
+  }
+ },
+ "briselle": {
+  "chase": {
+   "contacts": 73,
+   "cycle": 0.556,
+   "forward_ok": true,
+   "ref": 3.465,
+   "reverse": false,
+   "slip_rms": 0.403,
+   "stance": 2.714
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 71,
+   "cycle": 0.741,
+   "forward_ok": true,
+   "ref": 3.08,
+   "reverse": false,
+   "slip_rms": 0.405,
+   "stance": 2.816
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 1.111,
+   "forward_ok": true,
+   "ref": 1.335,
+   "reverse": false,
+   "slip_rms": 0.402,
+   "stance": 1.021
+  }
+ },
+ "ceryth": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.5,
+   "forward_ok": true,
+   "ref": 3.813,
+   "reverse": false,
+   "slip_rms": 0.501,
+   "stance": 3.033
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 80,
+   "cycle": 0.667,
+   "forward_ok": true,
+   "ref": 3.032,
+   "reverse": false,
+   "slip_rms": 0.602,
+   "stance": 3.033
+  },
+  "walk": {
+   "contacts": 75,
+   "cycle": 1.0,
+   "forward_ok": true,
+   "ref": 1.497,
+   "reverse": false,
+   "slip_rms": 0.471,
+   "stance": 1.122
+  }
+ },
+ "dovelle": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.5,
+   "forward_ok": true,
+   "ref": 3.976,
+   "reverse": false,
+   "slip_rms": 0.508,
+   "stance": 3.152
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 80,
+   "cycle": 0.667,
+   "forward_ok": true,
+   "ref": 3.152,
+   "reverse": false,
+   "slip_rms": 0.611,
+   "stance": 2.988
+  },
+  "walk": {
+   "contacts": 75,
+   "cycle": 1.0,
+   "forward_ok": true,
+   "ref": 1.567,
+   "reverse": false,
+   "slip_rms": 0.475,
+   "stance": 1.127
+  }
+ },
+ "elise": {
+  "chase": {
+   "contacts": 73,
+   "cycle": 0.417,
+   "forward_ok": true,
+   "ref": 5.258,
+   "reverse": false,
+   "slip_rms": 0.497,
+   "stance": 3.846
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 73,
+   "cycle": 0.556,
+   "forward_ok": true,
+   "ref": 4.559,
+   "reverse": false,
+   "slip_rms": 0.475,
+   "stance": 3.64
+  },
+  "walk": {
+   "contacts": 73,
+   "cycle": 0.833,
+   "forward_ok": true,
+   "ref": 2.116,
+   "reverse": false,
+   "slip_rms": 0.428,
+   "stance": 1.488
+  }
+ },
+ "ferryn": {
+  "chase": {
+   "contacts": 74,
+   "cycle": 0.455,
+   "forward_ok": true,
+   "ref": 3.664,
+   "reverse": false,
+   "slip_rms": 0.473,
+   "stance": 4.524
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 75,
+   "cycle": 0.606,
+   "forward_ok": true,
+   "ref": 3.213,
+   "reverse": false,
+   "slip_rms": 0.437,
+   "stance": 4.3
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 0.909,
+   "forward_ok": true,
+   "ref": 1.46,
+   "reverse": false,
+   "slip_rms": 0.395,
+   "stance": 1.316
+  }
+ },
+ "glyra": {
+  "chase": {
+   "contacts": 74,
+   "cycle": 0.588,
+   "forward_ok": true,
+   "ref": 3.303,
+   "reverse": false,
+   "slip_rms": 0.388,
+   "stance": 2.795
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 72,
+   "cycle": 0.784,
+   "forward_ok": true,
+   "ref": 2.871,
+   "reverse": false,
+   "slip_rms": 0.422,
+   "stance": 2.828
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 1.176,
+   "forward_ok": true,
+   "ref": 1.266,
+   "reverse": false,
+   "slip_rms": 0.394,
+   "stance": 0.962
+  }
+ },
+ "haelith": {
+  "chase": {
+   "contacts": 74,
+   "cycle": 0.455,
+   "forward_ok": true,
+   "ref": 4.756,
+   "reverse": false,
+   "slip_rms": 0.518,
+   "stance": 3.709
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 75,
+   "cycle": 0.606,
+   "forward_ok": true,
+   "ref": 4.083,
+   "reverse": false,
+   "slip_rms": 0.502,
+   "stance": 3.187
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 0.909,
+   "forward_ok": true,
+   "ref": 1.943,
+   "reverse": false,
+   "slip_rms": 0.42,
+   "stance": 1.363
+  }
+ },
+ "ilyra": {
+  "chase": {
+   "contacts": 73,
+   "cycle": 0.556,
+   "forward_ok": true,
+   "ref": 3.465,
+   "reverse": false,
+   "slip_rms": 0.403,
+   "stance": 2.714
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 71,
+   "cycle": 0.741,
+   "forward_ok": true,
+   "ref": 3.08,
+   "reverse": false,
+   "slip_rms": 0.405,
+   "stance": 2.816
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 1.111,
+   "forward_ok": true,
+   "ref": 1.335,
+   "reverse": false,
+   "slip_rms": 0.402,
+   "stance": 1.021
+  }
+ },
+ "javelle": {
+  "chase": {
+   "contacts": 74,
+   "cycle": 0.455,
+   "forward_ok": true,
+   "ref": 4.756,
+   "reverse": false,
+   "slip_rms": 0.518,
+   "stance": 3.709
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 75,
+   "cycle": 0.606,
+   "forward_ok": true,
+   "ref": 4.083,
+   "reverse": false,
+   "slip_rms": 0.502,
+   "stance": 3.187
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 0.909,
+   "forward_ok": true,
+   "ref": 1.943,
+   "reverse": false,
+   "slip_rms": 0.42,
+   "stance": 1.363
+  }
+ },
+ "kathy": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.5,
+   "forward_ok": true,
+   "ref": 3.976,
+   "reverse": false,
+   "slip_rms": 0.508,
+   "stance": 3.152
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "scythe_walk": {
+   "contacts": 75,
+   "cycle": 1.0,
+   "forward_ok": true,
+   "ref": 1.567,
+   "reverse": false,
+   "slip_rms": 0.475,
+   "stance": 1.127
+  },
+  "sprint": {
+   "contacts": 80,
+   "cycle": 0.667,
+   "forward_ok": true,
+   "ref": 3.152,
+   "reverse": false,
+   "slip_rms": 0.611,
+   "stance": 2.988
+  },
+  "walk": {
+   "contacts": 75,
+   "cycle": 1.0,
+   "forward_ok": true,
+   "ref": 1.567,
+   "reverse": false,
+   "slip_rms": 0.475,
+   "stance": 1.127
+  }
+ },
+ "loxelle": {
+  "chase": {
+   "contacts": 72,
+   "cycle": 0.526,
+   "forward_ok": true,
+   "ref": 3.778,
+   "reverse": false,
+   "slip_rms": 0.396,
+   "stance": 3.01
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 74,
+   "cycle": 0.702,
+   "forward_ok": true,
+   "ref": 3.071,
+   "reverse": false,
+   "slip_rms": 0.476,
+   "stance": 3.373
+  },
+  "walk": {
+   "contacts": 73,
+   "cycle": 1.053,
+   "forward_ok": true,
+   "ref": 1.43,
+   "reverse": false,
+   "slip_rms": 0.39,
+   "stance": 1.081
+  }
+ },
+ "mavrine": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.5,
+   "forward_ok": true,
+   "ref": 3.813,
+   "reverse": false,
+   "slip_rms": 0.501,
+   "stance": 3.033
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 80,
+   "cycle": 0.667,
+   "forward_ok": true,
+   "ref": 3.032,
+   "reverse": false,
+   "slip_rms": 0.602,
+   "stance": 3.033
+  },
+  "walk": {
+   "contacts": 75,
+   "cycle": 1.0,
+   "forward_ok": true,
+   "ref": 1.497,
+   "reverse": false,
+   "slip_rms": 0.471,
+   "stance": 1.122
+  }
+ },
+ "nyxie": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.5,
+   "forward_ok": true,
+   "ref": 4.429,
+   "reverse": false,
+   "slip_rms": 0.53,
+   "stance": 3.251
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 80,
+   "cycle": 0.667,
+   "forward_ok": true,
+   "ref": 3.476,
+   "reverse": false,
+   "slip_rms": 0.643,
+   "stance": 2.726
+  },
+  "walk": {
+   "contacts": 75,
+   "cycle": 1.0,
+   "forward_ok": true,
+   "ref": 1.77,
+   "reverse": false,
+   "slip_rms": 0.488,
+   "stance": 1.164
+  }
+ },
+ "opalie": {
+  "chase": {
+   "contacts": 74,
+   "cycle": 0.455,
+   "forward_ok": true,
+   "ref": 4.417,
+   "reverse": false,
+   "slip_rms": 0.501,
+   "stance": 3.635
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 75,
+   "cycle": 0.606,
+   "forward_ok": true,
+   "ref": 3.822,
+   "reverse": false,
+   "slip_rms": 0.477,
+   "stance": 3.089
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 0.909,
+   "forward_ok": true,
+   "ref": 1.788,
+   "reverse": false,
+   "slip_rms": 0.411,
+   "stance": 1.398
+  }
+ },
+ "player_mannequin": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.5,
+   "forward_ok": true,
+   "ref": 3.976,
+   "reverse": false,
+   "slip_rms": 0.508,
+   "stance": 3.152
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.433,
+   "reverse": false,
+   "slip_rms": 0.566,
+   "stance": -0.03
+  },
+  "sprint": {
+   "contacts": 80,
+   "cycle": 0.667,
+   "forward_ok": true,
+   "ref": 3.152,
+   "reverse": false,
+   "slip_rms": 0.611,
+   "stance": 2.988
+  },
+  "walk": {
+   "contacts": 75,
+   "cycle": 1.0,
+   "forward_ok": true,
+   "ref": 1.567,
+   "reverse": false,
+   "slip_rms": 0.475,
+   "stance": 1.127
+  }
+ },
+ "player_mannequin_slim": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.5,
+   "forward_ok": true,
+   "ref": 3.976,
+   "reverse": false,
+   "slip_rms": 0.508,
+   "stance": 3.152
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.433,
+   "reverse": false,
+   "slip_rms": 0.566,
+   "stance": -0.03
+  },
+  "sprint": {
+   "contacts": 80,
+   "cycle": 0.667,
+   "forward_ok": true,
+   "ref": 3.152,
+   "reverse": false,
+   "slip_rms": 0.611,
+   "stance": 2.988
+  },
+  "walk": {
+   "contacts": 75,
+   "cycle": 1.0,
+   "forward_ok": true,
+   "ref": 1.567,
+   "reverse": false,
+   "slip_rms": 0.475,
+   "stance": 1.127
+  }
+ },
+ "porcelle": {
+  "chase": {
+   "contacts": 74,
+   "cycle": 0.588,
+   "forward_ok": true,
+   "ref": 2.987,
+   "reverse": false,
+   "slip_rms": 0.374,
+   "stance": 3.17
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 72,
+   "cycle": 0.784,
+   "forward_ok": true,
+   "ref": 2.611,
+   "reverse": false,
+   "slip_rms": 0.403,
+   "stance": 3.413
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 1.176,
+   "forward_ok": true,
+   "ref": 1.137,
+   "reverse": false,
+   "slip_rms": 0.387,
+   "stance": 0.983
+  }
+ },
+ "quenelle": {
+  "chase": {
+   "contacts": 73,
+   "cycle": 0.556,
+   "forward_ok": true,
+   "ref": 3.465,
+   "reverse": false,
+   "slip_rms": 0.403,
+   "stance": 2.714
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 71,
+   "cycle": 0.741,
+   "forward_ok": true,
+   "ref": 3.08,
+   "reverse": false,
+   "slip_rms": 0.405,
+   "stance": 2.816
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 1.111,
+   "forward_ok": true,
+   "ref": 1.335,
+   "reverse": false,
+   "slip_rms": 0.402,
+   "stance": 1.021
+  }
+ },
+ "ravelle": {
+  "chase": {
+   "contacts": 74,
+   "cycle": 0.455,
+   "forward_ok": true,
+   "ref": 4.59,
+   "reverse": false,
+   "slip_rms": 0.509,
+   "stance": 3.677
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 75,
+   "cycle": 0.606,
+   "forward_ok": true,
+   "ref": 3.956,
+   "reverse": false,
+   "slip_rms": 0.489,
+   "stance": 3.111
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 0.909,
+   "forward_ok": true,
+   "ref": 1.866,
+   "reverse": false,
+   "slip_rms": 0.415,
+   "stance": 1.369
+  }
+ },
+ "solyth": {
+  "chase": {
+   "contacts": 74,
+   "cycle": 0.455,
+   "forward_ok": true,
+   "ref": 5.067,
+   "reverse": false,
+   "slip_rms": 0.537,
+   "stance": 3.666
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 75,
+   "cycle": 0.606,
+   "forward_ok": true,
+   "ref": 4.312,
+   "reverse": false,
+   "slip_rms": 0.529,
+   "stance": 3.323
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 0.909,
+   "forward_ok": true,
+   "ref": 2.091,
+   "reverse": false,
+   "slip_rms": 0.43,
+   "stance": 1.453
+  }
+ },
+ "thessine": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.5,
+   "forward_ok": true,
+   "ref": 3.645,
+   "reverse": false,
+   "slip_rms": 0.495,
+   "stance": 3.341
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 80,
+   "cycle": 0.667,
+   "forward_ok": true,
+   "ref": 2.907,
+   "reverse": false,
+   "slip_rms": 0.593,
+   "stance": 3.063
+  },
+  "walk": {
+   "contacts": 75,
+   "cycle": 1.0,
+   "forward_ok": true,
+   "ref": 1.426,
+   "reverse": false,
+   "slip_rms": 0.467,
+   "stance": 1.126
+  }
+ },
+ "umbriel": {
+  "chase": {
+   "contacts": 74,
+   "cycle": 0.588,
+   "forward_ok": true,
+   "ref": 3.147,
+   "reverse": false,
+   "slip_rms": 0.381,
+   "stance": 2.824
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 72,
+   "cycle": 0.784,
+   "forward_ok": true,
+   "ref": 2.744,
+   "reverse": false,
+   "slip_rms": 0.412,
+   "stance": 3.106
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 1.176,
+   "forward_ok": true,
+   "ref": 1.202,
+   "reverse": false,
+   "slip_rms": 0.391,
+   "stance": 1.012
+  }
+ },
+ "verrine": {
+  "chase": {
+   "contacts": 73,
+   "cycle": 0.556,
+   "forward_ok": true,
+   "ref": 3.465,
+   "reverse": false,
+   "slip_rms": 0.403,
+   "stance": 2.714
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 71,
+   "cycle": 0.741,
+   "forward_ok": true,
+   "ref": 3.08,
+   "reverse": false,
+   "slip_rms": 0.405,
+   "stance": 2.816
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 1.111,
+   "forward_ok": true,
+   "ref": 1.335,
+   "reverse": false,
+   "slip_rms": 0.402,
+   "stance": 1.021
+  }
+ },
+ "void_black": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.435,
+   "forward_ok": true,
+   "ref": 5.452,
+   "reverse": false,
+   "slip_rms": 0.536,
+   "stance": 3.911
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 74,
+   "cycle": 0.58,
+   "forward_ok": true,
+   "ref": 4.889,
+   "reverse": false,
+   "slip_rms": 0.493,
+   "stance": 4.21
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 0.87,
+   "forward_ok": true,
+   "ref": 2.295,
+   "reverse": false,
+   "slip_rms": 0.388,
+   "stance": 1.62
+  }
+ },
+ "void_blue": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.5,
+   "forward_ok": true,
+   "ref": 4.285,
+   "reverse": false,
+   "slip_rms": 0.501,
+   "stance": 3.407
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 80,
+   "cycle": 0.667,
+   "forward_ok": true,
+   "ref": 3.407,
+   "reverse": false,
+   "slip_rms": 0.602,
+   "stance": 3.408
+  },
+  "walk": {
+   "contacts": 75,
+   "cycle": 1.0,
+   "forward_ok": true,
+   "ref": 1.682,
+   "reverse": false,
+   "slip_rms": 0.471,
+   "stance": 1.261
+  }
+ },
+ "void_brown": {
+  "chase": {
+   "contacts": 70,
+   "cycle": 0.476,
+   "forward_ok": true,
+   "ref": 5.945,
+   "reverse": false,
+   "slip_rms": 0.408,
+   "stance": 3.843
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 76,
+   "cycle": 0.635,
+   "forward_ok": true,
+   "ref": 4.565,
+   "reverse": false,
+   "slip_rms": 0.563,
+   "stance": 3.452
+  },
+  "walk": {
+   "contacts": 73,
+   "cycle": 0.952,
+   "forward_ok": true,
+   "ref": 2.258,
+   "reverse": false,
+   "slip_rms": 0.436,
+   "stance": 1.546
+  }
+ },
+ "void_cyan": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.435,
+   "forward_ok": true,
+   "ref": 5.452,
+   "reverse": false,
+   "slip_rms": 0.536,
+   "stance": 3.911
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 74,
+   "cycle": 0.58,
+   "forward_ok": true,
+   "ref": 4.889,
+   "reverse": false,
+   "slip_rms": 0.493,
+   "stance": 4.21
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 0.87,
+   "forward_ok": true,
+   "ref": 2.295,
+   "reverse": false,
+   "slip_rms": 0.388,
+   "stance": 1.62
+  }
+ },
+ "void_gray": {
+  "chase": {
+   "contacts": 72,
+   "cycle": 0.526,
+   "forward_ok": true,
+   "ref": 4.831,
+   "reverse": false,
+   "slip_rms": 0.429,
+   "stance": 3.538
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.477,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.031
+  },
+  "sprint": {
+   "contacts": 74,
+   "cycle": 0.702,
+   "forward_ok": true,
+   "ref": 3.877,
+   "reverse": false,
+   "slip_rms": 0.518,
+   "stance": 2.975
+  },
+  "walk": {
+   "contacts": 73,
+   "cycle": 1.053,
+   "forward_ok": true,
+   "ref": 1.861,
+   "reverse": false,
+   "slip_rms": 0.408,
+   "stance": 1.315
+  }
+ },
+ "void_green": {
+  "chase": {
+   "contacts": 76,
+   "cycle": 0.435,
+   "forward_ok": true,
+   "ref": 5.452,
+   "reverse": false,
+   "slip_rms": 0.536,
+   "stance": 3.911
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 74,
+   "cycle": 0.58,
+   "forward_ok": true,
+   "ref": 4.889,
+   "reverse": false,
+   "slip_rms": 0.493,
+   "stance": 4.21
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 0.87,
+   "forward_ok": true,
+   "ref": 2.295,
+   "reverse": false,
+   "slip_rms": 0.388,
+   "stance": 1.62
+  }
+ },
+ "void_orange": {
+  "chase": {
+   "contacts": 79,
+   "cycle": 0.385,
+   "forward_ok": true,
+   "ref": 6.547,
+   "reverse": false,
+   "slip_rms": 0.551,
+   "stance": 4.293
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 73,
+   "cycle": 0.513,
+   "forward_ok": true,
+   "ref": 5.943,
+   "reverse": false,
+   "slip_rms": 0.55,
+   "stance": 4.056
+  },
+  "walk": {
+   "contacts": 76,
+   "cycle": 0.769,
+   "forward_ok": true,
+   "ref": 2.759,
+   "reverse": false,
+   "slip_rms": 0.485,
+   "stance": 1.941
+  }
+ },
+ "void_pink": {
+  "chase": {
+   "contacts": 72,
+   "cycle": 0.526,
+   "forward_ok": true,
+   "ref": 4.98,
+   "reverse": false,
+   "slip_rms": 0.429,
+   "stance": 3.647
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 74,
+   "cycle": 0.702,
+   "forward_ok": true,
+   "ref": 3.996,
+   "reverse": false,
+   "slip_rms": 0.518,
+   "stance": 3.223
+  },
+  "walk": {
+   "contacts": 73,
+   "cycle": 1.053,
+   "forward_ok": true,
+   "ref": 1.918,
+   "reverse": false,
+   "slip_rms": 0.408,
+   "stance": 1.355
+  }
+ },
+ "void_purple": {
+  "chase": {
+   "contacts": 73,
+   "cycle": 0.417,
+   "forward_ok": true,
+   "ref": 5.908,
+   "reverse": false,
+   "slip_rms": 0.497,
+   "stance": 4.322
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 73,
+   "cycle": 0.556,
+   "forward_ok": true,
+   "ref": 5.122,
+   "reverse": false,
+   "slip_rms": 0.475,
+   "stance": 4.09
+  },
+  "walk": {
+   "contacts": 73,
+   "cycle": 0.833,
+   "forward_ok": true,
+   "ref": 2.378,
+   "reverse": false,
+   "slip_rms": 0.428,
+   "stance": 1.672
+  }
+ },
+ "void_red": {
+  "chase": {
+   "contacts": 79,
+   "cycle": 0.385,
+   "forward_ok": true,
+   "ref": 6.547,
+   "reverse": false,
+   "slip_rms": 0.551,
+   "stance": 4.293
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 73,
+   "cycle": 0.513,
+   "forward_ok": true,
+   "ref": 5.943,
+   "reverse": false,
+   "slip_rms": 0.55,
+   "stance": 4.056
+  },
+  "walk": {
+   "contacts": 76,
+   "cycle": 0.769,
+   "forward_ok": true,
+   "ref": 2.759,
+   "reverse": false,
+   "slip_rms": 0.485,
+   "stance": 1.941
+  }
+ },
+ "void_white": {
+  "chase": {
+   "contacts": 72,
+   "cycle": 0.526,
+   "forward_ok": true,
+   "ref": 4.98,
+   "reverse": false,
+   "slip_rms": 0.429,
+   "stance": 3.647
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 74,
+   "cycle": 0.702,
+   "forward_ok": true,
+   "ref": 3.996,
+   "reverse": false,
+   "slip_rms": 0.518,
+   "stance": 3.223
+  },
+  "walk": {
+   "contacts": 73,
+   "cycle": 1.053,
+   "forward_ok": true,
+   "ref": 1.918,
+   "reverse": false,
+   "slip_rms": 0.408,
+   "stance": 1.355
+  }
+ },
+ "void_yellow": {
+  "chase": {
+   "contacts": 73,
+   "cycle": 0.417,
+   "forward_ok": true,
+   "ref": 6.106,
+   "reverse": false,
+   "slip_rms": 0.505,
+   "stance": 4.388
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.492,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.032
+  },
+  "sprint": {
+   "contacts": 73,
+   "cycle": 0.556,
+   "forward_ok": true,
+   "ref": 5.273,
+   "reverse": false,
+   "slip_rms": 0.489,
+   "stance": 3.847
+  },
+  "walk": {
+   "contacts": 73,
+   "cycle": 0.833,
+   "forward_ok": true,
+   "ref": 2.47,
+   "reverse": false,
+   "slip_rms": 0.432,
+   "stance": 1.634
+  }
+ },
+ "wynelle": {
+  "chase": {
+   "contacts": 73,
+   "cycle": 0.556,
+   "forward_ok": true,
+   "ref": 3.624,
+   "reverse": false,
+   "slip_rms": 0.411,
+   "stance": 2.836
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 71,
+   "cycle": 0.741,
+   "forward_ok": true,
+   "ref": 3.21,
+   "reverse": false,
+   "slip_rms": 0.416,
+   "stance": 2.765
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 1.111,
+   "forward_ok": true,
+   "ref": 1.402,
+   "reverse": false,
+   "slip_rms": 0.406,
+   "stance": 1.075
+  }
+ },
+ "xivvy": {
+  "chase": {
+   "contacts": 80,
+   "cycle": 0.4,
+   "forward_ok": true,
+   "ref": 5.11,
+   "reverse": false,
+   "slip_rms": 0.652,
+   "stance": 3.423
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 84,
+   "cycle": 0.533,
+   "forward_ok": true,
+   "ref": 4.445,
+   "reverse": false,
+   "slip_rms": 0.688,
+   "stance": 2.245
+  },
+  "walk": {
+   "contacts": 80,
+   "cycle": 0.8,
+   "forward_ok": true,
+   "ref": 2.21,
+   "reverse": false,
+   "slip_rms": 0.546,
+   "stance": 1.45
+  }
+ },
+ "ysolde": {
+  "chase": {
+   "contacts": 74,
+   "cycle": 0.588,
+   "forward_ok": true,
+   "ref": 3.147,
+   "reverse": false,
+   "slip_rms": 0.381,
+   "stance": 2.824
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 72,
+   "cycle": 0.784,
+   "forward_ok": true,
+   "ref": 2.744,
+   "reverse": false,
+   "slip_rms": 0.412,
+   "stance": 3.106
+  },
+  "walk": {
+   "contacts": 74,
+   "cycle": 1.176,
+   "forward_ok": true,
+   "ref": 1.202,
+   "reverse": false,
+   "slip_rms": 0.391,
+   "stance": 1.012
+  }
+ },
+ "zellia": {
+  "chase": {
+   "contacts": 70,
+   "cycle": 0.476,
+   "forward_ok": true,
+   "ref": 4.613,
+   "reverse": false,
+   "slip_rms": 0.368,
+   "stance": 3.191
+  },
+  "nw/vent_crawl_verrine": {
+   "contacts": 199,
+   "cycle": 1.2,
+   "forward_ok": true,
+   "ref": 0.438,
+   "reverse": false,
+   "slip_rms": 0.565,
+   "stance": -0.029
+  },
+  "sprint": {
+   "contacts": 76,
+   "cycle": 0.635,
+   "forward_ok": true,
+   "ref": 3.595,
+   "reverse": false,
+   "slip_rms": 0.517,
+   "stance": 3.263
+  },
+  "walk": {
+   "contacts": 73,
+   "cycle": 0.952,
+   "forward_ok": true,
+   "ref": 1.718,
+   "reverse": false,
+   "slip_rms": 0.417,
+   "stance": 1.212
+  }
+ }
+}

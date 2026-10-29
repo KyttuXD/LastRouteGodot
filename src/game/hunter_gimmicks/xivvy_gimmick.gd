@@ -17,6 +17,12 @@ extends HunterGimmick
 var _chase_elapsed := 0.0
 var _speed_scale := 1.0
 var flying := false
+## Clearance-driven flight mode, set by the host's view (it has the geometry): she flies only where the route ahead has
+## headroom, and lands to walk through doors and low spaces. Replicated with `flying`; a guest follows the host's value
+## for as long as packets keep arriving (`replicated_recently`) instead of surveying on its own.
+var fly_ok := true
+var altitude_hint := 0.0
+var _net_msec := -100000
 
 
 func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator) -> void:
@@ -24,7 +30,10 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 	var in_safe_zone: bool = target.get("in_safe_zone", false)
 	var target_position: Vector2 = target["position"]
 
-	var lock_radius := GameConfig.XIVVY_CLOSE_LOCK_RADIUS * GameConfig.XIVVY_CLOSE_SCALE
+	# 2D: closeLockRadius * (.5 + exposure / 200)
+	var meters = target.get("meters")
+	var exposure_scale := GameConfig.XIVVY_CLOSE_SCALE + (float(meters.exposure) / 200.0 if meters != null else 0.0)
+	var lock_radius := GameConfig.XIVVY_CLOSE_LOCK_RADIUS * exposure_scale
 	if not hidden and not in_safe_zone and brain.position.distance_to(target_position) <= lock_radius:
 		brain.state = HunterBrain.State.CHASE
 		brain.has_last_known = true
@@ -46,8 +55,21 @@ func speed_scale(_brain: HunterBrain) -> float:
 
 
 func network_state() -> Dictionary:
-	return {"flying": flying}
+	return {"flying": flying, "fly_ok": fly_ok, "alt": snappedf(altitude_hint, .05)}
 
 
 func apply_network_state(state: Dictionary) -> void:
 	flying = bool(state.get("flying", false))
+	fly_ok = bool(state.get("fly_ok", true))
+	altitude_hint = float(state.get("alt", 0.0))
+	_net_msec = Time.get_ticks_msec()
+
+
+## True while the host's flight mode is arriving (the view then follows it instead of surveying the route itself).
+func replicated_recently() -> bool:
+	return Time.get_ticks_msec() - _net_msec < 700
+
+
+## She is in the air only while chasing AND the route ahead allows it.
+func airborne() -> bool:
+	return flying and fly_ok

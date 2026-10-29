@@ -1,0 +1,132 @@
+{
+	"schema": "lr.prop/1",
+	"family": "p11",
+	"props": [
+		{
+			"id": "lavaPipeManifold",
+			"models": [
+				"res://art/props-3d/props/nether/lava_pipe_manifold.glb"
+			]
+		},
+		{
+			"id": "charredSupplyCrate",
+			"models": [
+				"res://art/props-3d/props/nether/charred_supply_crate.glb"
+			]
+		},
+		{
+			"id": "prisonCellGate",
+			"models": [
+				"res://art/props-3d/props/prison/prison_cell_gate.glb"
+			]
+		},
+		{
+			"id": "sewerLadder",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_ladder.glb"
+			]
+		},
+		{
+			"id": "sewerLadderTop",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_ladder_top.glb"
+			]
+		},
+		{
+			"id": "sewerManhole",
+			"models": [
+				"res://art/props-3d/props/sewer/manhole_frame.glb"
+			]
+		},
+		{
+			"id": "sewerFloorGrate",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_floor_grate.glb"
+			]
+		},
+		{
+			"id": "sewerValveWheel",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_valve_wheel.glb"
+			]
+		},
+		{
+			"id": "sewerPump",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_pump.glb"
+			]
+		},
+		{
+			"id": "sewerPipeRun",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_pipe_run.glb"
+			]
+		},
+		{
+			"id": "sewerOutflowPipe",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_outflow_pipe.glb"
+			]
+		},
+		{
+			"id": "sewerOverflowGrate",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_overflow_grate.glb"
+			]
+		},
+		{
+			"id": "sewerLamp",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_lamp.glb"
+			]
+		},
+		{
+			"id": "sewerBridge",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_bridge.glb"
+			]
+		},
+		{
+			"id": "sewerGrateDeck",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_grate_deck.glb"
+			]
+		},
+		{
+			"id": "prisonBunk",
+			"models": [
+				"res://art/props-3d/props/prison/prison_bunk.glb"
+			]
+		},
+		{
+			"id": "prisonCafeteriaTable",
+			"models": [
+				"res://art/props-3d/props/prison/prison_cafeteria_table.glb"
+			]
+		},
+		{
+			"id": "prisonServingCounter",
+			"models": [
+				"res://art/props-3d/props/prison/prison_serving_counter.glb"
+			]
+		},
+		{
+			"id": "prisonTrayReturn",
+			"models": [
+				"res://art/props-3d/props/prison/prison_tray_return.glb"
+			]
+		},
+		{
+			"id": "prisonKitchenRack",
+			"models": [
+				"res://art/props-3d/props/prison/prison_kitchen_rack.glb"
+			]
+		},
+		{
+			"id": "dungeonCage",
+			"models": [
+				"res://art/props-3d/props/prison/dungeon_cage.glb"
+			]
+		}
+	]
+}

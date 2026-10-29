@@ -1,0 +1,126 @@
+{
+	"schema": "lr.prop/1",
+	"family": "p10",
+	"props": [
+		{
+			"id": "surfboardRack",
+			"models": [
+				"res://art/props-3d/props/beach/surfboard_rack.glb"
+			]
+		},
+		{
+			"id": "palmTree",
+			"models": [
+				"res://art/props-3d/props/beach/palm_tree.glb"
+			]
+		},
+		{
+			"id": "frozenBeachHut",
+			"models": [
+				"res://art/props-3d/props/beach/frozen_beach_hut.glb"
+			]
+		},
+		{
+			"id": "frozenTidelinePool",
+			"models": [
+				"res://art/props-3d/props/beach/frozen_tideline_pool.glb"
+			]
+		},
+		{
+			"id": "carnivalTicketBooth",
+			"models": [
+				"res://art/props-3d/props/carnival/carnival_ticket_booth.glb"
+			]
+		},
+		{
+			"id": "popcornCart",
+			"models": [
+				"res://art/props-3d/props/carnival/popcorn_cart.glb"
+			]
+		},
+		{
+			"id": "ringTossStall",
+			"models": [
+				"res://art/props-3d/props/carnival/ring_toss_stall.glb"
+			]
+		},
+		{
+			"id": "strengthTester",
+			"models": [
+				"res://art/props-3d/props/carnival/strength_tester.glb"
+			]
+		},
+		{
+			"id": "circusPedestal",
+			"models": [
+				"res://art/props-3d/props/carnival/circus_pedestal.glb"
+			]
+		},
+		{
+			"id": "shootingGallery",
+			"models": [
+				"res://art/props-3d/props/carnival/ring_toss_stall.glb"
+			]
+		},
+		{
+			"id": "whackAMole",
+			"models": [
+				"res://art/props-3d/props/carnival/ring_toss_stall.glb"
+			]
+		},
+		{
+			"id": "duckPond",
+			"models": [
+				"res://art/props-3d/props/carnival/circus_pedestal.glb"
+			]
+		},
+		{
+			"id": "carouselCenterpiece",
+			"models": [
+				"res://art/props-3d/props/carnival/carousel_centerpiece.glb"
+			]
+		},
+		{
+			"id": "lavaVent",
+			"models": [
+				"res://art/props-3d/props/nether/lava_vent.glb"
+			]
+		},
+		{
+			"id": "emberBrazier",
+			"models": [
+				"res://art/props-3d/props/nether/ember_brazier.glb"
+			]
+		},
+		{
+			"id": "basaltPillar",
+			"models": [
+				"res://art/props-3d/props/nether/basalt_pillar.glb"
+			]
+		},
+		{
+			"id": "basaltRubble",
+			"models": [
+				"res://art/props-3d/props/nether/basalt_rubble.glb"
+			]
+		},
+		{
+			"id": "magmaCrystalCluster",
+			"models": [
+				"res://art/props-3d/props/nether/magma_crystal_cluster.glb"
+			]
+		},
+		{
+			"id": "infernoAltar",
+			"models": [
+				"res://art/props-3d/props/nether/inferno_altar.glb"
+			]
+		},
+		{
+			"id": "infernoChainLantern",
+			"models": [
+				"res://art/props-3d/props/nether/inferno_chain_lantern.glb"
+			]
+		}
+	]
+}

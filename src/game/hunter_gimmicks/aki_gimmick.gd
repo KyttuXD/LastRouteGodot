@@ -43,6 +43,9 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 	if meters != null and meters.has_method("add_exposure"):
 		meters.add_exposure(GameConfig.AKI_BURST_EXPOSURE)
 	bursts_remaining = maxi(0, bursts_remaining - 1)
+	var burst_number := GameConfig.AKI_BURST_COUNT - bursts_remaining
+	brain.world_events.append({"what": "message", "sound": "alert",
+		"message": "AKI PHANTOM BURST // EXPOSURE %d%%" % int(GameConfig.AKI_BURST_EXPOSURE * minf(1.0, float(burst_number)))})
 	if bursts_remaining <= 0:
 		phase = Phase.IDLE
 		_timer = 0.0

@@ -1,63 +1,140 @@
 class_name GlyraGimmick
 extends HunterGimmick
 
-## Glyra's spawn-room music box (hunterAbilities.glyra.musicBoxThreat).
-## Ported from glyra.js's updateMusicBoxThreat/windGlyraMusicBox.
+## Glyra and the music boxes (KT 2026-10-28: "make her work like nyxie or like faster when the music is down"). Lore:
+## dreamy, music-obsessed, hums constantly, cranky when her music stops. Her mood follows the nearest music box (a random
+## route item, two per region; MusicBoxes keeps the clocks every peer ticks):
 ##
-## She never moves at all -- vx/vy pinned to zero every frame in the original,
-## holds_position() here -- she is a timer wearing a hunter's slot, not a
-## threat that comes looking for you. The music box she sits beside (placed
-## in the spawn room, see FacilityView3D._spawn_interactables) stays wound for
-## GLYRA_BAY_SECONDS after the last time someone worked it; while wound, she
-## does nothing. Unwound, she raises the facility noise meter every frame at a
-## real net rate -- the meter's own decay constantly eats into a raw
-## noise-per-second contribution, so the rate here adds the decay back in,
-## matching what the original does so the meter genuinely climbs by the
-## configured amount instead of net-zero.
+##   PLAYING       calm: wanders slowly near her box humming, never peeks, only chases a runner within GLYRA_CALM_SIGHT,
+##                 and cannot catch anyone.
+##   WINDING_DOWN  the tune slows and goes off-key: normal speed, she stalks and peeks round corners like Nyxie (an
+##                 ambusher, HunterPeek), and she can catch.
+##   STOPPED       silence, no hum: she hunts fast (GLYRA_HUNT_SPEED_SCALE) with sharper hearing, heads for the runner
+##                 nearest her box, until someone rewinds it. A rewind settles her within GLYRA_CALM_AFTER_WIND unless she
+##                 can see who she is chasing.
 ##
-## Winding the box does not just stop the noise, it gives back exactly what
-## she has added since the last wind (PlayerMeters.reclaim_noise) -- otherwise
-## the meter would sit wherever it happened to be when you got there instead
-## of resetting, and repeated visits would ratchet it up over a whole floor.
+## Replaces the 2D port's noise-meter timer (she stood still and raised facility noise). The finite floor (main_3d) has
+## no route boxes: there she keeps one private box at her spawn that wind() works, so that mode keeps playing.
 
-var _remaining := 0.0
-var _warned := false
-var _noise_gained := 0.0
-var _started := false
+var boxes: MusicBoxes
+var mood := MusicBoxes.Mood.PLAYING
+var box_id := ""
+var box_position := Vector2.ZERO
+var _settle_left := 0.0
+var _base_hearing := -1.0
+var _was_mood := MusicBoxes.Mood.PLAYING
+var _was_hunting := false
 
 
-func after_perception(brain: HunterBrain, delta: float, target: Dictionary, _generator) -> void:
-	if not _started:
-		_remaining = GameConfig.GLYRA_BAY_SECONDS
-		_started = true
-	if _remaining > 0.0:
-		_remaining -= delta
+func after_perception(brain: HunterBrain, delta: float, target: Dictionary, generator) -> void:
+	if _base_hearing < 0.0:
+		_base_hearing = brain.hearing_scale
+	_pick_box(brain, generator)
+	mood = boxes.mood(box_id)
+	if mood == MusicBoxes.Mood.PLAYING and _was_mood != MusicBoxes.Mood.PLAYING:
+		_settle_left = GameConfig.GLYRA_CALM_AFTER_WIND
+		_was_hunting = true
+	if mood == MusicBoxes.Mood.STOPPED and _was_mood != MusicBoxes.Mood.STOPPED:
+		# the music just died: go for whoever is about, starting with the runner the brain is tracking
+		var at = target.get("position")
+		if at is Vector2 and brain.state != HunterBrain.State.CHASE and not bool(target.get("hidden", false)):
+			brain.direct_to(at)
+	_was_mood = mood
+	brain.hearing_scale = _base_hearing * (GameConfig.GLYRA_HUNT_HEARING_SCALE if mood == MusicBoxes.Mood.STOPPED else 1.0)
+	if mood == MusicBoxes.Mood.WINDING_DOWN and brain.state == HunterBrain.State.IDLE:
+		brain.idle_timer = minf(brain.idle_timer, .15)   # restless: she never settles while the tune runs out
+	if mood != MusicBoxes.Mood.PLAYING:
 		return
+	_settle_left = maxf(0.0, _settle_left - delta)
+	if _settle_left > 0.0:
+		return   # just rewound: a few seconds to calm down
+	var close := false
+	var at_value = target.get("position")
+	if at_value is Vector2 and not bool(target.get("hidden", false)):
+		close = brain.position.distance_to(at_value) <= GameConfig.GLYRA_CALM_SIGHT
+	if brain.state == HunterBrain.State.CHASE and brain.direct_chase_visible and _was_hunting:
+		return   # rewound mid-chase while she can see them: she finishes that chase first
+	_was_hunting = false
+	if brain.state in [HunterBrain.State.CHASE, HunterBrain.State.INVESTIGATE, HunterBrain.State.SEARCH, HunterBrain.State.PEEK] \
+			and not close:
+		_drift_home(brain)
+	elif (brain.state == HunterBrain.State.WANDER or brain.state == HunterBrain.State.IDLE) \
+			and brain.position.distance_to(box_position) > GameConfig.GLYRA_CALM_LEASH:
+		_drift_home(brain)
 
-	if not _warned:
-		_warned = true
-		brain.world_events.append({"what": "message",
-			"message": "MUSIC BOX WOUND DOWN // FACILITY NOISE RISING"})
 
-	var meters = target.get("meters")
-	if meters == null or not meters.has_method("add_noise"):
-		return
-	var rate := GameConfig.GLYRA_NOISE_PER_SECOND + GameConfig.NOISE_METER_DECAY
-	var noise := rate * delta
-	meters.add_noise(noise)
-	_noise_gained += noise
-
-
-func holds_position() -> bool:
-	return true
+## Calm: back toward her box at a stroll (a wander target beside it, so the music keeps her close).
+func _drift_home(brain: HunterBrain) -> void:
+	brain.state = HunterBrain.State.WANDER
+	brain.direct_chase_visible = false
+	brain.has_last_known = false
+	if not brain.has_wander_target or brain.wander_target.distance_to(box_position) > 2.5:
+		brain.wander_target = box_position + Vector2(1.2, 0).rotated(float(abs(hash(box_id)) % 628) / 100.0)
+		brain.has_wander_target = true
+		brain._path.clear()
+		brain._has_path_target = false
 
 
-## Called by main_3d's music-box resolver -- the interactable knows nothing
-## about Glyra, only that pressing [E] on it should ask whoever owns this
-## gimmick to wind it, the same indirection Ceryth's riddle uses.
-func wind(meters) -> void:
-	_remaining = GameConfig.GLYRA_BAY_SECONDS
-	_warned = false
-	if meters != null and meters.has_method("reclaim_noise") and _noise_gained > 0.0:
-		meters.reclaim_noise(_noise_gained)
-	_noise_gained = 0.0
+## Her box: the nearest route box on her level, or (finite floor, no route boxes) a private one at her spawn.
+func _pick_box(brain: HunterBrain, generator) -> void:
+	var listed: Array = generator.music_boxes if "music_boxes" in generator else []
+	if boxes == null:
+		boxes = MusicBoxes.new()
+		boxes.difficulty_id = brain.difficulty_id
+	if listed.is_empty():
+		if box_id.is_empty():
+			box_id = "glyra-spawn-box"
+			box_position = brain.position
+	else:
+		var best := INF
+		for entry in listed:
+			var at := Vector2(float(entry["x"]) + .5, float(entry["y"]) + .5)
+			var gap := at.distance_squared_to(brain.position)
+			if gap < best:
+				best = gap
+				box_id = String(entry["id"])
+				box_position = at
+
+
+func speed_scale(brain: HunterBrain) -> float:
+	match mood:
+		MusicBoxes.Mood.PLAYING:
+			return GameConfig.GLYRA_CALM_SPEED_SCALE
+		MusicBoxes.Mood.STOPPED:
+			return float(GameConfig.GLYRA_HUNT_SPEED_SCALE.get(brain.difficulty_id, GameConfig.GLYRA_HUNT_SPEED_SCALE["standard"]))
+	return 1.0
+
+
+func peek_chance(_brain: HunterBrain, base: float) -> float:
+	return 0.0 if mood == MusicBoxes.Mood.PLAYING else base
+
+
+## Calm she never catches anyone; restless or hunting she does.
+func immune_to_capture() -> bool:
+	return mood == MusicBoxes.Mood.PLAYING
+
+
+## Humming while her music plays (HunterView3D's hum reads this on every peer).
+func humming() -> bool:
+	return mood == MusicBoxes.Mood.PLAYING
+
+
+## Finite floor (main_3d): winding the one box there. `meters` is unused now that she raises no facility noise.
+func wind(_meters = null) -> void:
+	if boxes == null:
+		boxes = MusicBoxes.new()
+	if box_id.is_empty():
+		box_id = "glyra-spawn-box"
+	boxes.wind(box_id)
+
+
+func network_state() -> Dictionary:
+	return {"mood": int(mood), "box": box_id, "left": boxes.seconds_left(box_id) if boxes != null else -1.0}
+
+
+func apply_network_state(state: Dictionary) -> void:
+	mood = clampi(int(state.get("mood", mood)), MusicBoxes.Mood.PLAYING, MusicBoxes.Mood.STOPPED) as MusicBoxes.Mood
+	box_id = String(state.get("box", box_id))
+	var left := float(state.get("left", -1.0))
+	if boxes != null and left >= 0.0 and not box_id.is_empty():
+		boxes.set_seconds_left(box_id, left)

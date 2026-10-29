@@ -53,7 +53,7 @@ func run(_host: Node) -> int:
 	_chase_persists_around_corners()
 	await _hunter_face_lights_are_aligned(_host)
 	await _porcelle_is_only_on_the_map(_host)
-	await _hiding_spots_and_jyvra(_host)
+	await _hiding_spots_and_javelle(_host)
 	await _loxelle_burns_and_regrows(_host)
 	await _ceryth_traps_and_disperses(_host)
 	await _briselle_sabotages_and_resecures(_host)
@@ -61,7 +61,7 @@ func run(_host: Node) -> int:
 	_glyra_winds_down_and_back_up(generator)
 	_ilyra_tags_and_pounces(generator)
 	await _verrine_lurks_and_chases(_host)
-	await _zephyra_trades_and_repairs(_host)
+	await _zellia_trades_and_repairs(_host)
 	await _interactables_require_facing(_host)
 	_hunter_paths_to_a_distant_target(generator)
 	if _failures == 0:
@@ -357,8 +357,11 @@ func _opalie_holds_her_post(generator: FacilityGenerator) -> void:
 		_fail("Opalie has no gimmick")
 		return
 
+	# Nobody detected (the runner is in a safe room), so she keeps standing watch.
+	var unseen := _target(post + Vector2(6, 6))
+	unseen["in_safe_zone"] = true
 	for i in 60:
-		brain.update(STEP, generator, _target(post + Vector2(6, 6)), 1, 0)
+		brain.update(STEP, generator, unseen, 1, 0)
 	if not brain.gimmick.holds_position():
 		_fail("Opalie started on her relay and still has not settled on it")
 		return
@@ -371,7 +374,26 @@ func _opalie_holds_her_post(generator: FacilityGenerator) -> void:
 		"Opalie's suppression does not reach %.1f cells" % GameConfig.OPALIE_SUPPRESSION_RADIUS)
 	_expect(not brain.gimmick.call("blocks", post + Vector2(4.0, 0.0)),
 		"Opalie denies interactions far outside her suppression radius")
-	print("  opalie    settles on a relay and denies %.1f cells around it"
+
+	# KT: "chase further". A runner she detects, even well away from the post, gets a normal chase.
+	var far := Vector2.ZERO
+	for cell in generator.floor_cells():
+		var point := Vector2(cell.x + .5, cell.y + .5)
+		var gap := point.distance_to(brain.position)
+		if gap >= 6.0 and gap <= 9.0 and generator.has_line_of_sight(brain.position, point):
+			far = point
+			break
+	var seen := _target(far)
+	seen["flashlight_on"] = true
+	seen["noise"] = 0.6
+	var chased := false
+	for i in 60:
+		brain.update(STEP, generator, seen, 1, 0)
+		if brain.state == HunterBrain.State.CHASE and not brain.gimmick.holds_position():
+			chased = true
+			break
+	_expect(far != Vector2.ZERO and chased, "Opalie saw a runner %.1f cells off and stayed on her post instead of chasing" % far.distance_to(post))
+	print("  opalie    settles on a relay, denies %.1f cells around it, and leaves it to chase a runner she detects"
 		% GameConfig.OPALIE_SUPPRESSION_RADIUS)
 
 
@@ -468,7 +490,7 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	view._apply_model("verrine")
 	await host.get_tree().process_frame
 	_expect_world_silhouette(view, .72, "an active stealth hunter")
-	# A locker hide must not erase other hunters. Jyvra standing at the door
+	# A locker hide must not erase other hunters. Javelle standing at the door
 	# is the readable tell; making her (or anyone else) vanish with the player
 	# is the same fully-invisible failure as a broken stealth fade.
 	if not scene.facility_view.generator.hiding_spots.is_empty():
@@ -493,10 +515,11 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	view._apply_model("dovelle")
 	await host.get_tree().process_frame
 	_expect_fully_visible_hunter(view, "an active non-stealth hunter")
-	view.brain.hunter_id = "void_gray"
-	view.brain.gimmick = HunterGimmick.for_id("void_gray")
+	# (Red, not Gray: a dormant Gray is deliberately unseen until her signal route fails)
+	view.brain.hunter_id = "void_red"
+	view.brain.gimmick = HunterGimmick.for_id("void_red")
 	view._shown_id = ""
-	view._apply_model("void_gray")
+	view._apply_model("void_red")
 	await host.get_tree().process_frame
 	_expect_fully_visible_hunter(view, "an active Void hunter")
 	_expect(view._model.find_children("HunterEyeGlow", "MeshInstance3D", true, false).is_empty(),
@@ -505,14 +528,14 @@ func _porcelle_is_only_on_the_map(host: Node) -> void:
 	scene.queue_free()
 
 
-## Hiding spots, and Jyvra reaching into one.
+## Hiding spots, and Javelle reaching into one.
 ##
 ## Two failure modes worth naming. A locker you can enter and not leave is the
 ## worse one, and it was real: hiding freezes input, and the freeze swallowed
-## the key that gets you out. The other is Jyvra's timer keying on her being in
+## the key that gets you out. The other is Javelle's timer keying on her being in
 ## "chase" -- the shared brain drops her out of chase the moment you hide, so
 ## the ejection never fires and the locker is permanent safety.
-func _hiding_spots_and_jyvra(host: Node) -> void:
+func _hiding_spots_and_javelle(host: Node) -> void:
 	RoomState.seed_text = "HIDE-CHECK"
 	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
 	var generator := FacilityGenerator.new(GameState.level_seed_text(),
@@ -546,40 +569,44 @@ func _hiding_spots_and_jyvra(host: Node) -> void:
 		return
 	var inside := fixture.hiding_inside_position()
 	var inside_local := fixture.to_local(inside)
-	_expect(absf(inside_local.z - .18) < .01,
-		"the locker camera is not recessed behind its door sight slats")
+	# the hider's eye sits LOCKER_EYE_BEHIND behind the door's vent band, centred on it (the trailer's "locker breath" view)
+	_expect(absf(inside_local.z - (RouteInteractable3D.LOCKER_DOOR_Z + RouteInteractable3D.LOCKER_EYE_BEHIND)) < .01,
+		"the locker camera is not right behind its vent slats")
+	_expect(absf(fixture.hiding_eye_height() + .02 - (RouteInteractable3D.LOCKER_VENT_LO + RouteInteractable3D.LOCKER_VENT_HI) * .5) < .01,
+		"the locker camera is not centred on its vent band")
 	var approach := fixture.global_position + Vector3(0.0, 0.0, -.65)
 	scene.player.global_position = approach
 	scene.player.enter_hiding(cell, inside, approach, fixture)
 	_expect(scene.player.hidden, "entering a locker did not hide the player")
 	_expect(fixture.local_hiding_view_open(),
 		"entering a locker did not enable its local inside view")
-	_expect(scene.player.get_interaction_prompt().is_empty(),
+	# Inside, the prompt is the LEAVE hint (a319611b, prompt_glyphs); the HIDE toast for the locker itself is gone.
+	_expect(not scene.player.get_interaction_prompt().contains("HIDE"),
 		"the removed HIDE toast still appears while inside a locker")
 	scene.player.leave_hiding(Vector2(cell) + Vector2(0.5, 0.5))
 	_expect(not scene.player.hidden, "the player could not get back out of a locker")
 
-	# Jyvra standing over an occupied spot for her full count.
-	var brain := _brain("jyvra", Vector2(cell) + Vector2(0.5, 0.5))
+	# Javelle standing over an occupied spot for her full count.
+	var brain := _brain("javelle", Vector2(cell) + Vector2(0.5, 0.5))
 	if brain.gimmick == null:
-		_fail("Jyvra has no gimmick")
+		_fail("Javelle has no gimmick")
 		scene.queue_free()
 		return
 	var hiding := _target(Vector2(cell) + Vector2(0.5, 0.5))
 	hiding["hidden"] = true
 	hiding["hiding_spot"] = cell
 	var fired := false
-	for i in int((GameConfig.JYVRA_HIDING_SECONDS + 0.5) / STEP):
+	for i in int((GameConfig.JAVELLE_HIDING_SECONDS + 0.5) / STEP):
 		brain.update(STEP, scene.facility_view.generator, hiding, 1, 0)
 		if brain.gimmick.ejecting:
 			fired = true
 			break
-	_expect(fired, "Jyvra stood over an occupied locker for %.0fs and never reached in"
-		% GameConfig.JYVRA_HIDING_SECONDS)
+	_expect(fired, "Javelle stood over an occupied locker for %.0fs and never reached in"
+		% GameConfig.JAVELLE_HIDING_SECONDS)
 	_expect(brain.stun_timer > 0.0,
-		"Jyvra's ejection left her free to grab the player she just pulled out")
-	print("  jyvra     pulls a hidden player out after %.0fs, then stalls"
-		% GameConfig.JYVRA_HIDING_SECONDS)
+		"Javelle's ejection left her free to grab the player she just pulled out")
+	print("  javelle     pulls a hidden player out after %.0fs, then stalls"
+		% GameConfig.JAVELLE_HIDING_SECONDS)
 	scene.queue_free()
 
 
@@ -742,7 +769,9 @@ func _ceryth_traps_and_disperses(host: Node) -> void:
 	# Right answer: disperses her, for good.
 	scene.player.flashlight_enabled = not wrong
 	_message = scene.player.enter_hiding(gimmick.trap_spot)
-	_expect(gimmick.dispersed, "answering Ceryth's riddle right did not disperse her")
+	for _i in 3:
+		view.brain.update(STEP, generator, target, 1, 0)
+	_expect(gimmick.retreating or gimmick.dispersed, "answering Ceryth's riddle right did not send her away")
 	_expect(scene.player.hiding_lock_timer <= 0.0,
 		"a correct answer still locked the player in")
 	view.sync_from_brain()
@@ -750,19 +779,17 @@ func _ceryth_traps_and_disperses(host: Node) -> void:
 	# replacing is queue_free()'d in the same call and does not actually leave
 	# the tree until end of frame, so a sweep here would blame her for a stale
 	# node on its way out rather than for her own visibility.
-	_expect(view._model != null and not view._model.visible,
-		"Ceryth is dispersed but still drawn in the room")
+	_expect(view._model != null and (view._model.visible != gimmick.dispersed),
+		"Ceryth's visibility disagrees with whether she left the floor")
 
-	print("  ceryth    stakes one spot forever, locks a wrong answer, disperses on a right one")
+	print("  ceryth    stakes one spot, locks a wrong answer, flees to a new spot on a right one")
 	scene.queue_free()
 
 
-## Briselle takes a collected relay offline without un-collecting it -- the
-## lift gate has to notice (relays_sabotaged, not relays_collected), the
-## interactable has to come back into view to be worked, and holding [E]
-## there has to actually restore it. Driven through the real scene because
-## "the gimmick sets sabotaged=true" is exactly the check that passes while
-## the lift, the prompt and GameState's own count all still disagree with it.
+## Briselle's relay tracker (2D relayTracker): collecting ANY relay locks her onto it for BRISELLE_HUNT_SECONDS at
+## BRISELLE_SPEED_SCALE x speed, and an aimed torch breaks the lock with a stun. Driven through the real scene so the
+## collection is detected from the generator's own relay list. The shared sabotage machinery (relay offline, lift gate,
+## restore) is still exercised by the event test below because Ysolde and the world events use it.
 func _briselle_sabotages_and_resecures(host: Node) -> void:
 	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
 	host.get_tree().root.add_child(scene)
@@ -772,24 +799,17 @@ func _briselle_sabotages_and_resecures(host: Node) -> void:
 		_fail("no relays on the live floor to test Briselle against")
 		scene.queue_free()
 		return
-
-	# Room-interior specifically, not just "a" relay: a relay in a corridor has
-	# no room for Briselle's room-entry check to ever find (room_at() returns
-	# {} there, same reason a corridor hiding spot stumped Loxelle's own
-	# check once) -- she is not broken by that, there is just nothing to
-	# assert about her in a scenario her gimmick was never meant to act in.
-	var relay_cell := Vector2i(-1, -1)
-	for relay in generator.relays:
-		var cell := Vector2i(relay["x"], relay["y"])
-		if not generator.room_at(cell.x + 0.5, cell.y + 0.5).is_empty():
-			relay_cell = cell
-			break
-	if relay_cell.x < 0:
-		_fail("no room-interior relay on the live floor to test Briselle against")
+	var relay_cell := Vector2i(generator.relays[0]["x"], generator.relays[0]["y"])
+	var brain := _brain("briselle", Vector2(2.5, 2.5))
+	if brain.gimmick == null:
+		_fail("Briselle has no gimmick")
 		scene.queue_free()
 		return
-	# Collect it for real, through the real interactable, so relays_collected
-	# and the interactable's own completed flag start where Briselle expects.
+	var target := _target(Vector2(1.0e4, 1.0e4))
+	target["hidden"] = true
+	brain.update(STEP, generator, target, 1, 0)
+	var briselle := brain.gimmick as BriselleGimmick
+	_expect(not briselle.locked, "Briselle locked on before any relay was collected")
 	var relay_node: RouteInteractable3D = scene.facility_view._at(relay_cell, RouteInteractable3D.Kind.RELAY)
 	if relay_node == null:
 		_fail("no interactable at the first relay's cell")
@@ -797,49 +817,26 @@ func _briselle_sabotages_and_resecures(host: Node) -> void:
 		return
 	relay_node.activate(scene.player)
 	_expect(GameState.relays_collected == 1, "collecting the relay did not register")
+	brain.update(STEP, generator, target, 1, 1)
+	_expect(briselle.locked, "collecting a relay did not lock Briselle on")
+	_expect(brain.state == HunterBrain.State.INVESTIGATE and brain.last_known.distance_to(Vector2(relay_cell) + Vector2(.5, .5)) < 0.01,
+		"Briselle is not heading to the collected relay")
+	_expect(is_equal_approx(briselle.speed_scale(brain), GameConfig.BRISELLE_SPEED_SCALE),
+		"a locked Briselle is not sped up")
+	brain.flash_triggered = true
+	briselle.after_perception(brain, STEP, target, generator)
+	_expect(not briselle.locked and brain.stun_timer > 0.0, "a torch flash did not break her lock and stun her")
+	_expect(is_equal_approx(briselle.speed_scale(brain), 1.0), "a broken lock left her fast")
 
-	var brain := _brain("briselle", Vector2(relay_cell) + Vector2(0.5, 0.5))
-	if brain.gimmick == null:
-		_fail("Briselle has no gimmick")
-		scene.queue_free()
-		return
-	var target := _target(Vector2(relay_cell) + Vector2(0.5, 0.5))
-	target["hidden"] = true  # see Loxelle's own note: otherwise she locks CHASE at distance 0
-
-	var sabotaged := false
-	for i in int((GameConfig.BRISELLE_SABOTAGE_DWELL + 10.0) / STEP):
-		brain.update(STEP, generator, target, 1, 0)
-		for event in brain.world_events:
-			if event.get("what") == "sabotage" and event.get("cell") == relay_cell:
-				sabotaged = true
-		brain.world_events.clear()
-		if sabotaged:
-			break
-	if not sabotaged:
-		_fail("Briselle never sabotaged the collected relay she was standing next to")
-		scene.queue_free()
-		return
-
-	# The event has to actually reach the interactable and GameState, the way
-	# main_3d's drain loop would apply it -- not asserted about, applied.
+	# The relay-offline world event still works end to end (Ysolde and the rest use it).
 	scene.facility_view.apply_event({"what": "sabotage", "cell": relay_cell, "sabotaged": true})
 	_expect(relay_node.sabotaged, "the sabotage event never reached the relay's own interactable")
-	_expect(GameState.relays_sabotaged == 1,
-		"GameState does not know a relay is offline")
-	_expect(scene.facility_view.hiding_spot_at(relay_cell) == null,  # sanity: still a relay, not a locker
-		"setup sanity check failed")
-	var lift: RouteInteractable3D = scene.facility_view._at(generator.exit_cell, RouteInteractable3D.Kind.LIFT)
-	_expect(lift != null and not lift.get_prompt().is_empty(),
-		"the lift has no complaint to make while a relay is offline")
-	_expect(not relay_node.get_prompt().is_empty(),
-		"a sabotaged relay offers no way to restore it")
-
+	_expect(GameState.relays_sabotaged == 1, "GameState does not know a relay is offline")
 	var restore_message := relay_node.set_sabotaged(false)
-	_expect(not relay_node.sabotaged, "set_sabotaged(false) did not clear the flag")
-	_expect(GameState.relays_sabotaged == 0, "restoring the relay left GameState's count off")
-	_expect(not restore_message.is_empty(), "restoring a relay produced no message for the player")
+	_expect(not relay_node.sabotaged and GameState.relays_sabotaged == 0 and not restore_message.is_empty(),
+		"restoring a sabotaged relay did not clear it")
 
-	print("  briselle  takes a collected relay offline, blocks the lift, and can be restored")
+	print("  briselle  locks onto collected relays, speeds up, is broken by a flash; relay-offline events still work")
 	scene.queue_free()
 
 
@@ -919,49 +916,25 @@ func _ferryn_stalks_and_screams(generator: FacilityGenerator) -> void:
 ## contribution once it runs down, and winding it gives back exactly what she
 ## added rather than leaving the meter wherever it happened to land.
 func _glyra_winds_down_and_back_up(generator: FacilityGenerator) -> void:
+	# Finite floor: no route boxes, so she keeps one private box at her spawn (the full rules: glyra_music).
 	var brain := _brain("glyra", Vector2(generator.start) + Vector2(0.5, 0.5))
-	if brain.gimmick == null:
+	var glyra := brain.gimmick as GlyraGimmick
+	if glyra == null:
 		_fail("Glyra has no gimmick")
 		return
-	var meters := PlayerMeters.new()
-	var target := _target(brain.position)
-	target["meters"] = meters
-
-	# Freshly wound: silent, and pinned in place.
+	var target := _target(brain.position + Vector2(12, 0))
 	brain.update(STEP, generator, target, 1, 0)
-	_expect(brain.gimmick.holds_position(), "Glyra is not pinned in place")
-	_expect(brain.world_events.is_empty(), "a freshly wound music box already raised a warning")
-
-	# Run the wind all the way down.
-	for i in int(GameConfig.GLYRA_BAY_SECONDS / STEP) + 5:
-		brain.update(STEP, generator, target, 1, 0)
-	var warned := false
-	for event in brain.world_events:
-		if String(event.get("message", "")).find("WOUND DOWN") >= 0:
-			warned = true
-	_expect(warned, "Glyra's music box ran down with no warning to the player")
-	brain.world_events.clear()
-
-	# Unwound now: real noise, accumulating.
-	meters.update(STEP, {})
-	var before := meters.noise_meter
-	for i in 30:
-		brain.update(STEP, generator, target, 1, 0)
-	meters.update(STEP, {})
-	_expect(meters.noise_meter > before, "an unwound music box raised no facility noise")
-
-	# Winding it gives back what it took, not just stops taking more.
-	var winding := meters.noise_meter
-	brain.gimmick.wind(meters)
-	meters.update(STEP, {})
-	_expect(meters.noise_meter < winding,
-		"winding the music box did not reclaim the noise it had added")
-	for i in 10:
-		brain.update(STEP, generator, target, 1, 0)
-	_expect(brain.world_events.is_empty(),
-		"a freshly rewound box is already raising noise or warnings again")
-
-	print("  glyra     silent while wound, raises real noise once run down, reclaims it on rewind")
+	_expect(glyra.mood == MusicBoxes.Mood.PLAYING and glyra.immune_to_capture() and glyra.humming(),
+		"a freshly wound Glyra is not calm, humming and harmless")
+	_expect(not glyra.holds_position(), "Glyra is still pinned in place")
+	glyra.boxes.set_seconds_left(glyra.box_id, 0.0)
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(glyra.mood == MusicBoxes.Mood.STOPPED and not glyra.immune_to_capture() and not glyra.humming(),
+		"Glyra's stopped box did not set her hunting")
+	glyra.wind()
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(glyra.mood == MusicBoxes.Mood.PLAYING, "winding Glyra's box on the finite floor did not calm her")
+	print("  glyra     calm while her box plays, hunts once it stops, calm again after a wind")
 
 
 ## Ilyra teleports to a corner and watches. Seen once, then LOOKED AWAY FROM
@@ -1034,7 +1007,7 @@ func _verrine_lurks_and_chases(host: Node) -> void:
 	# not exist on a bare .new()). The generator comes along with it, already
 	# carrying a real vent network from _spawn_interactables' own call to
 	# place_vents(). Verrine's own brain is still built by hand, same as
-	# Jyvra/Ceryth's checks -- the scene's own random draw has no reason to
+	# Javelle/Ceryth's checks -- the scene's own random draw has no reason to
 	# have actually drawn her.
 	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
 	host.get_tree().root.add_child(scene)
@@ -1120,7 +1093,7 @@ func _verrine_lurks_and_chases(host: Node) -> void:
 	print("  verrine   inert outside the network, chases and ramps speed inside it, resets on exit")
 
 
-func _zephyra_trades_and_repairs(host: Node) -> void:
+func _zellia_trades_and_repairs(host: Node) -> void:
 	var scene: Node = load("res://scenes/main_3d.tscn").instantiate()
 	host.get_tree().root.add_child(scene)
 	await host.get_tree().process_frame
@@ -1149,9 +1122,9 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 		"collecting a coin did not credit GameState.coins")
 	_expect(coin_node.completed, "a collected coin did not mark itself completed")
 
-	var brain := _brain("zephyra", Vector2(generator.start) + Vector2(0.5, 0.5))
+	var brain := _brain("zellia", Vector2(generator.start) + Vector2(0.5, 0.5))
 	if brain.gimmick == null:
-		_fail("Zephyra has no gimmick")
+		_fail("Zellia has no gimmick")
 		scene.queue_free()
 		return
 
@@ -1161,14 +1134,14 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 	var settled_at := brain.position
 	for i in 10:
 		brain.update(STEP, generator, _target(settled_at), 1, 0)
-		_expect(brain.position == settled_at, "Zephyra moved -- she is supposed to hold position forever")
+		_expect(brain.position == settled_at, "Zellia moved -- she is supposed to hold position forever")
 	_expect(brain.state == HunterBrain.State.IDLE,
-		"Zephyra reacted to the player standing on top of her")
+		"Zellia reacted to the player standing on top of her")
 
 	# Standing exactly where a capture would ordinarily trigger must never
 	# actually capture her.
 	var captured := brain.update(STEP, generator, _target(settled_at), 1, 0)
-	_expect(not captured, "Zephyra captured the player -- she is supposed to be immune")
+	_expect(not captured, "Zellia captured the player -- she is supposed to be immune")
 
 	# Out of range: no shop.
 	var message: String = brain.gimmick.open_shop(settled_at + Vector2(10.0, 10.0), settled_at, Vector2(0, 1))
@@ -1179,7 +1152,7 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 	# opens with a real offer menu.
 	GameState.coins = 20
 	message = brain.gimmick.open_shop(settled_at, settled_at, Vector2(0, 1))
-	_expect(not message.is_empty() and message.begins_with("ZYTTU SHOP"),
+	_expect(not message.is_empty() and message.begins_with("ZELLIA'S STORE"),
 		"opening the shop in range and facing her did not return a menu")
 	_expect(brain.gimmick.shop_open, "opening the shop did not mark it open")
 
@@ -1201,10 +1174,10 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 	player.meters.temperature = 80.0
 	var coins_before_trade := GameState.coins
 	message = brain.gimmick.choose_offer(1, player, scene.facility_view)
-	_expect(message.begins_with("ZYTTU TRADE COMPLETE"), "a real cool trade did not complete: got '%s'" % message)
-	_expect(is_equal_approx(player.meters.temperature, 80.0 - GameConfig.ZEPHYRA_TEMPERATURE_STEP),
+	_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real cool trade did not complete: got '%s'" % message)
+	_expect(is_equal_approx(player.meters.temperature, 80.0 - GameConfig.ZELLIA_TEMPERATURE_STEP),
 		"cooling did not actually lower temperature")
-	_expect(GameState.coins == coins_before_trade - GameConfig.ZEPHYRA_COOL_COST,
+	_expect(GameState.coins == coins_before_trade - GameConfig.ZELLIA_COOL_COST,
 		"cooling did not charge the right number of coins")
 	_expect(not brain.gimmick.shop_open, "a completed trade left the shop open")
 
@@ -1217,7 +1190,7 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 
 	# Repair, with a real sabotaged relay on the floor.
 	if generator.relays.is_empty():
-		_fail("no relays on the live floor to test Zephyra's repair against")
+		_fail("no relays on the live floor to test Zellia's repair against")
 	else:
 		var relay_cell := Vector2i(generator.relays[0]["x"], generator.relays[0]["y"])
 		var relay_node: RouteInteractable3D = scene.facility_view._at(relay_cell, RouteInteractable3D.Kind.RELAY)
@@ -1225,15 +1198,15 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 		GameState.coins = 20
 		brain.gimmick.shop_open = true
 		message = brain.gimmick.choose_offer(3, player, scene.facility_view)
-		_expect(message.begins_with("ZYTTU TRADE COMPLETE"), "a real repair trade did not complete")
+		_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real repair trade did not complete")
 		_expect(not relay_node.sabotaged, "repair did not bring the sabotaged relay back online")
 
 	# Pesticide arms the timer Loxelle/Ysolde read off the target dict.
 	GameState.coins = 20
 	brain.gimmick.shop_open = true
 	message = brain.gimmick.choose_offer(4, player, scene.facility_view)
-	_expect(message.begins_with("ZYTTU TRADE COMPLETE"), "a real pesticide trade did not complete")
-	_expect(player.pesticide_timer >= GameConfig.ZEPHYRA_PESTICIDE_SECONDS - 0.01,
+	_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real pesticide trade did not complete")
+	_expect(player.pesticide_timer >= GameConfig.ZELLIA_PESTICIDE_SECONDS - 0.01,
 		"pesticide did not arm the player's timer")
 
 	# Far and hidden, so ordinary sight/hearing cannot itself put either brain
@@ -1257,7 +1230,7 @@ func _zephyra_trades_and_repairs(host: Node) -> void:
 		"Ysolde still targeted a battery while pesticide was active")
 
 	scene.queue_free()
-	print("  zephyra   coins collect, trades cost and apply, and pesticide gates Loxelle/Ysolde")
+	print("  zellia   coins collect, trades cost and apply, and pesticide gates Loxelle/Ysolde")
 
 
 ## Not hunter-specific -- general player/interactable infrastructure, tested

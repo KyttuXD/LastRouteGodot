@@ -5,7 +5,7 @@ extends RefCounted
 ## route. Chunk meshes may unload; checkpoint damage and claimed pickup ids do
 ## not. The plain Dictionary snapshot is RPC/save friendly for late joining.
 
-const SCHEMA := 5
+const SCHEMA := 6
 
 var active_checkpoint := ""
 var claimed_pickups := {}
@@ -15,12 +15,24 @@ var hunters := {}
 ## deterministic spawn candidate is admitted again on the next stream refresh.
 var removed_hunters := {}
 var dropped_items := {}
+## Open co-op revive windows (ReviveDowns, docs/REVIVE.md).
+var downs := ReviveDowns.new()
 var next_drop_sequence := 1
 var sabotaged_relays := {}
 ## Stable generated door id -> {open, broken}. Closed/unbroken is the
 ## deterministic default and therefore does not need an entry until changed.
 var room_doors := {}
-var shared_waypoints: Array = []
+## Room light switches (docs/LIGHT_SWITCHES.md): room id -> on/off, only rooms someone switched. Others use the seeded
+## default (about one room in four starts dark).
+var room_lights := {}
+## Breakables (Breach, docs/BREACH.md): spec id -> {hp, opened}, only things somebody has hit. Untouched ones are at their spec hp.
+var breaches := {}
+## Floods from burst sewer pipes (SewerFloods): breakable id -> the unix time on THIS machine the pipe burst. A snapshot
+## carries the seconds since, and the receiver re-bases them to its own clock (like the carousels), so every machine's
+## water rises and drains together and a reloaded run carries on mid-flood.
+var floods := {}
+## One waypoint per player (WaypointState); never a shared list.
+var waypoints := WaypointState.new()
 var disabled_hiding := {}
 ## Monotonic local-only revision for data copied into hunter navigation.
 ## Hunter transforms deliberately do not touch it: only pickup/relay mutations
@@ -28,6 +40,12 @@ var disabled_hiding := {}
 ## authority window keep its cached navigation instead of rebuilding every
 ## 0.2 seconds while a hunter is active.
 var navigation_revision := 0
+## Carnival booths (docs/CARNIVAL_BOOTHS.md): booth id -> unix time the booth is ready again. A booth with no entry (or a past one) is ready; the entry outlives the chunk and a reconnect.
+var booth_ready_at := {}
+## Merry-go-rounds (docs/CARNIVAL_BOOTHS.md, CarouselRide3D): ride id -> {on, angle (rad, true at t0), t0 (THIS machine's unix time)}. Every machine advances the angle by the same speed from its own clock, so guests
+## see the same angle to within the network delay; a snapshot carries the angle at that instant and the receiver re-bases t0 to its own clock.
+const CAROUSEL_SPEED := 0.45
+var carousels := {}
 
 
 func activate_checkpoint(chunk_data: Dictionary) -> bool:
@@ -114,56 +132,6 @@ func room_door_status(door_id: String) -> Dictionary:
 	return (room_doors[door_id] as Dictionary).duplicate(true)
 
 
-func shared_waypoints_on_level(level: int) -> Array:
-	var result := []
-	for value in shared_waypoints:
-		if not value is Dictionary:
-			continue
-		var waypoint: Dictionary = value
-		if int(waypoint.get("level", 0)) == level:
-			result.append(waypoint.duplicate(true))
-	return result
-
-
-func toggle_shared_waypoint(at: Vector2, level: int,
-		source_peer_id: int = 0) -> Dictionary:
-	for index in range(shared_waypoints.size() - 1, -1, -1):
-		var existing: Dictionary = shared_waypoints[index]
-		if int(existing.get("level", level)) != level:
-			continue
-		var existing_at: Vector2 = existing.get("at", Vector2.ZERO)
-		if existing_at.distance_to(at) > 1.25:
-			continue
-		shared_waypoints.remove_at(index)
-		return {"changed": true, "added": false,
-			"waypoint": existing.duplicate(true)}
-	var waypoint := {"at": at, "level": level, "source_peer_id": source_peer_id}
-	shared_waypoints.append(waypoint)
-	return {"changed": true, "added": true, "waypoint": waypoint.duplicate(true)}
-
-
-func apply_shared_waypoint(waypoint: Dictionary, added: bool) -> bool:
-	var at = waypoint.get("at")
-	if not at is Vector2:
-		return false
-	var level := int(waypoint.get("level", 0))
-	for index in range(shared_waypoints.size() - 1, -1, -1):
-		var existing: Dictionary = shared_waypoints[index]
-		if int(existing.get("level", level)) != level:
-			continue
-		var existing_at: Vector2 = existing.get("at", Vector2.ZERO)
-		if existing_at.distance_to(at) <= 1.25:
-			if added:
-				shared_waypoints[index] = waypoint.duplicate(true)
-			else:
-				shared_waypoints.remove_at(index)
-			return true
-	if not added:
-		return false
-	shared_waypoints.append(waypoint.duplicate(true))
-	return true
-
-
 func apply_room_door_state(door_id: String, open: bool,
 		broken: bool = false) -> bool:
 	if door_id.is_empty():
@@ -181,6 +149,8 @@ func create_drop(item_id: String, durability: int, position: Vector3,
 		return {}
 	var drop_id := "DROP:%d:%d" % [source_peer_id, next_drop_sequence]
 	next_drop_sequence += 1
+	if PlayerController3D.STACK_MAX.has(item_id):
+		durability = clampi(durability, 1, PlayerController3D.stack_max(item_id))   # a stack's count
 	var record := {"id": drop_id, "item": item_id,
 		"durability": maxi(0, durability), "position": position,
 		"level": level, "source_peer_id": source_peer_id,
@@ -277,6 +247,7 @@ func store_hunter(entity_id: String, brain: HunterBrain, level: int,
 		origin_chunk: Vector3i) -> void:
 	if entity_id.is_empty() or brain == null:
 		return
+	var previous: Dictionary = hunters.get(entity_id, {})
 	hunters[entity_id] = {
 		"hunter_id": brain.hunter_id,
 		"position": brain.position,
@@ -300,7 +271,20 @@ func store_hunter(entity_id: String, brain: HunterBrain, level: int,
 		"emote": brain.emote_id,
 		"emote_seq": brain.emote_seq,
 		"emote_left": brain.emote_left,
+		"chase_style": brain.chase_style,
+		"peek_phase": int(brain.peek_phase),
+		"peek_body": brain.peek_body,
+		"peek_head": brain.peek_head,
+		"peek_dir": brain.peek_dir,
+		"peek_side": brain.peek_side,
+		"inspect_phase": int(brain.inspect_phase),
+		"inspect_stand": brain.inspect_stand,
+		"inspect_face": brain.inspect_face,
 	}
+	# Gray's binding to the one runner she may catch (InfiniteRouteTest anti-idle) is not brain state: keep it.
+	for key in ["gray_peer", "gray_reason"]:
+		if previous.has(key):
+			hunters[entity_id][key] = previous[key]
 
 
 func restore_hunter(brain: HunterBrain, state: Dictionary) -> void:
@@ -309,7 +293,7 @@ func restore_hunter(brain: HunterBrain, state: Dictionary) -> void:
 	brain.position = state.get("position", brain.position)
 	brain.active = bool(state.get("active", true))
 	brain.state = clampi(int(state.get("state", HunterBrain.State.WANDER)),
-		HunterBrain.State.IDLE, HunterBrain.State.SEARCH)
+		HunterBrain.State.IDLE, HunterBrain.State.INSPECT)
 	brain.facing = state.get("facing", Vector2(0, 1))
 	brain.stamina = float(state.get("stamina", GameConfig.HUNTER_STAMINA_MAX))
 	brain.winded = bool(state.get("winded", false))
@@ -326,6 +310,17 @@ func restore_hunter(brain: HunterBrain, state: Dictionary) -> void:
 	brain.emote_id = int(state.get("emote", -1))
 	brain.emote_seq = int(state.get("emote_seq", 0))
 	brain.emote_left = float(state.get("emote_left", 0.0))
+	var style := String(state.get("chase_style", brain.chase_style))
+	if HunterChaseStyle.valid(style):
+		brain.chase_style = style
+	brain.peek_phase = clampi(int(state.get("peek_phase", 0)), HunterBrain.Peek.SETTLE, HunterBrain.Peek.AMBUSH)
+	brain.peek_body = state.get("peek_body", brain.position)
+	brain.peek_head = state.get("peek_head", brain.position)
+	brain.peek_dir = state.get("peek_dir", Vector2.ZERO)
+	brain.peek_side = 1 if int(state.get("peek_side", 1)) >= 0 else -1
+	brain.inspect_phase = clampi(int(state.get("inspect_phase", 0)), HunterBrain.Inspect.WALK, HunterBrain.Inspect.RISE)
+	brain.inspect_stand = state.get("inspect_stand", brain.position)
+	brain.inspect_face = state.get("inspect_face", Vector2.ZERO)
 
 
 func hunter_ids_on_level(level: int) -> Array:
@@ -336,6 +331,87 @@ func hunter_ids_on_level(level: int) -> Array:
 			result.append(String(entity_id))
 	result.sort()
 	return result
+
+
+static func default_room_light(room_id: String) -> bool:
+	return absi(hash("%s:ROOM-LIGHT" % room_id)) % 4 != 0
+
+
+func room_light_on(room_id: String) -> bool:
+	return bool(room_lights.get(room_id, default_room_light(room_id)))
+
+
+## Returns true when this changed the state (idempotent for replayed events).
+func set_room_light(room_id: String, on: bool) -> bool:
+	if room_id.is_empty():
+		return false
+	var changed := room_light_on(room_id) != on
+	room_lights[room_id] = on
+	return changed
+
+
+## Hit points left on a breakable (its spec hp until somebody hits it).
+func breach_hp(spec: Dictionary) -> int:
+	return int((breaches.get(String(spec["id"]), {}) as Dictionary).get("hp", int(spec["hp"])))
+
+
+func breach_open(id: String) -> bool:
+	return bool((breaches.get(id, {}) as Dictionary).get("opened", false))
+
+
+## Sets a breakable's hit points (idempotent, so replayed reliable packets are harmless); true when that changed it.
+func set_breach(id: String, hp: int, opened: bool) -> bool:
+	if id.is_empty():
+		return false
+	var before: Dictionary = breaches.get(id, {})
+	if before.get("hp", -1) == hp and bool(before.get("opened", false)) == opened:
+		return false
+	breaches[id] = {"hp": hp, "opened": opened}
+	navigation_revision += 1
+	return true
+
+
+## Seconds until the booth is ready again (0 when it is ready). `now` is unix time, passed in so the validators can run a clock.
+func booth_cooldown_left(booth_id: String, now: float) -> float:
+	return maxf(0.0, float(booth_ready_at.get(booth_id, 0.0)) - now)
+
+
+## Rest a booth until `until` (idempotent: a replayed event cannot shorten it). Returns true when this changed the state.
+func rest_booth(booth_id: String, until: float) -> bool:
+	if booth_id.is_empty() or until <= float(booth_ready_at.get(booth_id, 0.0)):
+		return false
+	booth_ready_at[booth_id] = until
+	return true
+
+
+func carousel_on(ride_id: String) -> bool:
+	return bool((carousels.get(ride_id, {}) as Dictionary).get("on", false))
+
+
+func carousel_angle(ride_id: String, now: float) -> float:
+	var c: Dictionary = carousels.get(ride_id, {})
+	if c.is_empty():
+		return 0.0
+	var angle := float(c["angle"])
+	if bool(c["on"]):
+		angle += CAROUSEL_SPEED * (now - float(c["t0"]))
+	return fposmod(angle, TAU)
+
+
+## Start or stop a ride at `angle` (true now). Returns true when anything changed.
+func set_carousel(ride_id: String, on: bool, angle: float, now: float) -> bool:
+	if ride_id.is_empty():
+		return false
+	var before: Dictionary = carousels.get(ride_id, {})
+	carousels[ride_id] = {"on": on, "angle": fposmod(angle, TAU), "t0": now}
+	return before.is_empty() or bool(before.get("on", false)) != on
+
+
+## Booths whose rest is over are forgotten, so the snapshot stays small.
+func prune_booths(now: float) -> void:
+	for id in booth_ready_at.keys():
+		if float(booth_ready_at[id]) <= now:
+			booth_ready_at.erase(id)
 
 
 func snapshot() -> Dictionary:
@@ -349,41 +425,102 @@ func snapshot() -> Dictionary:
 		"dropped_items": dropped_items.duplicate(true),
 		"next_drop_sequence": next_drop_sequence,
 		"sabotaged_relays": sabotaged_relays.duplicate(true),
-		"shared_waypoints": shared_waypoints.duplicate(true),
+		"waypoints": waypoints.snapshot(),
 		"disabled_hiding": disabled_hiding.duplicate(true),
 		"room_doors": room_doors.duplicate(true),
+		"room_lights": room_lights.duplicate(true),
+		"breaches": breaches.duplicate(true),
+		"floods": _flood_snapshot(Time.get_unix_time_from_system()),
+		"booth_ready_at": booth_ready_at.duplicate(true),
+		"carousels": _carousel_snapshot(Time.get_unix_time_from_system()),
+		"downs": downs.snapshot(),
 	}
+
+
+## The rides with their angle at `now`.
+## A burst pipe's flood starts (once; a replayed event keeps the first time). Returns whether it is new.
+func start_flood(id: String) -> bool:
+	if id.is_empty() or floods.has(id):
+		return false
+	floods[id] = Time.get_unix_time_from_system()
+	return true
+
+
+## Seconds since a pipe burst, or -1 when it has not.
+func flood_age(id: String) -> float:
+	return Time.get_unix_time_from_system() - float(floods[id]) if floods.has(id) else -1.0
+
+
+## Floods with the seconds since each began (spent ones, fully drained, are left out).
+func _flood_snapshot(now: float) -> Dictionary:
+	var out := {}
+	for id in floods:
+		var age := now - float(floods[id])
+		if age < SewerFloods.DURATION:
+			out[id] = age
+	return out
+
+
+func _carousel_snapshot(now: float) -> Dictionary:
+	var out := {}
+	for id in carousels:
+		out[id] = {"on": bool(carousels[id]["on"]), "angle": carousel_angle(String(id), now)}
+	return out
 
 
 func adopt(snapshot_data: Dictionary) -> bool:
 	var schema := int(snapshot_data.get("schema", -1))
-	if schema not in [1, 2, 3, 4, SCHEMA]:
+	if schema not in [1, 2, 3, 4, 5, SCHEMA]:
 		return false
+	downs.adopt(snapshot_data.get("downs", {}))   # optional: older snapshots have no revive windows
 	var pickups = snapshot_data.get("claimed_pickups", {})
 	var rooms = snapshot_data.get("safe_rooms", {})
 	var hunter_data = snapshot_data.get("hunters", {})
 	var removed_hunter_data = snapshot_data.get("removed_hunters", {})
 	var drops = snapshot_data.get("dropped_items", {})
 	var sabotage = snapshot_data.get("sabotaged_relays", {})
-	var shared = snapshot_data.get("shared_waypoints", [])
+	var shared = snapshot_data.get("shared_waypoints", [])   # legacy: an array of shared waypoints
+	var per_player = snapshot_data.get("waypoints", {})
 	var hiding = snapshot_data.get("disabled_hiding", {})
 	var doors = snapshot_data.get("room_doors", {})
 	if not pickups is Dictionary or not rooms is Dictionary \
 			or not hunter_data is Dictionary or not removed_hunter_data is Dictionary \
-			or not drops is Dictionary or not shared is Array \
+			or not drops is Dictionary or not shared is Array or not per_player is Dictionary \
 			or not sabotage is Dictionary or not hiding is Dictionary or not doors is Dictionary:
 		return false
 	active_checkpoint = String(snapshot_data.get("active_checkpoint", ""))
 	claimed_pickups = (pickups as Dictionary).duplicate(true)
 	safe_rooms = (rooms as Dictionary).duplicate(true)
 	hunters = (hunter_data as Dictionary).duplicate(true)
+	HunterIdAliases.migrate_hunter_entries(hunters)   # snapshots saved before the hunter rename
 	removed_hunters = (removed_hunter_data as Dictionary).duplicate(true)
 	dropped_items = (drops as Dictionary).duplicate(true)
 	next_drop_sequence = maxi(1, int(snapshot_data.get("next_drop_sequence", 1)))
 	sabotaged_relays = (sabotage as Dictionary).duplicate(true)
-	shared_waypoints = (shared as Array).duplicate(true)
+	waypoints.adopt(per_player)
+	if waypoints.by_peer.is_empty():
+		waypoints.adopt_legacy(shared)
 	disabled_hiding = (hiding as Dictionary).duplicate(true)
 	room_doors = (doors as Dictionary).duplicate(true)
+	var lights = snapshot_data.get("room_lights", {})
+	room_lights = (lights as Dictionary).duplicate(true) if lights is Dictionary else {}
+	var broken = snapshot_data.get("breaches", {})
+	breaches = (broken as Dictionary).duplicate(true) if broken is Dictionary else {}
+	floods.clear()
+	var flood_ages = snapshot_data.get("floods", {})
+	if flood_ages is Dictionary:
+		var flood_now := Time.get_unix_time_from_system()
+		for flood_id in (flood_ages as Dictionary):
+			floods[String(flood_id)] = flood_now - float((flood_ages as Dictionary)[flood_id])
+	var booths = snapshot_data.get("booth_ready_at", {})
+	booth_ready_at = (booths as Dictionary).duplicate(true) if booths is Dictionary else {}
+	carousels = {}
+	var rides = snapshot_data.get("carousels", {})
+	if rides is Dictionary:
+		var now := Time.get_unix_time_from_system()
+		for id in rides:
+			if rides[id] is Dictionary:
+				carousels[String(id)] = {"on": bool(rides[id].get("on", false)), "angle": float(rides[id].get("angle", 0.0)), "t0": now}
 	navigation_revision += 1
 	return true
 

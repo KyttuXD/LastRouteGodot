@@ -29,6 +29,7 @@ signal changed
 ## gameplay scene has been replaced.
 signal connection_lost(reason: String)
 
+## KYTTU: The City used to be Mode 1; it was archived (branch archive/city-20261027).
 enum Mode { DEFAULT }
 ## SPRAWLING and CAVERNOUS merged into one top tier, IMMENSE -- two "big"
 ## steps that only differed by how big, with nothing else changing between
@@ -53,6 +54,9 @@ const CODE_LENGTH := 5
 const MODE_LABELS := {
 	Mode.DEFAULT: "DEFAULT",
 }
+## Rooms carry the id of the game they belong to so a code for one game is never joined from another.
+const GAME_LAST_ROUTE := "last_route"
+const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 const SCALE_LABELS := {
 	Scale.SMALL: "SMALL", Scale.STANDARD: "STANDARD", Scale.LARGE: "LARGE",
 	Scale.IMMENSE: "IMMENSE", Scale.INFINITE: "INFINITE",
@@ -65,6 +69,13 @@ const SELECTABLE_SCALE_LABELS := {
 const DIFFICULTY_LABELS := {
 	Difficulty.RELAXED: "RELAXED", Difficulty.STANDARD: "STANDARD",
 	Difficulty.HARD: "HARD", Difficulty.NIGHTMARE: "NIGHTMARE",
+}
+## One line per difficulty for the staging menu (tooltip and the line under the buttons); hunter abilities follow the difficulty alone.
+const DIFFICULTY_BLURBS := {
+	Difficulty.RELAXED: "Plain hunters: no extra abilities, longer clocks.",
+	Difficulty.STANDARD: "Hunters work together, with the odd pounce, burst or flank (very rare).",
+	Difficulty.HARD: "Hunters pounce, burst, flank and slam doors, and search harder.",
+	Difficulty.NIGHTMARE: "Full hunter abilities: pounces, ambushes, flanking teams, shrugging off torches.",
 }
 const DIFFICULTY_IDS := {
 	Difficulty.RELAXED: "relaxed", Difficulty.STANDARD: "standard",
@@ -102,6 +113,8 @@ var seed_text := ""
 ## True while this room is the shared PUBLIC route: no lobby, server-owned state.
 var public_route := false
 var mode: Mode = Mode.DEFAULT
+## Daytime room flag (the archived City used it; kept because HunterBrain.day_mode and the room sync still carry it).
+var daytime := false
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
 ## Display names, host first. One entry while offline.
@@ -116,7 +129,10 @@ var connecting := false
 ## into the live scene and catch up from the host's world snapshot.
 var session_active := false
 ## Player-facing transport/lifecycle feedback which survives scene changes.
-var status_message := ""
+## Shown in menus and staging, so never with a server address (ServerPrivacy.scrub).
+var status_message := "":
+	set(value):
+		status_message = ServerPrivacy.scrub(value)
 
 ## Peer id -> callsign. The host is always peer 1. Kept as a dictionary rather
 ## than a list so a player leaving removes the right row without the others
@@ -151,6 +167,9 @@ var _reconnect_request_in_flight := false
 ## usable as solo instead of waiting forever behind an online-only button.
 var _primary_create_fallback_enabled := false
 var _scene_transitions_suppressed_for_tests := false
+## The host's pack announcement while this guest is still confirming or downloading packs ({} when none): the guest
+## stays in staging until RoomPacks.adopt() succeeds.
+var _packs_waiting := {}
 
 
 func uses_ws_transport() -> bool:
@@ -166,14 +185,17 @@ func _ready() -> void:
 	_relay.name = "GameplayRelayTunnel"
 	_relay.relay_ready.connect(_on_relay_ready)
 	_relay.relay_failed.connect(_on_relay_failed)
+	_relay.host_left.connect(_on_relay_host_left)
 	add_child(_relay)
+	PackDownloads.install(self)
 	# A room always exists, so nothing has to null-check it. Landing straight
 	# in a mode from the editor gets a valid singleplayer room.
 	if code.is_empty():
 		create_local(Mode.DEFAULT)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_tick_start_heal(delta)
 	if reconnect_active:
 		_tick_reconnect()
 		return
@@ -194,6 +216,7 @@ func _exit_tree() -> void:
 ## the reason to do it now rather than after the networking exists.
 func create_local(for_mode: Mode) -> void:
 	public_route = false
+	daytime = false
 	GameState.clear_pending_route_checkpoint()
 	code = _make_code()
 	mode = for_mode if mode_available(for_mode) else Mode.DEFAULT
@@ -285,6 +308,9 @@ func host_room(port: int = DEFAULT_PORT,
 	_directory_status = ""
 	peers = {1: _local_name()}
 	_bind_signals()
+	var pack_error := RoomPacks.host_load(public_route)
+	if not pack_error.is_empty():
+		status_message = pack_error
 	Backend.register_room(code, 0 if use_ws else port, peers.size(), session_active,
 		"ws" if use_ws else "enet")
 	changed.emit()
@@ -361,6 +387,7 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT,
 
 
 func leave_network() -> void:
+	Backend.skin_sync.clear_cache()   # other players' skins are memory-only: gone when you leave the room
 	# Tell host authority which roster row is leaving before closing ENet. Relay
 	# guests must also drain the loopback proxy once, or the reliable RPC can be
 	# discarded when the relay socket is torn down immediately afterwards.
@@ -373,6 +400,7 @@ func leave_network() -> void:
 		Backend.unregister_room()
 	_close_transport_only(true)
 	_clear_reconnect_state()
+	RoomPacks.leave()
 	changed.emit()
 
 
@@ -393,6 +421,7 @@ func _close_transport_only(reset_room_identity: bool) -> void:
 		is_host = true
 		session_active = false
 		peers = {}
+		_packs_waiting = {}
 
 
 func _bind_signals() -> void:
@@ -412,8 +441,9 @@ func _on_peer_connected(id: int) -> void:
 	# rather than asked about it.
 	_receive_room.rpc_id(id, code, seed_text, mode, map_scale, difficulty, peers,
 		session_active)
-	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
-		session_active)
+	_receive_daytime.rpc_id(id, daytime)
+	NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers,
+		session_active])
 	# A room remains joinable while a route is running. The new peer first gets
 	# the room seed/config above, then enters the same scene; RemotePlayers asks
 	# the host for the current floor snapshot once that fixed RPC path exists.
@@ -423,15 +453,41 @@ func _on_peer_connected(id: int) -> void:
 	changed.emit()
 
 
+var _start_heal_elapsed := 0.0
+const START_HEAL_SECONDS := 4.0
+
+
+func _tick_start_heal(delta: float) -> void:
+	if not (online and is_host and session_active) or multiplayer.multiplayer_peer == null:
+		_start_heal_elapsed = 0.0
+		return
+	_start_heal_elapsed += delta
+	if _start_heal_elapsed >= START_HEAL_SECONDS:
+		_start_heal_elapsed = 0.0
+		NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers, session_active])
+
+
 func _on_peer_disconnected(id: int) -> void:
 	if not peers.has(id):
 		return
 	peers.erase(id)
 	if is_host:
-		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
-			session_active)
+		NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers,
+			session_active])
 		Backend.update_room(peers.size(), session_active)
 	changed.emit()
+
+
+## Host only (owner/admin tools): remove a guest from the room, the same way a guest's own leave is handled.
+func kick_peer(id: int) -> void:
+	if not online or not is_host or id <= 1 or not peers.has(id):
+		return
+	peers.erase(id)
+	NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers, session_active])
+	Backend.update_room(peers.size(), session_active)
+	changed.emit()
+	if multiplayer.multiplayer_peer != null:
+		multiplayer.multiplayer_peer.disconnect_peer(id)
 
 
 ## A graceful guest exit reaches host authority before its relay tunnel closes.
@@ -444,8 +500,8 @@ func _request_peer_leave() -> void:
 	if id <= 1 or not peers.has(id):
 		return
 	peers.erase(id)
-	_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
-		session_active)
+	NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers,
+		session_active])
 	Backend.update_room(peers.size(), session_active)
 	changed.emit()
 	if multiplayer.multiplayer_peer != null:
@@ -555,13 +611,14 @@ func _on_server_disconnected() -> void:
 	if session_active and not is_host and not reconnect_active:
 		_start_reconnect_grace()
 		return
-	_close_failed_connection("HOST DISCONNECTED // RETURNED TO STAGING")
+	_close_failed_connection(HOST_LEFT_NOTICE, true)
 
 
-func _close_failed_connection(reason: String) -> void:
+func _close_failed_connection(reason: String, to_menu: bool = false) -> void:
 	var was_public := public_route
 	_close_transport_only(true)
 	_clear_reconnect_state()
+	RoomPacks.leave()
 	status_message = reason
 	changed.emit()
 	connection_lost.emit(reason)
@@ -570,6 +627,9 @@ func _close_failed_connection(reason: String) -> void:
 		# may make this client the new authority (see PublicRoute).
 		public_route = true
 		PublicRoute.on_connection_lost()
+		return
+	if to_menu:
+		call_deferred("leave_room_to_menu", reason)
 		return
 	call_deferred("_return_to_staging")
 
@@ -587,7 +647,7 @@ func _start_reconnect_grace() -> void:
 func _tick_reconnect() -> void:
 	var now := Time.get_ticks_msec()
 	if now >= _reconnect_deadline_msec:
-		_close_failed_connection("HOST DISCONNECTED // RETURNED TO STAGING")
+		_close_failed_connection(HOST_LEFT_NOTICE, true)
 		return
 	if connecting or _reconnect_request_in_flight or now < _reconnect_next_lookup_msec:
 		return
@@ -644,14 +704,89 @@ func _receive_room(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 		Backend.request_admin_ticket(code)
 	_clear_reconnect_state()
 	changed.emit()
+	# Self-heal for the join/start race: a guest that joined while the host was starting can miss the one start RPC
+	# (the playtest party saw one of two guests stay in the lobby). Every room update says whether the route is running,
+	# so a guest still outside it enters now.
+	if online and not is_host and p_session_active and not connecting:
+		call_deferred("_enter_session_scene", get_tree())
 
 
 ## Push the host's configuration to everyone. Called after any host-side change,
 ## so a client never generates a building from a stale route.
 func broadcast() -> void:
 	if online and is_host:
-		_receive_room.rpc(code, seed_text, mode, map_scale, difficulty, peers,
-			session_active)
+		NetPeers.send_all(multiplayer, _receive_packs, [RoomPacks.announce()])
+		NetPeers.send_all(multiplayer, _receive_room, [code, seed_text, mode, map_scale, difficulty, peers,
+			session_active])
+		NetPeers.send_all(multiplayer, _receive_daytime, [daytime])
+
+
+## The host's content packs, sent ahead of every room update (a separate RPC so the room RPC's signature stays as it
+## was). A guest that cannot load the same packs leaves before it generates anything, with the reason in the status.
+@rpc("authority", "call_remote", "reliable")
+func _receive_packs(p_packs: Dictionary) -> void:
+	if is_host:
+		return
+	var result := RoomPacks.adopt(p_packs, public_route)
+	if result["ok"]:
+		_packs_waiting = {}
+		return
+	# Missing packs in a private room: the mod UI asks (or auto-downloads) and calls back; anything else refuses.
+	var dialog := get_tree().root.find_child("ModJoinDialog", true, false)
+	if result["missing"].is_empty() or public_route or dialog == null or not dialog.has_method("begin"):
+		_close_failed_connection(String(result["reason"]))
+		return
+	if String(_packs_waiting.get("hash", "")) == String(p_packs.get("hash", "")):
+		return
+	_packs_waiting = p_packs
+	if not dialog.is_connected("join_allowed", _on_mod_join_allowed):
+		dialog.connect("join_allowed", _on_mod_join_allowed)
+		dialog.connect("cancelled", _on_mod_join_cancelled)
+	status_message = "MODS NEEDED // %s" % String(result["reason"])
+	changed.emit()
+	dialog.begin(p_packs.get("packs", []), not public_route)
+
+
+func _on_mod_join_allowed() -> void:
+	if _packs_waiting.is_empty():
+		return
+	var result := RoomPacks.adopt(_packs_waiting, public_route)
+	_packs_waiting = {}
+	if not result["ok"]:
+		_close_failed_connection(String(result["reason"]))
+		return
+	status_message = "MODS LOADED // WAITING FOR HOST"
+	changed.emit()
+	if online and session_active:
+		call_deferred("_enter_session_scene", get_tree())
+
+
+func _on_mod_join_cancelled() -> void:
+	if not _packs_waiting.is_empty():
+		_close_failed_connection("JOIN CANCELLED // ROOM MODS NOT DOWNLOADED")
+
+
+## The host's City daytime flag (a separate small RPC so the room RPC's signature stays as it was).
+@rpc("authority", "call_remote", "reliable")
+func _receive_daytime(p_daytime: bool) -> void:
+	daytime = p_daytime
+	changed.emit()
+
+
+## City only: whether this room is in daytime. Last Route rooms are never day.
+func is_day() -> bool:
+	return false   # only the archived City had daytime
+
+
+## Host (or solo) toggles daytime before the run starts; guests see it through the room sync.
+func set_daytime(value: bool) -> void:
+	if online and not is_host:
+		return
+	if daytime == value:
+		return
+	daytime = value
+	broadcast()
+	changed.emit()
 
 
 func _local_name() -> String:
@@ -756,7 +891,7 @@ func mode_available(candidate: Mode) -> bool:
 
 
 func mode_unavailable_reason(candidate: Mode) -> String:
-	return "" if candidate == Mode.DEFAULT else "MODE IS UNAVAILABLE"
+	return "" if mode_available(candidate) else "MODE IS UNAVAILABLE"
 
 
 func difficulty_available(candidate: Difficulty) -> bool:
@@ -894,12 +1029,18 @@ func enter(tree: SceneTree) -> void:
 		status_message = mode_unavailable_reason(mode)
 		changed.emit()
 		return
+	var pack_error := RoomPacks.host_load(public_route)
+	if not pack_error.is_empty():
+		status_message = pack_error
+		changed.emit()
+		return
 	session_active = true
 	status_message = "ROUTE IN PROGRESS"
 	broadcast()
 	Backend.update_room(peers.size(), session_active)
 	if online:
-		_receive_start.rpc(code, seed_text, mode, map_scale, difficulty)
+		NetPeers.send_all(multiplayer, _receive_daytime, [daytime])
+		NetPeers.send_all(multiplayer, _receive_start, [code, seed_text, mode, map_scale, difficulty])
 	_enter_session_scene(tree)
 
 
@@ -921,7 +1062,7 @@ func _receive_start(p_code: String, p_seed: String, p_mode: int, p_scale: int,
 
 
 func _enter_session_scene(tree: SceneTree) -> void:
-	if _scene_transitions_suppressed_for_tests:
+	if _scene_transitions_suppressed_for_tests or not _packs_waiting.is_empty():
 		return
 	var path := session_scene_path()
 	if tree.current_scene != null and tree.current_scene.scene_file_path in [
@@ -930,7 +1071,7 @@ func _enter_session_scene(tree: SceneTree) -> void:
 	# Resource dependencies are loaded on the worker thread by the intermediate
 	# scene. Main3D then keeps the same visual over a joining guest until her
 	# authoritative host snapshot is installed.
-	tree.change_scene_to_file(ROUTE_LOADING_SCENE)
+	XRFade.change_scene(tree, ROUTE_LOADING_SCENE)
 
 
 ## The two-process ENet harness verifies the start RPC while deliberately
@@ -938,6 +1079,41 @@ func _enter_session_scene(tree: SceneTree) -> void:
 func suppress_scene_transitions_for_tests() -> void:
 	assert(OS.is_debug_build())
 	_scene_transitions_suppressed_for_tests = true
+
+
+## The game this room belongs to; sent with the directory registration and checked when a code is resolved.
+func game_id() -> String:
+	return GAME_LAST_ROUTE
+
+
+## The always-open shared route code of a game (the backend keeps one public route per game id).
+func public_code() -> String:
+	return PUBLIC_CODE
+
+
+func is_city() -> bool:
+	return false   # KYTTU: The City is archived
+
+
+## Where "back" goes for this room's game: that game's own menu (Last Route's title menu, main_menu.tscn), so leaving staging
+## or a route lands on the game, not the general games hub. Falls back to the hub for a game without a menu scene.
+func menu_scene_path() -> String:
+	var game := GameRegistry.get_game(game_id())
+	var scene := String(game.get("scene", "")) if not game.is_empty() else ""
+	Settings.hub_last_game = game_id()   # the hub opens on this game's card if the player goes on to it
+	return scene if not scene.is_empty() and ResourceLoader.exists(scene) else GameRegistry.HUB_SCENE
+
+
+## "BACK TO LAST ROUTE": the label of the back button that returns to menu_scene_path().
+func menu_back_label() -> String:
+	var game := GameRegistry.get_game(game_id())
+	var title := String(game.get("title", "")).trim_prefix("THE ").trim_prefix("KYTTU: ") if not game.is_empty() else ""
+	return "BACK TO %s" % title if not title.is_empty() else "BACK"
+
+
+## Directory answers from servers that predate the `game` field are Last Route rooms.
+static func game_matches(room_game: String, expected: String) -> bool:
+	return (room_game if not room_game.is_empty() else GAME_LAST_ROUTE) == expected
 
 
 func session_scene_path() -> String:
@@ -953,7 +1129,7 @@ func end_session(reason: String = "ROUTE ENDED // RETURNED TO STAGING") -> void:
 	if online and not is_host:
 		return
 	if online:
-		_receive_end.rpc(reason)
+		NetPeers.send_all(multiplayer, _receive_end, [reason])
 	_receive_end(reason)
 
 
@@ -967,6 +1143,76 @@ func _receive_end(reason: String) -> void:
 	call_deferred("_return_to_staging")
 
 
+## Validators set this so a leave can be checked without swapping out the validation scene.
+var skip_scene_changes_for_test := false
+const HOST_LEFT_NOTICE := "HOST LEFT THE ROOM // BACK AT THE MAIN MENU"
+## One-shot line the main menu shows after a guest left a room (their own exit, or the host going away).
+var menu_notice := ""
+
+
+## The host leaving or quitting CLOSES the room (ending a run only returns to staging): guests are told, the server is told to drop
+## it (leave_network -> Backend.unregister_room, sent before ENet closes), and the host's own room state is replaced by a fresh local one.
+## The relay says the host quit or crashed (a HOST_LEFT frame): a guest goes to the main menu at once, without the reconnect grace
+## that a plain connection drop gets.
+func _on_relay_host_left(_message: String) -> void:
+	if is_host or not online:
+		return
+	leave_room_to_menu(HOST_LEFT_NOTICE)
+
+
+func close_room() -> void:
+	if online and is_host and _peer != null:
+		_receive_room_closed.rpc(HOST_LEFT_NOTICE)
+		_peer.poll()
+	reset_after_leaving("")
+
+
+@rpc("authority", "call_remote", "reliable")
+func _receive_room_closed(reason: String) -> void:
+	if is_host:
+		return
+	leave_room_to_menu(reason if not reason.is_empty() else HOST_LEFT_NOTICE)
+
+
+## Quitting while hosting: the same close, then a short wait so the server really receives it before the process ends.
+func close_room_for_quit() -> void:
+	if online and is_host:
+		close_room()
+		await Backend.wait_for_room_close()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and online and is_host:
+		close_room()
+
+
+## A guest's way out of a co-op room: unregister from the host, close ENet/relay, unload the room's packs, replace the joined room
+## with a fresh local one (no stale code, seed or roster) and land on the main menu with `notice`. The host keeps the staging flow.
+func leave_room_to_menu(notice: String = "") -> void:
+	reset_after_leaving(notice)
+	if skip_scene_changes_for_test:
+		return
+	var tree := get_tree()
+	if tree == null:
+		return
+	XRFade.change_scene(tree, menu_scene_path())
+
+
+## The state half of leave_room_to_menu (no scene change), so it can be checked on its own.
+func reset_after_leaving(notice: String = "") -> void:
+	var for_mode := mode
+	leave_network()
+	create_local(for_mode)
+	menu_notice = notice
+	status_message = ""
+
+
+func consume_menu_notice() -> String:
+	var notice := menu_notice
+	menu_notice = ""
+	return notice
+
+
 func _return_to_staging() -> void:
 	var tree := get_tree()
 	if tree == null:
@@ -974,7 +1220,7 @@ func _return_to_staging() -> void:
 	if tree.current_scene != null \
 			and tree.current_scene.scene_file_path == "res://scenes/room_lobby.tscn":
 		return
-	tree.change_scene_to_file("res://scenes/room_lobby.tscn")
+	XRFade.change_scene(tree, "res://scenes/room_lobby.tscn")
 
 
 static func _make_code() -> String:
