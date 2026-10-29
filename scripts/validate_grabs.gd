@@ -229,6 +229,8 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		var delta := maxf(route.get_process_delta_time(), 1.0 / 60.0)
 		waited += route.get_process_delta_time()
 		var camera := player.first_person_camera.global_transform
+		if grab.pushes != pushes_seen:
+			last_push_at = waited   # (from the first frame: a push during the catch-in is still coming back after it)
 		var own_eye := player.first_person_body().eye()
 		if last_eye == Vector3.INF:
 			last_eye = own_eye
@@ -259,9 +261,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 			# at the body's own eyes, unless her arm or body is right there (then it is nudged clear, as the rules ask)
 			var eye_clear := HunterGrab.camera_blocked(space, own.eye(), [player.get_rid()], player.collision_mask, [view],
 				HunterGrab.CLEARANCE + .03, true).is_empty()
-			if grab.pushes != pushes_seen:
-				last_push_at = waited
-			if eye_clear and grab.pushes == pushes_seen and waited - last_push_at > .12:   # (coming back from a push takes a frame or two)
+			if eye_clear and grab.pushes == pushes_seen and waited - last_push_at > .25:   # (coming back from a push, at 40% of a push, takes a few frames)
 				eye_frames += 1
 				if camera.origin.distance_to(own.eye()) >= .03:   # at the head's front face plus at most 2 cm (and rounding)
 					drift_frames += 1

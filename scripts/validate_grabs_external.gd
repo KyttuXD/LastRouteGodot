@@ -374,6 +374,7 @@ func _expect_case(route: Node, player: PlayerController3D, grab: HunterGrab, sty
 			stand.y, space, exclude, mask, grab_ended_at == INF)
 		if _debug:
 			var hd := guest_view.find_child("Head", true, false) as Node3D
+			print("COPY %.3f pos %s rot %s" % [guest_clock, copy.global_position, copy.rotation_degrees])
 			print("GUEST %.3f t %.2f model %s rot %s head %s hq %s lh %s ease %.2f clip %s" % [guest_clock, t, guest_model.global_position,
 				guest_model.global_rotation_degrees, hunter.get("Head", Vector3.ZERO), hd.quaternion, hunter.get("L-Hand", Vector3.ZERO),
 				float(guest_view.get("_grab_ease")), (guest_view.get("_animation_player") as AnimationPlayer).current_animation])
@@ -462,6 +463,8 @@ func _cases_for(style: String) -> Array:
 	return ids
 
 
+## Run in real time, without --fixed-fps: RemoteMotion plays guests back on the wall clock, and a fixed-fps headless run
+## races ahead of it (the replay then reads as jumps).
 func run(host: Node) -> int:
 	var route: Node = load("res://scenes/main_3d.tscn").instantiate()
 	host.get_tree().root.add_child(route)
