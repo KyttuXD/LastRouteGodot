@@ -74,6 +74,19 @@ func _check_sites(seed_text: String) -> int:
 			_expect(land.distance_to(exit) / 1.5 >= 1.8 and land.distance_to(exit) / 1.5 <= 3.2, "%s: the swim lasts %.1f s (want about 2-3)" % [label, land.distance_to(exit) / 1.5])
 			# the exit leads on: the dry ring connects to the chunk's main cross
 			_expect(_reaches_cross(lower, exit_cell), "%s: the climb-out is cut off from the collector's tunnels" % label)
+			# the column is fed and lands (KT: "waterfall doesnt connect"): spur water across the whole lip on the first sewer,
+			# pool water under the whole sheet on the collector, and the spur reaches the tunnel's main channel
+			var north := bool(falls["north"])
+			var edge := int(float(falls["edge_z"]))
+			var lip_z := edge if north else edge - 1
+			var base_z := edge - 1 if north else edge
+			for lx in range(int(float(falls["edge_x0"])), int(float(falls["edge_x0"])) + 3):
+				_expect(int(upper[lip_z][lx]) == SewerRouteGenerator.WATER, "%s: no spur water at the lip (%d, %d)" % [label, lx, lip_z])
+				_expect(int(lower[base_z][lx]) == SewerRouteGenerator.WATER, "%s: the column's base (%d, %d) is not over pool water" % [label, lx, base_z])
+			var spur: Rect2i = falls["spur"]
+			var channel_z := spur.position.y - 1 if not north else spur.end.y
+			var joint := int(upper[channel_z][int(float(falls["edge_x0"])) + 1])     # under a crossing deck the channel still runs
+			_expect(joint in [SewerRouteGenerator.WATER, SewerRouteGenerator.BRIDGE], "%s: the spur does not join the hall's channel (code %d)" % [label, joint])
 	return sites
 
 
@@ -135,6 +148,7 @@ func _check_view_gap(host: Node) -> void:
 		# the fall comes out of a visible source: the crest of foam and the lip light stand on the spur's end
 		for source_name in ["Waterfall", "FallsCrest", "FallsLipLight"]:
 			_expect(root.get_node_or_null(source_name) != null, "the falls chunk has no %s (the water comes from nothing)" % source_name)
+		_check_column_base(view, site, root)
 		var rails := root.get_node_or_null("ChannelRails") as MultiMeshInstance3D
 		_expect(rails != null, "the falls chunk has no railings")
 		if rails != null:
@@ -149,6 +163,42 @@ func _check_view_gap(host: Node) -> void:
 	view.queue_free()
 	player.queue_free()
 	await host.get_tree().process_frame
+
+
+## The sheet's foot meets the cistern's water within BASE_TOLERANCE, and the foam and mist sit on pool cells under it.
+const BASE_TOLERANCE := .15
+
+func _check_column_base(view: StreamedFacilityView3D, site: Dictionary, upper_root: Node3D) -> void:
+	var sheet := upper_root.get_node_or_null("Waterfall") as MeshInstance3D
+	var lower_root: Node3D = view._loaded.get(Vector3i(int(site["x"]), SewerRouteGenerator.LOWER_LEVEL, int(site["z"])))
+	_expect(lower_root != null, "the cistern under the falls is not loaded")
+	if sheet == null or lower_root == null:
+		return
+	var water_y := float(SewerRouteGenerator.LOWER_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT + SewerRouteGenerator.WATER_SURFACE
+	var box := sheet.global_transform * sheet.mesh.get_aabb()
+	var foot := box.position.y
+	_expect(absf(foot - water_y) <= BASE_TOLERANCE, "the waterfall's foot is at %.2f, the cistern water at %.2f" % [foot, water_y])
+	var top := box.end.y
+	var feed_y := float(SewerRouteGenerator.LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT + SewerRouteGenerator.WATER_SURFACE
+	_expect(absf(top - feed_y) <= BASE_TOLERANCE, "the waterfall's top is at %.2f, the spur's water at %.2f" % [top, feed_y])
+	# where it lands: the far side of the arc, across the sheet's width
+	var pool: Rect2i = site["pool"]
+	var origin := Vector2(int(site["x"]), int(site["z"])) * StreamedRouteGenerator.CHUNK_SIZE
+	var north := bool(site["north"])
+	var land_z := (box.position.z if north else box.end.z) - origin.y
+	for land_x in [box.position.x + .05, box.get_center().x, box.end.x - .05]:
+		var cell := Vector2i(floori(float(land_x) - origin.x), floori(land_z))
+		_expect(pool.has_point(cell), "the waterfall lands at %s, outside the pool %s" % [cell, pool])
+	# thrown clear of the lip, so the first sewer sees it pour (a sheet hugging the lip hides under it)
+	var edge := float(site["edge_z"]) + origin.y
+	_expect(absf(land_z + origin.y - edge) >= .5, "the waterfall hangs %.2f m from the lip: hidden under it from the hall" % absf(land_z + origin.y - edge))
+	for name in ["FallsFoam", "FallsMist"]:
+		var node := lower_root.get_node_or_null(name) as Node3D
+		_expect(node != null, "the cistern has no %s under the falls" % name)
+		if node != null:
+			var at := Vector2(node.global_position.x, node.global_position.z) - origin
+			_expect(pool.has_point(Vector2i(floori(at.x), floori(at.y))) and absf(node.global_position.y - water_y) <= .2,
+				"%s sits at %s, not on the pool's water" % [name, node.global_position])
 
 
 ## ---------------------------------------------------------------- one live plunge

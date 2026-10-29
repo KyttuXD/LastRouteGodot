@@ -167,14 +167,28 @@ func _check_waypoints(host: Node) -> void:
 	]
 	waypoints.update_marks(camera, Vector3(0, 1.7, 0), marks)
 	var entries: Array = waypoints.entries()
-	_expect(entries.size() == 7, "every teammate in the room needs a waypoint, got %d" % entries.size())
-	if entries.size() == 7:
-		_expect(not entries[0]["clamped"] and entries[0]["distance"] == 10, "a teammate 10 m ahead should be an on-screen marker at 10 M (%s)" % [entries[0]])
-		_expect(entries[1]["clamped"], "a teammate behind you should be an edge arrow")
-		_expect(entries[2]["other_floor"] and entries[2]["above"] and entries[2]["level"] == 1, "another floor needs the up marker with its level")
-		_expect(entries[3]["stale"] and not entries[0]["stale"], "only the teammate quiet for more than 3 s is dimmed")
-		_expect(entries[4]["state"] == "DOWN" and entries[5]["state"] == "CAUGHT" and entries[0]["state"] == "", "DOWN and CAUGHT are not labelled")
-		_expect(entries[6]["clamped"] and entries[6]["distance"] == 900, "a teammate 900 m away (beyond chunk range) should still get an edge arrow with the distance")
+	# only teammates in view get a marker: behind you (Bo) and far off screen (Gus) are left to the minimap's border arrows
+	var by_name := {}
+	for entry in entries:
+		by_name[String(entry["name"])] = entry
+	_expect(entries.size() == 5 and not by_name.has("BO") and not by_name.has("GUS"), "off-screen teammates still get screen-edge arrows: %s" % [by_name.keys()])
+	for entry in entries:
+		_expect(not entry["clamped"], "a waypoint was clamped to the screen edge")
+	if by_name.has("ANA"):
+		_expect(by_name["ANA"]["distance"] == 10, "a teammate 10 m ahead should read 10 M")
+		_expect(not by_name["ANA"]["stale"] and by_name["ANA"]["state"] == "", "a fresh teammate is dimmed or labelled")
+	_expect(by_name.has("CY") and by_name["CY"]["other_floor"] and by_name["CY"]["above"] and by_name["CY"]["level"] == 1, "another floor needs the up marker with its level")
+	_expect(by_name.has("DI") and by_name["DI"]["stale"], "the teammate quiet for more than 3 s is not dimmed")
+	_expect(by_name.has("ED") and by_name["ED"]["state"] == "DOWN" and by_name.has("FAY") and by_name["FAY"]["state"] == "CAUGHT", "DOWN and CAUGHT are not labelled")
+	# the minimap carries the off-range ones: a small arrow on its border, pointing toward them
+	var mini := FacilityMap.new()
+	mini.size = Vector2(100, 82)
+	var far := mini.teammate_layout(Vector2(900, 41), 2.0, {"level": 0})
+	_expect(far["off_view"] and Rect2(Vector2.ZERO, mini.size).has_point(far["shown"]) and (far["outward"] as Vector2).x > .99,
+		"a teammate outside the minimap is not an arrow on its border pointing toward them")
+	mini.free()
+	var waypoint_source := FileAccess.get_file_as_string("res://src/ui/teammate_waypoints.gd")
+	_expect(waypoint_source.contains("if entry[\"clamped\"]:\n\t\t\tcontinue"), "the HUD still draws screen-edge waypoint arrows")
 	waypoints.queue_redraw()
 	await host.get_tree().process_frame
 	Settings.teammate_waypoints = false

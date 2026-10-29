@@ -29,8 +29,24 @@ func _expect(condition: bool, message: String) -> void:
 		_failures += 1
 
 
+## Breakable pipes are a secret (KT): no "[E] BREAK // AXE" prompt and no wrong-tool message, yet the interact key still
+## reaches them; a locked seal keeps its PICK LOCK prompt.
+func _check_secret_prompt() -> void:
+	for locked in [false, true]:
+		var item := RouteInteractable3D.new()
+		item.kind = RouteInteractable3D.Kind.BREAKABLE
+		item.breakable_spec = Breach.make_spec("BRK:0:-1:0:0", Breach.KIND_PIPE, "authored", Vector3i(0, -1, 0), Vector2i(3, 3), 3,
+			["rescue_axe"], {}, locked)
+		if locked:
+			_expect(item.get_prompt().begins_with("PICK LOCK") and not item.is_secret(), "a locked breakable lost its PICK LOCK prompt")
+		else:
+			_expect(item.get_prompt().is_empty() and item.is_secret(), "a breakable pipe still shows \"%s\"" % item.get_prompt())
+		item.free()
+
+
 func run(host: Node) -> int:
 	_check_timeline()
+	_check_secret_prompt()
 	_check_valve_state()
 	var pipes := _check_specs()
 	_check_wading(host)

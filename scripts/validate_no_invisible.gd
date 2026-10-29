@@ -2,7 +2,7 @@ extends RefCounted
 
 ## No full invisibility (KT 2026-10-28): every hunter gimmick, awake and in the world, draws at least
 ## HunterView3D.MIN_VISIBLE_ALPHA of her model -- model visible, fade never past it, and the faded pixels survive the
-## alpha test. Checked for every roster identity in its default state and with her gimmick forced into its hidden state.
+## alpha test; dormant hunters are drawn whole in their dormant pose. Checked for every roster identity in its default state and with her gimmick forced into its hidden state.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- no_invisible
 
@@ -62,10 +62,27 @@ func run(host: Node) -> int:
 				_expect(HunterView3D.model_alpha(brain) >= HunterView3D.MIN_VISIBLE_ALPHA, "%s model_alpha is below the floor" % id)
 				checked += 1
 			view.queue_free()
-	# dormant is the only fully hidden state
-	var sleeping := HunterBrain.new(Vector2(5, 5), "NOINV:SLEEP", "nyxie", "standard")
-	sleeping.active = false
-	_expect(HunterView3D.model_alpha(sleeping) == 0.0, "a dormant hunter is drawn")
+	# dormant hunters (a route hunter before her relay, Nyxie / Solyth / Wynelle) are drawn whole, in the dormant pose
+	for id in ["dovelle", "nyxie", "solyth", "wynelle"]:
+		var sleeping := HunterBrain.new(Vector2(5, 5), "NOINV:SLEEP:%s" % id, id, "standard")
+		sleeping.active = false
+		var view := HunterView3D.new()
+		view.brain = sleeping
+		host.add_child(view)
+		await host.get_tree().process_frame
+		sleeping.active = false
+		view.sync_from_brain()
+		view._apply_visibility()
+		view._update_animation()
+		_expect(HunterView3D.model_alpha(sleeping) == 1.0 and _alpha_of(view) >= .99, "dormant %s is not drawn (%.2f)" % [id, _alpha_of(view)])
+		if view._animation_player != null:
+			_expect(view._animation_player.speed_scale <= HunterView3D.DORMANT_SPEED + .001, "dormant %s is not held still" % id)
+		# waking plays the wake-up once
+		sleeping.active = true
+		view._update_animation()
+		if view._animation_player != null and view._animation_player.has_animation("stun_recover"):
+			_expect(view._recover_left > 0.0, "%s woke without the wake-up" % id)
+		view.queue_free()
 	await host.get_tree().process_frame
 	if _failures == 0:
 		print("  ok    no_invisible: %d awake hunter states drawn at >= %.0f%%" % [checked, HunterView3D.MIN_VISIBLE_ALPHA * 100.0])

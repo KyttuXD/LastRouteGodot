@@ -786,17 +786,28 @@ func _head_ahead_point() -> Vector2:
 ## who has not woken up yet.
 ## KT 2026-10-28: "no character should have full invisibility". A stealth gimmick (hidden_from_view: Blue Void, Gray,
 ## Verrine, Porcelle, Ilyra's banish, ...) fades the model to MIN_VISIBLE_ALPHA, never further: a faint silhouette while
-## the hunter is awake. Only dormant hunters (brain.active false: Nyxie/Solyth/Wynelle before they wake) and a dispersed
-## Ceryth (retired, out of the room) draw nothing.
+## the hunter is awake. Dormant hunters (brain.active false: a route hunter before her activation relay, Nyxie/Solyth/
+## Wynelle before they wake) are drawn too, fully, slumped in DORMANT_CLIP (KT: "show sleeping hunters while asleep"),
+## harmless (an inactive brain catches nobody), and play the wake-up once when they activate. Only a dispersed Ceryth
+## (retired, out of the room) draws nothing.
 const MIN_VISIBLE_ALPHA := .28
 
 
-## How much of the model shows: 0 dormant or retired, MIN_VISIBLE_ALPHA while a gimmick hides her, 1 otherwise.
+## The slumped, head-down hold of a dormant hunter: her stun clip slowed right down (every rig has it), else idle.
+const DORMANT_CLIP := "stun"
+const DORMANT_SPEED := .15
+var _was_dormant := false
+
+
+## How much of the model shows: 0 retired, MIN_VISIBLE_ALPHA while a gimmick hides an awake hunter, 1 otherwise
+## (dormant included).
 static func model_alpha(hunter: HunterBrain) -> float:
 	if hunter == null:
 		return 1.0
-	if not hunter.active or (hunter.gimmick is CerythGimmick and (hunter.gimmick as CerythGimmick).dispersed):
+	if hunter.gimmick is CerythGimmick and (hunter.gimmick as CerythGimmick).dispersed:
 		return 0.0
+	if not hunter.active:
+		return 1.0
 	return MIN_VISIBLE_ALPHA if hunter.gimmick != null and hunter.gimmick.hidden_from_view() else 1.0
 
 
@@ -810,11 +821,11 @@ func _apply_visibility() -> void:
 	# Active stealth hunters must never become a completely missing render. Their
 	# gimmicks still make them extremely hard to see, but retain a trace silhouette
 	# for close-range readability.
-	_model.visible = not inactive and not retired
+	_model.visible = not retired
 	# This leaves 28% of the authored model visible. The fade helper also lifts
 	# ALPHA_SCISSOR while ghosted -- otherwise the remaining alpha falls under the
-	# default 0.5 MASK cutoff and the silhouette is gone.
-	var fade := 1.0 - MIN_VISIBLE_ALPHA if gimmick_hidden else 0.0
+	# default 0.5 MASK cutoff and the silhouette is gone. A dormant hunter is shown whole, in her dormant pose.
+	var fade := 1.0 - MIN_VISIBLE_ALPHA if gimmick_hidden and not inactive else 0.0
 	ModelSlot.set_character_fade(_model, fade)
 	if _kathy_beam != null:
 		_kathy_beam.visible = _model.visible and not grabbing()
@@ -1300,6 +1311,19 @@ func _update_animation() -> void:
 		return
 	var clip_name := "idle"
 	var delta := get_process_delta_time()
+	if not brain.active:
+		# dormant: slumped and still until her signal wakes her
+		_was_dormant = true
+		var hold := DORMANT_CLIP if _animation_player != null and _animation_player.has_animation(DORMANT_CLIP) else "idle"
+		ModelSlot.play_if_available(_animation_player, hold)
+		if _animation_player != null:
+			_animation_player.speed_scale = DORMANT_SPEED
+		return
+	if _was_dormant:
+		# just woke ("HUNTER SIGNAL ACTIVE"): the stun wake-up plays once, then she moves
+		_was_dormant = false
+		if _animation_player != null and _animation_player.has_animation("stun_recover"):
+			_recover_left = _animation_player.get_animation("stun_recover").length - .03
 	if brain.stun_timer > 0.0:
 		clip_name = "stun"
 		_was_stunned = true
