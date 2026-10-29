@@ -1721,7 +1721,7 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 const WARREN_SHARE := .55
 ## The dense regions whose chunks can be warrens (KT: "the other regions need this change too"). The rest keep their banks;
 ## each region's special rooms (carousel big top, music wing, maze office suite) live in its bank chunks.
-const WARREN_REGIONS := ["maze", "hospital", "lab"]
+const WARREN_REGIONS := ["maze", "hospital", "lab", "greenhouse"]
 ## Room types whose recipes are tuned to bank shapes (rows of beds): they stay in the bank chunks.
 const WARREN_ROOM_EXCLUDE := ["ward", "pod_room"]
 ## Warren macro cells: each quadrant beside the spine is 3 x 3 cells of WARREN_CELL x WARREN_CELL.
