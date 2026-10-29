@@ -2297,11 +2297,15 @@ func _spawn_anti_idle_hunter() -> bool:
 ## leads to. Keeping every neighbouring level generated whether or not anything
 ## connects to it built a whole Inferno window the moment a runner reached the
 ## collector (a 110-180 ms frame on the level change).
-func _hunter_window_levels(center: Vector3i) -> Array:
+## `cached_only`: read the links from chunks already generated (a teammate's window): the generator otherwise builds the
+## chunks to find them, on this thread.
+func _hunter_window_levels(center: Vector3i, cached_only := false) -> Array:
 	var levels := [center.y]
 	for z in range(center.z - 1, center.z + 2):
 		for x in range(center.x - 1, center.x + 2):
-			for link_value in facility.generator.vertical_links(Vector3i(x, center.y, z)):
+			if cached_only and not facility.chunk_ready(Vector3i(x, center.y, z)):
+				continue
+			for link_value in facility.generator.vertical_links(Vector3i(x, center.y, z), cached_only):
 				var far := int(LevelLink.other_end(link_value, center.y)["level"])
 				if absi(far - center.y) <= HUNTER_VERTICAL_STREAM_RADIUS and not levels.has(far):
 					levels.append(far)
@@ -2312,7 +2316,8 @@ func _refresh_hunter_stream() -> void:
 	if _remotes == null or not _remotes.simulates() or facility.generator == null:
 		return
 	_repair_duplicate_hunter_identities()
-	var centers: Array[Vector3i] = [facility.current_chunk_coord()]
+	var own_center := facility.current_chunk_coord()
+	var centers: Array[Vector3i] = [own_center]
 	for value in _remotes.stream_centers():
 		var center: Vector3i = value
 		if not centers.has(center):
@@ -2326,6 +2331,7 @@ func _refresh_hunter_stream() -> void:
 	_hunter_stream_signature = stream_signature
 	_hunter_stream_waiting = false
 	var active_coords := {}
+	var generating_round_teammates := {}
 	var coords_by_level := {}
 	var navigation_centers: Array[Vector3i] = centers.duplicate()
 	# A pursuing hunter owns a small authority window too. Otherwise a runner
@@ -2349,7 +2355,7 @@ func _refresh_hunter_stream() -> void:
 	# hunter resident across successive stair transfers instead of unloading
 	# immediately when the player climbs twice.
 	for center in navigation_centers:
-		for level in _hunter_window_levels(center):
+		for level in _hunter_window_levels(center, center != own_center):
 			if not coords_by_level.has(level):
 				coords_by_level[level] = []
 			var level_coords: Array = coords_by_level[level]
@@ -2358,11 +2364,14 @@ func _refresh_hunter_stream() -> void:
 					var coord := Vector3i(x, level, z)
 					if not facility.generator.is_chunk_allowed(coord):
 						continue
-					# another level's chunks join once the view's worker has generated them,
-					# so reaching a level never generates a whole window on this thread
-					if level != center.y and not facility.chunk_ready(coord):
+					# another level's chunks, and every chunk round a teammate, join once the view's worker has
+					# generated them, so reaching a level or a teammate running onto fresh ground never generates a
+					# whole window on this thread (a teammate's new window cost the host ~320 ms in one frame)
+					if (level != center.y or center != own_center) and not facility.chunk_ready(coord):
 						facility.request_generation(coord)
 						_hunter_stream_waiting = true
+						if center != own_center:
+							generating_round_teammates[coord] = true
 						continue
 					active_coords[coord] = true
 					if not level_coords.has(coord):
@@ -2388,7 +2397,10 @@ func _refresh_hunter_stream() -> void:
 	for entity_id_value in world_state.hunters:
 		var entity_id := String(entity_id_value)
 		var state := world_state.hunter_state(entity_id)
-		if active_coords.has(_state_chunk(state)):
+		# a loaded hunter in a teammate's chunk that is still generating stays (one chasing them onto fresh ground would
+		# otherwise vanish until the worker caught up)
+		if active_coords.has(_state_chunk(state)) \
+				or (_hunter_views.has(entity_id) and generating_round_teammates.has(_state_chunk(state))):
 			desired[entity_id] = state
 	var candidates: Array[Dictionary] = []
 	for coord_value in active_coords:
