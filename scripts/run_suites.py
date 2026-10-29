@@ -38,7 +38,9 @@ VERDICT = re.compile(r"^-- suite (\S+) (PASS|FAIL) ([0-9.]+)s")
 # failures), so a broken project could print "PASS". None of these lines appear in a healthy full run (checked against
 # the 2026-10-28 baseline), so any of them turns the suite it appears in -- or, before the first suite, every suite of
 # that process -- into a FAIL. Plain "ERROR:" lines are NOT used: a healthy run prints dozens of them.
-COMPILE_ERROR = re.compile(r"SCRIPT ERROR|Parse Error|Failed to load script|Compile Error|res://\S+:\d+ - ")
+# "Unicode parsing error": a NUL or bad byte in a script or a file read at boot (a NUL string constant in an autoload
+# made every --import print six of them, 2026-10-28); treated like a compile error so it fails loudly.
+COMPILE_ERROR = re.compile(r"SCRIPT ERROR|Parse Error|Failed to load script|Compile Error|Unicode parsing error|res://\S+:\d+ - ")
 
 
 # Legacy names old lane trees still pass (validate_runner.gd SUITE_ALIASES): "biomes" became the four region shards.

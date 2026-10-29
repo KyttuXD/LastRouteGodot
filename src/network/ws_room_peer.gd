@@ -85,11 +85,12 @@ func update_host_token(token: String) -> void:
 
 
 ## Guest side: connecting until the relay answers the hello with a peer id.
-func create_guest(url: String, code: String) -> Error:
+func create_guest(url: String, code: String, ticket: String = "") -> Error:
 	_reset()
 	_server = false
 	_url = url
 	_code = code.to_upper()
+	_token = ticket   # a guest has no host token; a reserved room hands out a one-time join ticket instead
 	_status = MultiplayerPeer.CONNECTION_CONNECTING
 	return _open_link()
 
@@ -184,6 +185,8 @@ func _send_hello() -> void:
 	var hello := {"t": "hello", "code": _code, "role": "host" if _server else "guest"}
 	if _server:
 		hello["token"] = _token
+	elif not _token.is_empty():
+		hello["ticket"] = _token
 	_ws.send_text(JSON.stringify(hello))
 	_last_send_msec = Time.get_ticks_msec()
 

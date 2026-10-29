@@ -885,61 +885,49 @@ func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
 	if mark.has("down_left"):
 		_draw_down_marker(at, cell, mark)
 		return
-	var radius := maxf(3.2 if interactive else 2.8, cell * .48)
+	var radius := maxf(3.4 if interactive else 3.0, cell * .5)
 	var colour: Color = mark.get("colour", COOP_PLAYER_BLUE)
 	if bool(mark.get("stale", false)):
 		colour = Color(colour, .45)   # no news for a while: last known spot, dimmed
 	var layout := teammate_layout(at, radius, mark)
-	var other_floor: bool = layout["kind"] == "updown"
-	var inert: bool = layout["kind"] == "downed"
 	var off_view: bool = layout["off_view"]
 	var shown: Vector2 = layout["shown"]
 	var outward: Vector2 = layout["outward"]
 	var ink := Color(0.01, 0.04, 0.05, .95)
-	if other_floor:
-		var dim := Color(colour, .55)
-		draw_circle(shown, radius + 1.4, Color(ink, .85))
-		draw_circle(shown, radius + .4, dim)
-		var up: bool = layout["up"]
-		var tri := PackedVector2Array()
-		var dir := -1.0 if up else 1.0
-		tri.append(shown + Vector2(0, dir * radius * .75))
-		tri.append(shown + Vector2(-radius * .75, -dir * radius * .5))
-		tri.append(shown + Vector2(radius * .75, -dir * radius * .5))
-		draw_colored_polygon(tri, ink)
-	elif inert:
-		draw_arc(shown, radius, 0.0, TAU, 14, Color(0.62, 0.62, 0.66), maxf(1.2, cell * .12), true)
-		var arm := radius * .55
-		draw_line(shown + Vector2(-arm, -arm), shown + Vector2(arm, arm), Color(0.62, 0.62, 0.66), 1.2, true)
-		draw_line(shown + Vector2(-arm, arm), shown + Vector2(arm, -arm), Color(0.62, 0.62, 0.66), 1.2, true)
+	# Every player is an arrow in their own colour, no dots, initials or names (names live on the HUD waypoints).
+	if layout["kind"] == "updown":
+		# another floor: a bold up / down arrow in their colour
+		var dir := -1.0 if layout["up"] else 1.0
+		var reach := radius * 1.6
+		var tri := PackedVector2Array([shown + Vector2(0, dir * reach), shown + Vector2(-reach * .8, -dir * reach * .6),
+			shown + Vector2(reach * .8, -dir * reach * .6)])
+		var tri_outline := PackedVector2Array()
+		for point in tri:
+			tri_outline.append(shown + (point - shown) * 1.35)
+		draw_colored_polygon(tri_outline, ink)
+		draw_colored_polygon(tri, colour)
+		return
+	var facing: Vector2 = outward if off_view else mark.get("facing", Vector2.UP)
+	if facing.length_squared() < .01:
+		facing = Vector2.UP
+	facing = facing.normalized()
+	var side := Vector2(-facing.y, facing.x)
+	var length := radius * (1.7 if off_view else 1.55)
+	var arrow := PackedVector2Array([shown + facing * length,
+		shown - facing * length * .7 + side * radius * 1.05,
+		shown - facing * length * .25,
+		shown - facing * length * .7 - side * radius * 1.05])
+	var outline := PackedVector2Array()
+	for point in arrow:
+		outline.append(point + (point - shown).normalized() * 1.1)
+	draw_colored_polygon(outline, ink)
+	if layout["kind"] == "downed":
+		# downed / spectating: the same arrow, hollow
+		var hollow := arrow.duplicate()
+		hollow.append(arrow[0])
+		draw_polyline(hollow, colour, 1.5, true)
 	else:
-		var facing: Vector2 = outward if off_view else mark.get("facing", Vector2.UP)
-		if facing.length_squared() < .01:
-			facing = Vector2.UP
-		facing = facing.normalized()
-		var side := Vector2(-facing.y, facing.x)
-		var length := radius * (1.5 if off_view else 1.35)
-		var arrow := PackedVector2Array([shown + facing * length,
-			shown - facing * length * .7 + side * radius * .95,
-			shown - facing * length * .25,
-			shown - facing * length * .7 - side * radius * .95])
-		var outline := PackedVector2Array()
-		for point in arrow:
-			outline.append(point + (point - shown).normalized() * 1.0)
-		draw_colored_polygon(outline, ink)
 		draw_colored_polygon(arrow, colour)
-	# a tag beside the marker: the initial on the minimap, the whole callsign on the full map (unless clamped to the edge)
-	var callsign := String(mark.get("name", "P")).to_upper()
-	var label := callsign.substr(0, 16) if interactive and not off_view else callsign.substr(0, 1)
-	var font := ThemeDB.fallback_font
-	var font_size := 7 if not interactive else 8
-	var glyph := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-	var tag_at := shown + Vector2(radius + 2.0, glyph.y * .3)
-	if tag_at.x + glyph.x > size.x - 1.0:
-		tag_at.x = shown.x - radius - 2.0 - glyph.x
-	var tag_colour := Color(colour.lightened(.25), .6 if (other_floor or inert) else 1.0)
-	draw_string_outline(font, tag_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 3, ink)
-	draw_string(font, tag_at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, tag_colour)
 
 
 func _draw_floor_exit_marker(at: Vector2, cell: float, direction: String,
@@ -1144,4 +1132,4 @@ func _draw_player(origin: Vector2, cell: float) -> void:
 		var outline := arrow.duplicate()
 		outline.append(arrow[0])
 		draw_polyline(outline, Color(0.01, 0.04, 0.05, .95), maxf(2.0, reach * .22), true)
-	draw_colored_polygon(arrow, Palette.INK)
+	draw_colored_polygon(arrow, RemotePlayers.local_colour())

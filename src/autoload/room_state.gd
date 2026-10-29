@@ -115,6 +115,10 @@ var public_route := false
 var mode: Mode = Mode.DEFAULT
 ## Daytime room flag (the archived City used it; kept because HunterBrain.day_mode and the room sync still carry it).
 var daytime := false
+## This room's code is one of the owner's reserved private rooms (backend reserved_rooms.mjs): it never expires, only
+## invited players (or the room password) may host or join it, and the owner restarts / ends / kicks through commands
+## the directory hands to whoever hosts it (_on_reserved_commands).
+var reserved := false
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
 ## Display names, host first. One entry while offline.
@@ -181,6 +185,7 @@ func _ready() -> void:
 	Backend.registration_changed.connect(_on_directory_registration)
 	Backend.account_changed.connect(_on_account_changed)
 	Backend.room_resolved.connect(_on_room_resolved)
+	Backend.reserved_commands_received.connect(_on_reserved_commands)
 	_relay = RELAY_TUNNEL_SCRIPT.new()
 	_relay.name = "GameplayRelayTunnel"
 	_relay.relay_ready.connect(_on_relay_ready)
@@ -215,6 +220,7 @@ func _exit_tree() -> void:
 ## This IS singleplayer. There is no second code path to keep in step, which is
 ## the reason to do it now rather than after the networking exists.
 func create_local(for_mode: Mode) -> void:
+	reserved = false
 	public_route = false
 	daytime = false
 	GameState.clear_pending_route_checkpoint()
@@ -317,6 +323,81 @@ func host_room(port: int = DEFAULT_PORT,
 	return ""
 
 
+## Host an empty reserved private room under its own code, with the route settings the server stored for it.
+func host_reserved_room(reserved_code: String, settings: Dictionary) -> String:
+	create_local(Mode.DEFAULT)
+	code = reserved_code.strip_edges().to_upper()
+	reserved = true
+	_apply_reserved_settings(settings, false)
+	var error := host_primary_room()
+	if error.is_empty():
+		status_message = "PRIVATE ROOM %s // YOU ARE HOSTING" % code
+		changed.emit()
+	return error
+
+
+## Stored settings (seed, mode, scale, difficulty, daytime) onto this room; an empty stored seed means a fresh one.
+func _apply_reserved_settings(settings: Dictionary, keep_seed: bool) -> void:
+	if not keep_seed:
+		var stored := String(settings.get("seed", "")).strip_edges()
+		if stored.is_empty():
+			var stamp := "%d%d" % [Time.get_ticks_usec(), randi()]
+			seed_text = "ROOM-%s-%s" % [code, stamp.md5_text().substr(0, 20).to_upper()]
+		else:
+			seed_text = stored
+	if settings.has("mode") and Mode.values().has(int(settings["mode"])) and mode_available(int(settings["mode"])):
+		mode = int(settings["mode"])
+	if settings.has("scale") and SCALE_LABELS.has(int(settings["scale"])):
+		map_scale = int(settings["scale"])
+	if settings.has("difficulty"):
+		difficulty = _selectable_difficulty_or_standard(int(settings["difficulty"]))
+	if settings.has("daytime"):
+		daytime = bool(settings["daytime"])
+
+
+## Owner commands for the reserved room this client hosts, from the directory heartbeat. Each is carried out here
+## (the server only stores and echoes) and acked so it is not sent again.
+func _on_reserved_commands(commands: Array) -> void:
+	if not (online and is_host and reserved):
+		return
+	for entry_value in commands:
+		var entry: Dictionary = entry_value
+		var command := String(entry.get("command", ""))
+		var args: Dictionary = entry.get("args", {}) if entry.get("args", {}) is Dictionary else {}
+		print("[coop] private room %s: owner command %s %s" % [code, command, args])
+		CrashWatch.crumb("reserved", "%s %s" % [command, args])
+		match command:
+			"restart":
+				_apply_reserved_settings(args.get("settings", {}), bool(args.get("sameSeed", false)))
+				if not bool(args.get("sameSeed", false)) and String((args.get("settings", {}) as Dictionary).get("seed", "")).is_empty():
+					reroll_seed()
+				if session_active:
+					end_session("PRIVATE ROOM // ROUTE RESTARTING")
+					get_tree().create_timer(1.5).timeout.connect(func() -> void:
+						if online and is_host and not session_active:
+							enter(get_tree()))
+				else:
+					enter(get_tree())
+			"end":
+				if session_active:
+					end_session("PRIVATE ROOM // THE OWNER ENDED THE ROUTE")
+			"kick":
+				var target := String(args.get("target", "")).to_lower()
+				for peer_id in peers.keys():
+					if int(peer_id) != 1 and String(peers[peer_id]).to_lower() == target:
+						kick_peer(int(peer_id))
+			"settings":
+				_apply_reserved_settings(args.get("settings", {}), true)
+				broadcast()
+				changed.emit()
+			"transfer":
+				# the relay promotes the longest-connected guest (host migration); this client then leaves
+				Backend.release_host()
+				status_message = "PRIVATE ROOM // HOST HANDED OVER"
+				get_tree().create_timer(1.0).timeout.connect(leave_network)
+		Backend.ack_reserved_command(int(entry.get("seq", 0)))
+
+
 ## Main-menu CREATE ROOM path: make the ordinary room online automatically.
 ## A failed initial listing falls back to the already-created solo room; once
 ## listed, transient heartbeat trouble does not destroy a live co-op session.
@@ -347,9 +428,11 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT,
 	if use_ws:
 		if room_code.strip_edges().is_empty():
 			return "ENTER A ROOM CODE"
+		var ws_ticket := Backend.take_join_ticket(room_code)
+		reserved = not ws_ticket.is_empty()   # only a reserved private room hands out join tickets
 		var ws_peer = WS_PEER_SCRIPT.new()
 		ws_peer.link_failed.connect(_on_ws_guest_link_failed)
-		var ws_error: int = ws_peer.create_guest(WS_PEER_SCRIPT.relay_url(Backend.base_url), room_code)
+		var ws_error: int = ws_peer.create_guest(WS_PEER_SCRIPT.relay_url(Backend.base_url), room_code, ws_ticket)
 		if ws_error != OK:
 			return "COULD NOT REACH THE WEB RELAY"
 		_peer = ws_peer
@@ -359,7 +442,9 @@ func join_room(address: String = DEFAULT_ADDRESS, port: int = DEFAULT_PORT,
 		var connect_address := trimmed
 		var connect_port := port
 		if transport == "relay":
-			connect_port = _relay.start_guest(room_code, trimmed, port)
+			var ticket := Backend.take_join_ticket(room_code)
+			reserved = not ticket.is_empty()   # only a reserved private room hands out join tickets
+			connect_port = _relay.start_guest(room_code, trimmed, port, ticket)
 			if connect_port <= 0:
 				return "COULD NOT OPEN GAMEPLAY RELAY TUNNEL"
 			connect_address = DEFAULT_ADDRESS
@@ -913,6 +998,18 @@ static func valid_room_code(value: String) -> bool:
 		return false
 	for glyph in clean:
 		if not CODE_ALPHABET.contains(glyph):
+			return false
+	return true
+
+
+## A code someone may type to join: a generated one (valid_room_code) or an owner's reserved private room, which may
+## use any five letters or digits (KATHY, AKIRI). The directory decides which codes exist.
+static func valid_join_code(value: String) -> bool:
+	var clean := value.strip_edges().to_upper()
+	if clean.length() != CODE_LENGTH:
+		return false
+	for glyph in clean:
+		if not (CODE_ALPHABET.contains(glyph) or glyph in "IO01"):
 			return false
 	return true
 

@@ -33,13 +33,24 @@ func run(host: Node) -> int:
 	_expect(tunnel.start_host("ABCDE", "host-token", 7777, "127.0.0.1", PORT).is_empty(), "the host tunnel did not open")
 
 	# the main loop freezes for 5 s: the keep-alive thread must keep the room alive the whole time
+	# The main loop never returns to the engine for 5 s (this loop polls the fake relay itself, with real arrival
+	# times). The relay drops a host 1 s after its last HOST_ALIVE, so the longest gap is what matters.
 	var frozen_at := Time.get_ticks_msec()
-	OS.delay_msec(5000)
-	var alive := _drain(relay)
-	var frozen_ms := Time.get_ticks_msec() - frozen_at
-	print("  alive     main loop frozen %d ms: %d HOST_ALIVE frames (one per 250 ms)" % [frozen_ms, alive])
-	# 20 expected; 16 still leaves no 1 s hole for the relay's timeout
-	_expect(alive >= 16, "only %d keep-alives in a 5 s main-loop freeze (the room would drop)" % alive)
+	var last_at := frozen_at
+	var worst_gap := 0
+	var frames := 0
+	while Time.get_ticks_msec() - frozen_at < 5000:
+		var arrived := _drain(relay)
+		if arrived > 0:
+			var now := Time.get_ticks_msec()
+			worst_gap = maxi(worst_gap, now - last_at)
+			last_at = now
+			frames += arrived
+		OS.delay_msec(5)
+	worst_gap = maxi(worst_gap, Time.get_ticks_msec() - last_at)
+	print("  alive     main loop blocked 5 s: %d HOST_ALIVE frames, longest gap %d ms (relay timeout 1000 ms)" % [frames, worst_gap])
+	_expect(frames >= 10, "only %d keep-alives in a 5 s main-loop freeze" % frames)
+	_expect(worst_gap < 800, "a %d ms gap between keep-alives during the freeze: the relay would have dropped the room" % worst_gap)
 
 	# a token refresh is picked up by the thread
 	var sent_before: int = tunnel.alive_sent

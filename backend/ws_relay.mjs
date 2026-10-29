@@ -5,7 +5,7 @@
 // `/api/ws`, and this hub forwards Godot multiplayer packets between them. It never inspects or runs game logic.
 //
 // Protocol (one WebSocket per player):
-//   1. client -> server, text:   {"t":"hello","code":"ABCDE","role":"host"|"guest","token":"<host token, host only>"}
+//   1. client -> server, text:   {"t":"hello","code":"ABCDE","role":"host"|"guest","token":"<host token, host only>","ticket":"<join ticket, reserved rooms>"}
 //   2. server -> client, text:   {"t":"welcome","id":N,"role":"host"|"guest"}   (host is always peer 1)
 //      server -> host,   text:   {"t":"peer","id":N,"on":true|false}            (a guest joined / left)
 //      server -> guest,  text:   {"t":"host","on":false}                        (then the socket is closed)
@@ -158,6 +158,8 @@ export function createWsRelay({
     if (hello.role !== "guest") return fail(client, "UNKNOWN ROLE");
     const hub = hubs.get(code);
     if (!hub?.host) return fail(client, "HOST IS NOT CONNECTED YET");
+    // A reserved private room admits only guests holding a one-time join ticket (the same gate the ENet relay uses).
+    if (typeof room.admitGuest === "function" && !room.admitGuest(String(hello.ticket || ""))) return fail(client, "ROOM IS PRIVATE");
     if (hub.guests.size + 1 >= maxPlayers) return fail(client, "ROOM IS FULL");
     const id = newGuestId(hub);
     if (!id) return fail(client, "COULD NOT ASSIGN A PEER ID");

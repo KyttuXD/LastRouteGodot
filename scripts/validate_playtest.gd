@@ -64,6 +64,20 @@ func run(host: Node) -> int:
 		if not unavailable:
 			_expect(problems.is_empty(), "flythrough %s has no clean variant: %s" % [area, "; ".join(problems)])
 
+	# 0c. bot chat (spoken by the room chat's TTS): lines fit the chat limit, the modes and their cooldowns hold
+	for kind in BotChat.LINES:
+		for line in BotChat.LINES[kind]:
+			_expect(String(line).length() <= 80, "bot chat line over 80 characters: %s" % line)
+			_expect(not String(line).to_lower().contains("kill yourself"), "bot chat line out of tone: %s" % line)
+	_expect(BotChat.new("loud", 1).mode == "quiet", "an unknown bot chat mode must fall back to quiet")
+	var quiet := BotChat.new("quiet", 7)
+	var chatty := BotChat.new("on", 7)
+	for _i in 20:
+		_expect(quiet._cooldown() >= 90.0, "quiet bots must wait at least 90 s between lines")
+		var c := chatty._cooldown()
+		_expect(c >= 20.0 and c <= 48.0, "chatty bots wait 20-40 s plus up to 8 s of jitter (got %.1f)" % c)
+	_expect(quiet._next_ok >= 8.0, "no bot speaks in its first seconds")
+
 	# 1. off by default; no cost when off
 	_expect(not Playtest.enabled, "the playtest bridge must be disabled without --playtest")
 	_expect(not Playtest.is_physics_processing(), "a disabled bridge must not process every frame")

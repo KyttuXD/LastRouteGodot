@@ -30,6 +30,8 @@ func entries() -> Array:
 	return _entries
 
 
+const FRONT_EPSILON := .05
+
 ## marks: RemotePlayers.remote_player_marks(depth, true) entries. viewer: the local player's world position.
 func update_marks(cam: Camera3D, viewer: Vector3, marks: Array) -> void:
 	camera = cam
@@ -47,9 +49,13 @@ func update_marks(cam: Camera3D, viewer: Vector3, marks: Array) -> void:
 		var level := int(mark.get("level", 0))
 		var world := Vector3(at.x, float(level) * LEVEL_HEIGHT + HEAD_HEIGHT, at.y)
 		var local := cam.global_transform.affine_inverse() * world
-		var viewport_point := cam.unproject_position(world)
+		# only points in front of the camera project: one level with the camera plane (a teammate right beside you)
+		# divided by zero inside Camera3D and logged an engine error every update (773 in one co-op session on the
+		# Windows guest, where each logged error is a real cost). At or behind the plane the edge arrow takes over.
+		var behind := local.z > -FRONT_EPSILON
+		var viewport_point := Vector2.ZERO if behind else cam.unproject_position(world)
 		var canvas_point: Vector2 = to_canvas * viewport_point
-		var entry := layout_for(canvas_point, Vector2(local.x, -local.y), local.z > 0.0, size, EDGE_MARGIN)
+		var entry := layout_for(canvas_point, Vector2(local.x, -local.y), behind, size, EDGE_MARGIN)
 		entry["name"] = String(mark.get("name", "?")).to_upper().substr(0, 14)
 		entry["distance"] = roundi(viewer.distance_to(world))
 		entry["colour"] = mark.get("colour", Color("63d9f1"))

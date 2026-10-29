@@ -20,6 +20,7 @@ func run(host: Node) -> int:
 	await _check_ride(host)
 	await _check_riding(host)
 	await _check_route(host)
+	_check_clearance()
 	if _failures == 0:
 		print("  carousel  shared rotation, the ride's parts, riding without sliding or clipping, LOD, the column's nav footprint and the lever through the host")
 	return _failures
@@ -239,3 +240,57 @@ func _check_route(host: Node) -> void:
 	_expect(not route.world_state.carousel_on(ride_id), "the host's idle stop did not stop the ride")
 	route.queue_free()
 	await host.get_tree().process_frame
+
+
+## KT: "2-3 wide space between all sides of the merry go round, including the entryway". In every generated carnival room
+## with a carousel, every cell within the ride's reach plus 2.5 cells is open floor not held by another solid prop, and the
+## doorway into the room is three cells wide (no narrowing beside the ride).
+func _check_clearance() -> void:
+	var reach := CarouselRide3D.LEVER_RADIUS + 2.5
+	var found := 0
+	for seed_text in ["SOAKTEST", "ENDLESS-ROUTE", "KYTTU-LAB", "CARNIVAL-A", "CARNIVAL-B", "REAL-B", "BIOME-A"]:
+		var generator := StreamedRouteGenerator.new(seed_text)
+		for dz in range(-9, 10):
+			for dx in range(-9, 10):
+				var coord := Vector3i(dx, 0, dz)
+				if not generator.is_chunk_allowed(coord) or generator.region_for(coord) != "carnival":
+					continue
+				var data := generator.chunk(coord)
+				for prop_value in data.get("region_props", []):
+					var prop: Dictionary = prop_value
+					if String(prop.get("type", "")) != "carouselCenterpiece":
+						continue
+					found += 1
+					var where := "%s %s" % [seed_text, coord]
+					var grid: Array = data["grid"]
+					var centre := Vector2(prop["cell"] as Vector2i) + Vector2(.5, .5) + (prop.get("placement_offset", Vector2.ZERO) as Vector2)
+					var own := {}
+					for cell in prop.get("occupied_cells", [prop["cell"]]):
+						own[cell] = true
+					var blocked := {}
+					for other_value in data["region_props"]:
+						var other: Dictionary = other_value
+						if other == prop or not bool(other.get("solid", true)) or bool(other.get("wall_mounted", false)):
+							continue
+						for cell in other.get("occupied_cells", []):
+							blocked[cell] = true
+					var radius := ceili(reach)
+					for z in range(floori(centre.y) - radius, floori(centre.y) + radius + 1):
+						for x in range(floori(centre.x) - radius, floori(centre.x) + radius + 1):
+							var cell := Vector2i(x, z)
+							if own.has(cell) or (Vector2(cell) + Vector2(.5, .5)).distance_to(centre) > reach:
+								continue
+							_expect(x >= 0 and z >= 0 and x < grid.size() and z < grid.size() and int(grid[z][x]) == 0 and not blocked.has(cell),
+								"%s: the carousel's clearance ring is blocked at %s (%s)" % [where, cell, "wall" if int(grid[clampi(z, 0, grid.size() - 1)][clampi(x, 0, grid.size() - 1)]) != 0 else "prop"])
+					# the entryway: the doorway cell and one either side along the wall are open
+					for room_value in data["rooms"]:
+						var room: Dictionary = room_value
+						if not (room["rect"] as Rect2i).has_point(prop["cell"] as Vector2i):
+							continue
+						var door: Vector2i = room["doorway"]
+						var rect: Rect2i = room["rect"]
+						var along := Vector2i(0, 1) if door.x == rect.position.x or door.x == rect.end.x - 1 else Vector2i(1, 0)
+						for step in range(-1, 2):
+							var edge: Vector2i = door + along * step
+							_expect(int(grid[edge.y][edge.x]) == 0, "%s: the carousel room's entryway is narrower than three cells at %s" % [where, edge])
+	_expect(found >= 3, "only %d carousel rooms found to check the clearance of" % found)

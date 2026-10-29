@@ -98,7 +98,8 @@ func _check_window(window: Dictionary) -> int:
 			for feature in data["features"]:
 				var fc: Vector2i = feature["cell"]
 				# everything stands on floor or deck
-				var standing: bool = SewerRouteGenerator.is_walkable(int(grid[fc.y][fc.x]))
+				var standing: bool = SewerRouteGenerator.is_walkable(int(grid[fc.y][fc.x])) \
+					or String(feature["type"]) == "sewerSluiceGate" and int(grid[fc.y][fc.x]) == SewerRouteGenerator.WATER   # spans the channel
 				_expect(standing, "%s %s feature %s sits in solid brick" % [seed_text, coord, feature["type"]])
 				# nothing hangs in the air: a wall-mounted piece (valve wheel, lamp, pipe run,
 				# pump, ladder) stands on floor with brick directly behind it
@@ -1128,8 +1129,9 @@ func _check_stairwells(host: Node) -> void:
 					_check_stairwell_ends(generator, x, z, well)
 					if not walk.has(well["kind"]):
 						walk[well["kind"]] = well.merged({"x": x, "z": z})
+	# the spawn ring has no deck over it (DeckPatches), so no way up; wells up exist where a patch is (deck_patches suite)
 	for upper in [1, 2, 3]:
-		_expect(not generator.stairwell_between(0, 0, upper).is_empty(), "no guaranteed stairwell up to +%d at chunk (0, 0)" % upper)
+		_expect(generator.stairwell_between(0, 0, upper).is_empty(), "the spawn chunk has a stairwell up to +%d" % upper)
 	_expect(int(counts[0]) >= 3 and int(counts[0]) <= 30, "%d maze <-> sewer stairwells in 81 chunks (want sparse)" % counts[0])
 	_expect(kinds.has("stairs") and kinds.has("spiral"), "only %s stairwell kinds generated" % [kinds.keys()])
 	for kind in walk:

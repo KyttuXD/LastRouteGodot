@@ -269,3 +269,28 @@ test("a web room stays listed while its host holds the relay socket, and expires
     assert.equal((await fetch(`${app.url}/api/enet/rooms/WSTST`)).status, 404);
   } finally { await app.close(); }
 });
+
+test("a reserved room admits only guests with a valid join ticket", async () => {
+  const { createWsRelay } = await import("./ws_relay.mjs");
+  const room = { code: "KATHY", token: "host-token", transport: "ws", admitGuest: (ticket) => ticket === "good-ticket" };
+  const relay = createWsRelay({ roomByCode: (code) => (code === "KATHY" ? room : null) });
+  const server = createServer((request, response) => { response.writeHead(404); response.end(); });
+  server.on("upgrade", (request, socket, head) => { if (!relay.handleUpgrade(request, socket, head)) socket.destroy(); });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const url = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const host = await connect(url);
+    host.send({ t: "hello", code: "KATHY", role: "host", token: "host-token" });
+    await host.next((m) => m.text?.t === "welcome");
+    for (const ticket of [undefined, "", "wrong"]) {
+      const guest = await connect(url);
+      guest.send({ t: "hello", code: "KATHY", role: "guest", ...(ticket === undefined ? {} : { ticket }) });
+      assert.equal((await guest.next()).text.message, "ROOM IS PRIVATE");
+    }
+    const guest = await connect(url);
+    guest.send({ t: "hello", code: "KATHY", role: "guest", ticket: "good-ticket" });
+    assert.equal((await guest.next()).text.t, "welcome");
+    host.close(); guest.close();
+  } finally { relay.close(); server.close(); server.closeAllConnections?.(); }
+});
