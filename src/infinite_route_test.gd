@@ -104,6 +104,11 @@ var _admin_reveal_hunters := false
 var _drop_nodes := {}
 var pixel_signal_effect: PixelSignalEffect
 var jumpscare: HunterJumpscare
+## Every catch plays the catching hunter's grab (GrabStyles pool, host roll, the runner's surroundings) before the end.
+var grab: HunterGrab
+## The host's roll for the catch being resolved (GrabStyles.roll_for), and the host's count of catches it has rolled.
+var _grab_roll := -1.0
+var _grab_catches := 0
 ## Troll-mode "ads" (TrollAds, docs/ANTI_CHEAT.md): only while the host has this client in troll mode with ads on.
 var troll_ads := TrollAds.new()
 var troll_ad_overlay: TrollAdOverlay
@@ -164,6 +169,8 @@ func _ready() -> void:
 	add_child(pixel_signal_effect)
 	jumpscare = HUNTER_JUMPSCARE_SCENE.instantiate()
 	world.add_child(jumpscare)
+	grab = HunterGrab.new()
+	world.add_child(grab)
 	_waypoint_overlay = WaypointOverlay.new()
 	hud.add_child(_waypoint_overlay)
 	Settings.visual_changed.connect(func() -> void: _waypoint_route_key = "")
@@ -1325,6 +1332,8 @@ func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
 		var prop_id := String(prop.get("id", ""))
 		if prop_id.is_empty():
 			continue
+		if prop.has("breakable_id") and world_state.breach_open(String(prop["breakable_id"])):
+			continue     # a burst sewer pipe is gone from the map too
 		visible_props.append({"id": prop_id, "discovery_id": prop_id,
 			"cell": prop.get("cell", Vector2i.ZERO),
 			"kind": "prop", "type": String(prop.get("type", "")),
@@ -2900,7 +2909,9 @@ func _update_player_ladder(level: int) -> void:
 	var wall: Vector2i = link.get("wall", Vector2i.ZERO)
 	var rise := StreamedFacilityView3D.LEVEL_HEIGHT
 	var sewer_y := float(StreamedRouteGenerator.SEWER_LEVEL) * rise + .04
-	var foot := Vector3(point.x + wall.x * .12, sewer_y, point.y + wall.y * .12)
+	# just behind the cell centre: the sewer ladder's rungs (.38 in from the centre) sit .4 in front, at arm's reach of the
+	# player model's own hands, with its eyes (true first person, docs/HUNTER_GRABS.md) a hand's width off them
+	var foot := Vector3(point.x - wall.x * .02, sewer_y, point.y - wall.y * .02)
 	var front := Vector3(point.x - wall.x * .9, 0.0, point.y - wall.y * .9)
 	player.begin_ladder_climb(foot, rise, rise if going_down else 0.0, _ladder_yaw(link),
 		front + Vector3(0, .04, 0), front + Vector3(0, sewer_y, 0), 0, StreamedRouteGenerator.SEWER_LEVEL)
@@ -3528,8 +3539,10 @@ func _capture_target(view: HunterView3D, target: Dictionary) -> void:
 		reason = HunterNaps.WOKE_GRAB_REASON
 	view.brain.calm_reset(GameConfig.profile_value(RoomState.difficulty_id(), "escape_stun"))
 	view.sync_from_brain()
+	_grab_catches += 1
 	_remotes.send_player_event(int(target.get("peer_id", 1)), {
 		"what": "capture", "streamed": true,
+		"grab_roll": GrabStyles.roll_for(RoomState.seed_text, int(target.get("peer_id", 1)), _grab_catches),
 		"entity_id": String(view.get_meta("streamed_entity_id", "")),
 		"hunter_id": hunter_id, "inescapable": inescapable, "reason": reason})
 
@@ -4322,10 +4335,10 @@ func _accept_axe_rescue(peer_id: int, event: Dictionary) -> void:
 			or (victim_at as Vector3).distance_to(swinger_at as Vector3) > AXE_RESCUE_REACH + .8:
 		return
 	_remotes.send_player_event(target_peer, {"what": "axe_rescue", "rescuer_peer_id": peer_id,
-		"message": "RESCUE AXE // A TEAMMATE CUT YOU FREE"})
+		"message": "AXE // A TEAMMATE CUT YOU FREE"})
 	if peer_id != _local_peer_id():
 		_remotes.send_player_event(peer_id, {"what": "message",
-			"message": "RESCUE AXE // TEAMMATE FREED"})
+			"message": "AXE // TEAMMATE FREED"})
 
 
 func _accept_safe_repair(peer_id: int, event: Dictionary) -> void:
@@ -4974,6 +4987,7 @@ func _apply_player_event(event: Dictionary) -> void:
 			if _death_screen_open or GameState.escape_active:
 				return
 			var hunter_id := String(event.get("hunter_id", HunterRoster.DEFAULT_ID))
+			_grab_roll = float(event.get("grab_roll", -1.0))
 			if GameState.is_capture_immune():
 				# Purely a protocol acknowledgement: releases the host's pending-
 				# capture gate without actually ending or restarting the struggle.
@@ -4981,7 +4995,7 @@ func _apply_player_event(event: Dictionary) -> void:
 					_remotes.submit_hunter_event({"what": "caught"})
 				return
 			if bool(event.get("inescapable", false)) or GameState.escape_on_cooldown():
-				await _resolve_capture_outcome(hunter_id)
+				await _resolve_capture_outcome(hunter_id, String(event.get("entity_id", "")))
 				return
 			_begin_escape_struggle(String(event.get("entity_id", "")), hunter_id)
 		"message":
@@ -5042,7 +5056,7 @@ func _begin_escape_struggle(entity_id: String, hunter_id: String) -> void:
 	hud.update_escape(GameState.escape_progress, GameState.escape_required,
 		GameState.escape_remaining, GameState.escape_duration)
 	if player.owns_inventory_item("rescue_axe"):
-		hud.show_message("RESCUE AXE // CLICK TO CUT FREE")
+		hud.show_message("AXE // CLICK TO CUT FREE")
 	if jumpscare != null:
 		jumpscare.start_hold(player.active_camera(), hunter_id)
 
@@ -5053,7 +5067,7 @@ func _update_escape_struggle(delta: float) -> void:
 			and player.owns_inventory_item("rescue_axe") \
 			and player.consume_item_durability("rescue_axe", PlayerController3D.AXE_BREAK_FREE_COST):
 		player.swing_axe_for_escape()
-		_resolve_escape_success(true, "RESCUE AXE // CUT FREE")
+		_resolve_escape_success(true, "AXE // CUT FREE")
 		return
 	if Input.is_action_just_pressed("interact"):
 		GameState.register_escape_press()
@@ -5064,7 +5078,7 @@ func _update_escape_struggle(delta: float) -> void:
 	if GameState.escape_progress >= GameState.escape_required:
 		_resolve_escape_success()
 	elif GameState.escape_remaining <= 0.0:
-		await _resolve_capture_outcome(_escaping_hunter_id)
+		await _resolve_capture_outcome(_escaping_hunter_id, _escaping_entity_id)
 
 
 func _resolve_escape_success(with_axe: bool = false, note: String = "") -> void:
@@ -5115,11 +5129,12 @@ func _tick_void_fall(delta: float) -> void:
 ## Shared by a failed struggle and an inescapable grab (void hunters, or a
 ## gimmick that declares the grab inescapable): the same local jumpscare and
 ## death report either way.
-func _resolve_capture_outcome(hunter_id: String) -> void:
+func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void:
 	if _capture_resolving:
 		return
 	var fell := hunter_id == VOID_FALL
 	_capture_resolving = true
+	var catcher = null if fell else _capture_view(hunter_id, entity_id)
 	GameState.resolve_escape_failure()
 	_save_after_local_death()
 	hud.set_escape_active(false)
@@ -5144,6 +5159,11 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 	# Same local capture presentation as main_3d.gd: play the lunge/camera
 	# takeover before the death screen or spectator handoff so the player
 	# actually sees the hunter that caught them.
+	if catcher != null and not fell:
+		hud.set_death_flow(true)   # the grab owns the screen: no hotbar, minimap or stamina over it
+		await grab.play(player, catcher, hunter_id, _take_grab_roll())
+	elif fell:
+		hud.set_death_flow(true)   # a fall into the void: the same clean death screen, no hunter
 	if HunterJumpscare.ENABLED and not fell:
 		Sound.office_jumpscare(hunter_id)
 	if jumpscare != null and not fell:
@@ -5179,6 +5199,8 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 		hud.show_message("YOU DIED // SPECTATOR MODE")
 		_capture_resolving = false
 		return
+	await _finish_death_moment()
+	hud.set_death_flow(true)
 	run_report.open({
 		"online": RoomState.online, "host": RoomState.is_host,
 		"respawn": true, "title": "YOU DIED",
@@ -5194,6 +5216,12 @@ func _resolve_capture_outcome(hunter_id: String) -> void:
 	_capture_resolving = false
 
 
+## The end card never opens over the catcher's line (online the line plays without being awaited): wait for it to be dismissed.
+func _finish_death_moment() -> void:
+	if _death_moment != null and _death_moment.is_open():
+		await _death_moment.finished
+
+
 ## The cause the death line is drawn for: Nyxie's dead lamp or her darkness timer, otherwise an ordinary catch.
 func _death_cause(hunter_id: String) -> Dictionary:
 	var cause := {"hunter_id": hunter_id, "via": "contact", "detail": ""}
@@ -5207,6 +5235,43 @@ func _death_cause(hunter_id: String) -> Dictionary:
 	return cause
 
 
+
+## Debug/recording hook (playtest sequencer, capture rigs): `view` grabs the local runner now with `style` (GrabStyles), the
+## same presentation a real catch plays, without the run ending. Returns when the hold starts; call grab.release() after.
+func admin_force_grab(view: HunterView3D, style: String) -> void:
+	if view == null or grab == null or not GrabStyles.STYLES.has(style):
+		return
+	grab.release()
+	await grab.play(player, view, view.brain.hunter_id, .5, style)
+
+
+## The host's roll for this catch, or a seeded local one when the event carried none (an older host, a scripted catch).
+func _take_grab_roll() -> float:
+	var roll := _grab_roll
+	_grab_roll = -1.0
+	if roll < 0.0:
+		_grab_catches += 1
+		roll = GrabStyles.roll_for(RoomState.seed_text, multiplayer.get_unique_id() if RoomState.online else 1, _grab_catches)
+	return roll
+
+
+## The hunter view that made this catch: the streamed entity when the event names it, else the nearest view of that hunter.
+func _capture_view(hunter_id: String, entity_id: String) -> HunterView3D:
+	var named := _hunter_views.get(entity_id) as HunterView3D
+	if named != null and is_instance_valid(named):
+		return named
+	var best: HunterView3D = null
+	var best_distance := INF
+	for view_value in _hunter_views.values():
+		var view := view_value as HunterView3D
+		if view == null or not is_instance_valid(view) or view.brain == null or view.brain.hunter_id != hunter_id:
+			continue
+		var distance := view.global_position.distance_to(player.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best = view
+	return best if best_distance < 4.0 else null
+
 func _death_moment_for(hunter_id: String, cause_override: Dictionary = {}) -> Dictionary:
 	var cause := cause_override if not cause_override.is_empty() else _death_cause(hunter_id)
 	var name := String(HunterRoster.get_identity(String(cause["hunter_id"])).get("display_name", hunter_id))
@@ -5216,7 +5281,10 @@ func _death_moment_for(hunter_id: String, cause_override: Dictionary = {}) -> Di
 func _play_death_moment(hunter_name: String, picked: Dictionary, hunter_id: String) -> void:
 	if _death_moment == null or not DeathMoment.plays(picked):
 		return
+	hud.set_death_flow(true)
 	await _death_moment.play(hunter_name, picked, HunterRoster.VOID_IDS.has(hunter_id))
+	if not run_report.is_open():   # the end card keeps the flow (and the HUD hidden) until it closes
+		hud.set_death_flow(false)
 
 
 func _apply_hunter_event(event: Dictionary) -> void:
@@ -5330,6 +5398,7 @@ func _living_runners() -> Array[Dictionary]:
 
 
 func _begin_spectating() -> void:
+	grab.release()   # the hold ends when the caught runner starts spectating (it was drawn on every peer)
 	player.enter_spectator()
 	player.input_frozen = false
 	player.look_frozen = false
@@ -5385,10 +5454,12 @@ func _update_spectating() -> void:
 	# Party wipe: the host was already spectating and the last guest just fell.
 	if RoomState.online and RoomState.is_host and not RoomState.public_route \
 			and not _death_screen_open and not _capture_resolving \
+			and not (_death_moment != null and _death_moment.is_open()) \
 			and _living_runners().is_empty():
 		_end_spectating()
 		_death_screen_open = true
 		_end_run_save()
+		hud.set_death_flow(true)
 		# Party wipe: the last catcher gets the final word, as a line on the card rather than another cutscene.
 		var wipe_line := {}
 		if not _last_death_cause.is_empty():
@@ -5429,10 +5500,12 @@ func _unhandled_input(event: InputEvent) -> void:
 func _respawn_after_death() -> void:
 	if not _death_screen_open:
 		return
+	grab.release()
 	_force_disable_admin_cheats()
 	_run_save_ended = false   # the restarted run saves again
 	_clear_local_waypoint()   # a waypoint never survives death
 	run_report.close()
+	hud.set_death_flow(false)
 	GameState.game_over = false
 	_end_spectating()
 	if RoomState.online and RoomState.is_host and _remotes != null:

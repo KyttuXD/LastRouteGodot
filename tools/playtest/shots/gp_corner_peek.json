@@ -1,0 +1,103 @@
+{
+ "name": "gp_corner_peek",
+ "area": "hospital",
+ "seconds": 2.4,
+ "gameplay": true,
+ "dark": 0.0,
+ "world_dim": 0.6,
+ "torch_energy": 0,
+ "corner_grid": true,
+ "camera_back": 6.5,
+ "start": [
+  "A",
+  6.2,
+  0.3
+ ],
+ "face_at": [
+  "c",
+  0.4,
+  0.3,
+  1.55
+ ],
+ "corner_light": {
+  "energy": 1.1,
+  "range": 4.5,
+  "color": "#ffd9a8",
+  "at": [
+   -0.8,
+   -0.6,
+   2.3
+  ]
+ },
+ "actors": {
+  "nyxie": {
+   "id": "nyxie",
+   "at": [
+    "c",
+    0.5,
+    0.57
+   ],
+   "face": "shot_camera",
+   "pose": "peek_auto",
+   "head": {
+    "max_yaw": 60,
+    "max_pitch": 30,
+    "sway": 0.6,
+    "ease": 4
+   }
+  }
+ },
+ "camera": [],
+ "flashlight": [],
+ "inputs": [],
+ "events": [
+  {
+   "t": 0.25,
+   "actor": "nyxie",
+   "waist": [
+    -56,
+    -34
+   ],
+   "waist_in": 0.9
+  }
+ ],
+ "expects": [
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 0.15,
+   "label": "corner"
+  },
+  {
+   "hud": true,
+   "hands": true,
+   "no_alerts": true,
+   "no_labels": true,
+   "t": 1.6,
+   "label": "peek",
+   "actor": "nyxie",
+   "face_camera_deg": 30,
+   "occluded_by_corner": [
+    "Pelvis",
+    "L-Thigh",
+    "R-Thigh",
+    "L-Calf",
+    "R-Calf",
+    "L-Foot",
+    "R-Foot"
+   ],
+   "no_mesh_in_wall": true,
+   "pixels": {
+    "max_px": {
+     "legs": 0,
+     "hips": 0
+    },
+    "min_px": {
+     "head": 300
+    }
+   }
+  }
+ ]
+}

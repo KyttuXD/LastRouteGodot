@@ -68,6 +68,8 @@ var _nw_last_yaw := 0.0
 var _head_rest_q := Quaternion.IDENTITY
 var _head_written_q := Quaternion.IDENTITY
 var _kathy_beam: SpotLight3D
+## While a grab holds a runner (HunterGrab marks it every frame it poses this hunter) Kathy's beam is off entirely (KT).
+var grab_until_msec := 0
 var _carries_scythe := false
 var _was_stunned := false
 var _recover_left := 0.0
@@ -163,6 +165,7 @@ const HUNTER_BODY_HEIGHT := 1.72 * HunterRoster.MODEL_SCALE
 
 
 func _ready() -> void:
+	add_to_group("hunter_views")
 	# AnimationPlayer updates at the default process priority. Apply the
 	# presentation-only neck look afterward so clips keep their pitch/roll while
 	# the head can scan independently from the body.
@@ -185,6 +188,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_end_grab_pose()
 	_doorway.restore()
 	_chase.restore()
 	_update_head_look(delta)
@@ -496,8 +500,28 @@ func _build_beam_visual() -> void:
 
 
 ## Neutral colour while patrolling, red while chasing; the light itself follows so the lit floor matches the beam.
+func grabbing() -> bool:
+	return Time.get_ticks_msec() < grab_until_msec
+
+
+## A grab (on this peer or drawn for another) stretched her arms: once nothing grabs with her, they are put back.
+func _end_grab_pose() -> void:
+	if grabbing() or _model == null:
+		return
+	var arm := _model.find_child("R-Arm", true, false)
+	if arm != null and arm.has_meta("grab_scale"):
+		HunterGrab.stretch_arms(self, 1.0)
+
+
 func _update_beam_visual(delta: float) -> void:
 	if _kathy_beam == null or brain == null:
+		return
+	var off := grabbing()
+	for part in [_beam_shell, _beam_core]:
+		if part != null:
+			(part as Node3D).visible = not off and _kathy_beam.visible
+	if off:
+		_kathy_beam.visible = false
 		return
 	var chasing := brain.active and brain.state == HunterBrain.State.CHASE and brain.stun_timer <= 0.0
 	_beam_chase_mix = move_toward(_beam_chase_mix, 1.0 if chasing else 0.0, delta * 4.0)
@@ -526,7 +550,8 @@ func _update_chase_style(delta: float) -> void:
 	var flying := brain.gimmick is XivvyGimmick and (brain.gimmick as XivvyGimmick).airborne()
 	var chasing := chase_layer_enabled and brain.active and brain.state == HunterBrain.State.CHASE \
 		and brain.stun_timer <= 0.0 and _recover_left <= 0.0 and not climbing and not flying and not has_nw_pose() \
-		and not (_emote_index >= 0 and not _emote_clip.is_empty())
+		and not (_emote_index >= 0 and not _emote_clip.is_empty()) \
+		and not (has_method("grabbing") and bool(call("grabbing")))   # GRAB's every-peer signal (HunterGrab)
 	var aim := 0.0
 	if has_look_target and HunterChaseStyle.reaches(brain.chase_style):
 		var forward := Vector2(-sin(rotation.y), -cos(rotation.y))
@@ -631,7 +656,7 @@ func _apply_visibility() -> void:
 	var fade := .72 if gimmick_hidden else 0.0
 	ModelSlot.set_character_fade(_model, fade)
 	if _kathy_beam != null:
-		_kathy_beam.visible = _model.visible
+		_kathy_beam.visible = _model.visible and not grabbing()
 
 
 ## Body follows the way she is actually travelling (smoothed position delta, so

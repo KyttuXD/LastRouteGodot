@@ -647,8 +647,10 @@ func _check_ceiling_fixtures(view: StreamedFacilityView3D) -> void:
 			checked += 1
 			var cell := Vector2i(floori(local.x), floori(local.z))
 			var mount := local.y + .5    # RefDecor._ceiling_lamp registers its light half a metre under the fitting
-			# wall-mounted sewer lamps (props at FEATURE_MOUNT_Y) sit well under the vault on their wall: not ceiling fittings
-			if ceiling.has(cell) and mount < float(ceiling[cell]) - .5:
+			# wall-mounted sewer lamps (props at FEATURE_MOUNT_Y) sit well under the vault on their wall: not ceiling
+			# fittings (the vault under a channel trench above is only .35 m over them)
+			if ceiling.has(cell) and mount < float(ceiling[cell]) - .3 \
+					and mount < float(SewerRouteGenerator.FEATURE_MOUNT_Y["sewerLamp"]) + .25:
 				continue
 			if not ceiling.has(cell) or absf(float(ceiling[cell]) - mount) > .05:
 				bad.append("%s %s (mount %.2f, ceiling %s)" % [coord, cell, mount, ceiling.get(cell, "none")])

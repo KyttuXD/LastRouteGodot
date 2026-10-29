@@ -433,6 +433,9 @@ func _cache_solid_prop_cells(coord: Vector3i, data: Dictionary) -> void:
 		if not bool(prop.get("solid", true)) \
 				or bool(prop.get("room_door", false)):
 			continue
+		# a sewer pipe somebody broke with the Axe is gone (Breach, "breakable_id")
+		if prop.has("breakable_id") and world_state != null and world_state.breach_open(String(prop["breakable_id"])):
+			continue
 		var occupied: Array = prop.get("occupied_cells", [])
 		if occupied.is_empty():
 			occupied = [prop.get("cell", Vector2i.ZERO)]

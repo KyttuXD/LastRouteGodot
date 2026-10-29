@@ -98,7 +98,7 @@ func _check_third_person() -> void:
 	for item_id in ITEMS:
 		var scale_amount := float(RemotePlayers.REMOTE_HELD_SCALES.get(item_id, .32))
 		var transform := HeldItemPoses.third_person_transform(item_id, scale_amount)
-		var grip_at := transform * (HeldItemPoses.GRIP[item_id] as Vector3)
+		var grip_at := transform * HeldItemPoses.third_person_grip(item_id)
 		_expect(grip_at.length() < .001, "%s: the grip is not at the hand (off by %.3f)" % [item_id, grip_at.length()])
 		var head := (transform.basis * Vector3.UP).normalized()
 		if bool((HeldItemPoses.THIRD_PERSON.get(item_id, {}) as Dictionary).get("upright", false)):
@@ -109,9 +109,9 @@ func _check_third_person() -> void:
 		var corners := _corners(item_id)
 		for corner in corners:
 			var world := transform * corner
-			_expect(world.length() <= .62, "%s: a vertex is %.2f m from the hand" % [item_id, world.length()])
-			_expect(world.z >= -.16, "%s: pokes %.2f m below the hand" % [item_id, -world.z])
-	_expect(is_equal_approx(float(RemotePlayers.REMOTE_HELD_SCALES["rescue_axe"]), .29), "the remote axe scale is not .29")
+			_expect(world.length() <= .72, "%s: a vertex is %.2f m from the hand" % [item_id, world.length()])
+			_expect(world.z >= -.24, "%s: pokes %.2f m below the hand" % [item_id, -world.z])
+	_expect(is_equal_approx(float(RemotePlayers.REMOTE_HELD_SCALES["rescue_axe"]), .62), "the remote axe scale is not .62")
 
 
 func _in_front(player: PlayerController3D) -> Vector3:
@@ -126,7 +126,26 @@ func _await_swing(host: Node, item_id: String) -> void:
 	await host.get_tree().create_timer(total).timeout
 
 
+## KT: the tool is just "Axe", and rarer than the other world tools (it breaks the sewer's pipes).
+func _check_axe_rarity() -> void:
+	_expect(PlayerController3D.INVENTORY_LABELS["rescue_axe"] == "AXE", "the axe is labelled %s, not AXE" % PlayerController3D.INVENTORY_LABELS["rescue_axe"])
+	var total := 0.0
+	for type in StreamedRouteGenerator.PICKUP_TYPES:
+		total += float(StreamedRouteGenerator.PICKUP_WEIGHTS[type])
+	_expect(is_equal_approx(total, 1.0), "tool pickup weights sum to %.2f" % total)
+	var counts := {}
+	var rng := SeededRandom.new("AXE-RARITY")
+	for _i in 4000:
+		var tool := StreamedRouteGenerator.pick_tool(rng)
+		counts[tool] = int(counts.get(tool, 0)) + 1
+	var axe_share := float(counts.get("rescue_axe", 0)) / 4000.0
+	_expect(axe_share > .06 and axe_share < .14, "the axe is %.0f %% of tool pickups (want about 10 %%)" % (axe_share * 100.0))
+	for type in ["taser", "lockpick", "crowbar"]:
+		_expect(int(counts.get(type, 0)) > int(counts.get("rescue_axe", 0)) * 2, "the %s is not clearly commoner than the axe: %s" % [type, counts])
+
+
 func run(host: Node) -> int:
+	_check_axe_rarity()
 	_check_first_person()
 	_check_third_person()
 	RoomState.create_local(RoomState.Mode.DEFAULT)

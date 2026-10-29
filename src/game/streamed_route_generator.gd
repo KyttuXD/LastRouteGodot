@@ -67,7 +67,7 @@ const DENSE_DISTRICTS := ["hotel", "prison", "maze", "mansion", "beach", "gothic
 const BANK_BIG_CHANCE := {"mansion": .5, "carnival": .5, "gothic": .35, "inferno": .35, "beach": .4, "maze": .2,
 	"hospital": .5, "lab": .55, "greenhouse": .55}
 const BANK_BIG_TYPES := {
-	"mansion": ["drawing_room", "dining_room"], "carnival": ["big_top", "midway", "carnival_stage"],
+	"mansion": ["drawing_room", "dining_room"], "carnival": ["midway", "carnival_stage"],
 	"gothic": ["crypt", "chapel", "archive"], "inferno": ["forge", "thermal_chamber", "lava_gallery", "altar_room"],
 	"beach": ["cove", "tide_pool"], "maze": ["restaurant_dining", "storage", "arcade_room"],
 	# hunter-scale beds, imaging, benches and consoles need 1.4 m aisles (docs/ROOM_REFERENCE.md): these are 21x9 rooms
@@ -97,10 +97,12 @@ const REGION_REPEAT_TEMPLATES := ["operating_theatre", "icu", "morgue", "pharmac
 ## them into ONE 21x21 room for the districts' big gathering rooms (restaurant, mess hall, dining hall). The room opens on
 ## the vertical hall; both chunks at that seam give up the seam row and trim the hall stub so no dead-end hall remains.
 const LARGE_ROOM_CHANCE := {"maze": .35, "prison": .30, "hotel": .25, "mansion": .30,
-	"hospital": .25, "lab": .30, "greenhouse": .45}
+	"hospital": .25, "lab": .30, "greenhouse": .45, "carnival": .35}
 const LARGE_ROOM_TYPES := {"maze": ["restaurant_dining"], "prison": ["prison_cafeteria"],
 	"hotel": ["restaurant_dining"], "mansion": ["dining_room"],
-	"hospital": ["ward"], "lab": ["containment", "server_hall"], "greenhouse": ["dome_atrium", "glasshouse"]}
+	"hospital": ["ward"], "lab": ["containment", "server_hall"], "greenhouse": ["dome_atrium", "glasshouse"],
+	# the merry-go-round (6.7 m across) needs 2-3 cells clear on every side: only a 21x21 big top holds it (KT)
+	"carnival": ["big_top"]}
 const LARGE_ROOM_SIZE := 21
 ## The music wing (MusicWing): rare, hotel chunks only (the mall's slots are 20 wide), both slots of a chunk or neither.
 const MUSIC_WING_REGIONS := ["hotel"]
@@ -115,6 +117,8 @@ const ROOM_SIZES := [Vector2i(9, 9), Vector2i(9, 11), Vector2i(11, 9), Vector2i(
 	Vector2i(11, 13), Vector2i(13, 11), Vector2i(13, 13), Vector2i(15, 15)]
 ## Every runner starts with a flashlight, so it is not a world pickup (batteries recharge it).
 const PICKUP_TYPES := ["taser", "lockpick", "crowbar", "rescue_axe"]
+## How often each world tool turns up (KT: the Axe is rarer; it is the one tool that breaks the sewer's pipes).
+const PICKUP_WEIGHTS := {"taser": 0.3, "lockpick": 0.3, "crowbar": 0.3, "rescue_axe": 0.1}
 const BACKPACK_TYPES := ["backpack_small", "backpack_medium", "backpack_large"]
 ## Read REGION_PROP_SETS, not this: ContentRegistry.DATA regions take their prop_set from res://data/regions.
 const _CODE_REGION_PROP_SETS := {
@@ -1749,7 +1753,7 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 	var big_types: Array = BANK_BIG_TYPES.get(region, [])
 	var small_types := []
 	for type_name in (_room_type_choices(region) as Array):
-		if not big_types.has(type_name):
+		if not big_types.has(type_name) and not (region == "carnival" and type_name == "big_top"):
 			small_types.append(type_name)
 	if small_types.is_empty():
 		small_types = _room_type_choices(region)
@@ -1772,6 +1776,10 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		corridors.append({"id": "%s:ROOM-BRANCH:%d" % [chunk_id(coord), room_index],
 			"axis": "east_west", "width": CORRIDOR_WIDTH, "length": 1, "branch": true,
 			"from_main_hall": true, "serves_many_rooms": false, "doorway": big_door})
+		if hall_type == "big_top":
+			# the merry-go-round hall opens onto the vertical hall three cells wide (no narrowing beside the ride)
+			for door_row in range(big_door.y - 1, big_door.y + 2):
+				grid[door_row][big_door.x] = 0
 		if hall_type == MusicWing.LARGE_TYPE:
 			var wing := MusicWing.carve(grid, big, big_door, null, MusicWing.part_for_side(side))
 			for wing_room in wing["rooms"]:
@@ -1792,6 +1800,8 @@ func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dicti
 		var big_entry := _room_entry(coord, room_index, region, big, hall_type)
 		big_entry["doorway"] = big_door
 		big_entry["great_hall"] = true
+		if hall_type == "big_top":
+			big_entry["extra_doorways"] = [Vector2i(big_door.x, big_door.y - 1), Vector2i(big_door.x, big_door.y + 1)]
 		rooms.append(big_entry)
 		room_index += 1
 	for row in rows:
@@ -3575,9 +3585,12 @@ static func _room_template_specs(template: String, region: String,
 		"carnival_big_top":
 			specs.append({"type": "arcadeCarpetCircle", "side": 0, "depth": mid_depth, "facing": "open", "solid": false})
 			# the room's centre is the working merry-go-round (CarouselRide3D); a duck pond and a pedestal either side
-			specs.append({"type": "carouselCenterpiece", "side": 0, "depth": mid_depth, "facing": "center"})
-			specs.append({"type": "duckPond", "side": 6, "depth": mid_depth, "facing": "center"})
-			specs.append({"type": "circusPedestal", "side": -6, "depth": mid_depth, "facing": "center"})
+			if side_span >= 17 and depth_span >= 17:
+				specs.append({"type": "carouselCenterpiece", "side": 0, "depth": mid_depth, "facing": "center"})
+			# 2-3 cells clear round the ride on every side (validate_carousel): the pond and pedestal stand out at the flanks
+			var flank := 8 if side_span >= 17 else 6
+			specs.append({"type": "duckPond", "side": flank, "depth": mid_depth, "facing": "center"})
+			specs.append({"type": "circusPedestal", "side": -flank, "depth": mid_depth, "facing": "center"})
 			for booth_side in [-8, 8]:
 				specs.append({"type": "carnivalTicketBooth", "side": booth_side, "depth": 0, "wall_backed": true, "facing": "open"})
 			for cart_side in [-4, 4]:
@@ -3971,7 +3984,7 @@ static func _region_room_specs(template: String, half: int, depth_span: int, mir
 				if bed_side + 2 <= half:
 					specs.append(_sp("hospitalCurtain", bed_side + 2, 1, "right"))
 				# drip stands and monitors stand in front of the curtain lines, so every bed foot stays open; a row past the
-				# 3.2 m hunter-scale bed's foot, or the stand closes the bay's mouth
+				# 3.2 m hunter-scale bed's foot, or the stand closes the bay's mouth (pickup_reach on REAL-B)
 				var kit_side := bed_side + 1 if bed_side + 1 <= half else bed_side - 1
 				specs.append(_sp("ivDripStand" if bed_index % 2 == 0 else "vitalsMonitor", kit_side, 4, "back"))
 			if depth_span >= 15:
@@ -5055,7 +5068,7 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 		kind_indices[kind] = index + 1
 		var item := ""
 		if kind == "tool":
-			item = PICKUP_TYPES[rng.next_index(PICKUP_TYPES.size())]
+			item = pick_tool(rng)
 		elif kind == "backpack":
 			var depth_rank := clampi(1 + floori(maxf(0.0, -float(coord.y)) / 4.0), 1, 3)
 			var rolled_rank := clampi(1 + rng.next_index(depth_rank), 1, 3)
@@ -5104,6 +5117,16 @@ func _music_boxes(coord: Vector3i, grid: Array, stairs: Array, safe: bool, regio
 		return []
 	var rng := SeededRandom.new("%s:MUSICBOX-CELL:%s" % [world_seed, chunk_id(coord)])
 	return [{"id": "%s:music_box" % chunk_id(coord), "cell": candidates[rng.next_index(candidates.size())]}]
+
+
+## One world tool by PICKUP_WEIGHTS (one roll of the chunk's stream, like the old even pick).
+static func pick_tool(rng: SeededRandom) -> String:
+	var roll := rng.next_float()
+	for type in PICKUP_TYPES:
+		roll -= float(PICKUP_WEIGHTS[type])
+		if roll < 0.0:
+			return type
+	return PICKUP_TYPES[0]
 
 
 static func _exclude_neighbourhood(excluded: Dictionary, cell: Vector2i,

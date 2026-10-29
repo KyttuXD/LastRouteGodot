@@ -15,7 +15,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func run(host: Node) -> int:
 	# 0. every playtest script must compile (a parse error in the scenarios file once made every run exit without playing)
-	for path in ["res://src/playtest/playtest_scenarios.gd", "res://src/playtest/playtest_runner.gd", "res://src/playtest/playtest_reporter.gd",
+	for path in ["res://src/playtest/playtest_scenarios.gd", "res://src/playtest/playtest_runner.gd", "res://src/playtest/playtest_reporter.gd", "res://src/playtest/playtest_flythrough.gd",
 			"res://src/playtest/bots/last_route_bot.gd", "res://src/playtest/bots/night_watch_bot.gd"]:
 		var script := load(path) as GDScript
 		_expect(script != null and script.can_instantiate(), "%s must compile" % path)
@@ -24,6 +24,45 @@ func run(host: Node) -> int:
 		scenario_methods.append(String(method["name"]))
 	for wanted in ["play", "run_loop", "menu_tour", "death_tour", "coop_bot", "probe"]:
 		_expect(scenario_methods.has(wanted), "PlaytestScenarios must define %s()" % wanted)
+
+	# 0b. the flythrough planner builds a camera track for every default area (or says the build has none), no scene needed
+	var generator := StreamedRouteGenerator.new("FLYTHROUGH")
+	for area in PlaytestFlythrough.DEFAULT_SET:
+		# the renderer retries a boring tour with the next variant, so an area passes when ONE of the first six variants is clean (flythrough.py --variants)
+		var problems: Array = []
+		var unavailable := false
+		for variant in 6:
+			var planned: Dictionary = PlaytestFlythrough.plan(generator, String(area), 30, 0.0, variant)
+			if bool(planned.get("unavailable", false)):
+				print("  note  flythrough area %s unavailable on this build: %s" % [area, planned.get("error", "")])
+				unavailable = true
+				break
+			problems = []
+			if not bool(planned.get("ok", false)):
+				problems.append("plan failed (%s)" % planned.get("error", ""))
+			else:
+				var track: PlaytestFlythrough.Track = planned["track"]
+				var info: Dictionary = planned["info"]
+				if track.size() < 30 * 16 or track.size() > 30 * 60:
+					problems.append("lasts %.1f s (want 16-60)" % (float(track.size()) / 30.0))
+				var biggest_jump := 0.0
+				for i in range(2, track.size()):
+					if track.cuts.has(i) or track.cuts.has(i - 1) or track.ground[i] != track.ground[i - 1] or track.ground[i - 1] != track.ground[i - 2]:
+						continue    # a planned hard cut to another shot
+					biggest_jump = maxf(biggest_jump, absf(track.pos[i].distance_to(track.pos[i - 1]) - track.pos[i - 1].distance_to(track.pos[i - 2])))
+				if biggest_jump >= .12:
+					problems.append("camera speed jumps by %.2f m/frame" % biggest_jump)
+				var motion: Dictionary = info["motion"]
+				if float(motion["max_yaw_step"]) >= .06:
+					problems.append("turns %.3f rad in one frame (a snap)" % float(motion["max_yaw_step"]))
+				if float(motion["max_wobble"]) >= 1.4:
+					problems.append("zig-zags (%.2f rad of back-and-forth)" % float(motion["max_wobble"]))
+				if info.has("planned_tight_s") and float(info["planned_tight_s"]) >= 1.0:
+					problems.append("faces a wall closer than 1.5 m while moving for %.1f s" % float(info["planned_tight_s"]))
+			if problems.is_empty():
+				break
+		if not unavailable:
+			_expect(problems.is_empty(), "flythrough %s has no clean variant: %s" % [area, "; ".join(problems)])
 
 	# 1. off by default; no cost when off
 	_expect(not Playtest.enabled, "the playtest bridge must be disabled without --playtest")

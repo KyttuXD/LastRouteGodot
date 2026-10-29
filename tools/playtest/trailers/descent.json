@@ -1,0 +1,16 @@
+{
+  "name": "the_descent",
+  "music": "02_Exploration_DesolateHalls.mid",
+  "music_volume": 0.8,
+  "shots": [
+    {"card": ["LAST ROUTE"], "t": 3.0},
+    {"card": ["THE DESCENT"], "t": 2.6},
+    {"clip": "hospital", "ss": 0.5, "t": 11},
+    {"clip": "lab", "ss": 8, "t": 9},
+    {"clip": "descent_ladder", "ss": 6, "t": 15},
+    {"clip": "sewer_tunnels", "ss": 3, "t": 11},
+    {"clip": "sewer_junction", "ss": 1, "t": 10},
+    {"clip": "sewer_valve_room", "ss": 9, "t": 8},
+    {"card": ["KYTTU'S LAB"], "t": 3.2}
+  ]
+}

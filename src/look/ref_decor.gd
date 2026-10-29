@@ -43,6 +43,8 @@ var _budget := {}          # room id -> {"lamp": n, "window": n}
 ## Rooms whose recipe placed its own ceiling fixture (a fan, a ceiling light, a chandelier prop): the prop owns that
 ## ceiling, so the decor adds no chandelier, pendant or strip lamp there -- one fixture family per room.
 var _prop_ceiling_rooms := {}
+## Cells under a sewer outflow main: its hangers own the vault there, no lamp.
+var _overhead_cells := {}
 var _room_rects := {}        # room id -> interior Rect2i (symmetric sconces)
 ## Ceiling points (x, z, ceiling height) of chandeliers that get a mansion ceiling medallion.
 var _medallions: Array = []
@@ -64,6 +66,9 @@ func _init(root: Node3D, data: Dictionary, room_map: Dictionary,
 		_room_rects[String((room_value as Dictionary).get("id", ""))] = (room_value as Dictionary).get("rect", Rect2i())
 	for prop_value in data.get("region_props", []):
 		var prop: Dictionary = prop_value
+		if bool(prop.get("outflow", false)):
+			for cell in prop.get("occupied_cells", []):
+				_overhead_cells[cell] = true
 		if CEILING_FIXTURE_PROPS.has(String(prop.get("type", ""))):
 			var room_id := String(prop.get("room_id", ""))
 			if not room_id.is_empty():
@@ -760,7 +765,8 @@ func _open_cell(grid: Array, x: int, z: int, style: Dictionary) -> void:
 		# lamps sit on a lattice inside rooms (budgeted) and every ten metres down halls
 		if rid != "":
 			pass    # rooms: the even grid in _room_lamps
-		elif _is_corridor_mid(grid, x, z) and (x + z) % 12 == 0 and _corridor_lit(x, z):
+		elif _is_corridor_mid(grid, x, z) and (x + z) % 12 == 0 and _corridor_lit(x, z) \
+				and not _overhead_cells.has(Vector2i(x, z)):
 			_ceiling_lamp(world, x, z, _hh(Vector2i(x, z)))
 	# (sconce regions light their corridors from the walls only)
 	if int(style["cable"]) < 90 and _h(x, z, 71, int(style["cable"]) * 2) == 0 and lit_room \

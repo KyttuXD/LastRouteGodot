@@ -9,7 +9,7 @@ extends Node
 ## Scenarios: survive, explore_coverage (--target=chunks), collect_relays (--target=n), reach_depth (--target=n), menu_tour,
 ##   death_scene_tour (--hunters=a,b). Exit code 0 = pass, 1 = failed thresholds, 2 = could not run (skipped / error).
 
-const SCENARIOS := ["survive", "explore_coverage", "collect_relays", "reach_depth", "menu_tour", "death_scene_tour", "probe", "coop_bot", "goto_check", "door_audit"]
+const SCENARIOS := ["survive", "explore_coverage", "collect_relays", "reach_depth", "menu_tour", "death_scene_tour", "probe", "coop_bot", "goto_check", "door_audit", "flythrough", "sequence", "soak"]
 
 var _driver := false
 var _opts := {}
@@ -29,6 +29,11 @@ func _ready() -> void:
 		return
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_opts = parse_args(OS.get_cmdline_user_args())
+	# test machines stay silent: the master bus is muted for every bot run (--mute=false keeps the sound); the video scenarios keep
+	# it unless --mute is given, since Movie Maker records the same mix
+	var mute := String(_opts["mute"])
+	if mute == "true" or (mute == "" and String(_opts["scenario"]) not in ["flythrough", "sequence"]):
+		AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), true)
 	_started_msec = Time.get_ticks_msec()
 	_start_watchdog()
 	await get_tree().process_frame
@@ -46,6 +51,8 @@ func _start_watchdog() -> void:
 				seconds = 300.0
 			"death_scene_tour":
 				seconds = 2700.0
+			"flythrough", "sequence":
+				seconds = 1200.0
 			_:
 				seconds = float(_opts["minutes"]) * 60.0 * 3.0 + 120.0
 	_watchdog = Thread.new()
@@ -69,7 +76,8 @@ func _watch(seconds: float) -> void:
 
 static func parse_args(args: PackedStringArray) -> Dictionary:
 	var out := {"game": "last_route", "scenario": "survive", "seed": "PLAYTEST", "difficulty": "standard", "minutes": 2.0,
-		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_y": -9999.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "goal_x": 0, "goal_z": 0, "goal_kind": "relay", "deadline": 0.0, "screenshots": false, "keep_alive": false}
+		"bot_seed": 1, "out": "", "name": "", "target": 0, "probe_x": 0.0, "probe_y": -9999.0, "probe_z": 0.0, "probe_interact": "", "hunters": "", "hash_frames": 0, "role": "", "dir": "", "guests": 1, "port": 18511, "passive": false, "goal_x": 0, "goal_z": 0, "goal_kind": "relay", "deadline": 0.0, "screenshots": false, "keep_alive": false, "area": "", "fps": 30, "seconds": 0.0, "lamp": true, "variant": 0, "bob": true, "clean": false, "keep": "", "doors": true, "shot": "", "preview": false,
+		"level_every": 150.0, "hop_every": 0.0, "save_every": 600.0, "pause_every": 60.0, "seam_every": 90.0, "observe_every": 0, "coop_check": false, "mute": ""}
 	out.merge(PlaytestReporter.DEFAULT_LIMITS, true)
 	for arg in args:
 		var text := String(arg)
@@ -105,6 +113,9 @@ func _run() -> void:
 	if not SCENARIOS.has(scenario):
 		_finish(_blank_report(game, scenario, "unknown scenario '%s'" % scenario), 2)
 		return
+	if scenario not in ["flythrough", "sequence"]:
+		# a bot aims with the look stick: a captured mouse would let anyone using this machine turn its view (and lock their pointer)
+		bridge.hold_cursor = true
 	var report := _blank_report(game, scenario, "")
 	var log_start := bridge.log_sink.sequence()
 	var result: Dictionary = {}
@@ -119,6 +130,12 @@ func _run() -> void:
 			result = await PlaytestScenarios.goto_check(bridge, adapter, _opts, report)
 		"door_audit":
 			result = await PlaytestScenarios.door_audit(bridge, adapter, _opts, report)
+		"flythrough":
+			result = await PlaytestFlythrough.run(bridge, adapter, _opts, report)
+		"sequence":
+			result = await PlaytestSequencer.run(bridge, adapter, _opts, report)
+		"soak":
+			result = await PlaytestScenarios.soak(bridge, adapter, _opts, report)
 		"death_scene_tour":
 			result = await PlaytestScenarios.death_tour(bridge, adapter, _opts, report)
 		_:

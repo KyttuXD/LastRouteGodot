@@ -1,0 +1,77 @@
+{
+ "name": "gameplay_montage",
+ "shots": [
+  {
+   "card": [
+    "LAST ROUTE",
+    "GAMEPLAY"
+   ],
+   "t": 1.6,
+   "fade_in": 0.2,
+   "fade_out": 0.2
+  },
+  {
+   "clip": "gp_kathy_chase",
+   "ss": 0.05,
+   "t": 2.3,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.08
+  },
+  {
+   "clip": "gp_corner_sprint",
+   "ss": 0.05,
+   "t": 2.1,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.08
+  },
+  {
+   "clip": "gp_corner_peek",
+   "ss": 0.05,
+   "t": 2.3,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.08
+  },
+  {
+   "clip": "gp_flashlight_find",
+   "ss": 0.05,
+   "t": 2.0,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.08
+  },
+  {
+   "clip": "gp_locker_dive",
+   "ss": 0.05,
+   "t": 2.7,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.08
+  },
+  {
+   "clip": "gp_item_pickup",
+   "ss": 0.05,
+   "t": 1.7,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.08
+  },
+  {
+   "clip": "gp_inferno_walk",
+   "ss": 0.05,
+   "t": 2.1,
+   "game_audio": 1.0,
+   "fade_in": 0.08,
+   "fade_out": 0.08
+  },
+  {
+   "card": [
+    "LAST ROUTE"
+   ],
+   "t": 1.8,
+   "fade_in": 0.2
+  }
+ ]
+}

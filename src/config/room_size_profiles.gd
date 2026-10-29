@@ -33,7 +33,7 @@ const PROFILES := {
 	"family_dining": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 9), "max": Vector2i(13, 11), "tables": Vector2i(1, 1),
 		"signature": ["woodenTable"], "generated": true},
 	"drawing_room": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 4), "signature": [], "generated": true},
-	"big_top": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
+	"big_top": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 21), "max": Vector2i(21, 21), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"midway": {"min": Vector2i(9, 9), "preferred": Vector2i(21, 9), "max": Vector2i(21, 9), "tables": Vector2i(0, 0), "signature": [], "generated": true},
 	"kitchen": {"min": Vector2i(9, 9), "preferred": Vector2i(11, 11), "max": Vector2i(13, 13), "tables": Vector2i(0, 1),
 		"signature": ["normalKitchenCounter", "normalKitchenStove"], "generated": true},

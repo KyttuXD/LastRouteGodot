@@ -211,6 +211,9 @@ var _mirror_refresh_elapsed := 0.0
 var _animated_activity_props: Array[Node3D] = []
 var _tracked_level := 0
 var _lamp_field: LampField
+## Floods from sewer pipes broken with the Axe (SewerFloods) and each breakable pipe's spawned nodes (id -> Array).
+var _floods: SewerFloods
+var _pipe_nodes := {}
 
 
 func _ready() -> void:
@@ -218,6 +221,10 @@ func _ready() -> void:
 	_build_shared_mirror()
 	_lamp_field = LampField.new()
 	add_child(_lamp_field)
+	_floods = SewerFloods.new()
+	_floods.name = "SewerFloods"
+	_floods.view = self
+	add_child(_floods)
 
 
 func begin(seed_text: String, player: PlayerController3D,
@@ -228,6 +235,8 @@ func begin(seed_text: String, player: PlayerController3D,
 	_gen_worker = generator.make_worker_copy()
 	tracked_player = player
 	world_state = state if state != null else StreamedWorldState.new()
+	# a pipe somebody bursts floods its walkway, on every machine (the route publishes Breach "breached")
+	Breach.connect_hook("breached", Breach.KIND_PIPE, _floods.on_pipe_breached)
 	_tracked_level = snapped_level_for_world_y(
 		tracked_player.global_position.y if tracked_player != null else 0.0)
 	_refresh_stream(true)
@@ -241,6 +250,9 @@ func _exit_tree() -> void:
 
 func clear() -> void:
 	_walked_link_cache.clear()
+	_pipe_nodes.clear()
+	if _floods != null:
+		_floods.forget_all()
 	if _gen_task != -1:
 		WorkerThreadPool.wait_for_task_completion(_gen_task)
 		_gen_task = -1
@@ -955,8 +967,17 @@ func dormant_chunk_count() -> int:
 	return _dormant.size()
 
 
+## Headless runs (validators, bots) use Godot's dummy renderer, whose mesh registry is not thread-safe: a GLB loading on
+## a loader thread created its meshes while the main thread built a chunk's surface, and ~1 run in 8 lost a chunk's
+## Surface mesh ("Initializing already initialized RID", mesh_add_surface on a null mesh). The real renderers (GL
+## Compatibility, Mobile, Forward+) keep thread-safe mesh registries, so only headless skips the threaded prefetch.
+static var _headless := DisplayServer.get_name() == "headless"
+
+
 ## Start background loads of the prop scenes a queued chunk will need, so its build never reads a GLB on the main thread.
 func _prefetch_chunk(coord: Vector3i) -> void:
+	if _headless:
+		return   # see _headless: the props load on the main thread when the chunk builds
 	if _gen_worker != null and not _chunk_generated(coord):
 		return   # its props are prefetched once the worker has generated it (_adopt_generated)
 	var data := generator.chunk(coord)
@@ -1244,6 +1265,12 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 				for x in range(rect.position.x, rect.end.x):
 					if x > 0 and z > 0 and x < StreamedRouteGenerator.CHUNK_SIZE - 1 and z < StreamedRouteGenerator.CHUNK_SIZE - 1:
 						heights[Vector2i(x, z)] = LEVEL_HEIGHT - SLAB
+	# Under a sewer's channels the trench bed hangs CHANNEL_DEPTH below that storey's floor: the vault here stops
+	# under it, or the trench's sides showed through this storey's ceiling as fins along the channel line.
+	if coord.y < StreamedRouteGenerator.SEWER_LEVEL and generator.has_method("sewer"):
+		var under_trench := LEVEL_HEIGHT - SewerRouteGenerator.CHANNEL_DEPTH - SLAB
+		for cell_value in generator.sewer().trench_cells_below(coord.x, coord.z, coord.y):
+			heights[cell_value] = minf(float(heights.get(cell_value, corridor_h)), under_trench)
 	var open_above := {}
 	var falls: Dictionary = data.get("falls", {})
 	if not falls.is_empty() and coord.y == StreamedRouteGenerator.LOWER_SEWER_LEVEL:
@@ -1489,6 +1516,8 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					_bind_room_lights(root, data, coord, lamp_list)
 				if not _all_lights_enabled:
 					_set_lights_recursive(root, false)
+				StoreyLayers.apply(root, coord.y)
+				_floods.chunk_built(coord, root, data)
 				_loaded[coord] = root
 				_chunk_data[coord] = data
 				chunk_builds += 1
@@ -1540,6 +1569,18 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		else:
 			grid.set_cell_item(Vector3i(x, 0, z), _col_floor_item)
 			surface.add_floor(x, z, RefTextures.layer("floor", "concrete1"), RefTextures.params("floor", "concrete1"))
+			# the well rises the full storey: over a lower room beside it (the foot landing
+			# stops a slab short of the storey line) the edge of the slab faces into the well
+			for step_value in RefDecor.DIRS:
+				var step: Vector2i = step_value
+				var n := cell + step
+				if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size or shaft_cells.has(n) or int(grid_data[n.y][n.x]) != 0:
+					continue
+				var below := _height_in(build, n)
+				if below < LEVEL_HEIGHT - .01:
+					var edge_kind := _ref_wall_kind(build, n.x, n.y, x, z)
+					surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", edge_kind),
+						RefTextures.params("wall", edge_kind), LEVEL_HEIGHT, below, LEVEL_HEIGHT)
 		return
 	if int(grid_data[z][x]) == 0:
 		var height := _height_in(build, cell)
@@ -2324,6 +2365,8 @@ func _spawn_breakables(root: Node3D, data: Dictionary) -> void:
 
 ## The state of a breakable changed (the host's "stream_breach"): its piece, if its chunk is loaded.
 func apply_breach(id: String, hp: int, opened: bool) -> void:
+	if opened:
+		_remove_pipe(id)
 	var node := _breakable_nodes.get(id) as RouteInteractable3D
 	if node == null or not is_instance_valid(node):
 		_breakable_nodes.erase(id)
@@ -2802,6 +2845,7 @@ func _unload_chunk(coord: Vector3i) -> void:
 	if root != null:
 		_forget_chunk_entities(root)
 		root.queue_free()
+	_floods.chunk_unloaded(coord)
 	_loaded.erase(coord)
 	_chunk_data.erase(coord)
 
@@ -2998,6 +3042,53 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 	var type := String(prop.get("type", ""))
 	if not PropModelCatalog.has_model(type):
 		return
+	# a sewer pipe the Axe can break: gone for good once broken; otherwise its nodes are kept to remove on the burst
+	var pipe_id := String(prop.get("breakable_id", ""))
+	if not pipe_id.is_empty():
+		if world_state != null and world_state.breach_open(pipe_id):
+			_spawn_pipe_stump(parent, prop)
+			return
+		var before := parent.get_child_count()
+		_spawn_region_prop_now(parent, coord, prop, finish)
+		# a rebuilt chunk starts the pipe's entry afresh (the old root went with its nodes)
+		if not _pipe_nodes.has(pipe_id) or (_pipe_nodes[pipe_id] as Dictionary)["parent"] != parent:
+			_pipe_nodes[pipe_id] = {"nodes": [], "props": [], "parent": parent}
+		var entry: Dictionary = _pipe_nodes[pipe_id]
+		(entry["props"] as Array).append(prop)
+		for index in range(before, parent.get_child_count()):
+			(entry["nodes"] as Array).append(parent.get_child(index))
+		return
+	_spawn_region_prop_now(parent, coord, prop, finish)
+
+
+## The torn end an outflow main leaves at its wall once the Axe breaks it (authored with the main, no collider: it is all
+## above the crawl clearance on the outer walkway cell). A crawl pipe's thin mains leave nothing.
+const OUTFLOW_STUMP := "res://art/props-3d/props/sewer/sewer_outflow_pipe_broken.glb"
+
+
+func _spawn_pipe_stump(parent: Node3D, prop: Dictionary) -> void:
+	if not bool(prop.get("outflow", false)):
+		return
+	var cell: Vector2i = prop.get("cell", Vector2i.ZERO)
+	_spawn_authored_prop(parent, OUTFLOW_STUMP, Vector3(cell.x + .5, 0.0, cell.y + .5), float(prop.get("yaw", 0.0)),
+		Vector3.ONE, "streamed_region_prop", false, "sewerOutflowPipe")
+
+
+## A burst pipe's mains, collider and drips go and the stump stays (its flood comes from SewerFloods).
+func _remove_pipe(id: String) -> void:
+	var entry: Dictionary = _pipe_nodes.get(id, {})
+	for node in entry.get("nodes", []):
+		if is_instance_valid(node):
+			(node as Node).queue_free()
+	var parent: Variant = entry.get("parent")
+	if is_instance_valid(parent):
+		for prop in entry.get("props", []):
+			_spawn_pipe_stump(parent as Node3D, prop)
+	_pipe_nodes.erase(id)
+
+
+func _spawn_region_prop_now(parent: Node3D, coord: Vector3i, prop: Dictionary, finish: String = "") -> void:
+	var type := String(prop.get("type", ""))
 	if _thinned_out(prop, type):
 		return
 	if PropModelCatalog.is_room_door(type):
@@ -3022,6 +3113,11 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		float(prop.get("collider_y0", 0.0)))
 	if bool(prop.get("crawl_under", false)) and int(prop.get("crawl_side", 1)) == -1:
 		_add_pipe_drips(parent, Vector3(cell.x + .5, float(prop.get("collider_y0", 1.0)), cell.y + .5), prop)
+	elif bool(prop.get("outflow", false)):
+		# the drop's flange over the channel weeps into the flow
+		var wall := Vector2(prop.get("outflow_wall", Vector2i.ZERO))
+		_add_pipe_drips(parent, Vector3(cell.x + .5 - wall.x * 2.53, float(prop.get("collider_y0", 1.0)) - .2,
+			cell.y + .5 - wall.y * 2.53), prop, Vector3(.7, 0.0, .7), 12)
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:
@@ -3035,17 +3131,18 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 
 
 ## Water dripping off a sewer crawl-under pipe: a few small blue streaks falling from its underside to the floor.
-func _add_pipe_drips(parent: Node3D, at: Vector3, prop: Dictionary) -> void:
+func _add_pipe_drips(parent: Node3D, at: Vector3, prop: Dictionary, extents := Vector3.ZERO, amount := 8) -> void:
 	var drips := GPUParticles3D.new()
 	drips.name = "PipeDrips"
 	drips.position = at
-	drips.amount = 8
+	drips.amount = amount
 	drips.lifetime = 0.5
 	drips.visibility_aabb = AABB(Vector3(-2, -1.5, -2), Vector3(4, 2, 4))
 	var process := ParticleProcessMaterial.new()
 	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
 	var step: Vector2i = prop.get("crawl_step", Vector2i(1, 0))
-	process.emission_box_extents = Vector3(0.05, 0.0, 1.4) if step.x != 0 else Vector3(1.4, 0.0, 0.05)
+	process.emission_box_extents = extents if extents != Vector3.ZERO \
+		else (Vector3(0.05, 0.0, 1.4) if step.x != 0 else Vector3(1.4, 0.0, 0.05))
 	process.direction = Vector3.DOWN
 	process.spread = 0.0
 	process.initial_velocity_min = 0.0
@@ -3190,16 +3287,22 @@ func _set_room_lamps(room_id: String, on: bool) -> void:
 func apply_room_light(room_id: String, on: bool) -> bool:
 	var changed := world_state.set_room_light(room_id, on)
 	_set_room_lamps(room_id, on)
-	var switch := _switch_nodes.get(room_id) as RouteInteractable3D
-	if switch != null and is_instance_valid(switch) and switch.light_enabled != on:
+	var switch := room_light_switch(room_id)
+	if switch != null and switch.light_enabled != on:
 		switch.light_enabled = on
 		switch.configure_room_light(room_id, on, switch.light_resolver)
 	return changed
 
 
 func room_light_switch(room_id: String) -> RouteInteractable3D:
-	var switch := _switch_nodes.get(room_id) as RouteInteractable3D
-	return switch if switch != null and is_instance_valid(switch) else null
+	# a switch in an unloaded chunk is freed: check before the cast (casting a freed object is an error), and forget it
+	var value: Variant = _switch_nodes.get(room_id)
+	if value == null:
+		return null
+	if not is_instance_valid(value):
+		_switch_nodes.erase(room_id)
+		return null
+	return value as RouteInteractable3D
 
 
 func lit_rooms() -> Array:
@@ -3554,8 +3657,8 @@ func _build_shared_mirror() -> void:
 	add_child(_mirror_viewport)
 	_mirror_camera = Camera3D.new()
 	_mirror_camera.name = "MirrorCamera"
-	# Reflective quads live on layer 2, preventing feedback recursion.
-	_mirror_camera.cull_mask = 1
+	# Reflective quads live on layer 2, preventing feedback recursion (the storey layers carry the walls).
+	_mirror_camera.cull_mask = 1 | StoreyLayers.EVEN | StoreyLayers.ODD
 	_mirror_viewport.add_child(_mirror_camera)
 
 

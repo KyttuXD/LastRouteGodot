@@ -1,0 +1,17 @@
+{
+  "name": "exploration",
+  "music": "02_Exploration_DesolateHalls.mid",
+  "music_volume": 0.8,
+  "shots": [
+    {"card": ["LAST ROUTE"], "t": 3.0},
+    {"card": ["EVERY FLOOR IS DIFFERENT"], "t": 2.8},
+    {"clip": "hospital", "ss": 0.5, "t": 8},
+    {"clip": "lab", "ss": 7, "t": 8},
+    {"clip": "greenhouse", "ss": 1, "t": 8},
+    {"clip": "mall", "ss": 1, "t": 8},
+    {"clip": "prison", "ss": 1, "t": 8},
+    {"clip": "mansion", "ss": 1, "t": 8},
+    {"clip": "hotel", "ss": 1, "t": 8},
+    {"card": ["KYTTU'S LAB"], "t": 3.2}
+  ]
+}
