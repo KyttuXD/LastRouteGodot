@@ -3781,7 +3781,7 @@ func _nearest_interactable() -> RouteInteractable3D:
 		var horizontal_offset := Vector2(candidate.global_position.x - global_position.x,
 			candidate.global_position.z - global_position.z)
 		var horizontal_distance := horizontal_offset.length()
-		if horizontal_distance > maximum_distance or candidate.get_prompt().is_empty():
+		if horizontal_distance > maximum_distance or (candidate.get_prompt().is_empty() and not candidate.is_secret()):
 			continue
 		if candidate.has_aim_box():
 			var along: float = candidate.aim_hit_distance(origin, look)

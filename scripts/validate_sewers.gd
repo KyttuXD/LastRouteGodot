@@ -89,6 +89,7 @@ func _check_window(window: Dictionary) -> int:
 				for x in size:
 					if SewerRouteGenerator.is_walkable(int(grid[z][x])):
 						sewer_cells[origin + Vector2i(x, z)] = int(grid[z][x])
+			_note_door_frames(data, origin)
 			var surface_data: Dictionary = surface.chunk(Vector3i(cx, 0, cz))
 			var sgrid: Array = surface_data["grid"]
 			for z in size:
@@ -158,11 +159,25 @@ func _check_window(window: Dictionary) -> int:
 	return links.size()
 
 
+## A framed door seal's doorway is one cell wide on purpose (brick on both jambs): the cells round its middle are exempt.
+var _door_cells := {}
+
+
+func _note_door_frames(data: Dictionary, origin: Vector2i) -> void:
+	for spec in data.get("breakables", []):
+		var extras: Dictionary = spec.get("extras", {})
+		if extras.has("door_frame"):
+			var middle: Vector2i = origin + (extras["cells"] as Array)[1]
+			for dz in range(-2, 3):
+				for dx in range(-2, 3):
+					_door_cells[middle + Vector2i(dx, dz)] = true
+
+
 func _check_widths(seed_text: String, cells: Dictionary) -> void:
 	var bad := 0
 	var sample := Vector2i.ZERO
 	for cell in cells:
-		if not SewerRouteGenerator.is_dry(int(cells[cell])):
+		if not SewerRouteGenerator.is_dry(int(cells[cell])) or _door_cells.has(cell):
 			continue
 		var ok := false
 		for oz in range(-2, 1):
@@ -988,6 +1003,7 @@ func _check_falls(host: Node) -> void:
 				for cx in size:
 					if SewerRouteGenerator.is_walkable(int(low_grid[cz][cx])):
 						lower_cells[Vector2i(x * size + cx, z * size + cz)] = int(low_grid[cz][cx])
+			_note_door_frames(low, Vector2i(x * size, z * size))
 			var falls: Dictionary = generator.sewer().falls_between(x, z)
 			if falls.is_empty():
 				continue
@@ -1039,10 +1055,90 @@ func _check_falls(host: Node) -> void:
 			_expect(structure.get_cell_item(Vector3i(qc.x, 0, qc.y)) == view._col_channel_item,
 				"the falls' drop is not blocked to walk")
 		_check_colliders_below_maze(view)
+		_check_walls_solid(view)
 		view.clear()
 		view.queue_free()
 		player.queue_free()
 	print("  ok    falls: %d sites feed the collector, drops over the cisterns, collector walkable" % sites)
+
+
+## No brick without a collider (KT: "waterfalls have these walls that can be walked through"): every wall face the loaded
+## sewer chunks draw that crosses a storey's walking band stands on a cell edge with at least one blocked side, so no
+## walkable cell has a visual wall through it; and every door seal is framed by brick on both jambs (KT: a door standing
+## alone on a walkway).
+func _check_walls_solid(view: StreamedFacilityView3D) -> void:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var faces := 0
+	var bad := {}
+	for coord_value in view._loaded:
+		var coord: Vector3i = coord_value
+		if coord.y != SewerRouteGenerator.LEVEL and coord.y != SewerRouteGenerator.LOWER_LEVEL:
+			continue
+		var root: Node3D = view._loaded[coord]
+		for node in root.find_children("*", "MeshInstance3D", true, false):
+			var mesh_node := node as MeshInstance3D
+			var name := String(mesh_node.name)
+			if mesh_node.mesh == null or not (name == "Surface" or name.begins_with("Ref_")):
+				continue
+			var xf := mesh_node.global_transform
+			for surface_index in mesh_node.mesh.get_surface_count():
+				var arrays := mesh_node.mesh.surface_get_arrays(surface_index)
+				var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+				var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+				var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+				var tri_count := (indices.size() if not indices.is_empty() else verts.size()) / 3
+				for t in tri_count:
+					var ids := [t * 3, t * 3 + 1, t * 3 + 2]
+					if not indices.is_empty():
+						ids = [indices[t * 3], indices[t * 3 + 1], indices[t * 3 + 2]]
+					var normal := xf.basis * normals[ids[0]]
+					if absf(normal.y) > .1:
+						continue
+					var a := xf * verts[ids[0]]
+					var b := xf * verts[ids[1]]
+					var c := xf * verts[ids[2]]
+					var low := minf(a.y, minf(b.y, c.y))
+					var high := maxf(a.y, maxf(b.y, c.y))
+					var mid := (a + b + c) / 3.0
+					var storey := floori((mid.y + .01) / StreamedFacilityView3D.LEVEL_HEIGHT)
+					var band := float(storey) * StreamedFacilityView3D.LEVEL_HEIGHT
+					if high < band + 1.6 or low > band + .4:
+						continue
+					faces += 1
+					var flat := Vector3(normal.x, 0, normal.z).normalized() * .5
+					var front := _walkable_at(view, mid + flat, storey, size)
+					var back := _walkable_at(view, mid - flat, storey, size)
+					if front and back:
+						bad[Vector3i(floori(mid.x), storey, floori(mid.z))] = true
+	_expect(faces > 100, "only %d wall faces to check in the loaded sewer chunks" % faces)
+	var listed := bad.keys().slice(0, 6)
+	_expect(bad.is_empty(), "%d wall faces stand between walkable cells with no collider (walk-through brick): %s" % [bad.size(), listed])
+	# door seals: brick on both jambs
+	var doors := 0
+	for coord_value in view._loaded:
+		var coord: Vector3i = coord_value
+		var data: Dictionary = view.generator.chunk(coord)
+		for spec in data.get("breakables", []):
+			var extras: Dictionary = spec.get("extras", {})
+			if String(extras.get("seal", "")) != "locked_door":
+				continue
+			doors += 1
+			var grid: Array = data["grid"]
+			var cells: Array = extras["cells"]
+			_expect(int(grid[(cells[0] as Vector2i).y][(cells[0] as Vector2i).x]) != 0 and int(grid[(cells[2] as Vector2i).y][(cells[2] as Vector2i).x]) != 0
+				and int(grid[(cells[1] as Vector2i).y][(cells[1] as Vector2i).x]) == 0,
+				"the door seal %s at %s stands free: no wall on its jambs" % [spec["id"], spec["cell"]])
+	print("  ok    walls: %d wall faces over the walking bands all solid, %d door seals framed" % [faces, doors])
+
+
+func _walkable_at(view: StreamedFacilityView3D, at: Vector3, storey: int, size: int) -> bool:
+	var cx := floori(at.x)
+	var cz := floori(at.z)
+	var coord := Vector3i(floori(float(cx) / size), storey, floori(float(cz) / size))
+	if not view._loaded.has(coord):
+		return false
+	var grid: Array = view.generator.chunk(coord)["grid"]
+	return int(grid[posmod(cz, size)][posmod(cx, size)]) == 0
 
 
 ## Every light fixture in a loaded sewer chunk (the decor's wall and ceiling lamps

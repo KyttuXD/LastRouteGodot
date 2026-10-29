@@ -438,6 +438,8 @@ func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: A
 	if is_chunk_allowed(coord) and not rooms.is_empty():
 		var seal_plan := SealPlanner.plan_rooms(world_seed, coord, grid, room_entries)
 		breakables = SealPlanner.specs(world_seed, coord, seal_plan, coord.y, SEAL_FIRST_INDEX)
+		for spec in breakables:
+			_frame_door_seal(spec, grid, sewer_grid, coord.y)
 		for cell in seal_plan["sealed"]:
 			sealed[cell] = true
 		for spec in breakables:
@@ -461,6 +463,33 @@ func _streamed_schema(coord: Vector3i, sewer_grid: Array, rooms: Array, links: A
 		"links": links, "features": features, "ramps": ramps,
 		"falls": falls_between(coord.x, coord.z) if is_chunk_allowed(coord) else {},
 		"ramp_cells": ramp_cells(coord.x, coord.z, coord.y), "crawl_cells": _crawl_stripe_cells(features)}
+
+
+## A locked-door seal is a door in a frame (KT: a door standing alone on a walkway). SealPlanner gates a room's branch three
+## cells wide, one cell outside the room, so the door needs a wall on both jambs: where the opening is exactly those three
+## cells (brick beyond both ends) the two outer cells become brick and the door fills the middle one; anywhere wider the
+## seal becomes a barricade instead, which spans the whole gate on its own.
+static func _frame_door_seal(spec: Dictionary, grid: Array, sewer_grid: Array, level: int) -> void:
+	var extras: Dictionary = spec["extras"]
+	if String(extras.get("seal", "")) != "locked_door":
+		return
+	var cells: Array = extras["cells"]
+	var along: Vector2i = (cells[1] as Vector2i) - (cells[0] as Vector2i)
+	var jambs := [(cells[0] as Vector2i) - along, (cells[2] as Vector2i) + along]
+	var framed := jambs.all(func(c: Vector2i) -> bool:
+		return c.x >= 0 and c.y >= 0 and c.x < CHUNK_SIZE and c.y < CHUNK_SIZE and int(sewer_grid[c.y][c.x]) == SOLID)
+	if framed:
+		for side in [cells[0], cells[2]]:
+			var c: Vector2i = side
+			sewer_grid[c.y][c.x] = SOLID
+			grid[c.y][c.x] = 1
+		extras["door_frame"] = jambs
+		return
+	extras["seal"] = "barricade"
+	spec["variant"] = SealRules.seal_prop(level, "barricade")
+	spec["hp"] = int(SealRules.SEAL_HP.get("barricade", 3))
+	spec["tools"] = SealPlanner._tools(level, "barricade")
+	spec["locked"] = false
 
 
 static func _carve_rect(grid: Array, rect: Rect2i, code: int) -> void:
