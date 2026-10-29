@@ -109,6 +109,10 @@ func _measure(model: Node3D, ref: Dictionary, scale_ref: float, ground: float, s
 		var bone := _bone(model, bone_name)
 		if bone == null:
 			continue
+		if bone.global_basis.determinant() < 0.0:     # a mirrored bone turns its faces inside out
+			out["scale"] = 1.0
+			out["what"] = "%s is mirrored (negative scale)" % bone_name
+			continue
 		var s := bone.global_basis.get_scale().abs()
 		var dev := maxf(absf(s.x / scale_ref - 1.0), maxf(absf(s.y / scale_ref - 1.0), absf(s.z / scale_ref - 1.0)))
 		if dev > out["scale"]:
