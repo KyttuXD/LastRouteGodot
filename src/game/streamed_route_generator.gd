@@ -4986,6 +4986,7 @@ func _prop_hiding_fixtures(coord: Vector3i, region_props: Array, safe: bool) -> 
 		result.append({
 			"id": "%s:FIXTURE:HIDE_%s:%d" % [chunk_id(coord), style.to_upper(), result.size()],
 			"kind": "hiding_spot", "style": style, "prop_type": String(prop.get("type", "")),
+			"capacity": PropModelCatalog.hide_capacity(String(prop.get("type", ""))),
 			"prop_id": String(prop.get("id", "")), "cell": approach, "prop_cell": cell,
 			"local_position": local,
 			"yaw": float(prop.get("yaw", 0.0)),

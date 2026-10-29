@@ -167,6 +167,7 @@ func refresh(route_level: int, coords: Array) -> void:
 				"prop_at": Vector2(coord.x * StreamedRouteGenerator.CHUNK_SIZE, coord.z * StreamedRouteGenerator.CHUNK_SIZE) \
 					+ (fixture.get("local_position", Vector2(cell) + Vector2(.5, .5)) as Vector2),
 				"yaw": float(fixture.get("yaw", 0.0)),
+				"capacity": int(fixture.get("capacity", 1)),
 				"prop_size": fixture.get("blocker_size", Vector3.ONE)}
 			if String(fixture.get("kind", "")) == "vent":
 				vents.append(fixture_entry)

@@ -285,6 +285,8 @@ var _xr_climb_pull := 0.0
 ## been there, wired to a literal false because nothing could hide.
 var hidden := false
 var hidden_spot := Vector2i(-1, -1)
+## Which place inside the spot (HideOccupancy slot; replicated as hide_slot): 0 at the front, 1 beside and behind.
+var hidden_slot := 0
 var _hiding_exit_position := Vector3.ZERO
 var _hiding_collision_layer := 1
 var _hiding_collision_mask := 1
@@ -734,6 +736,7 @@ func leave_hiding(at: Vector2 = Vector2.ZERO, forced: bool = false) -> String:
 	_hide_move = {}
 	hidden = false
 	hidden_spot = Vector2i(-1, -1)
+	hidden_slot = 0
 	input_frozen = false
 	hiding_lock_timer = 0.0
 	if is_instance_valid(_hiding_fixture) \

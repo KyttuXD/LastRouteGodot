@@ -523,7 +523,7 @@ func _nearest_entries(entries: Array, from: Vector3, limit: int, only_open: bool
 			continue
 		var d := Vector2(float(entry.get("x", 0)) + .5 - from.x, float(entry.get("y", 0)) + .5 - from.z).length()
 		rows.append({"id": String(entry.get("id", entry.get("room_id", ""))), "x": int(entry.get("x", 0)),
-			"y": int(entry.get("y", 0)), "dist": snappedf(d, .1)})
+			"y": int(entry.get("y", 0)), "dist": snappedf(d, .1), "capacity": int(entry.get("capacity", 1))})
 	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["dist"]) < float(b["dist"]))
 	return rows.slice(0, limit)
 
@@ -707,7 +707,9 @@ func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, 
 			if float(entry["dist"]) < 70.0 and not _blacklisted("safe:%s" % entry["id"]):
 				return {"kind": "safe", "key": "safe:%s" % entry["id"], "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
 		for entry in world["hiding_spots"]:
-			if float(entry["dist"]) < 18.0 and not _blacklisted("hide:%s" % entry["id"]):
+			# a full spot (HideOccupancy: another runner or bot is in it) is passed over for the next one
+			if float(entry["dist"]) < 18.0 and not _blacklisted("hide:%s" % entry["id"]) \
+					and not HideOccupancy.is_full(Vector2i(int(entry["x"]), int(entry["y"])), int(entry["capacity"])):
 				return {"kind": "hide", "key": "hide:%s" % entry["id"], "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
 		var away: Vector2 = Vector2(float(cell.x), float(cell.y)) - _vec(threat["pos"])
 		if away.length() < .1:
