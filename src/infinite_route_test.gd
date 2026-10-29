@@ -360,12 +360,12 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	_tick_sync_gate(delta)
+	_expire_predictions()
 	_update_player_list(delta)
 	_update_teammate_waypoints()
 	if not _admin_pulses.is_empty():
 		_apply_pulses_to_maps()
-	_tick_sync_gate(delta)
-	_expire_predictions()
 	_update_troll_ads(delta)
 	_music_boxes.tick(delta)
 	_tick_seat_occupancy()
@@ -5290,14 +5290,14 @@ func _apply_player_event(event: Dictionary) -> void:
 			player.troll_active = bool(event.get("on", false))
 			_troll_ads_forced = player.troll_active and bool(event.get("ads", true))
 			_troll_ads_muted = player.troll_active and not bool(event.get("ads", true))
-		"admin_pulse":
-			_show_admin_pulse(event)
 		"interaction_refused":
 			# The host said no to our own door or pickup: undo the prediction now rather than at its timeout.
 			if _predicted_doors.has(String(event.get("door_id", ""))):
 				_rollback_door(String(event["door_id"]))
 			if _predicted_pickups.has(String(event.get("entity_id", ""))):
 				_rollback_pickup(String(event["entity_id"]))
+		"admin_pulse":
+			_show_admin_pulse(event)
 		"troll_pickup":
 			# The host refused it; it vanishes for this client only.
 			if facility.apply_pickup_claim(String(event.get("entity_id", ""))):
