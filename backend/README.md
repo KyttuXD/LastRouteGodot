@@ -366,6 +366,40 @@ The script hashes every file and enforces the caps. It copies the pack to `<id>/
 and re-hashes the files there with `sha256sum`. Only if every hash matches does it rename the folder into place and
 register the pack in the index. A bad upload is deleted, and nothing is registered.
 
+## Reserved private rooms
+
+A reserved room is a room code the owner keeps (`backend/reserved_rooms.mjs`): it never expires, nobody else can
+register it, and it is hidden -- `GET /api/enet/rooms/<code>` answers `403 ROOM_RESERVED`. Store and echo only:
+the live game session on that code still belongs to whichever invited player hosts it.
+
+- Codes: `LASTROUTE_RESERVED_ROOMS` (default `KATHY,AKIRI`; always present), or created by the owner. Reserved codes
+  may use any five letters or digits (AKIRI has an I); generated room codes keep their alphabet (no I, O, 0, 1) and a
+  non-reserved code outside it cannot be registered. Each is Stored with their
+  stored with its route settings (seed, mode, scale, difficulty, daytime, mod ids), whitelist (account names,
+  canonical uppercase) and an optional room
+  password (scrypt hash only) in `$LASTROUTE_RESERVED_ROOMS_STORE` (default `<data dir>/reserved_rooms.json`), so
+  they survive restarts and deploys.
+- Hosting: `POST /api/enet/rooms/register` on a reserved code needs the owner, an invited account
+  (`sessionToken`) or `roomPassword`; the answer carries `reserved.settings`. A host that stops heartbeating for
+  30 s can be replaced by the next invited player.
+- Joining: `POST /api/rooms/reserved/resolve { code, sessionToken?, password? }` answers `{ live, room, joinTicket,
+  canHost, settings }`. The relay admits a reserved room's guest only when its join nonce is a live ticket (10 min).
+  Direct (non-relay) connections are not gated; production always uses the relay.
+- Owner (`POST /api/admin/reserved-rooms`, full admin owner): `action` `list` (with `live`, `players`), `create`,
+  `update` (`settings`, `invites`, `password`; `""` clears it), `delete` (not for environment codes), `whitelist`
+  (`op` `add`/`remove`/`list`, `name`), and `command` (only while someone hosts it: `409 ROOM_NOT_LIVE` otherwise; a
+  new host starts with an empty queue) with `command`
+  `restart` (`sameSeed`), `end`, `kick` (`target`), `settings`, `transfer`. Commands are queued (20 kept) and echoed
+  to the host on its heartbeat (`reserved.commands`); the host carries them out and acks them (`commandAck`). The
+  in-game admin menu has the same owner controls under PRIVATE ROOM (plus WHITELIST EVERYONE HERE / SHOW WHITELIST).
+  Operators: `~/Developer/Claude-Setup/rooms.sh` (status, restart, end, whitelist) and the KT-FW13 "Server Rooms"
+  launcher, which runs it on KT-Mini4-1 over SSH; it signs in from an owner session file or a hidden prompt and
+  talks to the backend on VPS 3's loopback port over SSH.
+- Later, not built: a server-hosted room would need a headless dedicated host process per reserved room (Godot
+  `--headless` with a "server" role that simulates hunters and the floor without a local runner), a supervisor that
+  restarts it on crash or deploy, a UDP port or relay session per room, its own resource budget on VPS 3, and
+  RemotePlayers/RoomState paths that do not assume the host is also a player.
+
 ## Crash reports
 
 The game's `CrashWatch` autoload (`src/autoload/crash_watch.gd`) notices a session that crashed, was killed or froze

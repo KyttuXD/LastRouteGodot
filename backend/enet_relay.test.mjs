@@ -133,7 +133,7 @@ test("authenticated relay tunnels ENet datagrams through one public UDP port", a
 
 test("relay protocol rejects malformed and oversized frames", () => {
   assert.equal(decodeRelayFrame(Buffer.from("not a relay packet")), null);
-  assert.throws(() => encodeRelayFrame(RelayFrame.GUEST_JOIN, 0, "O0I1L"),
+  assert.throws(() => encodeRelayFrame(RelayFrame.GUEST_JOIN, 0, "ab!12"),
     /INVALID RELAY ROOM CODE/);
   const oversized = Buffer.alloc(1473);
   Buffer.from("LRR1").copy(oversized);

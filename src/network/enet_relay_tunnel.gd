@@ -91,14 +91,19 @@ func update_host_token(token: String) -> void:
 ## Returns the loopback UDP port an ENet client should connect to, or zero on
 ## failure. It is intentionally opened before the relay acknowledges the room:
 ## ENet's first connect datagrams are queued and flushed once GUEST_ACK lands.
-func start_guest(code: String, address: String, port: int) -> int:
+## `join_ticket` (a reserved private room's, base64url from /api/rooms/reserved/resolve) replaces the random nonce:
+## the relay admits only ticket holders to such a room.
+func start_guest(code: String, address: String, port: int, join_ticket: String = "") -> int:
 	close()
 	var error := _open(code, address, port)
 	if not error.is_empty():
 		relay_failed.emit(error)
 		return 0
 	mode = Mode.GUEST
-	_nonce = Crypto.new().generate_random_bytes(12)
+	_nonce = Marshalls.base64_to_raw(join_ticket.replace("-", "+").replace("_", "/") + "=".repeat((4 - join_ticket.length() % 4) % 4)) \
+		if not join_ticket.is_empty() else Crypto.new().generate_random_bytes(12)
+	if _nonce.size() < 8 or _nonce.size() > 32:
+		_nonce = Crypto.new().generate_random_bytes(12)
 	_send_guest_join()
 	return _socket.get_local_port()
 

@@ -622,6 +622,44 @@ func _hunter_admin_labels(ids: Array) -> Dictionary:
 	return labels
 
 
+## Owner controls for a reserved private room: the host carries them out at once; an owner who is a guest queues
+## them on the directory, which hands them to whoever hosts (RoomState._on_reserved_commands).
+func _admin_private_room(command: String, same_seed: bool) -> void:
+	if not RoomState.reserved:
+		hud.show_message("NOT A PRIVATE ROOM")
+		return
+	if RoomState.is_host:
+		RoomState._on_reserved_commands([{"seq": 0, "command": command, "args": {"sameSeed": same_seed}}])
+	else:
+		Backend.send_reserved_command(RoomState.code, command, {"sameSeed": same_seed})
+		hud.show_message("PRIVATE ROOM // %s SENT TO THE HOST" % command.to_upper())
+
+
+## Whitelist (owner): every signed-in account in this private room now, from the synced runner states.
+func _admin_whitelist_everyone() -> void:
+	var names := {}
+	if not Backend.account_username.is_empty():
+		names[Backend.account_username.to_upper()] = true
+	for state_value in _remotes._states.values() if _remotes != null else []:
+		var account := String((state_value as Dictionary).get("account", ""))
+		if not account.is_empty():
+			names[account.to_upper()] = true
+	if names.is_empty():
+		hud.show_message("NOBODY HERE IS SIGNED IN")
+		return
+	for name in names:
+		_admin_whitelist("add", String(name))
+
+
+func _admin_whitelist(op: String, name: String) -> void:
+	if not RoomState.reserved:
+		hud.show_message("NOT A PRIVATE ROOM")
+		return
+	Backend.reserved_whitelist(RoomState.code, op, name, func(ok: bool, whitelist: Array, message: String) -> void:
+		if hud != null:
+			hud.show_message(("WHITELIST // %s" % ", ".join(PackedStringArray(whitelist))) if ok else message))
+
+
 func _infinite_admin_actions() -> Array:
 	var hunter_ids: Array = []
 	hunter_ids.append_array(HunterRoster.A_Z_IDS)
@@ -630,6 +668,16 @@ func _infinite_admin_actions() -> Array:
 	return [
 		{"label": "REFRESH ADMIN ROSTER", "action": Backend.admin_roster_refresh,
 			"owner_only": true, "no_debug": true},
+		{"heading": "PRIVATE ROOM", "label": "RESTART ROUTE // NEW SEED", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_private_room("restart", false)},
+		{"label": "RESTART ROUTE // SAME SEED", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_private_room("restart", true)},
+		{"label": "END ROUTE", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_private_room("end", false)},
+		{"label": "WHITELIST EVERYONE HERE", "owner_only": true, "no_debug": true,
+			"action": _admin_whitelist_everyone},
+		{"label": "SHOW WHITELIST", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_whitelist("list", "")},
 		{"heading": "ROOM CHAT", "label": "ROOM MUTE LAST SPEAKER", "owner_only": true, "no_debug": true,
 			"action": func() -> void: _admin_room_chat("mute")},
 		{"label": "ROOM UNMUTE EVERYONE", "owner_only": true, "no_debug": true,
