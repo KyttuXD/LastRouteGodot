@@ -1970,12 +1970,19 @@ func _dropped_tool_marks(level: int) -> Array:
 	return result
 
 
+## Save points on the maps = the route's safe rooms (checkpoints): active (the checkpoint you will respawn at), intact, or SABOTAGED
+## (breached: hunters battering it, a breach gimmick, admin damage). Discovered ones on every floor; another floor gets the up/down
+## treatment. A room that turns sabotaged flashes on both maps with a HUD line; a repaired one goes back to active.
+const SAVE_FLASH_MSEC := 4000
+var _save_point_index := {}      # room id -> {"at": Vector2, "level": int}
+var _save_point_breached := {}   # room id -> last breached state seen (so only a change flashes)
+var _save_point_flash := {}      # room id -> flash until (msec)
+
+
 func _safe_room_map_marks(level: int, chunks: Dictionary) -> Array:
 	var result := []
 	for coord_value in chunks.keys():
 		var coord: Vector3i = coord_value
-		if coord.y != level:
-			continue
 		var chunk: Dictionary = chunks[coord]
 		if not bool(chunk.get("safe_room", false)):
 			continue
@@ -1984,14 +1991,39 @@ func _safe_room_map_marks(level: int, chunks: Dictionary) -> Array:
 		if room_id.is_empty():
 			continue
 		var status := world_state.safe_room_status(info)
+		var at := Vector2((coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE, (coord.z + .5) * StreamedRouteGenerator.CHUNK_SIZE)
+		var breached := bool(status.get("breached", false))
+		_save_point_index[room_id] = {"at": at, "level": coord.y}
+		if not _save_point_breached.has(room_id):
+			_save_point_breached[room_id] = breached
 		result.append({
-			"at": Vector2((coord.x + .5) * StreamedRouteGenerator.CHUNK_SIZE,
-				(coord.z + .5) * StreamedRouteGenerator.CHUNK_SIZE),
-			"level": level,
-			"breached": bool(status.get("breached", false)),
+			"at": at,
+			"level": coord.y,
+			"other_floor": coord.y != level,
+			"breached": breached,
 			"active": String(info.get("checkpoint_id", "")) == world_state.active_checkpoint,
+			"flash_until": int(_save_point_flash.get(room_id, 0)),
 		})
 	return result
+
+
+## Called with every safe-room state change (host and guests alike, from the host's world state).
+func _note_save_point_state(room_id: String, breached: bool) -> void:
+	var was := bool(_save_point_breached.get(room_id, false))
+	_save_point_breached[room_id] = breached
+	if breached == was or not _save_point_index.has(room_id):
+		return
+	var point: Dictionary = _save_point_index[room_id]
+	if breached:
+		_save_point_flash[room_id] = Time.get_ticks_msec() + SAVE_FLASH_MSEC
+		if _local_safe_room_id() != room_id:   # inside it, "SAFE ROOM BREACHED" already says so
+			hud.show_message("SAVE POINT SABOTAGED")
+		if int(point["level"]) == facility.current_level():
+			hud.minimap.add_ping(point["at"], Palette.ALERT, "")
+			hud.plan.add_ping(point["at"], Palette.ALERT, "")
+	else:
+		_save_point_flash.erase(room_id)
+		hud.show_message("SAVE POINT RESTORED")
 
 
 func _discovered_waypoint_path(from_cell: Vector2i, to_cell: Vector2i,
@@ -4926,6 +4958,7 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			var room_id := String(event.get("room_id", ""))
 			world_state.apply_safe_room_status(room_id,
 				int(event.get("integrity", 0)), bool(event.get("breached", false)))
+			_note_save_point_state(room_id, bool(event.get("breached", false)) or int(event.get("integrity", 0)) <= 0)
 			var local_id := multiplayer.get_unique_id() if RoomState.online else 1
 			if int(event.get("message_peer_id", 0)) == local_id:
 				hud.show_message("SAFE ROOM REPAIRED // %d%%" % int(

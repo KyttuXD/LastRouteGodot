@@ -142,7 +142,7 @@ func view_center() -> Vector2:
 
 
 func _process(delta: float) -> void:
-	if (not pings.is_empty() or not pulses.is_empty()) and is_visible_in_tree():
+	if (not pings.is_empty() or not pulses.is_empty() or _save_flash_live()) and is_visible_in_tree():
 		queue_redraw()   # pings and admin pulses animate and expire
 	# Porcelle's ping animates, so a minimap with her mark redraws every frame
 	if ghost_ping and is_visible_in_tree():
@@ -367,7 +367,7 @@ func show_streamed_state(chunks: Dictionary, level: int, chunk_size: int,
 	safe_rooms = []
 	for mark_value in safe_room_marks:
 		var mark: Dictionary = mark_value
-		if not mark.has("level") or int(mark["level"]) == level:
+		if not mark.has("level") or int(mark["level"]) == level or bool(mark.get("other_floor", false)):
 			safe_rooms.append(mark)
 	queue_redraw()
 
@@ -806,6 +806,14 @@ func teammate_layout(at: Vector2, radius: float, mark: Dictionary) -> Dictionary
 		"up": int(mark.get("level", 0)) > streamed_level}
 
 
+func _save_flash_live() -> bool:
+	var now := Time.get_ticks_msec()
+	for mark in safe_rooms:
+		if int(mark.get("flash_until", 0)) > now:
+			return true
+	return false
+
+
 func set_pulses(marks: Array) -> void:
 	pulses = marks.duplicate(true)
 	queue_redraw()
@@ -961,26 +969,39 @@ func _draw_dropped_tool(at: Vector2, cell: float, mark: Dictionary) -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.01, 0.04, 0.05))
 
 
+## A save point (safe room / checkpoint): a green diamond, ringed when it is your active checkpoint; SABOTAGED is a red diamond with a
+## slash; a fresh sabotage pulses for a few seconds. Another floor: the same icon dimmed with an up/down arrow beside it. No letters.
 func _draw_safe_room_status(at: Vector2, cell: float, mark: Dictionary) -> void:
 	var breached := bool(mark.get("breached", false))
 	var active := bool(mark.get("active", false))
-	var tint := Palette.ALERT if breached else Palette.STABLE
-	var radius := maxf(3.0, cell * .42)
-	draw_circle(at, radius + maxf(1.0, cell * .10), Color(0.01, 0.04, 0.05, .94))
-	draw_circle(at, radius, Color(tint, .26 if breached else .22))
-	draw_circle(at, radius * .58, tint)
-	if active and not breached:
-		draw_line(at - Vector2(radius * .42, 0.0), at + Vector2(radius * .42, 0.0),
-			Color(0.01, 0.04, 0.05), maxf(1.0, cell * .12), true)
-		draw_line(at - Vector2(0.0, radius * .42), at + Vector2(0.0, radius * .42),
-			Color(0.01, 0.04, 0.05), maxf(1.0, cell * .12), true)
+	var other_floor := bool(mark.get("other_floor", false))
+	var alpha := 0.55 if other_floor else 1.0
+	var tint := Color(Palette.ALERT if breached else Palette.STABLE, alpha)
+	var ink := Color(0.01, 0.04, 0.05, .94 * alpha)
+	var radius := maxf(3.4, cell * .48)
+	var diamond := PackedVector2Array([at + Vector2(0, -radius), at + Vector2(radius, 0), at + Vector2(0, radius), at + Vector2(-radius, 0)])
+	var outline := PackedVector2Array()
+	for point in diamond:
+		outline.append(at + (point - at) * 1.3)
+	draw_colored_polygon(outline, ink)
+	draw_colored_polygon(diamond, tint)
+	if breached:
+		draw_line(at + Vector2(-radius * 1.1, radius * 1.1), at + Vector2(radius * 1.1, -radius * 1.1), ink, maxf(2.2, cell * .2), true)
+		draw_line(at + Vector2(-radius * 1.1, radius * 1.1), at + Vector2(radius * 1.1, -radius * 1.1), Color(1.0, .85, .85, alpha), 1.0, true)
 	else:
-		var font := ThemeDB.fallback_font
-		var label := "X" if breached else "S"
-		var font_size := clampi(roundi(cell * .58), 6, 10)
-		var glyph := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-		draw_string(font, at - Vector2(glyph.x * .5, -glyph.y * .30), label,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.01, 0.04, 0.05))
+		draw_circle(at, radius * .32, ink)   # the "slot" of an intact save point
+		if active:
+			draw_arc(at, radius * 1.65, 0.0, TAU, 20, tint, maxf(1.2, cell * .12), true)
+	if other_floor:
+		var up := int(mark.get("level", streamed_level)) > streamed_level
+		var dir := -1.0 if up else 1.0
+		var beside := at + Vector2(radius * 2.0, 0)
+		draw_colored_polygon(PackedVector2Array([beside + Vector2(0, dir * radius), beside + Vector2(-radius * .8, -dir * radius * .6),
+			beside + Vector2(radius * .8, -dir * radius * .6)]), Color(tint, 1.0))
+	var flash_left := int(mark.get("flash_until", 0)) - Time.get_ticks_msec()
+	if flash_left > 0:
+		var phase := fposmod(float(Time.get_ticks_msec()) / 600.0, 1.0)
+		draw_arc(at, radius * (1.4 + phase * 2.4), 0.0, TAU, 24, Color(Palette.ALERT, 1.0 - phase), 1.6, true)
 
 
 func _draw_waypoint_route(origin: Vector2, world_origin: Vector2,
