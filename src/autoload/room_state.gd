@@ -120,6 +120,8 @@ var daytime := false
 var reserved := false
 var map_scale: Scale = Scale.INFINITE
 var difficulty: Difficulty = Difficulty.STANDARD
+## Host only: AI teammates the host simulates in co-op (NpcTeammates, 0..MAX_COUNT); guests just see them as runners.
+var npc_teammates := 0
 ## Display names, host first. One entry while offline.
 var players: PackedStringArray = []
 ## True after an ENet room handshake (or immediately for its host).
@@ -1171,6 +1173,13 @@ func set_difficulty(value: Difficulty) -> void:
 		return
 	difficulty = value
 	broadcast()
+	changed.emit()
+
+
+func set_npc_teammates(value: int) -> void:
+	if online and not is_host:
+		return
+	npc_teammates = clampi(value, 0, NpcTeammates.MAX_COUNT)
 	changed.emit()
 
 

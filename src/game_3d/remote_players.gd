@@ -79,6 +79,8 @@ var _snapshot_elapsed := SNAPSHOT_RETRY_SECONDS
 var _snapshot_received := false
 
 signal chat_received(peer_id: int, display_name: String, message: String)
+## Host: a hunter's capture reached an NPC teammate (NpcTeammates downs it; there is no peer to send it to).
+signal npc_captured(npc_id: int)
 ## Every chat line with its context: {text, channel ("team" | "nearby"), preset, ping, at (map position), world (Vector3),
 ## depth, system}. chat_received still fires for plain-text listeners.
 signal chat_message(peer_id: int, display_name: String, payload: Dictionary)
@@ -455,7 +457,12 @@ func player_list_rows(can_pulse: bool) -> Array:
 	var controller := local_player as PlayerController3D
 	var local := {"depth": GameState.depth, "spectating": controller != null and controller.spectator_mode,
 		"game_over": GameState.game_over, "escape_active": GameState.escape_active}
-	return RoomPlayerList.build(RoomState.roster_rows(), _states, local, _peer_pings,
+	var roster: Array = RoomState.roster_rows()
+	for id in _states:
+		if is_npc(int(id)):
+			roster.append({"id": int(id), "name": "NPC · %s" % String((_states[id] as Dictionary).get("display_name", "?")),
+				"host": false, "you": false, "npc": true})
+	return RoomPlayerList.build(roster, _states, local, _peer_pings,
 		voice.talking_peers() if voice != null else {}, can_pulse, Time.get_ticks_usec())
 
 
@@ -645,7 +652,7 @@ func receive_state(id: int, state: Dictionary) -> void:
 	if not at is Vector3 or not grid is Vector2:
 		return
 	var received := state.duplicate(true)
-	if RoomState.is_host and not _guard_sample(id, received):
+	if RoomState.is_host and not is_npc(id) and not _guard_sample(id, received):
 		return
 	at = received["at"]
 	received["peer_id"] = id
@@ -1739,6 +1746,10 @@ signal hunter_event(event: Dictionary)
 func send_player_event(peer_id: int, event: Dictionary) -> void:
 	if not simulates():
 		return
+	if is_npc(peer_id):
+		if String(event.get("what", "")) == "capture":
+			npc_captured.emit(peer_id)
+		return
 	if not RoomState.online or peer_id == multiplayer.get_unique_id():
 		player_event.emit(event)
 	else:
@@ -1908,3 +1919,32 @@ func _on_peers_looked_up(players: Dictionary, devices: Dictionary) -> void:
 
 func count() -> int:
 	return _bodies.size()
+
+
+# ------------------------------------------------------------------------------------------------ NPC teammates
+## NpcTeammates ids (host-simulated runners); never an ENet peer.
+static func is_npc(id: int) -> bool:
+	return id >= NpcTeammates.ID_BASE
+
+
+## Host: one NPC teammate's state, kept here like a peer's (the hunters' target list, the maps, the player list) and sent to every
+## guest. Full state, not the hot packet: an NPC has no profile, and the packet is small (under 600 bytes, docs/NPC_TEAMMATES.md).
+func npc_state(id: int, state: Dictionary) -> void:
+	if not RoomState.is_host or not is_npc(id):
+		return
+	receive_state(id, state)
+	for peer_id in multiplayer.get_peers():
+		if peer_is_live(peer_id):
+			_xnpc_place.rpc_id(peer_id, id, state)
+
+
+## The name sorts after every other RPC here (as _wire_profile's did), so older builds keep the same RPC ids for the rest.
+@rpc("authority", "call_remote", "unreliable_ordered", NetChannels.STATE)
+func _xnpc_place(id: int, state: Dictionary) -> void:
+	if multiplayer.get_remote_sender_id() != 1 or not is_npc(id):
+		return
+	var seq := int(state.get("seq", 0))
+	if seq > 0 and seq <= int(_last_seq.get(id, 0)):
+		return
+	_last_seq[id] = seq
+	receive_state(id, state)

@@ -1,0 +1,106 @@
+extends RefCounted
+
+## NPC teammates (NpcTeammates, docs/NPC_TEAMMATES.md): the host simulates them and publishes each as a runner state, so they are
+## in the hunters' target list and the player list ("NPC · name"), keep up with a runner, go down on a capture (a revive
+## window), come back on a revive and are out when the window closes. The room setting clamps to 0..MAX_COUNT, the new RPC
+## keeps every older RPC id (its name sorts last), and one NPC packet stays inside its budget.
+##
+##   godot --headless --path . res://scenes/validate.tscn -- npc_teammates
+
+const PACKET_BUDGET := 600   # bytes of one NPC state as sent (var_to_bytes)
+
+var _failures := 0
+
+
+func _expect(condition: bool, message: String) -> void:
+	if not condition:
+		print("  FAIL  %s" % message)
+		_failures += 1
+
+
+func _unit() -> void:
+	_expect(RemotePlayers.is_npc(NpcTeammates.ID_BASE) and not RemotePlayers.is_npc(1) and not RemotePlayers.is_npc(123456789),
+		"is_npc picks the wrong ids")
+	RoomState.online = false
+	RoomState.set_npc_teammates(9)
+	_expect(RoomState.npc_teammates == NpcTeammates.MAX_COUNT, "the setting did not clamp to %d" % NpcTeammates.MAX_COUNT)
+	RoomState.set_npc_teammates(-2)
+	_expect(RoomState.npc_teammates == 0, "the setting went below 0")
+	# Godot numbers a script's RPCs by sorted name: the NPC RPC must sort last so older builds keep the others' ids
+	var names: Array = []
+	var lines := FileAccess.get_file_as_string("res://src/game_3d/remote_players.gd").split("\n")
+	for i in lines.size() - 1:
+		if lines[i].begins_with("@rpc("):
+			names.append(lines[i + 1].get_slice("func ", 1).get_slice("(", 0))
+	names.sort()
+	_expect(not names.is_empty() and names[-1] == "_xnpc_place", "the NPC RPC does not sort last: %s" % [names])
+
+
+func run(host: Node) -> int:
+	_unit()
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	var scene: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
+	host.get_tree().root.add_child(scene)
+	for _i in 8:
+		await host.get_tree().process_frame
+	var tree := host.get_tree()
+	var player: PlayerController3D = scene.player
+	var remotes: RemotePlayers = scene._remotes
+	tree.get_multiplayer().multiplayer_peer = OfflineMultiplayerPeer.new()   # unique id 1, no peers
+	RoomState.online = true
+	RoomState.is_host = true
+	scene._start_npcs(2)
+	var npcs: NpcTeammates = scene._npcs
+	_expect(npcs != null and npcs.npcs.size() == 2, "the host did not start 2 NPC teammates")
+	if npcs == null:
+		return _finish(scene)
+	for _i in 30:
+		await tree.physics_frame
+	var a := NpcTeammates.ID_BASE
+	_expect(remotes._states.has(a) and remotes._states.has(a + 1) and bool((remotes._states[a] as Dictionary).get("npc", false)),
+		"the NPCs are not runner states on the host")
+	var names := remotes.player_list_rows(false).map(func(row: Dictionary) -> String: return String(row["name"]))
+	_expect(names.has("NPC · ROOK") and names.has("NPC · WREN"), "the player list does not show the NPCs: %s" % [names])
+	var targets := remotes.target_states({}).map(func(t: Dictionary) -> int: return int(t.get("peer_id", 0)))
+	_expect(targets.has(a) and targets.has(a + 1), "the hunters' target list leaves the NPCs out: %s" % [targets])
+	_expect(var_to_bytes(npcs.state_of(npcs.npcs[0])).size() <= PACKET_BUDGET,
+		"one NPC packet is %d bytes (budget %d)" % [var_to_bytes(npcs.state_of(npcs.npcs[0])).size(), PACKET_BUDGET])
+	# it keeps up: its runner walks off 9 m, and within 4 s it is closer again
+	var start: Vector3 = npcs.npcs[0]["at"]
+	var nav: StreamedHunterNavigation = scene._navigation
+	var open: Dictionary = nav.nearest_open_position(player.global_position.x + 9.0, player.global_position.z, .23)
+	if open.has("cell"):
+		player.global_position = Vector3((open["cell"] as Vector2i).x + .5, player.global_position.y, (open["cell"] as Vector2i).y + .5)
+		var before := (start as Vector3).distance_to(player.global_position)
+		for _i in 240:
+			await tree.physics_frame
+		var after := (npcs.npcs[0]["at"] as Vector3).distance_to(player.global_position)
+		_expect(after < before - 2.0, "the NPC did not follow its runner (%.1f m -> %.1f m)" % [before, after])
+	else:
+		print("  note: no open floor 9 m off the spawn, follow check skipped")
+	# a hunter's capture: down, a revive window, a ghost to everyone
+	remotes.send_player_event(a, {"what": "capture"})
+	await tree.physics_frame
+	_expect(npcs.is_down(a) and scene.world_state.downs.is_down(a), "a capture did not put the NPC down with a revive window")
+	for _i in 8:
+		await tree.physics_frame
+	_expect(bool((remotes._states[a] as Dictionary).get("spectating", false)), "a downed NPC is not shown as down")
+	var rows := remotes.player_list_rows(false).filter(func(row: Dictionary) -> bool: return int(row["id"]) == a)
+	_expect(not rows.is_empty() and String(rows[0]["status"]) != RoomPlayerList.STATUS_ALIVE, "the list still shows the downed NPC alive")
+	# a teammate's revive brings it back with a grace
+	scene._apply_revive_event({"what": "stream_revived", "peer": a, "by": 0, "at": npcs.npcs[0]["at"]})
+	_expect(not npcs.is_down(a) and float(npcs.npcs[0]["grace"]) > 0.0, "the revive did not bring the NPC back with a grace")
+	# down again, and the window closes: out of the run
+	npcs.npcs[0]["grace"] = 0.0
+	remotes.send_player_event(a, {"what": "capture"})
+	scene.world_state.downs.clear(a)
+	await tree.physics_frame
+	_expect(bool(npcs.npcs[0]["out"]), "an NPC whose window closed is not out of the run")
+	return _finish(scene)
+
+
+func _finish(scene: Node) -> int:
+	scene.get_tree().get_multiplayer().multiplayer_peer = null
+	RoomState.online = false
+	scene.queue_free()
+	return _failures
