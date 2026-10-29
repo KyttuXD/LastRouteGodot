@@ -34,6 +34,12 @@ const KINDS := {
 	"lava": {"range": 16.0, "unit": 3.0, "db": -1.0, "pitch": 1.0},
 }
 const MAX_EMITTERS := 6
+## Storeys (STOREY_GATE): a source is heard on its own level; on the level above or below it only as a faint muffled rumble
+## through the floor (sewers and maze only: from +1 up, nothing below is heard); two or more levels away, never. The gate
+## eases between these states at STOREY_EASE per second, so stepping through a stairwell never cuts a sound.
+const ADJACENT_DB := -18.0
+const ADJACENT_CUTOFF_HZ := 450.0
+const STOREY_EASE := 1.5
 const SELECT_HZ := 4.0
 ## Behind a wall: this much quieter and low-passed to this cutoff.
 const OCCLUDED_DB := -9.0
@@ -52,6 +58,7 @@ var _pending_key := ""
 var _slots: Array = []   # {"player": AudioStreamPlayer3D, "uid": int (-1 free), "occlusion": float, "occluded": bool}
 var _select_left := 0.0
 var _listener := Vector3.ZERO
+var _listener_level := 0
 var _reverb: AudioEffectReverb
 var _reverb_tween: Tween
 var _headless := DisplayServer.get_name() == "headless"
@@ -108,6 +115,22 @@ static func anchor_of(emitter: Dictionary) -> Node3D:
 	return instance_from_id(id) as Node3D if id != 0 and is_instance_id_valid(id) else null
 
 
+## The storey a source stands on (its world height over the level height).
+static func level_of(emitter: Dictionary) -> int:
+	return roundi(world_position(emitter).y / StreamedFacilityView3D.LEVEL_HEIGHT)
+
+
+## How a listener on `listener_level` hears a source on `source_level`: 0 same storey, 1 the adjacent one (faint and
+## muffled), 2 not at all. From +1 up nothing below is heard, and the Mezzanine hears nothing from the maze.
+static func storey_state(listener_level: int, source_level: int) -> int:
+	var apart := absi(listener_level - source_level)
+	if apart == 0:
+		return 0
+	if apart == 1 and listener_level <= 0 and source_level <= 0:
+		return 1
+	return 2
+
+
 static func world_position(emitter: Dictionary) -> Vector3:
 	var anchor := anchor_of(emitter)
 	if anchor == null:
@@ -159,7 +182,7 @@ func _ready() -> void:
 		player.top_level = true
 		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
 		add_child(player)
-		_slots.append({"player": player, "uid": -1, "occlusion": 0.0, "occluded": false})
+		_slots.append({"player": player, "uid": -1, "occlusion": 0.0, "occluded": false, "storey": 0.0, "target": 0.0})
 	Sound.footstep_bus = BUS
 	# the synthesized emitter loops render off the main thread (FallsLoop is rendered by the views already)
 	_loops_task = WorkerThreadPool.add_task(func() -> void:
@@ -180,6 +203,7 @@ func _exit_tree() -> void:
 ## Per frame from the run scene: where the listener is and which level (and chunk) they are on.
 func update(listener: Vector3, level: int, chunk_data: Dictionary = {}) -> void:
 	_listener = listener
+	_listener_level = level
 	set_level_key(key_for(level, chunk_data))
 
 
@@ -255,6 +279,10 @@ func _process(delta: float) -> void:
 		if int(slot["uid"]) == -1:
 			continue
 		slot["occlusion"] = move_toward(float(slot["occlusion"]), 1.0 if bool(slot["occluded"]) else 0.0, delta * 3.0)
+		slot["storey"] = move_toward(float(slot["storey"]), float(slot["target"]), delta * STOREY_EASE)
+		if float(slot["storey"]) >= 2.0:
+			_release(slot)
+			continue
 		_level_slot(slot)
 
 
@@ -266,21 +294,31 @@ func select_emitters() -> void:
 	for slot in _slots:
 		playing[int(slot["uid"])] = true
 	var scored := []
+	var states := {}
 	for emitter in _emitters:
 		var spec: Dictionary = KINDS[emitter["kind"]]
+		var state := storey_state(_listener_level, level_of(emitter))
+		if state >= 2:
+			continue
 		var distance := world_position(emitter).distance_to(_listener)
 		if distance > float(spec["range"]):
 			continue
+		states[int(emitter["uid"])] = state
 		scored.append([distance / float(spec["range"]) * (.8 if playing.has(int(emitter["uid"])) else 1.0), emitter])
 	scored.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
 	var wanted := {}
 	for k in mini(MAX_EMITTERS, scored.size()):
 		wanted[int(scored[k][1]["uid"])] = scored[k][1]
+	# sources no longer wanted (out of range, off the storey, unloaded) fade out before their slot is freed
 	for slot in _slots:
-		if int(slot["uid"]) != -1 and not wanted.has(int(slot["uid"])):
-			_release(slot)
-		elif wanted.has(int(slot["uid"])):
-			wanted.erase(int(slot["uid"]))
+		var uid := int(slot["uid"])
+		if uid == -1:
+			continue
+		if wanted.has(uid):
+			slot["target"] = float(states[uid])
+			wanted.erase(uid)
+		else:
+			slot["target"] = 2.0
 	var muted := Sound.muted
 	for slot in _slots:
 		if wanted.is_empty():
@@ -289,12 +327,17 @@ func select_emitters() -> void:
 			continue
 		var uid: int = wanted.keys()[0]
 		_bind(slot, wanted[uid], muted)
+		slot["target"] = float(states[uid])
+		slot["storey"] = slot["target"]
 		wanted.erase(uid)
 	for slot in _slots:
 		var uid := int(slot["uid"])
 		if uid == -1:
 			continue
 		var emitter := _emitter_by_uid(uid)
+		if emitter.is_empty():
+			slot["target"] = 2.0   # its chunk went away
+			continue
 		var player: AudioStreamPlayer3D = slot["player"]
 		player.global_position = world_position(emitter)
 		slot["occluded"] = _occluded(player.global_position)
@@ -305,13 +348,14 @@ func select_emitters() -> void:
 			player.play()
 
 
-## The sources playing now: [{"kind", "at": Vector3, "occluded": bool}].
+## The sources playing now (not the ones fading out): [{"kind", "at": Vector3, "occluded": bool, "storey": 0 same / 1 adjacent}].
 func active_emitters() -> Array:
 	var out := []
 	for slot in _slots:
-		if int(slot["uid"]) != -1:
+		if int(slot["uid"]) != -1 and float(slot["target"]) < 2.0:
 			out.append({"kind": (slot["player"] as AudioStreamPlayer3D).get_meta("kind", ""),
-				"at": (slot["player"] as AudioStreamPlayer3D).global_position, "occluded": bool(slot["occluded"])})
+				"at": (slot["player"] as AudioStreamPlayer3D).global_position, "occluded": bool(slot["occluded"]),
+				"storey": int(float(slot["target"]))})
 	return out
 
 
@@ -330,6 +374,8 @@ func _bind(slot: Dictionary, emitter: Dictionary, muted: bool) -> void:
 	slot["uid"] = int(emitter["uid"])
 	slot["occluded"] = _occluded(player.global_position)
 	slot["occlusion"] = 1.0 if bool(slot["occluded"]) else 0.0
+	slot["storey"] = 0.0
+	slot["target"] = 0.0
 	_level_slot(slot)
 	if not muted and not _headless:
 		# start somewhere in the loop, so two sources of one kind never play in step
@@ -350,8 +396,19 @@ func _level_slot(slot: Dictionary) -> void:
 	var spec: Dictionary = KINDS[player.get_meta("kind", "falls")]
 	var pitch := float(emitter.get("pitch", 0.0))
 	player.pitch_scale = pitch if pitch > 0.0 else float(spec["pitch"])
-	player.volume_db = float(spec["db"]) + float(emitter.get("db", 0.0)) + OCCLUDED_DB * occlusion
-	player.attenuation_filter_cutoff_hz = OPEN_CUTOFF_HZ * pow(OCCLUDED_CUTOFF_HZ / OPEN_CUTOFF_HZ, occlusion)
+	var storey := float(slot["storey"])
+	var adjacent := clampf(storey, 0.0, 1.0)
+	var leaving := clampf(storey - 1.0, 0.0, 1.0)
+	player.volume_db = float(spec["db"]) + float(emitter.get("db", 0.0)) + OCCLUDED_DB * occlusion \
+		+ ADJACENT_DB * adjacent - 60.0 * leaving
+	player.attenuation_filter_cutoff_hz = _cutoff(occlusion, adjacent)
+
+
+## Low-pass of a source: open, muffled behind a wall, darker still through a floor (the adjacent storey); the two combine.
+func _cutoff(occlusion: float, adjacent: float) -> float:
+	var wall := OPEN_CUTOFF_HZ * pow(OCCLUDED_CUTOFF_HZ / OPEN_CUTOFF_HZ, occlusion)
+	var floor_cut := OPEN_CUTOFF_HZ * pow(ADJACENT_CUTOFF_HZ / OPEN_CUTOFF_HZ, adjacent)
+	return minf(wall, floor_cut)
 
 
 ## A wall between the listener and a source: one ray against the world's walls and floors (layer 1), stopping short of

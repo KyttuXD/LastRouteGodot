@@ -73,6 +73,12 @@ not swap. Each pick casts one ray per playing source to the listener: with a wal
 9 dB quieter and low-passed to 1.1 kHz. `LevelAmbience.set_intensity(id, db, pitch)` rides one source (a flood worsening
 until its valve is shut). Mute stops them.
 
+**Storeys.** A source is heard on its own level only (`LevelAmbience.storey_state`, the level from the source's world
+height): on the level above or below it, in the sewers and the maze, it is a faint (-18 dB), dark (450 Hz) rumble through the
+floor; from +1 up nothing below is heard, and two or more levels away never. The gate eases between these states at 1.5 a
+second, so a stairwell never cuts a sound, and a source that falls out of range, off the storey or away with its chunk fades
+out before its player is freed. Only the listener's level bed plays (`level:sewer` has no wind, `level:mezzanine` no water).
+
 **Mods.** `Sound.ambience_stream(key)` is the one lookup for district beds, level beds and the positional loops
 (`emitter:<kind>`); `Sound.ambience_override(key)` is where content packs' recordings come first (`ambience/` packs,
 docs/modding).
@@ -100,4 +106,4 @@ level change crossfades the bed and glides the reverb (no cut, no jump), the Lev
 while a run is on, mute and chase ducking apply, every positional loop is seamless and FallsLoop is the waterfall, the
 real sewer and Inferno views register their falls (both levels), outflow trickles and lava where they draw them (and no
 chunk builds a player of its own), only the nearest six within range play, a wall muffles a source, a source's level and
-pitch can be ridden, and an unloaded chunk or a finished flood takes its sources with it.
+pitch can be ridden, a source is heard on its own storey only (faint and muffled one level away in the sewers and maze, never from +1 up, never two levels away, always faded not cut), and an unloaded chunk or a finished flood takes its sources with it.

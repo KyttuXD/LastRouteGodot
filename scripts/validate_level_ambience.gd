@@ -25,6 +25,7 @@ func run(host: Node) -> int:
 	_check_loops()
 	await _check_crossfade(host)
 	await _check_pool(host)
+	await _check_storeys(host)
 	await _check_falls_and_outflow(host)
 	await _check_lava(host)
 	if _failures == 0:
@@ -122,7 +123,7 @@ func _check_pool(host: Node) -> void:
 	for k in 12:
 		LevelAmbience.add(anchor, "lava", Vector3(2.0 + k * 1.2, 1.0, 0.0))
 	LevelAmbience.add(null, "lava", Vector3(0.0, 1.0, 40.0))   # out of range
-	layer.update(Vector3(0, 1, 0), -3)
+	layer.update(Vector3(0, 1, 0), 0)
 	layer.select_emitters()
 	var active := layer.active_emitters()
 	_expect(active.size() == LevelAmbience.MAX_EMITTERS, "%d sources play, the cap is %d" % [active.size(), LevelAmbience.MAX_EMITTERS])
@@ -157,6 +158,7 @@ func _check_pool(host: Node) -> void:
 	anchor.free()
 	layer.select_emitters()
 	_expect(layer.active_emitters().is_empty() and LevelAmbience.emitter_count() == 1, "an unloaded chunk's sources still play")
+	await _wait(host, 1.6)   # they fade out, then free their players
 	LevelAmbience.add(null, "flood", Vector3(3, 1, 0), "flood:test")
 	layer.select_emitters()
 	_expect(layer.active_emitters().size() == 1, "a flood gush near the runner does not play")
@@ -168,6 +170,77 @@ func _check_pool(host: Node) -> void:
 	LevelAmbience.remove("flood:test")
 	layer.select_emitters()
 	_expect(layer.active_emitters().is_empty(), "a finished flood still gushes")
+	layer.queue_free()
+	LevelAmbience.clear()
+	await host.get_tree().process_frame
+
+
+## Positional sources are heard on their own storey only: a fall at the lip on -1 is faint and muffled on the maze level
+## above it, gone from +1 and from two levels away, and fades out (no cut) when the runner climbs away.
+func _check_storeys(host: Node) -> void:
+	# the rule itself
+	var rule := {[-1, -1]: 0, [-2, -1]: 1, [-1, -2]: 1, [0, -1]: 1, [-1, 0]: 1, [0, 0]: 0, [1, 1]: 0, [1, 0]: 2, [0, 1]: 2,
+		[-3, -1]: 2, [-1, -3]: 2, [1, -1]: 2, [2, 0]: 2}
+	for pair in rule:
+		_expect(LevelAmbience.storey_state(pair[0], pair[1]) == rule[pair], "listener %d, source %d: state %d, wanted %d"
+			% [pair[0], pair[1], LevelAmbience.storey_state(pair[0], pair[1]), rule[pair]])
+	var height := StreamedFacilityView3D.LEVEL_HEIGHT
+	LevelAmbience.clear()
+	var layer := LevelAmbience.new()
+	host.add_child(layer)
+	LevelAmbience.add(null, "falls", Vector3(0, -1 * height + .3, 3))   # the lip on level -1, 3 m aside
+	LevelAmbience.add(null, "lava", Vector3(0, -3 * height + .3, 3))    # a lava channel on -3
+	LevelAmbience.add(null, "falls", Vector3(0, -2 * height + .3, 3))   # the pool on -2
+	var kinds_at := func(level: int) -> Array:
+		layer.update(Vector3(0, level * height + 1.0, 0), level)
+		layer.select_emitters()
+		return layer.active_emitters().map(func(e: Dictionary) -> int: return roundi(float((e["at"] as Vector3).y) / height))
+	var own: Array = kinds_at.call(-1)
+	_expect(own.size() == 2 and own.has(-1) and own.has(-2), "on level -1 its own fall and, faintly, the pool below play, got %s" % [own])
+	var own_storey: Array = layer.active_emitters().filter(func(e: Dictionary) -> bool: return int(e["storey"]) == 0)
+	_expect(own_storey.size() == 1 and roundi(float((own_storey[0]["at"] as Vector3).y) / height) == -1, "level -1 has no source of its own storey")
+	# one storey away in the sewers and the maze is heard faintly, muffled: -2 hears the lip above and the lava below
+	layer.update(Vector3(0, -2 * height + 1.0, 0), -2)
+	layer.select_emitters()
+	var levels := layer.active_emitters().map(func(e: Dictionary) -> int: return roundi(float((e["at"] as Vector3).y) / height))
+	levels.sort()
+	_expect(levels == [-3, -2, -1], "on level -2 the pool (own), the lip above and the lava below (adjacent) play, got %s" % [levels])
+	layer.update(Vector3(0, 1.0, 0), 0)
+	layer.select_emitters()
+	var maze: Array = layer.active_emitters()
+	_expect(maze.size() == 1 and int(maze[0]["storey"]) == 1, "the maze level hears only the fall below, as adjacent (%d sources)" % maze.size())
+	await _wait(host, 0.1)
+	var slot: Dictionary = layer._slots.filter(func(sl: Dictionary) -> bool: return int(sl["uid"]) != -1)[0]
+	var player: AudioStreamPlayer3D = slot["player"]
+	await _wait(host, LevelAmbience.STOREY_EASE ** -1 + .3)
+	_expect(player.volume_db <= float(LevelAmbience.KINDS["falls"]["db"]) + LevelAmbience.ADJACENT_DB + .5
+		and player.attenuation_filter_cutoff_hz <= LevelAmbience.ADJACENT_CUTOFF_HZ + 1.0,
+		"the fall below is not faint and muffled on the maze level (%.1f dB, %.0f Hz)" % [player.volume_db, player.attenuation_filter_cutoff_hz])
+	# up on +1 and further, nothing from below: faded out, then the slot is free; never an abrupt cut
+	var before := player.volume_db
+	layer.update(Vector3(0, 1 * height + 1.0, 0), 1)
+	layer.select_emitters()
+	_expect(layer.active_emitters().is_empty(), "the Mezzanine still hears a waterfall from below")
+	await _wait(host, .3)
+	_expect(player.volume_db < before and player.volume_db > before - 59.0 and int(slot["uid"]) != -1, "the fall below cut instead of fading out")
+	await _wait(host, 1.6)
+	_expect(layer._slots.all(func(sl: Dictionary) -> bool: return int(sl["uid"]) == -1), "a source off the storey still holds a player after its fade")
+	# two levels down is silent too, however near in the plan
+	layer.update(Vector3(0, 0 * height + 1.0, 0), 0)
+	layer.select_emitters()
+	_expect(layer.active_emitters().size() == 1, "the maze level should hear exactly the nearest fall below")
+	layer.update(Vector3(0, -3 * height + 1.0, 0), -3)
+	layer.select_emitters()
+	var inferno: Array = layer.active_emitters().filter(func(e: Dictionary) -> bool: return int(e["storey"]) == 0)
+	_expect(inferno.size() == 1 and inferno[0]["kind"] == "lava", "the Inferno's own source is its lava, got %s" % [inferno])
+	_expect(layer.active_emitters().size() == 2, "the Inferno hears its lava and, faintly, the pool above - nothing more (%d)" % layer.active_emitters().size())
+	# the level beds carry only their own sounds: nothing watery on the Mezzanine, nothing of the sewer in the maze
+	for banned in ["water", "groan", "crackle"]:
+		for key in ["level:mezzanine", "level:maze", "level:void"]:
+			_expect(AmbienceTable.layers(key).all(func(l: Dictionary) -> bool: return String(l["kind"]) != banned), "%s plays %s" % [key, banned])
+	for banned in ["wind", "creak", "crackle"]:
+		_expect(AmbienceTable.layers("level:sewer").all(func(l: Dictionary) -> bool: return String(l["kind"]) != banned), "the sewer bed plays %s" % banned)
+	_expect(LevelAmbience.key_for(1) == "level:mezzanine" and LevelAmbience.key_for(0) == "level:maze", "level beds are mixed up")
 	layer.queue_free()
 	LevelAmbience.clear()
 	await host.get_tree().process_frame
