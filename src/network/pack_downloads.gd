@@ -72,7 +72,9 @@ func _download(packs: Array, on_progress: Callable) -> String:
 		var name := String(entry.get("name", id)).to_upper()
 		if not RoomPacks.local_dir(id, sha).is_empty():
 			continue
-		var index: Dictionary = await _get_json(Backend.base_url + INDEX_PATH % [id.uri_encode(), version.uri_encode()])
+		var response: Dictionary = await _get_json(Backend.base_url + INDEX_PATH % [id.uri_encode(), version.uri_encode()])
+		# VPS 3 answers {"ok": true, "pack": {...}}; a bare pack object is accepted too
+		var index: Dictionary = response.get("pack", response) if response.get("pack") is Dictionary else response
 		if index.is_empty():
 			return "MOD INDEX UNAVAILABLE // %s" % name
 		if bool(index.get("blocked", false)):
@@ -100,8 +102,8 @@ func _download(packs: Array, on_progress: Callable) -> String:
 		_wipe(staging)
 		for file in plan["files"]:
 			var rel := String(file["path"])
-			var url := "%s/%s/%s/%s" % [String(plan["base"]).trim_suffix("/"), String(plan["id"]).uri_encode(),
-				String(plan["version"]).uri_encode(), "/".join(Array(rel.split("/")).map(func(part): return part.uri_encode()))]
+			var url := "%s/%s" % [_pack_base(String(plan["base"]), String(plan["id"]), String(plan["version"])),
+				"/".join(Array(rel.split("/")).map(func(part): return part.uri_encode()))]
 			var body: PackedByteArray = await _get_bytes(url, int(file["size"]))
 			if body.size() != int(file["size"]) or ContentPacks._sha256(body) != String(file["sha256"]):
 				_wipe(staging)
@@ -121,6 +123,14 @@ func _download(packs: Array, on_progress: Callable) -> String:
 		_wipe(target)
 		DirAccess.rename_absolute(ContentPacks.os_path(staging), ContentPacks.os_path(target))
 	return ""
+
+
+## The folder a pack's files are served from. The index's downloadBase for one pack already ends in /<id>/<version>/
+## (the live VPS 3 does this); a bare file-host base gets them appended (backend/README.md layout).
+static func _pack_base(base: String, id: String, version: String) -> String:
+	var trimmed := base.trim_suffix("/")
+	var tail := "/%s/%s" % [id.uri_encode(), version.uri_encode()]
+	return trimmed if trimmed.ends_with(tail) else trimmed + tail
 
 
 ## Pack identity from an index file list: the same sha256 ContentPacks.read() computes over the folder.

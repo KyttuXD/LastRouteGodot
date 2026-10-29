@@ -232,6 +232,7 @@ func begin(seed_text: String, player: PlayerController3D,
 	clear()
 	generator = StreamedRouteGenerator.new(seed_text)
 	generator.public_route = RoomState.public_route
+	generator.coop = RoomState.online
 	_gen_worker = generator.make_worker_copy()
 	tracked_player = player
 	world_state = state if state != null else StreamedWorldState.new()
@@ -3316,6 +3317,22 @@ func room_lamp_energy(room_id: String) -> float:
 	return total
 
 
+## Guest prediction (InfiniteRouteTest): swings only the door leaf, leaving StreamedWorldState to the host's event. A
+## refused or lost request rolls back with show_room_door_state().
+func predict_room_door(door_id: String, open: bool) -> void:
+	var door := _door_nodes.get(door_id) as RouteInteractable3D
+	if door != null and is_instance_valid(door):
+		door.apply_room_door_state(open, bool(world_state.room_door_status(door_id).get("broken", false)))
+
+
+## Draws a door as StreamedWorldState has it (undoes predict_room_door).
+func show_room_door_state(door_id: String) -> void:
+	var door := _door_nodes.get(door_id) as RouteInteractable3D
+	if door != null and is_instance_valid(door):
+		var status := world_state.room_door_status(door_id)
+		door.apply_room_door_state(bool(status.get("open", false)), bool(status.get("broken", false)))
+
+
 func apply_room_door_state(door_id: String, open: bool, broken: bool) -> bool:
 	var changed := world_state.apply_room_door_state(door_id, open, broken)
 	var door := _door_nodes.get(door_id) as RouteInteractable3D
@@ -3887,6 +3904,17 @@ func _collect_taken_pickups() -> void:
 		if pickup.completed and world_state.claim_pickup(entity_id):
 			pickup_claimed.emit(entity_id)
 			_pickup_nodes.erase(entity_id)
+
+
+## Guest prediction: hides a pickup the moment it is taken (and stops a second press); the host's claim frees it, a
+## refusal or timeout shows it again. False when there is no such pickup node here.
+func predict_pickup_taken(entity_id: String, taken: bool) -> bool:
+	var pickup := _pickup_nodes.get(entity_id) as RouteInteractable3D
+	if pickup == null or not is_instance_valid(pickup) or (taken and pickup.completed):
+		return false
+	pickup.visible = not taken
+	pickup.completed = taken
+	return true
 
 
 func apply_pickup_claim(entity_id: String) -> bool:

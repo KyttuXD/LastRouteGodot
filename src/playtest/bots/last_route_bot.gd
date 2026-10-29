@@ -12,6 +12,9 @@ const HUNTER_HEAD := 1.6
 const LOOK_RATE := 2.8          # PlayerController3D.CONTROLLER_LOOK_RADIANS_PER_SECOND
 const CHUNK := 45               # StreamedRouteGenerator.CHUNK_SIZE
 const INTERACT_RANGE := 2.1
+const SLOT_RADIUS := 2.2        # m from the teammate a following bot stands (its own angle per slot)
+const SEPARATION := 1.2         # m: closer than this to another runner and a bot steps away
+const MAX_TURN_STICK := .6      # look-stick cap: about 1.7 rad/s at the default sensitivity
 const USE_COOLDOWN := 120.0     # seconds before the same music box / switch / board is used again
 const THREAT_RANGE := 20.0
 const SAFE_ARRIVAL := 3.2
@@ -44,6 +47,11 @@ var _use_time := 0.0             # seconds spent at the current "use" goal
 var _use_swings := 0
 var _dark_check := 0.0
 var _dark := false
+var _jump_ready := 0.0
+var _spin_clock := 0.0
+var _spin_samples: Array = []
+var _spin_until := -1.0
+var _spin_dir := 1.0
 var _interact_tries := 0
 var _relays_at_interact := 0
 var _hide_clear_time := 0.0
@@ -543,7 +551,25 @@ func _observe_interactables(facility: StreamedFacilityView3D, p: Vector3) -> Arr
 
 # --- decisions --------------------------------------------------------------
 
+## One frame of play: the goal logic (_decide_inner), then what keeps a group of bots apart and stops one turning on the spot
+## (KT saw several stacked inside each other in a lab corridor, spinning in place).
 func decide(obs: Dictionary, delta: float) -> Dictionary:
+	var act := _decide_inner(obs, delta)
+	var scene := tree.current_scene
+	if act.is_empty() or not _route_ready(scene):
+		return act
+	var player: PlayerController3D = scene.get("player")
+	if player.hidden:
+		return act
+	_separate(scene, player, act)
+	var look: Array = act.get("look", [0.0, 0.0])
+	if look.size() > 0:
+		look[0] = clampf(float(look[0]), -MAX_TURN_STICK, MAX_TURN_STICK)
+	_spin_check(player, act, delta)
+	return act
+
+
+func _decide_inner(obs: Dictionary, delta: float) -> Dictionary:
 	var scene := tree.current_scene
 	if not _route_ready(scene) or not bool(obs.get("run", {}).get("active", false)):
 		return {}
@@ -589,6 +615,11 @@ func decide(obs: Dictionary, delta: float) -> Dictionary:
 		_path = []
 		_path_age = 99.0
 		_interact_tries = 0
+	if String(goal.get("kind", "")) == "relay" and not _relay_mine(String(goal.get("id", "")), {"x": goal["cell"].x, "y": goal["cell"].y}):
+		_blacklist[String(goal["key"])] = _clock + 20.0
+		_goal = {}
+		stats["relays_dropped"] = int(stats.get("relays_dropped", 0)) + 1
+		return act
 	_last_goal_kind = String(goal.get("kind", ""))
 	var sprint := not threat.is_empty() or _last_goal_kind == "flee"
 	# at the goal: interact / wait
@@ -620,6 +651,8 @@ func decide(obs: Dictionary, delta: float) -> Dictionary:
 		return act
 	if _last_goal_kind != "safe":
 		_safe_wait = 0.0
+	if distance <= 1.0 and _last_goal_kind == "follow":
+		return act   # at the slot: a point under our feet is no heading to steer for
 	if distance <= 1.2 and _last_goal_kind in ["explore", "flee"]:
 		_blacklist[String(goal["key"])] = _clock + 1.0
 		_goal = {}
@@ -647,8 +680,8 @@ func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, 
 		if flee_cell != Vector2i(-99999, -99999):
 			return {"kind": "flee", "key": "flee:%d,%d" % [flee_cell.x / 6, flee_cell.y / 6], "cell": flee_cell}
 	for entry in world["relays"]:
-		if float(entry["dist"]) < 90.0 and not _blacklisted("relay:%s" % entry["id"]):
-			return {"kind": "relay", "key": "relay:%s" % entry["id"], "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
+		if float(entry["dist"]) < 90.0 and not _blacklisted("relay:%s" % entry["id"]) and _relay_mine(String(entry["id"]), entry):
+			return {"kind": "relay", "key": "relay:%s" % entry["id"], "id": String(entry["id"]), "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
 	var player_lamp: float = float(obs["player"].get("lamp", 100.0))
 	if player_lamp < 30.0:
 		for entry in world["batteries"]:
@@ -689,6 +722,101 @@ func _use_goal(obs: Dictionary, nav: StreamedHunterNavigation) -> Dictionary:
 
 
 ## The hotbar slot holding a crowbar or the rescue axe, or -1.
+## Co-op: keep within `radius` m of a teammate's grid position (null lets go). Each bot walks to its own slot around them
+## (SLOT_RADIUS m out, at a golden-angle step per `slot`) so a group spreads out instead of piling onto one cell.
+func follow(target, radius: float, slot: int = 0) -> void:
+	var none := Vector2i(-99999, -99999)
+	var scene := tree.current_scene
+	if target == null or not _route_ready(scene):
+		forced_goal = none
+		return
+	var p: Vector3 = (scene.get("player") as PlayerController3D).global_position
+	var at: Vector2 = target
+	var angle := float(slot) * 2.39996
+	var spot := at + Vector2(cos(angle), sin(angle)) * SLOT_RADIUS
+	var here := Vector2(p.x, p.z)
+	if here.distance_to(at) > radius:
+		var nav: StreamedHunterNavigation = scene.get("_navigation")
+		var open := _open_cell_near(nav, spot) if nav != null else Vector2i(floori(spot.x), floori(spot.y))
+		forced_goal = open if open != none else Vector2i(floori(at.x), floori(at.y))
+		forced_kind = "follow"
+	elif forced_goal != none and forced_kind == "follow" and here.distance_to(spot) < 3.0:
+		forced_goal = none
+
+
+## A relay worth going for: still there in the live world state (the navigation's list is a snapshot taken when its chunk
+## loaded, so a relay someone took later still looked open, and bots kept walking to used ones), and no other runner is clearly
+## nearer to it (that one claims it; KT saw several bots piled up spinning at one relay).
+func _relay_mine(id: String, entry: Dictionary) -> bool:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return false
+	var ws: Object = scene.get("world_state")
+	if ws != null and not id.is_empty() and ws.has_method("pickup_available") and not bool(ws.call("pickup_available", id)):
+		return false
+	var at := Vector2(float(entry["x"]) + .5, float(entry["y"]) + .5)
+	var me: Vector3 = (scene.get("player") as PlayerController3D).global_position
+	var mine := Vector2(me.x, me.z).distance_to(at)
+	var remotes: Object = scene.get("_remotes")
+	if remotes != null:
+		for state in (remotes.get("_states") as Dictionary).values():
+			var them = (state as Dictionary).get("position")
+			if them is Vector2 and (them as Vector2).distance_to(at) + 2.0 < mine:
+				return false
+	return true
+
+
+## Steps away from any other runner closer than SEPARATION m (bots following one host would otherwise stand inside each other).
+func _separate(scene: Node, player: PlayerController3D, act: Dictionary) -> void:
+	var remotes: Object = scene.get("_remotes")
+	if remotes == null:
+		return
+	var here := Vector2(player.global_position.x, player.global_position.z)
+	var push := Vector2.ZERO
+	for id in (remotes.get("_states") as Dictionary):
+		var at = ((remotes.get("_states") as Dictionary)[id] as Dictionary).get("position")
+		if not at is Vector2:
+			continue
+		var away: Vector2 = here - at
+		var d := away.length()
+		if d < SEPARATION:
+			push += (away.normalized() if d > .01 else Vector2.RIGHT.rotated(rng.randf() * TAU)) * (SEPARATION - d) / SEPARATION
+	if push.length() < .05:
+		return
+	var right := Vector2(player.global_basis.x.x, player.global_basis.x.z).normalized()
+	var forward := Vector2(-player.global_basis.z.x, -player.global_basis.z.z).normalized()
+	var move: Array = act.get("move", [0.0, 0.0])
+	act["move"] = [clampf(float(move[0]) + push.dot(right), -1.0, 1.0), clampf(float(move[1]) + push.dot(forward), -1.0, 1.0)]
+
+
+## Turning a lot without getting anywhere (over 4 rad in 3 s, under 0.7 m moved): plan again and sidestep for a second.
+func _spin_check(player: PlayerController3D, act: Dictionary, delta: float) -> void:
+	_spin_clock += delta
+	if _spin_clock >= .25:
+		_spin_clock = 0.0
+		_spin_samples.append([player.rotation.y, Vector2(player.global_position.x, player.global_position.z)])
+		while _spin_samples.size() > 12:
+			_spin_samples.pop_front()
+		if _spin_samples.size() == 12:
+			var turned := 0.0
+			for i in range(1, 12):
+				turned += absf(wrapf(float(_spin_samples[i][0]) - float(_spin_samples[i - 1][0]), -PI, PI))
+			var moved: float = (_spin_samples[11][1] as Vector2).distance_to(_spin_samples[0][1])
+			if turned > 4.0 and moved < .7:
+				_path = []
+				_path_age = 99.0
+				_goal = {}
+				_spin_until = _clock + 1.0
+				_spin_dir = -1.0 if rng.randf() < .5 else 1.0
+				_spin_samples.clear()
+				stats["spin_recoveries"] = int(stats.get("spin_recoveries", 0)) + 1
+				add_event("spin_recovery", {"turned_rad": snappedf(turned, .1), "moved_m": snappedf(moved, .01),
+					"at": [snappedf(player.global_position.x, .1), snappedf(player.global_position.z, .1)]})
+	if _clock < _spin_until:
+		act["look"] = [0.0, (act.get("look", [0.0, 0.0]) as Array)[1]]
+		act["move"] = [_spin_dir, .2]
+
+
 func _breach_tool(player: PlayerController3D) -> int:
 	for slot in PlayerController3D.HOTBAR_SIZE:
 		if String(player.inventory_order[slot]) in ["crowbar", "rescue_axe"]:
@@ -703,7 +831,12 @@ func _use(player: PlayerController3D, p: Vector3, goal: Dictionary, act: Diction
 	var at: Vector3 = goal["at"]
 	var aimed := _aim_at(player, at, act, delta)
 	var flat := Vector2(at.x - p.x, at.z - p.z)
-	act["move"] = [0.0, .3 if flat.length() > INTERACT_RANGE * .7 else 0.0]
+	# edge closer only over floor the navigation calls open: a box behind a booth counter is used from where we stand (stepping onto
+	# a prop's footprint is how a bot got wedged in a carnival booth doorway: no path out of a blocked cell)
+	var nav: StreamedHunterNavigation = tree.current_scene.get("_navigation") if _route_ready(tree.current_scene) else null
+	var step := Vector2(p.x, p.z) + flat.normalized() * .45
+	var may_step := nav == null or nav.can_occupy(step.x, step.y)
+	act["move"] = [0.0, .3 if flat.length() > INTERACT_RANGE * .7 and may_step else 0.0]
 	_use_time += delta
 	var done := false
 	if aimed:
@@ -970,7 +1103,7 @@ func _walk_pitch(player: PlayerController3D, rate: float, delta: float) -> float
 
 func _idle_look(player: PlayerController3D, act: Dictionary, delta: float) -> void:
 	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
-	act["look"] = [.35, _walk_pitch(player, LOOK_RATE * sens, delta)]
+	act["look"] = [.22 * sin(_clock * .6), _walk_pitch(player, LOOK_RATE * sens, delta)]
 
 
 func _aim_at_nearest(obs: Dictionary, player: PlayerController3D, p: Vector3, goal_pos: Vector2, kinds: Array,
@@ -1100,13 +1233,38 @@ func _record_stuck(obs: Dictionary, p: Vector3) -> void:
 	stats["stuck_events"] = int(stats["stuck_events"]) + 1
 
 
+## Jumps when walking forward into a low obstacle with room above it (a step, a crate, a ledge), on a 1.2 s cooldown. True if it jumped.
+func _jump_ahead(player: PlayerController3D, act: Dictionary) -> bool:
+	if _clock < _jump_ready or float((act["move"] as Array)[1]) < .5:
+		return false
+	var space := player.get_world_3d().direct_space_state
+	var forward := -player.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var base := player.global_position
+	var knee := PhysicsRayQueryParameters3D.create(base + Vector3.UP * .35, base + Vector3.UP * .35 + forward * .8)
+	knee.exclude = [player.get_rid()]
+	var head := PhysicsRayQueryParameters3D.create(base + Vector3.UP * 1.5, base + Vector3.UP * 1.5 + forward * .8)
+	head.exclude = [player.get_rid()]
+	if space.intersect_ray(knee).is_empty() or not space.intersect_ray(head).is_empty():
+		return false
+	act["pulse"].append("jump")
+	_jump_ready = _clock + 1.2
+	stats["jumps"] = int(stats.get("jumps", 0)) + 1
+	return true
+
+
 func _recover(scene: Node, player: PlayerController3D, p: Vector3, act: Dictionary) -> void:
 	match _stuck_level:
 		1:
-			act["pulse"].append("jump")
+			# a jump only over something real in front (a knee-high edge with headroom above it), at most every 1.2 s; otherwise
+			# plan again (KT saw a bot hop in place in an empty carnival hallway: this used to jump every frame of the stuck stage)
+			if not _jump_ahead(player, act):
+				_path = []
+				_path_age = 99.0
 		2:
 			act["pulse"].append("interact")   # a closed door in the way opens with interact
-			act["pulse"].append("jump")
+			_jump_ahead(player, act)
 		3:
 			if _clock > _strafe_until:
 				_strafe_until = _clock + .9

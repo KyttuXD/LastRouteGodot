@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource path="res://tools/modpack/modpack_cli.gd" type="Script" id="1"]
+
+[node name="ModPack" type="Node"]
+script = ExtResource("1")

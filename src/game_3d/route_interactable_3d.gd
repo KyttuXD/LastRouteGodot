@@ -26,6 +26,7 @@ enum Kind {
 	FURNITURE,
 	ROOM_DOOR,
 	BREAKABLE,
+	REVIVE_SPOT,
 }
 
 ## The facility's single heater station, and Wynelle's counterplay. Three
@@ -58,6 +59,8 @@ const TOOL_PICKUP_MODELS := {
 	"crowbar": "res://art/props-3d/interactables/crowbar.glb",
 	"rescue_axe": "res://art/props-3d/interactables/rescue_axe.glb",
 	"battery": "res://art/props-3d/interactables/battery.glb",
+	"stim_pack": "res://art/props-3d/interactables/stim_pack.glb",
+	"revive_kit": "res://art/props-3d/interactables/revive_kit.glb",
 	"backpack_small": "res://art/props-3d/interactables/backpack_small.glb",
 	"backpack_medium": "res://art/props-3d/interactables/backpack_medium.glb",
 	"backpack_large": "res://art/props-3d/interactables/backpack_large.glb",
@@ -107,6 +110,9 @@ var vent_id := ""
 ## MUSIC_BOX: which box (StreamedRouteGenerator._music_boxes) and the shared clock its tune follows.
 var music_box_id := ""
 var music_boxes: MusicBoxes
+## REVIVE_SPOT (ReviveDowns, docs/REVIVE.md): where a co-op teammate went down, who, and the marker drawn there.
+var revive_peer := 0
+var revive_name := ""
 ## Some deterministic relay spawns are concealed inside a locked crate or
 ## barrel. They remain ordinary relays for objective counts and late-join
 ## snapshots; this flag only adds the tool gate and container presentation.
@@ -178,6 +184,9 @@ var _door_target_x := 0.0
 
 func _ready() -> void:
 	add_to_group("interactable")
+	if kind == Kind.REVIVE_SPOT:
+		_ready_revive_spot()
+		return
 	if kind == Kind.BREAKABLE:
 		_ready_breakable()
 		return
@@ -254,6 +263,68 @@ func configure_breakable(spec: Dictionary, hp: int, is_open: bool) -> void:
 	opened = is_open
 	if is_inside_tree():
 		_ready_breakable()
+
+
+## A downed teammate's marker: a glowing ring on the floor, a faint column of light you can aim at, and their name over
+## it (drawn through walls, so the room can find the spot). The prompt and the hold come from the player
+## (PlayerController3D._hold_seconds: only with a Revive Kit).
+const REVIVE_COLOR := Color(.36, .95, .58)
+
+
+func _ready_revive_spot() -> void:
+	_visual = Node3D.new()
+	_visual.name = "ReviveMarker"
+	add_child(_visual)
+	var glow := StandardMaterial3D.new()
+	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glow.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glow.albedo_color = Color(REVIVE_COLOR, .55)
+	glow.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var ring := MeshInstance3D.new()
+	ring.name = "Ring"
+	var disc := CylinderMesh.new()
+	disc.top_radius = .55
+	disc.bottom_radius = .55
+	disc.height = .02
+	disc.radial_segments = 8   # blocky, like the rest of the world
+	ring.mesh = disc
+	ring.material_override = glow
+	ring.position.y = .03
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_visual.add_child(ring)
+	var column := MeshInstance3D.new()
+	column.name = "Column"
+	var tube := CylinderMesh.new()
+	tube.top_radius = .32
+	tube.bottom_radius = .32
+	tube.height = 2.2
+	tube.radial_segments = 8
+	column.mesh = tube
+	var faint := glow.duplicate() as StandardMaterial3D
+	faint.albedo_color = Color(REVIVE_COLOR, .16)
+	column.material_override = faint
+	column.position.y = 1.1
+	column.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_visual.add_child(column)
+	var label := Label3D.new()
+	label.name = "Name"
+	label.text = "%s // DOWN" % revive_name
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.fixed_size = true
+	label.pixel_size = .0016
+	label.font_size = 18
+	label.outline_size = 6
+	label.modulate = REVIVE_COLOR
+	label.position.y = 2.35
+	_visual.add_child(label)
+	_interaction_focus_local = Vector3(0.0, .9, 0.0)
+
+
+func set_revive_left(seconds: float) -> void:
+	var label := _visual.get_node_or_null("Name") as Label3D if _visual != null else null
+	if label != null:
+		label.text = "%s // DOWN // %ds" % [revive_name, ceili(maxf(0.0, seconds))]
 
 
 func _ready_breakable() -> void:
@@ -346,7 +417,7 @@ const AIM_REACH := {
 	Kind.ROOM_DOOR: 1.4, Kind.LIGHT_SWITCH: 1.4, Kind.BOARDED_PATH: 1.5, Kind.VENT: 1.5,
 	Kind.HIDING_SPOT: 1.6, Kind.LIFT: 1.6, Kind.SAFE_ZONE: 1.6, Kind.HEATER_STATION: 1.6, Kind.MUSIC_BOX: 1.6,
 	Kind.RELAY: 1.7, Kind.BATTERY: 1.7, Kind.COIN: 1.7, Kind.TOOL_PICKUP: 1.7,
-	Kind.FURNITURE: 1.8, Kind.BREAKABLE: 2.0,
+	Kind.FURNITURE: 1.8, Kind.BREAKABLE: 2.0, Kind.REVIVE_SPOT: 2.0,
 }
 const DEFAULT_AIM_REACH := 1.6
 
@@ -594,6 +665,8 @@ func get_prompt() -> String:
 		return "CLOSE DOOR" if room_door_open else "OPEN DOOR"
 	if kind == Kind.RELAY and sabotaged:
 		return "HOLD INTERACT // RESTORE SABOTAGED RELAY"  # the player turns "HOLD INTERACT // " into the held key
+	if kind == Kind.REVIVE_SPOT:
+		return "%s IS DOWN // NEEDS A REVIVE KIT" % revive_name   # with a kit the player shows the hold instead
 	if completed or disabled:
 		return ""
 	if kind == Kind.RELAY and locked_cache:
@@ -713,6 +786,9 @@ func activate(player: PlayerController3D) -> String:
 			# replicated transform then places co-op runners there too.
 			return player.enter_hiding(source_cell, hiding_inside_position(),
 				player.global_position, self)
+		Kind.REVIVE_SPOT:
+			# a press without a kit (the hold with one is PlayerController3D._update_resecure)
+			return _fail("%s NEEDS A REVIVE KIT" % revive_name)
 		Kind.MUSIC_BOX:
 			# Never completes either -- winding it is a thing you keep doing,
 			# not a thing you finish. Resolved by whoever owns Glyra's gimmick
@@ -953,7 +1029,7 @@ func configure_tool_pickup(item_id: String) -> void:
 	_visual = ModelSlot.instantiate_prop(String(TOOL_PICKUP_MODELS[item_id]), item_id)
 	if _visual:
 		_visual.name = "AuthoredPickup_%s" % item_id
-		_visual.scale = Vector3.ONE * .72
+		_visual.scale = Vector3.ONE * .72 * (1.3 if item_id == "stim_pack" else 1.0)   # KT: the stim reads small on the floor
 		_visual.position.y = .10
 		_visual.rotation = Vector3(deg_to_rad(-18.0), deg_to_rad(25.0), 0.0)
 		add_child(_visual)

@@ -1,0 +1,9 @@
+{
+	"schema": "lr.pack/1",
+	"id": "template",
+	"name": "My Pack",
+	"version": "0.1.0",
+	"author": "Your name",
+	"description": "Replace this: what your pack changes.",
+	"overrides": ["props/officeWaterCooler"]
+}

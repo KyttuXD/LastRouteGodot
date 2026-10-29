@@ -47,7 +47,7 @@ import.
 
 The game boots into a dual-framed archive-style **main menu**
 (`scenes/main_menu.tscn`) with **CREATE ROOM**, **JOIN ROOM**, **SETTINGS**,
-**PLAY OFFLINE**, **REGISTER / SIGN IN**, **TUTORIAL**, and **QUIT**. The
+**REGISTER / SIGN IN**, **TUTORIAL**, and **QUIT**. The
 Tutorial keeps objective, movement, inventory, map, and co-op guidance out of
 the live playfield. A signed-in account card
 shows a procedural solo checkpoint, with **CONTINUE ROUTE** and **CLEAR SAVE**
@@ -74,9 +74,11 @@ difficulty choices are **RELAXED**, **STANDARD** and
 multi-hunter rules exist. Main-menu **JOIN ROOM** accepts the five-character
 code; staging has no second create/join/code row. There is no client-selectable
 server, direct-address field, or raw network address in the menu. A solo run is
-a room with one player in it, so **PLAY OFFLINE** disables backend/update
-requests and deliberately enters that same gameplay path for testing without a
-running server.
+a room with one player in it, so the **Offline (solo, no server)** option in **CREATE ROOM** disables
+backend/update requests for that run only and enters the same gameplay path
+without a running server. It turns on by itself, with a note, when the server
+cannot be reached; leaving the room to a menu ends it, and **GO ONLINE** leaves
+a boot-time offline mode.
 
 In a run: move with **WASD**, tap **Space** for a small grounded hop, hold
 **Shift** to sprint, and hold **C** to crouch. **Left click** uses or attacks
@@ -324,3 +326,8 @@ Original game — **KYTTU: The Last Route** by [KyttuXD](https://github.com/Kytt
 Third-party assets vendored into `third_party/`, each under its own license:
 
 - **[Cupcakes Framework](https://github.com/Oplexitie/Cupcakes-Framework)** by Oplexitie — MIT. The retained shader source is documented in [`third_party/cupcakes-framework/`](third_party/cupcakes-framework/); its former Office-mode presentation code is no longer part of the runtime.
+
+## Player skins
+
+A signed-in player's skin is stored on their account (see `docs/PLAYER_SKINS.md`, "Account skins") and follows them to any
+computer; `user://skin.png` is only the offline fallback. Co-op peers look each other's skins up by account on the server.
