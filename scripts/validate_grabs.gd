@@ -473,6 +473,19 @@ func run(host: Node) -> int:
 		spectate_view.queue_free()
 		await host.get_tree().process_frame
 		player.global_position = home
+		# instant captures (KT) never start a grab: a Void hunter's catch (Void Gray's anti-idle catch is one), a forced or
+		# gimmick-inescapable catch; the cooldown re-catch is an ordinary one
+		_expect(HunterGrab.skips_grab(true) and not HunterGrab.skips_grab(false), "instant captures do not skip the grab")
+		var void_view := _hunter(route, "void_gray", home + Vector3(0, 0, -.8), Vector3.BACK)
+		await host.get_tree().process_frame
+		route.call("_trigger_capture", void_view, false)
+		var seen_grab := false
+		var watched := 0.0
+		while watched < 4.0:
+			await host.get_tree().process_frame
+			watched += host.get_process_delta_time()
+			seen_grab = seen_grab or grab.playing or not grab.current.is_empty() or player.grab_active
+		_expect(not seen_grab, "a Void Gray catch (instant) played a hunter grab")
 	route.queue_free()
 	await host.get_tree().process_frame
 	if _failures == 0:

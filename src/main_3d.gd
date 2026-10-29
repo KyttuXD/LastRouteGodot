@@ -1012,6 +1012,9 @@ func _trigger_capture(view: HunterView3D, force_inescapable: bool = false) -> vo
 		# visual completes prior to resolving game-over.
 		if jumpscare != null:
 			await jumpscare.play(player.active_camera(), view.brain.hunter_id)
+		# instant (not a re-catch in the cooldown): straight to the capture screen, no grab (HunterGrab.skips_grab)
+		_capture_instant = HunterGrab.skips_grab(force_inescapable or is_void
+			or (view.brain.gimmick != null and view.brain.gimmick.capture_is_inescapable()))
 		_resolve_capture_outcome()
 		return
 	player.input_frozen = true
@@ -1072,6 +1075,10 @@ func _resolve_escape_success() -> void:
 ## Shared by both a failed struggle and the no-struggle-at-all cooldown skip
 ## (hunter-ai.js's triggerGameOver: Nyxie/cooldown captures go straight
 ## here, everyone else only arrives via a timed-out struggle).
+## Set by an instant capture just before _resolve_capture_outcome(): it skips the grab.
+var _capture_instant := false
+
+
 func _resolve_capture_outcome() -> void:
 	if _capture_resolving:
 		return
@@ -1088,7 +1095,9 @@ func _resolve_capture_outcome() -> void:
 			"what": "caught",
 			"hunter_id": hunter_id,
 		})
-	if capturing_view != null:
+	var instant := _capture_instant
+	_capture_instant = false
+	if capturing_view != null and not instant:
 		hud.set_death_flow(true)   # the grab owns the screen: no hotbar, minimap or stamina over it
 		await grab.play(player, capturing_view, hunter_id, _take_grab_roll())
 	if HunterJumpscare.ENABLED:

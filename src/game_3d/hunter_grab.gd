@@ -486,6 +486,14 @@ static func rest_free_hands(view: Node3D, along: Vector3, points: Array, drop: f
 ## Where a held runner's own hands go (`body` is their mannequin; the local first-person body or another player's copy):
 ## onto her forearm when held up by it, against her chest when pushing her off, the held wrist out to her grip, clawing at
 ## the floor ahead when dragged; the clip's own arms otherwise (pinned, dangling).
+## Instant captures skip the grab (KT: "death grabs should be avoided by gray void and instant capture hunter events"):
+## an inescapable catch (every Void hunter, Void Gray's anti-idle catch among them; Nyxie's dead-lamp wake; Zellia's deal;
+## a napper who wakes in your room) goes straight to its own capture screen, with no hunter snap, grab camera or carry.
+## A re-catch inside the post-escape cooldown is not one of them: it is an ordinary hunter catching you again.
+static func skips_grab(inescapable: bool) -> bool:
+	return inescapable
+
+
 ## The runner's own measures below were taken on the 1.60 m mannequin; the runner is now taller (PlayerModels.SCALE).
 const RUNNER := PlayerModels.SCALE / .9
 const ARM_BONES := ["R-Arm", "R-Forearm", "R-Hand", "L-Arm", "L-Forearm", "L-Hand"]
