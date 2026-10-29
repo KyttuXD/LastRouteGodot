@@ -2,13 +2,13 @@ class_name ScaleFit
 extends RefCounted
 
 ## Scale-fit reference (docs/SCALE_FIT.md). The world is built at HUNTER scale: a normal hunter (2.67 m) is the "human"
-## the rooms, doors and furniture are judged against, and the runners are smaller (PlayerModels.SCALE, 2.20 m). Prop sizes
+## the rooms, doors and furniture are judged against, and the runners are smaller (PlayerModels.SCALE, 1.90 m). Prop sizes
 ## are the collider footprints derived from the models (PropColliderSizes: x, height, z).
 
 ## Measured with tools/look/scale_measure.tscn on the blocky mannequin (1.78 m as authored), times PlayerModels.SCALE.
 const PLAYER := {
-	"height": 2.20, "eye": 1.87, "camera": 1.98, "shoulder": 1.80, "elbow": 1.36, "hip": 1.11, "knee": 0.59,
-	"hand_hanging": 0.95, "reach_up": 2.66, "shoulder_width": 0.62,
+	"height": 1.90, "eye": 1.61, "camera": 1.71, "shoulder": 1.55, "elbow": 1.17, "hip": 0.96, "knee": 0.51,
+	"hand_hanging": 0.82, "reach_up": 2.30, "shoulder_width": 0.53,
 }
 ## A normal (1.5x) hunter, measured by the door_clearance validator: the human the world is sized for.
 const HUNTER := {"height": 2.67, "eye": 2.27, "shoulder_width": 1.38}
@@ -38,9 +38,9 @@ const ARCHITECTURE := [
 	["ceiling_height", 4.0, 2.6, 4.5, "StreamedFacilityView3D.WALL_HEIGHT; high on purpose (hunters are 1.5x)"],
 	["door_opening_height", DoorwayFrames.TARGET_OPENING, 2.9, 3.2, "doors open 3.07 m: a normal hunter (2.67 m) + 40 cm; two-cell doors for every room with a side of 4+ cells (docs/DOORWAY_CLEARANCE.md)"],
 	["hall_width", 3.0, 2.0, 5.0, "StreamedRouteGenerator.CORRIDOR_WIDTH, 3 or 5 cells"],
-	["capsule_standing", PlayerController3D.STANDING_COLLISION_HEIGHT, 1.9, 2.3, "PlayerController3D.STANDING_COLLISION_HEIGHT vs the 2.2 m runner"],
-	["camera_vs_model_eye", 0.08, 0.0, 0.15, "camera 1.98 against the model's eye node at 1.87"],
-	["light_switch_height", 1.45, 0.9, 2.66, "StreamedFacilityView3D.SWITCH_HEIGHT: within the runner's reach (2.66), below a hunter's shoulder"],
+	["capsule_standing", PlayerController3D.STANDING_COLLISION_HEIGHT, 1.6, 2.0, "PlayerController3D.STANDING_COLLISION_HEIGHT vs the 1.9 m runner"],
+	["camera_vs_model_eye", 0.08, 0.0, 0.15, "camera 1.71 against the model's eye node at 1.61"],
+	["light_switch_height", 1.45, 0.9, 2.66, "StreamedFacilityView3D.SWITCH_HEIGHT: within the runner's reach (2.30), below a hunter's shoulder"],
 ]
 
 

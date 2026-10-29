@@ -18,7 +18,52 @@ func _expect(condition: bool, message: String) -> void:
 		_fail(message)
 
 
+## Loading / sync screens silence the world and fade it back in on entry; UI sounds keep playing.
+func _check_world_gate(host: Node) -> void:
+	var world := AudioStreamPlayer3D.new()
+	world.bus = &"Master"
+	host.add_child(world)
+	var sfx := AudioStreamPlayer.new()
+	sfx.bus = &"SFX"
+	host.add_child(sfx)
+	var ui := AudioStreamPlayer.new()
+	ui.bus = &"UI"
+	host.add_child(ui)
+	var screen := (load("res://scenes/route_loading.tscn") as PackedScene).instantiate() as RouteLoadingScreen
+	screen.auto_start = false   # shows the building screen without loading a route
+	host.add_child(screen)
+	await host.get_tree().process_frame
+	_expect(WorldAudioGate.is_held(), "the loading screen does not silence the world")
+	_expect(world.bus == &"WorldGateMaster" and sfx.bus == &"WorldGateSFX", "world players are not routed to the muted gate (%s, %s)" % [world.bus, sfx.bus])
+	_expect(ui.bus == &"UI", "a UI sound was muted by the loading screen")
+	_expect(WorldAudioGate.gate_db() <= -79.0, "the gate bus is not silent (%.1f dB)" % WorldAudioGate.gate_db())
+	var late := AudioStreamPlayer2D.new()   # spawned while loading (a hunter, an ambience bed)
+	host.add_child(late)
+	_expect(late.bus == &"WorldGateMaster", "a sound added during loading escapes the gate")
+	_expect(WorldAudioGate.route(&"SFX") == &"WorldGateSFX" and WorldAudioGate.route(&"UI") == &"UI", "one-shots are not routed through the gate")
+	screen.show_sync_step(1, 5)   # the co-op sync gate on the same screen keeps it silent
+	_expect(WorldAudioGate.is_held(), "the sync step released the gate")
+	screen.dismiss()
+	_expect(not WorldAudioGate.is_held(), "entering the world does not release the gate")
+	await host.get_tree().create_timer(WorldAudioGate.FADE_SECONDS * 0.4).timeout
+	var mid := WorldAudioGate.gate_db()
+	_expect(mid > -79.0 and mid < -0.5, "the world should be fading in, not jumping (%.1f dB)" % mid)
+	await host.get_tree().create_timer(WorldAudioGate.FADE_SECONDS).timeout
+	_expect(absf(WorldAudioGate.gate_db()) < 0.1, "the world did not come back to full volume")
+	_expect(world.bus == &"Master" and sfx.bus == &"SFX" and late.bus == &"Master", "players were not returned to their own buses")
+	# the pre-route loading scene is freed into the route: that also lets the world back in
+	screen.show_building_floor()
+	_expect(WorldAudioGate.is_held(), "showing the screen again does not silence the world")
+	screen.queue_free()
+	await host.get_tree().process_frame
+	_expect(not WorldAudioGate.is_held(), "freeing the loading screen left the world silent")
+	await host.get_tree().create_timer(WorldAudioGate.FADE_SECONDS + 0.1).timeout
+	for node in [world, sfx, ui, late]:
+		node.queue_free()
+
+
 func run(host: Node) -> int:
+	await _check_world_gate(host)
 	_expect(AudioServer.get_bus_index("SFX") >= 0, "SFX audio bus is missing")
 	_expect(AudioServer.get_bus_index("UI") >= 0, "UI audio bus is missing")
 

@@ -8,7 +8,7 @@
 [ext_resource type="PackedScene" path="res://scenes/run_report.tscn" id="6_report"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
-radius = 0.28
+radius = 0.24
 height = 1.7
 
 [sub_resource type="Environment" id="Environment_dark"]

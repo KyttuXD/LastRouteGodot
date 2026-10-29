@@ -34,6 +34,9 @@ const AMBIENCE_GAIN_DB := -6.0
 var _ambience_players: Array[AudioStreamPlayer] = []
 var _ambience_active := 0
 var _ambience_cache := {}
+## The bus the runner's footsteps play on: LevelAmbience routes them through its "Level" bus during a run, so each level's
+## reverb colours them (the Mezzanine's grating rings, the maze stays tight).
+var footstep_bus: StringName = &"SFX"
 ## Content-pack replacements (docs/modding/content-types.md, "Sounds"): cue -> {"streams", "gain_db"} and ambience key ->
 ## {"stream", "gain_db"}, rebuilt whenever packs load or unload. Without packs both are empty and nothing changes.
 var _cue_overrides := {}
@@ -388,9 +391,9 @@ func footstep(mode := "walk", surface := "") -> bool:
 	var side := 1.0 if _footstep_index % 2 else -1.0
 	last_footstep_surface = surface
 	if surface == "":
-		return _play_named("footstep_%s" % resolved, side * 0.045)
+		return _play_named("footstep_%s" % resolved, side * 0.045, 1.0, footstep_bus)
 	# slight random pitch per step: rendered variants are cached, four per surface and gait
-	return _play_named("step:%s:%s:%d" % [resolved, surface, _footstep_index % 4], side * 0.045)
+	return _play_named("step:%s:%s:%d" % [resolved, surface, _footstep_index % 4], side * 0.045, 1.0, footstep_bus)
 
 
 func capture() -> bool:
@@ -500,6 +503,25 @@ func _poll_ambience_jobs() -> void:
 			_fade_in_ambience(_ambience_players[_ambience_active], key, create_tween())
 
 
+## The bed `key` ready to play, or null while it renders (the render is started on the worker pool). LevelAmbience
+## plays level beds through this, so they share the cache, the off-thread render and any pack replacement.
+func ambience_stream(key: String) -> AudioStream:
+	var replaced := ambience_override(key)
+	if replaced != null:
+		return replaced
+	if _ambience_cache.has(key):
+		return _ambience_cache[key]
+	_render_ambience_async(key)
+	return null
+
+
+## A content pack's recording for an ambience key (a bed, a level bed, or a positional loop "emitter:<kind>"), or null.
+## Content packs fill this in (docs/modding/content-types.md, "Sounds and ambience").
+func ambience_override(key: String) -> AudioStream:
+	var replacement: Dictionary = _ambience_overrides.get(key, {})
+	return replacement.get("stream") if not replacement.is_empty() else null
+
+
 ## 0 = full bed, 1 = ducked (a chase is on): eased toward by the caller each frame.
 func set_ambience_duck(amount: float) -> void:
 	ambience_duck = clampf(amount, 0.0, 1.0)
@@ -584,7 +606,7 @@ func _play_stream(stream: AudioStream, bus: StringName, volume_db: float = 0.0) 
 		chosen = _players[_next_player]
 		chosen.stop()
 	_next_player = (_players.find(chosen) + 1) % _players.size()
-	chosen.bus = bus
+	chosen.bus = WorldAudioGate.route(bus)   # silent while a loading screen is up
 	chosen.stream = stream
 	chosen.volume_db = volume_db
 	chosen.play()

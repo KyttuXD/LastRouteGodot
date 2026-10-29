@@ -80,7 +80,13 @@ test("manifest validation follows the client loader (lr.pack/1) and refuses trav
     const ok = manifest({ overrides: [`${kind}/x`], files: [{ path: "pack.json", sha256: sha("{}"), size: 2 }, { path: `${kind}/a.json`, sha256: sha("a"), size: 1 }] });
     assert.ok(validatePackManifest(ok).pack, `${kind}/*.json is a pack data folder`);
   }
-  assert.deepEqual(MOD_PACK_KINDS, ["props", "regions", "hunters", "grabs"], "same list as ContentPacks.KINDS");
+  assert.deepEqual(MOD_PACK_KINDS, ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls",
+    "ceilings", "rooms"], "same list as ContentPacks.KINDS");
+  // only ambience override ids may contain ":" (not at either end)
+  assert.ok(validatePackManifest(manifest({ overrides: ["ambience/room:chapel"] })).pack);
+  for (const bad of ["props/room:chapel", "ambience/:chapel", "ambience/room:", "ceilings/a b", "basements/x"]) {
+    assert.equal(validatePackManifest(manifest({ overrides: [bad] })).error, "INVALID_PACK_OVERRIDES", bad);
+  }
   for (const path of ["props/sub/x.json", "assets/a.GLB", "maps/x.json", "assets/a.gd", "props/x.png"]) {
     const bad = manifest({ files: [{ path: "pack.json", sha256: sha("{}"), size: 2 }, { path, sha256: sha("x"), size: 1 }] });
     assert.equal(validatePackManifest(bad).error, "INVALID_FILE_PATH", path);

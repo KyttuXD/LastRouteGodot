@@ -26,7 +26,8 @@ export const RelayFrame = Object.freeze({
 });
 export const HOST_LEFT_MESSAGE = "HOST LEFT // ROOM CLOSED";
 
-const ROOM_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
+// any five letters/digits: generated codes and an owner's reserved codes (KATHY, AKIRI); unknown codes route nowhere
+const ROOM_CODE_PATTERN = /^[A-Z0-9]{5}$/;
 
 function safeEqual(leftValue, rightValue) {
   const left = Buffer.from(String(leftValue || ""));
@@ -308,6 +309,11 @@ export function createEnetRelay({
       }
       if (frame.payload.length < 8 || frame.payload.length > 32) {
         sendError(frame.code, endpoint, "INVALID GUEST NONCE");
+        return;
+      }
+      // A reserved private room admits only guests whose nonce is a join ticket from /api/rooms/reserved/resolve.
+      if (typeof room.admitGuest === "function" && !room.admitGuest(frame.payload)) {
+        sendError(frame.code, endpoint, "PRIVATE ROOM // ACCESS REQUIRED");
         return;
       }
       const guestKey = `${frame.code}|${endpointKey(remote.address, remote.port)}|${frame.payload.toString("hex")}`;

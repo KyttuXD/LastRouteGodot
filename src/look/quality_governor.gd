@@ -107,6 +107,7 @@ static func degrade(budgets: Dictionary, n: int) -> Dictionary:
 	if n >= 5:
 		out["stream_budget_ms"] = maxf(1.5, float(out.get("stream_budget_ms", 4.0)) - 1.0)
 		out["stream_budget_max_ms"] = maxf(3.0, float(out.get("stream_budget_max_ms", 9.0)) - 2.0)
+		out["stream_budget_burst_ms"] = maxf(float(out["stream_budget_max_ms"]), float(out.get("stream_budget_burst_ms", 14.0)) - 3.0)
 	if n >= 6:
 		out["render_scale"] = maxf(.6, float(out.get("render_scale", 1.0)) * .8)
 	if n >= 7:

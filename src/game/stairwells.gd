@@ -44,11 +44,11 @@ const RISE := 4.0                    # LEVEL_HEIGHT
 ## are tried in a seeded order until one fits. `areas` are the candidate
 ## footprint areas (QUADRANT_AREAS, or MAZE_AREAS for the maze's own).
 static func plan(world_seed: String, x: int, z: int, upper_level: int, avoid: Array = [],
-		fits: Callable = Callable(), areas: Array = QUADRANT_AREAS) -> Dictionary:
+		fits: Callable = Callable(), areas: Array = QUADRANT_AREAS, force: bool = false) -> Dictionary:
 	if not CHANCE.has(upper_level):
 		return {}
 	var rng := SeededRandom.new("%s:STAIRS:%d:%d:%d" % [world_seed, x, z, upper_level])
-	var guaranteed := upper_level >= 1 and x == 0 and z == 0
+	var guaranteed := force or (upper_level >= 1 and x == 0 and z == 0)
 	if rng.next_float() >= float(CHANCE[upper_level]) and not guaranteed:
 		return {}
 	var free := areas.filter(func(area: Rect2i) -> bool: return not avoid.has(quadrant_of(area)))

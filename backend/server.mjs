@@ -13,10 +13,14 @@ import { createPublicRoute, PUBLIC_CODES } from "./public_route.mjs";
 import { createModeration } from "./moderation.mjs";
 import { createModPacks } from "./mod_packs.mjs";
 import { CRASH_MAX_BODY_BYTES, createCrashReports } from "./crash_reports.mjs";
+import { createReservedRooms } from "./reserved_rooms.mjs";
 
 // Which deployment this is (production, test): shown in /api/health so nobody mistakes one for the other.
 const instanceName = String(process.env.LASTROUTE_INSTANCE || "production").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) || "production";
-const ENET_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
+// Generated room codes skip I, O, 0 and 1; an owner's reserved private room may use any five letters or digits
+// (KATHY, AKIRI), so lookups take both and registration of a non-reserved code still needs the generated alphabet.
+const ENET_CODE_PATTERN = /^[A-Z0-9]{5}$/;
+const GENERATED_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{5}$/;
 // The PUBLIC host posts to the server every second or so; if it vanishes, its
 // listing must lapse quickly so a guest can take over.
 const PUBLIC_ENET_TTL_MS = 15_000;
@@ -293,6 +297,8 @@ export function createLastRouteServer({
   publicItemRespawnMs,
   modPackStorePath = null,
   crashReportDirectory = null,
+  reservedRoomStorePath = null,
+  reservedRoomCodes = [],
   modDownloadBase = "",
   modPackLimits,
   rateLimitWindowMs = DEFAULT_RATE_LIMIT_WINDOW_MS,
@@ -333,6 +339,10 @@ export function createLastRouteServer({
     accountExists: (name) => accountService.accountExists(name),
     updatesProvider: () => currentUpdates() });
   const crashReports = crashReportDirectory ? createCrashReports({ directory: crashReportDirectory, now }) : null;
+  const reservedRooms = reservedRoomStorePath
+    ? createReservedRooms({ storePath: reservedRoomStorePath, codes: reservedRoomCodes, now, logger }) : null;
+  // A reserved room whose host stopped heartbeating this long ago may be taken over by another invited player.
+  const RESERVED_TAKEOVER_MS = 30_000;
   const modPacks = createModPacks({ storePath: modPackStorePath, downloadBase: modDownloadBase, now, logger,
     ...(modPackLimits ? { limits: modPackLimits } : {}) });
   const skins = createSkins({ directory: skinDirectory, accountService, now, logger, ...skinOptions });
@@ -566,6 +576,10 @@ export function createLastRouteServer({
     const enetResolve = url.pathname.match(/^\/api\/enet\/rooms\/([^/]+)$/);
     if (request.method === "GET" && enetResolve) {
       const code = normalizeEnetCode(decodeURIComponent(enetResolve[1]));
+      if (reservedRooms?.isReserved(code)) {
+        return json(response, 403, { ok: false, code: "ROOM_RESERVED", reserved: true,
+          error: "PRIVATE ROOM // SIGN IN WITH AN INVITE OR ENTER THE ROOM PASSWORD" });
+      }
       const room = code ? enetRooms.get(code) : null;
       if (!room) return json(response, 404, { ok: false, error: "ROOM NOT FOUND" });
       return json(response, 200, {
@@ -655,13 +669,67 @@ export function createLastRouteServer({
       return json(response, result.status || 200, result.body);
     }
 
+    // Reserved private rooms (reserved_rooms.mjs): access-checked resolve, and the owner's reservations.
+    if (url.pathname === "/api/rooms/reserved/resolve") {
+      const code = normalizeEnetCode(body.code);
+      if (!code || !reservedRooms?.isReserved(code)) return json(response, 404, { ok: false, error: "ROOM NOT FOUND" });
+      const username = body.sessionToken ? accountService.sessionUsername(body.sessionToken) || "" : "";
+      if (!reservedRooms.hasAccess(code, { username, password: body.password,
+        owner: Boolean(username) && accountService.isAdminOwner(username) })) {
+        return json(response, 403, { ok: false, code: "ROOM_ACCESS_DENIED", reserved: true,
+          error: "NOT ON THIS ROOM'S INVITE LIST // WRONG ROOM PASSWORD" });
+      }
+      const live = enetRooms.get(code);
+      const stale = !live || now() - (live.lastSeen || 0) > RESERVED_TAKEOVER_MS;
+      return json(response, 200, { ok: true, reserved: true, live: !stale,
+        room: live && !stale ? publicEnetRoom(live, now(), relayAddress, relayPort) : null,
+        joinTicket: live && !stale ? reservedRooms.issueTicket(code) : "",
+        canHost: stale, settings: reservedRooms.hostView(code).settings });
+    }
+    if (url.pathname === "/api/admin/reserved-rooms") {
+      const owner = accountService.sessionUsername(body.sessionToken);
+      if (!owner || !accountService.isAdminOwner(owner)) {
+        return json(response, 403, { ok: false, code: "ADMIN_OWNER_REQUIRED", error: "Full admin account required" });
+      }
+      if (!reservedRooms) return json(response, 404, { ok: false, code: "UNKNOWN_ENDPOINT", error: "Unknown endpoint" });
+      if (body.action === "command") {
+        // a command waits for the current host only: queued for an empty room, it would hit whoever hosts next
+        const live = enetRooms.get(normalizeEnetCode(body.code));
+        if (!live || now() - (live.lastSeen || 0) > RESERVED_TAKEOVER_MS) {
+          return json(response, 409, { ok: false, code: "ROOM_NOT_LIVE", error: "Nobody is hosting that room right now" });
+        }
+      }
+      const result = reservedRooms.admin(body, owner);
+      if (Array.isArray(result[1].rooms)) {
+        // the owner's status view: is someone hosting it right now, and how many are in
+        for (const room of result[1].rooms) {
+          const live = enetRooms.get(room.code);
+          room.live = Boolean(live && now() - (live.lastSeen || 0) <= RESERVED_TAKEOVER_MS);
+          room.players = room.live ? live.players : 0;
+          room.sessionActive = room.live ? Boolean(live.sessionActive) : false;
+        }
+      }
+      return json(response, result[0], result[1]);
+    }
+
     if (url.pathname === "/api/enet/rooms/register") {
       const code = normalizeEnetCode(body.code);
       const port = Number(body.port);
       if (!code) return json(response, 400, { ok: false, error: "INVALID ROOM CODE" });
       if (!Number.isInteger(port) || port < 1 || port > 65_535) return json(response, 400, { ok: false, error: "INVALID ENET PORT" });
-      if (enetRooms.has(code)) return json(response, 409, { ok: false, error: "ROOM CODE ALREADY REGISTERED" });
       const hostUser = body.sessionToken ? accountService.sessionUsername(body.sessionToken) || "" : "";
+      const reserved = Boolean(reservedRooms?.isReserved(code));
+      if (!reserved && !GENERATED_CODE_PATTERN.test(code)) return json(response, 400, { ok: false, error: "INVALID ROOM CODE" });
+      if (reserved && !reservedRooms.hasAccess(code, { username: hostUser, password: body.roomPassword,
+        owner: Boolean(hostUser) && accountService.isAdminOwner(hostUser) })) {
+        return json(response, 403, { ok: false, code: "ROOM_RESERVED", reserved: true,
+          error: "THAT ROOM CODE IS RESERVED // INVITE OR ROOM PASSWORD REQUIRED" });
+      }
+      const live = enetRooms.get(code);
+      // a reserved room's crashed host is replaced by the next invited player once its heartbeat has gone quiet
+      if (live && !(reserved && now() - (live.lastSeen || 0) > RESERVED_TAKEOVER_MS)) {
+        return json(response, 409, { ok: false, error: "ROOM CODE ALREADY REGISTERED" });
+      }
       if (publicCodes.has(code)) {
         const refused = moderation.checkHostPublic({ username: hostUser, deviceId: body.deviceId,
           address: requesterAddress(request, trustProxy) });
@@ -680,12 +748,19 @@ export function createLastRouteServer({
         daytime: Boolean(body.daytime),
         game: publicCodes.has(code) ? Object.keys(PUBLIC_CODES).find((g) => PUBLIC_CODES[g] === code) : cleanGame(body.game),
         expiresAt: now() + (publicCodes.has(code) ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
+        lastSeen: now(),
       };
+      if (reserved) {
+        room.reserved = true;
+        room.admitGuest = (nonce) => reservedRooms.ticketValid(code, nonce);   // the relay's GUEST_JOIN gate
+      }
       enetRooms.set(code, room);
       return json(response, 201, {
         ok: true,
         token,
         room: publicEnetRoom(room, now(), relayAddress, relayPort),
+        // a new host starts clean: commands meant for the previous one are dropped
+        ...(reserved ? { reserved: reservedRooms.hostView(code, { ack: Number.MAX_SAFE_INTEGER }) } : {}),
       });
     }
 
@@ -697,9 +772,12 @@ export function createLastRouteServer({
       room.sessionActive = Boolean(body.sessionActive);
       room.daytime = Boolean(body.daytime);
       room.expiresAt = now() + (publicCodes.has(room.code) ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs);
+      room.lastSeen = now();
       return json(response, 200, {
         ok: true,
         room: publicEnetRoom(room, now(), relayAddress, relayPort),
+        ...(room.reserved ? { reserved: reservedRooms.hostView(room.code,
+          { since: body.commandSince, ack: body.commandAck }) } : {}),
       });
     }
 
@@ -995,6 +1073,8 @@ export function startLastRouteServerFromEnvironment() {
     saveDirectory: environmentPath("LASTROUTE_SAVES_DIR") || join(dataDirectory, "saves"),
     modPackStorePath: environmentPath("LASTROUTE_MOD_INDEX_STORE") || join(dataDirectory, "mod_packs.json"),
     crashReportDirectory: environmentPath("LASTROUTE_CRASH_REPORTS_DIR") || join(dataDirectory, "crash-reports"),
+    reservedRoomStorePath: environmentPath("LASTROUTE_RESERVED_ROOMS_STORE") || join(dataDirectory, "reserved_rooms.json"),
+    reservedRoomCodes: String(process.env.LASTROUTE_RESERVED_ROOMS ?? "KATHY,AKIRI").split(",").map((code) => code.trim()).filter(Boolean),
     // public URL of the VPS 2 mod folder, e.g. https://<vps2>/lr3d/mods (the index never serves pack files itself)
     modDownloadBase: String(process.env.LASTROUTE_MOD_DOWNLOAD_BASE || "").trim(),
     publicDirectory: publicDirectory && existsSync(publicDirectory) ? publicDirectory : null,
