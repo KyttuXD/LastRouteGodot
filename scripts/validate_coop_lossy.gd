@@ -494,11 +494,18 @@ func _gray_binding() -> void:
 	route.set("_party_afk_seconds", 0.0)
 	route.set("_anti_idle_last_relay_count", GameState.relays_collected)
 	route.set("_relay_inactivity_seconds", 0.0)
-	route.call("_update_anti_idle_pressure", 0.01)
+	# Spawning needs a generated hunter-spawn candidate near the runner, which a loaded machine can take a while to
+	# stream in; the route retries every frame while a runner stays AFK, so the check does too (up to ~15 s).
 	var grays := []
-	for entity_id in world_state.hunters:
-		if String(world_state.hunters[entity_id].get("hunter_id", "")) == "void_gray":
-			grays.append(String(entity_id))
+	for attempt in 900:
+		route.call("_update_anti_idle_pressure", 0.01)
+		grays.clear()
+		for entity_id in world_state.hunters:
+			if String(world_state.hunters[entity_id].get("hunter_id", "")) == "void_gray":
+				grays.append(String(entity_id))
+		if not grays.is_empty():
+			break
+		await _host.get_tree().process_frame
 	_expect(grays.size() == 1, "an AFK guest did not wake exactly one Gray (%d)" % grays.size())
 	if grays.size() == 1:
 		var gray_id: String = grays[0]
