@@ -5,7 +5,8 @@ extends RefCounted
 ## approached from both sides along the hall: she must walk up, line up face-to-slats at her stand point (body clear of
 ## the locker and the walls), lean, linger, straighten and walk on without catching the hider. Any hunter that cannot
 ## do that every time must be in HunterInspect.EXCLUDED, and every excluded hunter must actually fail (so the list is
-## exact). Also: the trigger rules, the hide check unchanged, difficulty tuning, Nyxie's easter egg, replication, pose.
+## exact). Two in a wardrobe (HideOccupancy): she inspects with both inside, from every facing, finds neither, and her
+## check pulls the front one (slot 0, nearest the door) first. Also: the trigger rules, the hide check unchanged, difficulty tuning, Nyxie's easter egg, replication, pose.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- locker_inspect
 
@@ -110,14 +111,15 @@ func _expect(condition: bool, message: String) -> void:
 		_failures += 1
 
 
-func _hider(at: Vector2) -> Dictionary:
-	return {"peer_id": 1, "position": at, "hidden": true, "hiding_spot": LOCKER, "in_safe_zone": false, "noise": 0.0,
+func _hider(at: Vector2, peer: int = 1, slot: int = 0) -> Dictionary:
+	return {"peer_id": peer, "hide_slot": slot, "position": at, "hidden": true, "hiding_spot": LOCKER, "in_safe_zone": false, "noise": 0.0,
 		"flashlight_on": true, "sprinting": false, "facing": Vector2(1, 0), "lamp_charge": 100.0, "meters": null,
 		"heater_unfrozen": false, "heater_powered": false, "in_vent": false}
 
 
-## One trial: returns "" on success, else what went wrong.
-func _trial(id: String, door: Vector2i, side: int) -> String:
+## One trial: returns "" on success, else what went wrong. `pair`: two runners share the spot (a wardrobe), and the
+## brain's target alternates between them frame by frame, as the host's nearest-target pick can.
+func _trial(id: String, door: Vector2i, side: int, pair: bool = false) -> String:
 	var field := Hall.new(LOCKER, door)
 	var centre := Vector2(LOCKER) + Vector2(.5, .5)
 	var along := Vector2(door.y, door.x) * float(side)
@@ -142,8 +144,9 @@ func _trial(id: String, door: Vector2i, side: int) -> String:
 			if not brain.start_inspect(centre, Vector2(door), field):
 				return "no stand clears her"
 			started = true
-		if brain.update(STEP, field, _hider(centre), 1, 0):
-			return "caught the hider"
+		var hider := _hider(centre, 2, 1) if pair and int(clock / STEP) % 2 == 1 else _hider(centre)
+		if brain.update(STEP, field, hider, 1, 0):
+			return "caught a hider" if pair else "caught the hider"
 		if started and brain.state != HunterBrain.State.INSPECT:
 			break
 		if brain.state == HunterBrain.State.INSPECT:
@@ -218,6 +221,15 @@ func run(_host: Node) -> int:
 		", ".join(HunterInspect.EXCLUDED)])
 	for id in failing:
 		print("    %s: %s" % [id, failing[id]])
+
+	# two in a wardrobe: every facing and side, neither is found; the check takes the one nearest the door first
+	for door in FACINGS:
+		for side in [1, -1]:
+			var why := _trial("dovelle", door, side, true)
+			_expect(why.is_empty(), "with two in the wardrobe (door %s side %d): %s" % [door, side, why])
+	var inside := [{"peer": 2, "slot": 1}, {"peer": 1, "slot": 0}]
+	_expect(int(HideOccupancy.grab_order(inside)[0]["peer"]) == 1 and int(HideOccupancy.grab_order(inside)[1]["peer"]) == 2,
+		"the check does not pull the front occupant first, then the back one")
 
 	# replication
 	var lean := Hall.new(LOCKER, Vector2i(1, 0))

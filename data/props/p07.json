@@ -206,6 +206,7 @@
 		},
 		{
 			"id": "gothicWardrobe",
+			"hide_capacity": 2,
 			"models": [
 				"res://art/props-3d/props/mansion/gothic_wardrobe_crimson.glb",
 				"res://art/props-3d/props/mansion/gothic_wardrobe_violet.glb",

@@ -71,6 +71,7 @@ loudly. Any field that is missing takes the value it has today in GDScript.
 | `light` | `LIGHT_PROFILES` | optional |
 | `keeps_authored_pivot` | `keeps_authored_pivot()` | bool |
 | `batchable` | (new) | optional bool; absent = `PropModelCatalog.is_batchable()` default: pure dressing true, interactive (`interaction_for` non-empty) false. Animated props set it false. PERF batches into MultiMesh keyed by prop id + mesh, after the registry lookup, with placements unchanged |
+| `hide_capacity` | (new) | optional int 1–2; runners a hiding prop holds at once (`HideOccupancy`, docs/HIDING_PROPS.md). Absent = 1; the wardrobes set 2 |
 
 ### Region (`lr.region/1`)
 

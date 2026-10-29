@@ -393,6 +393,7 @@ func _process(delta: float) -> void:
 	_update_troll_ads(delta)
 	_music_boxes.tick(delta)
 	_tick_seat_occupancy()
+	_tick_hide_occupancy(delta)
 	if not _booth_occupants.is_empty():
 		_tick_booth_occupancy()
 	_tick_carousels(delta)
@@ -3281,6 +3282,42 @@ func _tick_seat_occupancy() -> void:
 		if view != null and is_instance_valid(view) and view.is_seated():
 			taken.append(SeatOccupancy.plan_of(view))
 	SeatOccupancy.rebuild(taken)
+var _hide_full_sent := {}
+
+
+## Who hides where this frame (HideOccupancy, docs/HIDING_PROPS.md): the remote runners from their replicated spot and
+## slot, so a full spot shows SPOT TAKEN. The host also settles two runners who got into a spot together: past its
+## capacity (or onto one slot) the higher peers are put back out.
+func _tick_hide_occupancy(delta: float) -> void:
+	var others: Array = _remotes.hidden_occupants() if _remotes != null else []
+	HideOccupancy.rebuild(others)
+	for peer in _hide_full_sent.keys():
+		_hide_full_sent[peer] = float(_hide_full_sent[peer]) - delta
+		if float(_hide_full_sent[peer]) <= 0.0:
+			_hide_full_sent.erase(peer)
+	if RoomState.online and not RoomState.is_host:
+		return
+	var everyone := others.duplicate()
+	var me := multiplayer.get_unique_id() if RoomState.online else 1
+	if player.hidden:
+		everyone.append({"cell": player.hidden_spot, "peer": me, "slot": player.hidden_slot})
+	if everyone.size() < 2:
+		return
+	for peer in HideOccupancy.overflow(everyone, _hide_capacity_at):
+		if peer == me:
+			player.leave_hiding(Vector2.ZERO, true)
+			hud.show_message("SPOT TAKEN")
+		elif not _hide_full_sent.has(peer):
+			_hide_full_sent[peer] = 1.0
+			_remotes.send_player_event(peer, {"what": "hide_full"})
+
+
+func _hide_capacity_at(cell: Vector2i) -> int:
+	for spot_value in get_tree().get_nodes_in_group("streamed_hiding_spot"):
+		var spot := spot_value as RouteInteractable3D
+		if spot != null and spot.source_cell == cell:
+			return spot.hide_capacity
+	return 1
 var _nap_rng := RandomNumberGenerator.new()
 var _snore_cooldowns := {}
 
@@ -3321,12 +3358,12 @@ func _update_hide_check(entity_id: String, view: HunterView3D, target: Dictionar
 			return
 		_hide_checks.erase(entity_id)
 		var cell: Vector2i = check["cell"]
-		var hider := _target_state_for_peer(int(check["peer"]))
-		if hider.is_empty() or not bool(hider.get("hidden", false)) \
-				or Vector2i(hider.get("hiding_spot", Vector2i(-1, -1))) != cell:
+		# two in a wardrobe (HideOccupancy): she pulls out the one at the front, nearest the door
+		var inside := _hiders_in(cell)
+		if inside.is_empty():
 			return
 		var exit := hiding_check_exit(navigation, cell)
-		_remotes.send_player_event(int(check["peer"]), {"what": "hide_found", "at": exit,
+		_remotes.send_player_event(int(HideOccupancy.grab_order(inside)[0]["peer"]), {"what": "hide_found", "at": exit,
 			"hunter_id": brain.hunter_id})
 		brain.state = HunterBrain.State.CHASE
 		brain.has_last_known = true
@@ -3366,6 +3403,15 @@ func _maybe_inspect_spot(brain: HunterBrain, navigation: StreamedHunterNavigatio
 		if brain.maybe_inspect(at, HunterInspect.door_direction(float(spot.get("yaw", 0.0))), navigation, chance_scale):
 			_inspect_cooldowns[cell] = HunterInspect.SPOT_COOLDOWN
 		return
+
+
+## Every runner hidden in `cell` as {"peer", "slot"} (the local runner included).
+func _hiders_in(cell: Vector2i) -> Array:
+	var out := []
+	for target in _remotes.target_states(_hunter_target(_player_in_intact_safe_room(facility.current_chunk_data()))):
+		if bool(target.get("hidden", false)) and Vector2i(target.get("hiding_spot", Vector2i(-1, -1))) == cell:
+			out.append({"peer": int(target.get("peer_id", 1)), "slot": int(target.get("hide_slot", 0))})
+	return out
 
 
 static func hiding_check_exit(navigation: StreamedHunterNavigation, cell: Vector2i) -> Vector2:
@@ -3635,6 +3681,7 @@ func _hunter_target(in_safe_room: bool) -> Dictionary:
 		"depth": -facility.current_level(),
 		"hidden": player.hidden,
 		"hiding_spot": player.hidden_spot,
+		"hide_slot": player.hidden_slot,
 		"in_safe_zone": in_safe_room,
 		"noise": player.noise * _falls_noise_mask(player.grid_position(), facility.current_level()),
 		"flashlight_on": player.flashlight_enabled,
@@ -5605,6 +5652,11 @@ func _apply_player_event(event: Dictionary) -> void:
 		"axe_rescue":
 			if GameState.escape_active:
 				_resolve_escape_success(true, String(event.get("message", "")))
+		"hide_full":
+			# the host found the spot over capacity (two got in at once): back out, the other keeps it
+			if player.hidden:
+				player.leave_hiding(Vector2.ZERO, true)
+				hud.show_message("SPOT TAKEN")
 		"hide_found":
 			if player.hidden:
 				var at = event.get("at", Vector2.ZERO)

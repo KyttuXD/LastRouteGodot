@@ -7,7 +7,9 @@ extends RefCounted
 ##   position and exit are on open floor (nothing hides inside a wall);
 ## - in the streamed route: E slides under a bed / steps into a wardrobe and back out, with the limited view;
 ## - hunters only check a spot they tracked the runner to, with a tell every peer sees, and it pulls the runner out;
-## - guests get the hidden state and spot in the replicated player state, and the tell as a stream event.
+## - guests get the hidden state and spot in the replicated player state, and the tell as a stream event;
+## - capacity (HideOccupancy): one runner per spot, two in a wardrobe (prop data hide_capacity), each in its own slot;
+##   a full spot says SPOT TAKEN, the host puts an extra occupant back out, a hunter's check pulls the front one first.
 ##
 ##   godot --headless --path . res://scenes/validate.tscn -- hiding_props
 
@@ -122,6 +124,8 @@ func _scan_generator() -> void:
 					fixtures_by_cell[fixture.get("prop_id", "")] = fixture
 					_expect(_open(grid, fixture["cell"]), "%s is used from a blocked cell %s" % [fixture["id"], fixture["cell"]])
 					_expect(String(fixture.get("kind", "")) == "hiding_spot", "styled fixture %s is not a hiding spot" % fixture["id"])
+					_expect(int(fixture.get("capacity", 0)) == (2 if style == "wardrobe" else 1),
+						"%s holds %s runners (beds 1, wardrobes 2)" % [fixture["id"], fixture.get("capacity")])
 					var local: Vector2 = fixture.get("local_position", Vector2.ZERO)
 					var inside := Vector2i(floori(local.x), floori(local.y))
 					_expect(_open(grid, inside), "%s hides inside a wall at %s" % [fixture["id"], inside])
@@ -260,12 +264,89 @@ func _check_route(host: Node) -> void:
 			"leaving the %s did not put the runner back where they entered" % style)
 		spot.queue_free()
 		await host.get_tree().process_frame
+	await _check_capacity_route(route, player)
 	route.queue_free()
 	await host.get_tree().process_frame
 	await host.get_tree().process_frame
 
 
+func _check_capacity_rules() -> void:
+	_expect(PropModelCatalog.hide_capacity("bedroomWardrobe") == 2 and PropModelCatalog.hide_capacity("gothicWardrobe") == 2,
+		"wardrobes do not hold two (data/props hide_capacity)")
+	for type in ["singleBed", "doubleBed", "gothicDoubleBed", "officeDesk"]:
+		_expect(PropModelCatalog.hide_capacity(type) == 1, "%s holds %d, not 1" % [type, PropModelCatalog.hide_capacity(type)])
+	_expect(ContentRegistry.PROP_FIELDS.has("hide_capacity"), "hide_capacity is not a lr.prop/1 field mods can set")
+	var locker := RouteInteractable3D.new()
+	_expect(locker.hide_capacity == 1, "a locker holds more than one")
+	locker.free()
+	_expect(PlayerStateWire.HOT_FIELDS.has("hide_slot"), "hide_slot is not on the wire")
+	var cell := Vector2i(4, 4)
+	HideOccupancy.rebuild([])
+	_expect(HideOccupancy.free_slot(cell, 1) == 0 and HideOccupancy.free_slot(cell, 2) == 0, "an empty spot has no free slot")
+	HideOccupancy.rebuild([{"cell": cell, "peer": 2, "slot": 0}])
+	_expect(HideOccupancy.is_full(cell, 1) and HideOccupancy.free_slot(cell, 1) == -1, "a locker with one inside is not full")
+	_expect(not HideOccupancy.is_full(cell, 2) and HideOccupancy.free_slot(cell, 2) == 1, "the second wardrobe slot is not free")
+	HideOccupancy.rebuild([{"cell": cell, "peer": 2, "slot": 1}])
+	_expect(HideOccupancy.free_slot(cell, 2) == 0, "the front slot is not offered when only the back one is taken")
+	HideOccupancy.rebuild([{"cell": cell, "peer": 2, "slot": 0}, {"cell": cell, "peer": 3, "slot": 1}])
+	_expect(HideOccupancy.is_full(cell, 2) and HideOccupancy.free_slot(cell, 2) == -1, "a wardrobe with two inside is not full")
+	_expect(HideOccupancy.is_full(cell, 9), "a mod capacity above MAX is not clamped")
+	# the host settling a same-frame race: the lowest peers keep the spot
+	var one := func(_c: Vector2i) -> int: return 1
+	var two := func(_c: Vector2i) -> int: return 2
+	_expect(HideOccupancy.overflow([{"cell": cell, "peer": 5, "slot": 0}, {"cell": cell, "peer": 1, "slot": 0}], one) == [5],
+		"two runners in a locker are not settled to one")
+	_expect(HideOccupancy.overflow([{"cell": cell, "peer": 5, "slot": 0}, {"cell": cell, "peer": 1, "slot": 1}], two).is_empty(),
+		"two runners in their own wardrobe slots are put out")
+	_expect(HideOccupancy.overflow([{"cell": cell, "peer": 5, "slot": 0}, {"cell": cell, "peer": 1, "slot": 0}], two) == [5],
+		"two runners on one wardrobe slot are not settled")
+	_expect(HideOccupancy.overflow([{"cell": cell, "peer": 2, "slot": 0}, {"cell": cell, "peer": 3, "slot": 1},
+		{"cell": cell, "peer": 4, "slot": 1}], two) == [4], "a third runner in a wardrobe is not put out")
+	# a hunter's check: the front slot (nearest the door) first
+	_expect(int(HideOccupancy.grab_order([{"peer": 2, "slot": 1}, {"peer": 7, "slot": 0}])[0]["peer"]) == 7,
+		"the hunter does not pull out the runner nearest the door first")
+	HideOccupancy.rebuild([])
+
+
+## In the route: a full spot refuses (SPOT TAKEN, no hide), a wardrobe's two slots sit apart inside it.
+func _check_capacity_route(route: Node, player: PlayerController3D) -> void:
+	for style in ["bed", "wardrobe"]:
+		var size := Vector3(1.0, .75, 2.0) if style == "bed" else Vector3(1.2, 2.1, .62)
+		var spot := _spawn_spot(route, player, style, size, Vector3(0, 0, -2.5))
+		spot.hide_capacity = 2 if style == "wardrobe" else 1
+		await route.get_tree().process_frame
+		HideOccupancy.rebuild([{"cell": spot.source_cell, "peer": 9, "slot": 0}])
+		if style == "bed":
+			_expect(spot.get_prompt() == "SPOT TAKEN", "a taken bed still offers %s" % spot.get_prompt())
+			var message := spot.activate(player)
+			_expect(not player.hidden and message == "SPOT TAKEN", "hid under a bed someone is under (%s)" % message)
+		else:
+			_expect(spot.get_prompt() != "SPOT TAKEN", "a wardrobe with one inside refuses the second")
+			var a := spot.hiding_inside_position(0)
+			var b := spot.hiding_inside_position(1)
+			var inverse := spot.global_transform.affine_inverse()
+			_expect(a.distance_to(b) >= .45, "the two wardrobe slots are only %.2f m apart (bodies overlap)" % a.distance_to(b))
+			for p in [a, b]:
+				var local: Vector3 = inverse * p
+				_expect(absf(local.x) + .2 <= size.x * .5 and absf(local.z) + .2 <= size.z * .5 + .05,
+					"a wardrobe slot pokes out of it at %s" % local)
+			_expect((inverse * a).z < (inverse * b).z, "slot 0 is not the one nearer the door")
+			spot.activate(player)
+			_expect(player.hidden and player.hidden_slot == 1 and player.global_position.distance_to(b) < .05,
+				"the second runner did not take the free back slot")
+			_expect(int(route._remotes._local_state().get("hide_slot", -1)) == 1, "guests do not get the hide slot")
+			player.leave_hiding(Vector2.ZERO, true)
+			_expect(player.hidden_slot == 0, "the slot outlived the hide")
+			HideOccupancy.rebuild([{"cell": spot.source_cell, "peer": 9, "slot": 0}, {"cell": spot.source_cell, "peer": 8, "slot": 1}])
+			_expect(spot.get_prompt() == "SPOT TAKEN" and spot.activate(player) == "SPOT TAKEN" and not player.hidden,
+				"a wardrobe with two inside let a third in")
+		HideOccupancy.rebuild([])
+		spot.queue_free()
+		await route.get_tree().process_frame
+
+
 func run(host: Node) -> int:
+	_check_capacity_rules()
 	_check_models()
 	_check_fit()
 	_scan_generator()

@@ -26,6 +26,7 @@ const HOT_FIELDS: Array[String] = [
 	"selected_item", "tool_swing_seq", "tool_swing_item", "tool_swing_hit", "selected_inventory_slot", "in_vent",
 	"grab", "vent_time_in", "pesticide_active", "escape_active", "capture_immune", "game_over", "spectating",
 	"visible", "exposure", "noise_meter", "temperature", "ambient", "heat_locked", "vr", "sent_ms", "syncing", "idle_s",
+	"hide_slot",
 ]
 ## Hot fields carried as one bit when their value is a bool.
 const BOOL_FIELDS: Array[String] = [
