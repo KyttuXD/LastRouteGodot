@@ -258,10 +258,10 @@ func _keep_alive(address: String, port: int) -> void:
 		if not frame.is_empty():
 			socket.put_packet(frame)
 			alive_sent += 1
-		var waited := 0
-		while waited < HOST_ALIVE_INTERVAL_MSEC and not _alive_stop:
-			OS.delay_msec(25)
-			waited += 25
+		# wall clock, not a sum of sleeps: a loaded machine oversleeps, and the next frame must not slip with it
+		var next_at := Time.get_ticks_msec() + HOST_ALIVE_INTERVAL_MSEC
+		while Time.get_ticks_msec() < next_at and not _alive_stop:
+			OS.delay_msec(10)
 	socket.close()
 
 
