@@ -1764,8 +1764,6 @@ func _maze_warren_layout(coord: Vector3i, grid: Array, region: String = "maze") 
 		if RoomSizeProfiles.within(String(type_name), Vector2i(WARREN_CELL * 2, WARREN_CELL * 2)) and not room_types.has(type_name) \
 				and not WARREN_ROOM_EXCLUDE.has(type_name):
 			room_types.append(type_name)
-	if room_types.is_empty():
-		room_types = ["storage"]
 	for quadrant in 4:
 		var east := quadrant % 2 == 1
 		var south := quadrant >= 2
@@ -1775,7 +1773,7 @@ func _maze_warren_layout(coord: Vector3i, grid: Array, region: String = "maze") 
 		var spine_x := 0 if east else 2
 		var spine_z := 0 if south else 2
 		var room_corner := Vector2i(-1, -1)
-		if rng.next_float() < .65:
+		if rng.next_float() < .65 and not room_types.is_empty():   # a region with no 12 x 12 room type gets plazas
 			var options: Array[Vector2i] = []
 			for cx in 2:
 				for cz in 2:
