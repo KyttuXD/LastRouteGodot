@@ -615,6 +615,11 @@ func _decide_inner(obs: Dictionary, delta: float) -> Dictionary:
 		_path = []
 		_path_age = 99.0
 		_interact_tries = 0
+	if String(goal.get("kind", "")) == "relay" and not _relay_mine(String(goal.get("id", "")), {"x": goal["cell"].x, "y": goal["cell"].y}):
+		_blacklist[String(goal["key"])] = _clock + 20.0
+		_goal = {}
+		stats["relays_dropped"] = int(stats.get("relays_dropped", 0)) + 1
+		return act
 	_last_goal_kind = String(goal.get("kind", ""))
 	var sprint := not threat.is_empty() or _last_goal_kind == "flee"
 	# at the goal: interact / wait
@@ -675,8 +680,8 @@ func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, 
 		if flee_cell != Vector2i(-99999, -99999):
 			return {"kind": "flee", "key": "flee:%d,%d" % [flee_cell.x / 6, flee_cell.y / 6], "cell": flee_cell}
 	for entry in world["relays"]:
-		if float(entry["dist"]) < 90.0 and not _blacklisted("relay:%s" % entry["id"]):
-			return {"kind": "relay", "key": "relay:%s" % entry["id"], "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
+		if float(entry["dist"]) < 90.0 and not _blacklisted("relay:%s" % entry["id"]) and _relay_mine(String(entry["id"]), entry):
+			return {"kind": "relay", "key": "relay:%s" % entry["id"], "id": String(entry["id"]), "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
 	var player_lamp: float = float(obs["player"].get("lamp", 100.0))
 	if player_lamp < 30.0:
 		for entry in world["batteries"]:
@@ -737,6 +742,28 @@ func follow(target, radius: float, slot: int = 0) -> void:
 		forced_kind = "follow"
 	elif forced_goal != none and forced_kind == "follow" and here.distance_to(spot) < 3.0:
 		forced_goal = none
+
+
+## A relay worth going for: still there in the live world state (the navigation's list is a snapshot taken when its chunk
+## loaded, so a relay someone took later still looked open, and bots kept walking to used ones), and no other runner is clearly
+## nearer to it (that one claims it; KT saw several bots piled up spinning at one relay).
+func _relay_mine(id: String, entry: Dictionary) -> bool:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return false
+	var ws: Object = scene.get("world_state")
+	if ws != null and not id.is_empty() and ws.has_method("pickup_available") and not bool(ws.call("pickup_available", id)):
+		return false
+	var at := Vector2(float(entry["x"]) + .5, float(entry["y"]) + .5)
+	var me: Vector3 = (scene.get("player") as PlayerController3D).global_position
+	var mine := Vector2(me.x, me.z).distance_to(at)
+	var remotes: Object = scene.get("_remotes")
+	if remotes != null:
+		for state in (remotes.get("_states") as Dictionary).values():
+			var them = (state as Dictionary).get("position")
+			if them is Vector2 and (them as Vector2).distance_to(at) + 2.0 < mine:
+				return false
+	return true
 
 
 ## Steps away from any other runner closer than SEPARATION m (bots following one host would otherwise stand inside each other).
