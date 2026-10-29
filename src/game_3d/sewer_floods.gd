@@ -220,7 +220,10 @@ func _process(_delta: float) -> void:
 		spray.speed_scale = lerpf(1.0, 1.5, harder)
 		var gush: Variant = entry["gush"]
 		if is_instance_valid(gush):
-			(gush as AudioStreamPlayer3D).volume_db = lerpf(-4.0, 4.0, harder) if running else -60.0
+			# audible only on the pipe's own storey: the 22 m range reached one and two levels away (KT: water noise on the upper levels)
+			var same_level := view.tracked_player == null or not is_instance_valid(view.tracked_player) \
+				or StreamedFacilityView3D.snapped_level_for_world_y(view.tracked_player.global_position.y) == (entry["chunk"] as Vector3i).y
+			(gush as AudioStreamPlayer3D).volume_db = lerpf(-4.0, 4.0, harder) if running and same_level else -60.0
 			(gush as AudioStreamPlayer3D).pitch_scale = lerpf(1.35, 1.1, harder)
 	var player := view.tracked_player
 	if player != null and is_instance_valid(player):
