@@ -158,6 +158,8 @@ var room_door_span := 1
 ## blocker size (x across, y up, z deep) so the hiding position and the view sit inside it.
 var hide_style := ""
 var hide_size := Vector3.ONE
+## Runners it holds at once (HideOccupancy: the prop's lr.prop/1 hide_capacity; lockers 1, wardrobes 2).
+var hide_capacity := 1
 var _search_tell_left := 0.0
 var _search_prop: Node3D
 var _search_prop_rest := Vector3.ZERO
@@ -482,11 +484,16 @@ func aim_hit_distance(origin: Vector3, direction: Vector3) -> float:
 	return (global_transform * (hit as Vector3)).distance_to(origin)
 
 
-func hiding_inside_position() -> Vector3:
+## `slot` (HideOccupancy): in a spot for two, slot 0 stands to one side and a little nearer the door, slot 1 to the other
+## side and a little deeper, so the two hiders' bodies (0.2 m capsules) and cameras never overlap.
+func hiding_inside_position(slot: int = 0) -> Vector3:
+	var shift := Vector3.ZERO
+	if hide_capacity > 1:
+		shift = Vector3((-1.0 if slot == 0 else 1.0) * hide_size.x * .22, 0.0, (-.05 if slot == 0 else .05))
 	if hide_style == "bed":
-		return global_transform * Vector3(0.0, 0.02, 0.0)
+		return global_transform * (Vector3(0.0, 0.02, 0.0) + shift)
 	if hide_style == "wardrobe":
-		return global_transform * Vector3(0.0, 0.02, minf(.08, hide_size.z * .5 - .2))
+		return global_transform * (Vector3(0.0, 0.02, minf(.08, hide_size.z * .5 - .2)) + shift)
 	# The authored door faces local -Z after the wrapper's orientation fix. The
 	# fixture origin is centred in its depth, which left the first-person near
 	# plane intersecting the door panel. Sit toward the +Z/back wall instead: the
@@ -698,6 +705,8 @@ func get_prompt() -> String:
 					return String(prompt_resolver.call())
 				return "PLAY CARNIVAL GAME"
 			_: return ""
+	if kind == Kind.HIDING_SPOT and HideOccupancy.is_full(source_cell, hide_capacity):
+		return "SPOT TAKEN"
 	if kind == Kind.LIFT:
 		if GameState.relays_collected < GameState.relay_target:
 			return "%s — NEED %d RELAY" % [prompt_text, GameState.relay_target]
@@ -781,10 +790,14 @@ func activate(player: PlayerController3D) -> String:
 			# back out, and it never completes.
 			if player.hidden_spot == source_cell:
 				return player.leave_hiding()
+			var slot := HideOccupancy.free_slot(source_cell, hide_capacity)
+			if slot < 0:
+				return _fail("SPOT TAKEN")
+			player.hidden_slot = slot
 			# The locker mesh owns the hiding location. Cache the approach point as
 			# the exit before moving the authoritative body into the cabinet; its
 			# replicated transform then places co-op runners there too.
-			return player.enter_hiding(source_cell, hiding_inside_position(),
+			return player.enter_hiding(source_cell, hiding_inside_position(slot),
 				player.global_position, self)
 		Kind.REVIVE_SPOT:
 			# a press without a kit (the hold with one is PlayerController3D._update_resecure)

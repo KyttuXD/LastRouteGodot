@@ -169,6 +169,9 @@ names from the original deployment remain accepted as compatibility aliases.
   `leave`
 - `POST /api/account/register`, `login`, `session`, `password`, `rename`,
   `save`, `load`, `logout`
+- `POST /api/guest/name` `{previous?, token?}` -> `{name, token}`: guest names in the 2D game's short style, one letter, a
+  dash and four digits (`R-4821`; no I/O, no 0/1). Unique while leased (30 days, renewed by the holder's token, a clash is
+  retried); stored in `guest_names.json` beside the accounts (`guest_names.mjs`). Rate limited like the account routes.
 - `POST /api/dev/login`, `reload`
 - `POST /api/moderation/integrity`, `report`, `status`, `peers`
 - `POST /api/admin/flags`, `flags/set`, `builds/add`, `builds/remove` (full owner)

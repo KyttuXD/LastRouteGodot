@@ -44,7 +44,7 @@ const HUNTER_FIELDS := {"name": "string", "tier": "string", "category": "string?
 ## `size`: [x, y, z] metres at hunter scale, the footprint the generator places a pack prop with when the built-in size
 ## tables do not know it (room recipes need one).
 const PROP_FIELDS := {"models": "strings", "themes": "strings?", "coordinated": "bool?", "batchable": "bool?",
-	"size": "vec3?"}
+	"size": "vec3?", "hide_capacity": "int?"}
 const REGION_FIELDS := {"hall_floor": "strings", "hall_runner": "bool", "room_default_floor": "strings",
 	"room_roles": "strings", "shop_names": "dict_strings?", "room_door": "string?", "double_room_door": "string?",
 	"prop_set": "prop_set"}

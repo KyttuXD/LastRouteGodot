@@ -737,13 +737,28 @@ func run(host: Node) -> int:
 		"a route seats %d, not %d" % [RoomState.seats(), RoomState.MAX_PLAYERS])
 	_expect(RoomState.start_label() == "ENTER ROUTE",
 		"route staging says '%s'" % RoomState.start_label())
-	_expect(RoomState.GUEST_FIRST_NAMES.size() >= 24,
-		"guest FIRST-name pool is still too small")
-	_expect(RoomState.GUEST_LAST_NAMES.size() >= 24,
-		"guest LAST-name pool is still too small")
-	for word in RoomState.GUEST_FIRST_NAMES + RoomState.GUEST_LAST_NAMES:
-		_expect(String(word) == String(word).to_upper(),
-			"guest callsign word %s is not uppercase" % word)
+	# guests are "R-4821": one letter (no I/O), a dash, four digits (no 0/1), kept per device, replaced by the server's unique one
+	for _i in 200:
+		var made := GuestNames.random_name()
+		_expect(GuestNames.valid(made) and made == made.to_upper() and not made.contains("I") and not made.contains("O")
+			and not made.contains("0") and not made.contains("1"), "a guest name breaks the format: %s" % made)
+	for bad in ["R-482", "I-2345", "R-1234", "r-2345", "FAR-LIGHT-658", "RR-2345"]:
+		_expect(not GuestNames.valid(bad), "%s passed as a guest name" % bad)
+	_expect(GuestNames.from_seed(77) == GuestNames.from_seed(77) and GuestNames.valid(GuestNames.from_seed(77)), "seeded (NPC) names differ between peers")
+	var saved_guest := [Settings.guest_name, Settings.guest_name_token]
+	Settings.guest_name = ""
+	var local_guest := RoomState._random_guest_callsign()
+	_expect(GuestNames.valid(local_guest) and RoomState._random_guest_callsign() == local_guest, "the local guest name is not made once and kept")
+	var renamed := [""]
+	var watch := func(name: String) -> void: renamed[0] = name
+	Backend.guest_name_changed.connect(watch)
+	_expect(Backend.apply_guest_name("k-6789", "tok") and Settings.guest_name == "K-6789" and Settings.guest_name_token == "tok",
+		"the server's guest name is not stored in canonical uppercase with its lease token")
+	_expect(renamed[0] == "K-6789", "a server rename does not reach the room")
+	_expect(not Backend.apply_guest_name("FAR-LIGHT-658", "x") and Settings.guest_name == "K-6789", "a malformed server name replaced the guest name")
+	Backend.guest_name_changed.disconnect(watch)
+	Settings.guest_name = String(saved_guest[0])
+	Settings.guest_name_token = String(saved_guest[1])
 
 	# Normal route staging is Infinite-only. STANDARD remains loadable only as
 	# an internal regression/save fallback and is absent from the player UI.
@@ -909,8 +924,7 @@ func run(host: Node) -> int:
 			% [RoomState.code, RoomState.seats(), RoomState.seed_text])
 		print("  rules     Hide & Seek and Office buttons hidden; Infinite is player-facing")
 		print("  difficulty Relaxed / Standard / Hard / Nightmare live")
-		print("  guests    %d FIRST x %d LAST callsign words" % [
-			RoomState.GUEST_FIRST_NAMES.size(), RoomState.GUEST_LAST_NAMES.size()])
+		print("  guests    letter-dash-four-digit names (R-4821), unique on the server")
 		print("  scales    Infinite primary; Standard hidden as an internal fallback")
 		print("  create    primary server first; registration failure falls back to solo")
 		print("room OK")

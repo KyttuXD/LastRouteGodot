@@ -60,7 +60,8 @@ func run(host: Node) -> int:
 	_expect(remotes._states.has(a) and remotes._states.has(a + 1) and bool((remotes._states[a] as Dictionary).get("npc", false)),
 		"the NPCs are not runner states on the host")
 	var names := remotes.player_list_rows(false).map(func(row: Dictionary) -> String: return String(row["name"]))
-	_expect(names.has("NPC · ROOK") and names.has("NPC · WREN"), "the player list does not show the NPCs: %s" % [names])
+	var npc_names := names.filter(func(n: String) -> bool: return n.begins_with("NPC · ") and GuestNames.valid(n.trim_prefix("NPC · ")))
+	_expect(npc_names.size() >= 2, "the player list does not show the NPCs with guest-style names and the NPC tag: %s" % [names])
 	var targets := remotes.target_states({}).map(func(t: Dictionary) -> int: return int(t.get("peer_id", 0)))
 	_expect(targets.has(a) and targets.has(a + 1), "the hunters' target list leaves the NPCs out: %s" % [targets])
 	_expect(var_to_bytes(npcs.state_of(npcs.npcs[0])).size() <= PACKET_BUDGET,
