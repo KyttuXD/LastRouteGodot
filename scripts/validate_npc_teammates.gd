@@ -94,6 +94,12 @@ func run(host: Node) -> int:
 	_expect(npc_names.size() >= 2, "the player list does not show the NPCs with guest-style names and the NPC tag: %s" % [names])
 	var targets := remotes.target_states({}).map(func(t: Dictionary) -> int: return int(t.get("peer_id", 0)))
 	_expect(targets.has(a) and targets.has(a + 1), "the hunters' target list leaves the NPCs out: %s" % [targets])
+	# hunters sense an NPC like a runner: a player's footstep noise and a torch on
+	var walking: Dictionary = npcs.npcs[0].duplicate()
+	walking["clip"] = "walk"
+	var sensed := npcs.state_of(walking)
+	_expect(float(sensed["noise"]) == GameConfig.NOISE_WALK and bool(sensed["flashlight_on"]) and sensed["facing"] is Vector2,
+		"an NPC is quieter or darker to the hunters than a runner: %s" % [[sensed["noise"], sensed["flashlight_on"]]])
 	_expect(var_to_bytes(npcs.state_of(npcs.npcs[0])).size() <= PACKET_BUDGET,
 		"one NPC packet is %d bytes (budget %d)" % [var_to_bytes(npcs.state_of(npcs.npcs[0])).size(), PACKET_BUDGET])
 	# it keeps up: its runner walks off 9 m, and within 4 s it is closer again
@@ -109,6 +115,7 @@ func run(host: Node) -> int:
 		_expect(after < before - 2.0, "the NPC did not follow its runner (%.1f m -> %.1f m)" % [before, after])
 	else:
 		print("  note: no open floor 9 m off the spawn, follow check skipped")
+	await _hunter_hunts_npc(scene, npcs, remotes)
 	# a hunter's capture: down, a revive window, a ghost to everyone
 	remotes.send_player_event(a, {"what": "capture"})
 	await tree.physics_frame
@@ -128,6 +135,40 @@ func run(host: Node) -> int:
 	await tree.physics_frame
 	_expect(bool(npcs.npcs[0]["out"]), "an NPC whose window closed is not out of the run")
 	return _finish(scene)
+
+
+## A hunter summoned onto an NPC (the host's own runner hidden from hunters) spots it, chases and catches it: the NPC goes down.
+func _hunter_hunts_npc(scene: Node, npcs: NpcTeammates, remotes: RemotePlayers) -> void:
+	var tree := scene.get_tree()
+	var b := NpcTeammates.ID_BASE + 1
+	var player: PlayerController3D = scene.player
+	player.admin_no_target = true
+	scene._admin_summon_hunter_authoritative(b, "dovelle")
+	var chased := false
+	var caught := false
+	var states := {}
+	for _i in 60 * 40:
+		await tree.physics_frame
+		for view_value in scene._hunter_views.values():
+			var view := view_value as HunterView3D
+			if view != null and view.brain != null:
+				states[HunterBrain.State.keys()[view.brain.state]] = true
+				if view.brain.state == HunterBrain.State.CHASE:
+					chased = true
+		if npcs.is_down(b) or bool(npcs.npcs[1]["out"]):
+			caught = true
+			break
+	_expect(not scene._hunter_views.is_empty(), "no hunter was summoned onto the NPC")
+	_expect(chased, "the hunter never chased the NPC (states seen: %s)" % [states.keys()])
+	_expect(caught, "the hunter did not catch the NPC within 40 s")
+	_expect(not caught or scene.world_state.downs.is_down(b), "the caught NPC has no revive window")
+	# leave the rest of the suite a clean slate: the hunter gone, the NPC back on its feet, the host targetable again
+	for entity_id in scene.world_state.hunters.keys().duplicate():
+		scene._unload_hunter(String(entity_id), false)
+		scene.world_state.hunters.erase(entity_id)
+	scene.world_state.downs.clear(b)
+	npcs.revived(b)
+	player.admin_no_target = false
 
 
 func _finish(scene: Node) -> int:

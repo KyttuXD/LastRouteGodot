@@ -59,8 +59,12 @@ func state_of(npc: Dictionary) -> Dictionary:
 	return {"at": at, "position": Vector2(at.x, at.z), "facing_y": float(npc["facing"]), "clip": String(npc["clip"]),
 		"depth": -int(npc["level"]), "display_name": String(npc["name"]), "npc": true, "seq": _seq,
 		"sent_ms": Time.get_ticks_msec(), "hidden": false, "visible": not gone, "spectating": gone, "game_over": gone,
-		"capture_immune": float(npc["grace"]) > 0.0, "noise": .3 if String(npc["clip"]) == "run" else .1,
-		"player_skin": "mannequin", "skin": "", "flashlight_on": false, "in_safe_zone": false}
+		# what a runner moving like this gives the hunters to sense: footstep noise as a player's (GameConfig.NOISE_*), and a
+		# torch on, as players carry one (hunters see a lit runner further; a dark, near-silent NPC went unnoticed: KT 2026-10-28)
+		"capture_immune": float(npc["grace"]) > 0.0, "noise": _noise(String(npc["clip"])) if not gone else 0.0,
+		"noise_meter": _noise(String(npc["clip"])) if not gone else 0.0,
+		"facing": Vector2(-sin(float(npc["facing"])), -cos(float(npc["facing"]))),
+		"player_skin": "mannequin", "skin": "", "flashlight_on": not gone, "in_safe_zone": false}
 
 
 ## A hunter's capture reached NPC `id` (RemotePlayers.npc_captured): down where it stands.
@@ -70,6 +74,15 @@ func down(id: int) -> void:
 			npc["down"] = true
 			npc["path"] = []
 			scene.call("_host_record_down", id, npc["at"], -int(npc["level"]))
+
+
+static func _noise(clip: String) -> float:
+	match clip:
+		"run":
+			return GameConfig.NOISE_SPRINT
+		"walk":
+			return GameConfig.NOISE_WALK
+	return 0.0
 
 
 func is_down(id: int) -> bool:
