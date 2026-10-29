@@ -138,6 +138,8 @@ static func coop_bot(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictiona
 		var fixed := String(opts.get("room_code", "")).to_upper()
 		if not fixed.is_empty():
 			RoomState.code = fixed
+		# --npcs=N: NPC teammates in this room (the admin-only staging setting; the perf check uses it)
+		RoomState.npc_teammates = clampi(int(opts.get("npcs", 0)), 0, NpcTeammates.MAX_COUNT)
 		var error := RoomState.host_primary_room(int(opts["port"]))
 		if not error.is_empty():
 			return {"scenario_failure": "host failed: %s" % error, "outcome": "error", "game_seconds": 0.0, "frames": 0}
@@ -955,6 +957,14 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	# refusal-relevant state once a second, to <out>/coop_host_requests.jsonl
 	var reqlog: FileAccess = FileAccess.open(out.path_join("coop_host_requests.jsonl"), FileAccess.WRITE) if role == "host" else null
 	var hooked := []
+	# per-second perf for the samples: every drawn frame's interval (p95), and the ENet bytes sent / received
+	var frame_us: Array = []
+	var last_frame := [Time.get_ticks_usec()]
+	var on_frame := func() -> void:
+		var now := Time.get_ticks_usec()
+		frame_us.append(now - int(last_frame[0]))
+		last_frame[0] = now
+	tree.process_frame.connect(on_frame)
 	while true:
 		await tree.physics_frame
 		frames += 1
@@ -987,6 +997,8 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 				bridge.screenshot(out.path_join("shots/%s_gate_failed.png" % _coop_name(role, opts)))
 				samples.close()
 				Build.capture_rig = false
+				if tree.process_frame.is_connected(on_frame):
+					tree.process_frame.disconnect(on_frame)
 				return {"outcome": "error", "game_seconds": snappedf(t, .1), "frames": frames, "deaths": [],
 					"scenario_failure": "co-op gate: after 60 s in the route %s hears %s (want %s)" % [role, live,
 						"%d guests" % int(opts["guests"]) if role == "host" else "the host"]}
@@ -1035,6 +1047,8 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 			next_sample += 1.0
 			overlay.text = _coop_overlay_text(scene, role, me, roles)
 			var row := _coop_sample(scene, role, me, t)
+			row.merge(_coop_perf(tree, frame_us))
+			frame_us.clear()
 			row["run_over"] = adapter.run_over(obs) if not obs.is_empty() else null
 			samples.store_line(JSON.stringify(row))
 			samples.flush()
@@ -1103,6 +1117,8 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	if reqlog != null:
 		reqlog.close()
 	Build.capture_rig = false
+	if tree.process_frame.is_connected(on_frame):
+		tree.process_frame.disconnect(on_frame)
 	overlay.queue_free()
 	report["coop_stuck"] = stuck_log
 	report["bot_chat"] = {"mode": chat.mode, "said": chat.said}
@@ -1210,6 +1226,20 @@ static func _coop_guests(scene: Node) -> Array:
 
 ## What this peer sees, for the cross-peer comparison: its runner, every hunter view (state, inspect phase, chase style and its blend,
 ## Kathy's beam), every remote runner's grab packet, the music boxes' clocks and Glyra's mood.
+## The last second's frame-time p95 (ms), ENet bytes per second sent / received (popped, so per call) and NPC teammates.
+static func _coop_perf(tree: SceneTree, frame_us: Array) -> Dictionary:
+	var sorted := frame_us.duplicate()
+	sorted.sort()
+	var p95 := float(sorted[mini(int(sorted.size() * .95), sorted.size() - 1)]) / 1000.0 if not sorted.is_empty() else 0.0
+	var out := {"frame_p95_ms": snappedf(p95, .01), "frames_in_s": sorted.size(), "npcs": RoomState.npc_teammates}
+	var peer := tree.get_multiplayer().multiplayer_peer
+	if peer is ENetMultiplayerPeer and (peer as ENetMultiplayerPeer).host != null:
+		var host := (peer as ENetMultiplayerPeer).host
+		out["net_tx_bps"] = int(host.pop_statistic(ENetConnection.HOST_TOTAL_SENT_DATA))
+		out["net_rx_bps"] = int(host.pop_statistic(ENetConnection.HOST_TOTAL_RECEIVED_DATA))
+	return out
+
+
 static func _coop_sample(scene: Node, role: String, me: int, t: float) -> Dictionary:
 	var player: PlayerController3D = scene.get("player")
 	var hud: Object = scene.get("hud")
