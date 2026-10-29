@@ -1326,7 +1326,7 @@ func end_grab_view() -> void:
 	first_person_pivot.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, _standing_camera_height, 0.0))
 	_apply_look_rotation()
 	if first_person_items != null:
-		first_person_items.visible = true
+		first_person_items.visible = not xr_active   # never the flat viewmodel in a headset
 	_end_first_person_body()
 
 
