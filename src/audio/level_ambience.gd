@@ -298,6 +298,7 @@ func select_emitters() -> void:
 		var player: AudioStreamPlayer3D = slot["player"]
 		player.global_position = world_position(emitter)
 		slot["occluded"] = _occluded(player.global_position)
+		_level_slot(slot)
 		if muted and player.playing:
 			player.stop()
 		elif not muted and not player.playing and not _headless:

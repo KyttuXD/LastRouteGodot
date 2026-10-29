@@ -161,7 +161,7 @@ func _check_pool(host: Node) -> void:
 	layer.select_emitters()
 	_expect(layer.active_emitters().size() == 1, "a flood gush near the runner does not play")
 	LevelAmbience.set_intensity("flood:test", 4.0, 1.1)
-	await host.get_tree().process_frame
+	layer.select_emitters()
 	var gush: AudioStreamPlayer3D = layer._slots.filter(func(slot: Dictionary) -> bool: return int(slot["uid"]) != -1)[0]["player"]
 	_expect(is_equal_approx(gush.pitch_scale, 1.1) and gush.volume_db > float(LevelAmbience.KINDS["flood"]["db"]) + 3.0,
 		"a worsening flood's level and pitch do not reach its player (%.2f, %.1f dB)" % [gush.pitch_scale, gush.volume_db])
