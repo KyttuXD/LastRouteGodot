@@ -54,12 +54,55 @@ func _carries(body: Node, texture: Texture2D) -> bool:
 	return seen > 0
 
 
+## Skins live on the account: the sign-in decision, adopting the server's skin (kept locally as the offline fallback), arms style from
+## the account, the PUT route, and peers looked up by account.
+func _check_account_skin(sync: SkinSync) -> void:
+	_expect(SkinSync.account_decision("", false, "") == "nothing", "no skin anywhere should do nothing")
+	_expect(SkinSync.account_decision("aaa", false, "") == "upload", "a local skin with none on the account is uploaded (migration)")
+	_expect(SkinSync.account_decision("", false, "bbb") == "adopt", "a new computer adopts the account's skin")
+	_expect(SkinSync.account_decision("aaa", false, "bbb") == "adopt", "an unchanged local skin yields to the account's newer one")
+	_expect(SkinSync.account_decision("aaa", true, "bbb") == "upload", "a skin picked while offline is uploaded, not replaced")
+	_expect(SkinSync.account_decision("aaa", true, "aaa") == "nothing", "the same skin on both sides needs nothing")
+	_expect(SkinSync.upload_url("https://x.example/", "kyttu") == "https://x.example/api/v1/skins/KYTTU", "the upload route is the account's skin")
+	_expect(SkinSync.upload_url("https://x.example", "kyttu", true) == "https://x.example/api/skins/upload", "an old server keeps the old route")
+	var saved_hash := Settings.skin_hash
+	var saved_arms := Settings.skin_arms
+	var saved_slim := Settings.skin_slim
+	var saved_pending := Settings.skin_pending_upload
+	PlayerSkin.reset_active()
+	var green := _png(Color(.1, .8, .2, 1.0))
+	var green_hash := PlayerSkin.hash_of(green)
+	_expect(not sync.adopt_account_skin(PlayerSkin.hash_of(_png(Color(.5, .5, .5, 1.0))), "auto", green), "bytes that do not match the account's hash were adopted")
+	_expect(not sync.adopt_account_skin(green_hash, "auto", PackedByteArray([1, 2, 3])), "garbage was adopted as a skin")
+	Settings.skin_pending_upload = true
+	var adopted := [false]
+	sync.own_skin_adopted.connect(func() -> void: adopted[0] = true, CONNECT_ONE_SHOT)
+	_expect(sync.adopt_account_skin(green_hash, "slim", green), "the account's skin was not adopted")
+	_expect(Settings.skin_hash == green_hash and Settings.skin_arms == "slim" and not Settings.skin_pending_upload and sync.uploaded_hash == green_hash,
+		"adopting should make it your skin with the account's arm style and nothing left to upload")
+	_expect(FileAccess.file_exists(PlayerSkin.OWN_PATH) and PlayerSkin.own_png().size() > 0, "the account's skin is not kept locally as the offline fallback")
+	_expect(adopted[0], "own_skin_adopted did not fire")
+	# peers by account: nothing is looked up offline, and a cached answer is returned without another request
+	sync._account_cache["PEER_ONE"] = {"hash": green_hash, "arms": "classic", "at": Time.get_ticks_msec()}
+	var cached: Dictionary = sync.account_skin("peer_one")
+	_expect(cached.get("hash", "") == green_hash and cached.get("arms", "") == "classic", "a cached account skin lookup is not returned")
+	_expect(not sync._account_pending.has("PEER_ONE"), "a fresh cached lookup started another request")
+	sync._account_cache.clear()
+	PlayerSkin.reset_active()
+	Settings.skin_arms = saved_arms
+	Settings.skin_slim = saved_slim
+	Settings.skin_pending_upload = saved_pending
+	if not saved_hash.is_empty():
+		Settings.set_skin_hash(saved_hash)
+
+
 func run(host: Node) -> int:
 	await host.get_tree().process_frame
 	var sync := Backend.skin_sync
 	_expect(sync != null, "the backend has no skin sync")
 	if sync == null:
 		return 1
+	_check_account_skin(sync)
 	var saved := Settings.skin_hash
 	PlayerSkin.reset_active()
 	PlayerSkin.clear_peer_cache()

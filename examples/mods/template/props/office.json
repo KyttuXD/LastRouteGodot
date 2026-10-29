@@ -1,0 +1,11 @@
+{
+	"schema": "lr.prop/1",
+	"family": "office",
+	"props": [
+		{
+			"id": "officeWaterCooler",
+			"models": ["assets/water_cooler.glb"],
+			"themes": ["custom"]
+		}
+	]
+}

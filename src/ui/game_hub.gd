@@ -62,6 +62,7 @@ const QUIT_DIALOG_Z := 50
 
 
 func _ready() -> void:
+	Backend.end_run_offline()   # an offline run ends when the player is back at a menu
 	# the update gate: an available update sends the player back to the update screen before the hub is usable
 	if UpdateManager.should_open_progress_screen():
 		UpdateManager.open_update_screen()

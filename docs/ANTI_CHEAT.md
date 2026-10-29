@@ -25,7 +25,9 @@ Validator: `anti_cheat` (synthetic cheaters corrected / kicked; sprint with lag,
 admins and battery use pass).
 
 Host-caused long moves never strike: a vent transit (`vent_used`), being pulled out of hiding (`hide_found`), an axe
-rescue and a revive call `GuestGuard.allow_jump` for 3 s.
+rescue and a revive (`revive`, `revive_at`) call `GuestGuard.allow_jump` for 3 s. A slot holding more of a stackable than
+`PlayerController3D.STACK_MAX` is a strike (`stack`); a Stim Pack boost widens the speed budget only after a stim was used
+up (docs/REVIVE.md).
 
 ## Consequences (manual only, `backend/moderation.mjs`)
 

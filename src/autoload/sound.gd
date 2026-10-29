@@ -37,6 +37,10 @@ var _ambience_cache := {}
 ## The bus the runner's footsteps play on: LevelAmbience routes them through its "Level" bus during a run, so each level's
 ## reverb colours them (the Mezzanine's grating rings, the maze stays tight).
 var footstep_bus: StringName = &"SFX"
+## Content-pack replacements (docs/modding/content-types.md, "Sounds"): cue -> {"streams", "gain_db"} and ambience key ->
+## {"stream", "gain_db"}, rebuilt whenever packs load or unload. Without packs both are empty and nothing changes.
+var _cue_overrides := {}
+var _ambience_overrides := {}
 
 
 func _ready() -> void:
@@ -56,6 +60,36 @@ func _ready() -> void:
 		_ambience_players.append(bed)
 	get_tree().node_added.connect(_on_node_added)
 	call_deferred("_wire_existing_buttons")
+	ContentRegistry.watch(_on_content_packs_changed)
+
+
+## True for a cue this class renders itself, as opposed to the fallback beep any unknown name gets (packs may only
+## replace real cues).
+func knows_cue(cue: String) -> bool:
+	var unknown := ("nw_" if cue.begins_with("nw_") else "") + "__unknown_cue__"
+	return var_to_str(_cue_components(cue, 0.0, 1.0)) != var_to_str(_cue_components(unknown, 0.0, 1.0))
+
+
+func _on_content_packs_changed() -> void:
+	_cue_overrides.clear()
+	_ambience_overrides.clear()
+	for def in ContentRegistry.pack_defs("sounds"):
+		var streams := []
+		for path in def["files"]:
+			var stream := ContentRegistry.pack_audio(String(path))
+			if stream != null:
+				streams.append(stream)
+		if not streams.is_empty():
+			_cue_overrides[String(def["id"])] = {"streams": streams, "gain_db": float(def.get("gain_db", 0.0))}
+	for def in ContentRegistry.pack_defs("ambience"):
+		var bed := ContentRegistry.pack_audio(String(def["files"][0]), true)
+		if bed != null:
+			_ambience_overrides[String(def["id"])] = {"stream": bed, "gain_db": float(def.get("gain_db", 0.0))}
+	# the bed playing now switches to (or back from) its replacement
+	var key := ambience_key
+	if not key.is_empty():
+		ambience_key = ""
+		set_ambience(key)
 
 
 func _process(_delta: float) -> void:
@@ -410,7 +444,7 @@ func set_ambience(key: String) -> bool:
 	var fade := create_tween().set_parallel(true)
 	fade.tween_property(old, "volume_db", -80.0, AMBIENCE_FADE)
 	if key != "" and not muted:
-		if _ambience_cache.has(key):
+		if _ambience_cache.has(key) or _ambience_overrides.has(key):
 			_fade_in_ambience(new_player, key, fade)
 		else:
 			# A bed not heard yet is synthesized off the main thread (150-300 ms of GDScript sample maths that used to
@@ -420,11 +454,13 @@ func set_ambience(key: String) -> bool:
 
 
 func _fade_in_ambience(new_player: AudioStreamPlayer, key: String, fade: Tween) -> void:
-	new_player.stream = render_ambience(key)
+	var replacement: Dictionary = _ambience_overrides.get(key, {})
+	new_player.stream = replacement["stream"] if not replacement.is_empty() else render_ambience(key)
 	new_player.volume_db = -80.0
 	if DisplayServer.get_name() != "headless":
 		new_player.play()
-	fade.tween_property(new_player, "volume_db", _ambience_level_db(), AMBIENCE_FADE)
+	fade.tween_property(new_player, "volume_db", _ambience_level_db() + float(replacement.get("gain_db", 0.0)),
+		AMBIENCE_FADE)
 
 
 var _ambience_jobs := {}   # key -> {"task": WorkerThreadPool id, "out": [stream]}
@@ -473,8 +509,9 @@ func ambience_stream(key: String) -> AudioStream:
 
 ## A content pack's recording for an ambience key (a bed, a level bed, or a positional loop "emitter:<kind>"), or null.
 ## Content packs fill this in (docs/modding/content-types.md, "Sounds and ambience").
-func ambience_override(_key: String) -> AudioStream:
-	return null
+func ambience_override(key: String) -> AudioStream:
+	var replacement: Dictionary = _ambience_overrides.get(key, {})
+	return replacement.get("stream") if not replacement.is_empty() else null
 
 
 ## 0 = full bed, 1 = ducked (a chase is on): eased toward by the caller each frame.
@@ -530,12 +567,20 @@ func _play_named(cue: String, pan := 0.0, intensity := 1.0,
 		bus: StringName = &"SFX") -> bool:
 	if muted:
 		return false
+	if _cue_overrides.has(cue):
+		# a pack's recording: one of its variants, at the pack's gain scaled by this play's intensity (pan is not baked in)
+		var replacement: Dictionary = _cue_overrides[cue]
+		var streams: Array = replacement["streams"]
+		_play_stream(streams[randi() % streams.size()], bus,
+			float(replacement["gain_db"]) + linear_to_db(clampf(intensity, 0.05, 4.0)))
+		_record(cue)
+		return true
 	_play_stream(render_cue(cue, pan, intensity), bus)
 	_record(cue)
 	return true
 
 
-func _play_stream(stream: AudioStream, bus: StringName) -> void:
+func _play_stream(stream: AudioStream, bus: StringName, volume_db: float = 0.0) -> void:
 	# Dedicated/headless runs still render cues for validation, but have no
 	# device to consume a playback. Asking the dummy driver to play leaves its
 	# WAV playback object alive until shutdown and serves no game purpose.
@@ -555,6 +600,7 @@ func _play_stream(stream: AudioStream, bus: StringName) -> void:
 	_next_player = (_players.find(chosen) + 1) % _players.size()
 	chosen.bus = bus
 	chosen.stream = stream
+	chosen.volume_db = volume_db
 	chosen.play()
 
 
