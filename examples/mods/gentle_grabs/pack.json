@@ -1,0 +1,12 @@
+{
+	"schema": "lr.pack/1",
+	"id": "gentle_grabs",
+	"name": "Gentle Grabs",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (example)",
+	"description": "Example pack: Kathy and Glyra keep to the softer grab styles (carries, wraps, a collar drag) instead of neck lifts and upside-down holds.",
+	"overrides": [
+		"grabs/kathy",
+		"grabs/glyra"
+	]
+}

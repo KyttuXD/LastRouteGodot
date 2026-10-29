@@ -1,0 +1,12 @@
+{
+	"schema": "lr.grab/1",
+	"id": "kathy",
+	"pool": {
+		"shoulder_carry": 6,
+		"collar_drag": 3,
+		"shoulder_grab": 1
+	},
+	"look": {
+		"delay": 0.8
+	}
+}
