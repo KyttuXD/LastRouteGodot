@@ -53,9 +53,13 @@ func run(_host: Node) -> int:
 		_expect(errors.is_empty(), "a valid %s entry was rejected: %s" % [kind, errors])
 	for case in BAD:
 		var errors := NwSchemas.validate(String(case[0]), case[1], "bad/%s.json" % case[0])
-		_expect(errors.any(func(e): return String(e).contains(String(case[2])) and String(e).begins_with("bad/")),
+		_expect(Array(errors).any(func(e): return String(e).contains(String(case[2])) and String(e).begins_with("bad/")),
 			"a bad %s entry was not rejected on %s (got %s)" % [case[0], case[2], errors])
 	_expect(DirAccess.dir_exists_absolute("res://data/night_watch"), "res://data/night_watch is missing")
+	# the kinds are declared to DATA's registry (res://data/kinds/night_watch.json) and it knows them
+	for kind in NwSchemas.SCHEMAS:
+		_expect(ContentRegistry.pack_kinds().has(kind), "ContentRegistry does not know the Night Watch kind %s" % kind)
+	_expect(ContentRegistry.errors().is_empty(), "res://data has errors: %s" % ", ".join(ContentRegistry.errors()))
 	print("  parity nw %s" % Parity.nw_hash())
 	if _failures == 0:
 		print("  data_night_watch  8 nw.* schemas accept the valid entries and reject %d bad ones by file and field" % BAD.size())

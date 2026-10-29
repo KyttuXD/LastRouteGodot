@@ -42,11 +42,12 @@ const FIELDS := {
 }
 
 
-## The problems with one entry of `kind` read from `path` (empty when it is valid), each naming the file and the field.
-static func validate(kind: String, def: Dictionary, path: String) -> Array:
-	var errors := []
+## The problems with one entry of `kind` (the file minus "schema", with its "id") read from `path`: empty when it is valid, each naming the file and
+## the field. ContentRegistry calls this for the kinds declared in res://data/kinds/night_watch.json (DATA's extension kinds).
+static func validate(kind: String, def: Dictionary, path: String) -> PackedStringArray:
+	var errors := PackedStringArray()
 	if not FIELDS.has(kind):
-		return ["%s: unknown Night Watch kind %s" % [path, kind]]
+		return PackedStringArray(["%s: unknown Night Watch kind %s" % [path, kind]])
 	var fields: Dictionary = FIELDS[kind]
 	for key in def:
 		if not fields.has(key) and key != "schema":
@@ -123,7 +124,7 @@ static func validate(kind: String, def: Dictionary, path: String) -> Array:
 	return errors
 
 
-static func _check_count(def: Dictionary, key: String, lo: float, hi: float, where: String, errors: Array) -> void:
+static func _check_count(def: Dictionary, key: String, lo: float, hi: float, where: String, errors: PackedStringArray) -> void:
 	if not def.has(key):
 		return
 	var v := float(def[key])

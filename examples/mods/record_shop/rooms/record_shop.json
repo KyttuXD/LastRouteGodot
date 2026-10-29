@@ -1,0 +1,63 @@
+{
+	"schema": "lr.room/1",
+	"id": "record_shop_store",
+	"items": [
+		{
+			"type": "checkoutCounter",
+			"side": -2,
+			"depth": "front-1",
+			"facing": "open"
+		},
+		{
+			"type": [
+				"shopShelf",
+				"displayCase"
+			],
+			"side": [
+				"-half+1",
+				"half",
+				3
+			],
+			"depth": "back",
+			"wall_backed": true,
+			"facing": "open"
+		},
+		{
+			"type": "displayCase",
+			"side": 2,
+			"depth": "mid",
+			"facing": "center",
+			"when": {
+				"min_depth": 9
+			}
+		},
+		{
+			"type": "@rug",
+			"side": 0,
+			"depth": "mid",
+			"solid": false,
+			"when": {
+				"min_side": 9
+			}
+		},
+		{
+			"choose": [
+				{
+					"type": "@painting",
+					"weight": 2
+				},
+				{
+					"type": "@frame",
+					"weight": 1
+				}
+			],
+			"side": 0,
+			"depth": "back",
+			"wall_mount": true,
+			"solid": false,
+			"when": {
+				"chance": 0.6
+			}
+		}
+	]
+}

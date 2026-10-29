@@ -35,6 +35,7 @@ func run(_host: Node) -> int:
 	ContentRegistry.unload_packs()
 	_expect(_snapshot() == vanilla, "unloading did not restore the built-in tables")
 
+	_check_extension_kind(vanilla)
 	_check_example(vanilla)
 	_check_rejections(vanilla)
 	_wipe(ROOT)
@@ -52,6 +53,7 @@ func _snapshot() -> String:
 		var_to_str(StreamedRouteGenerator.MALL_ROOMS), var_to_str(_grabs()),
 		var_to_str([Sound._cue_overrides.keys(), Sound._ambience_overrides.keys()]),
 		var_to_str(RefTextures._pack_images), _surface_pixel("floor", "terrazzo0"), _surface_pixel("wall", "panel0"),
+		_surface_pixel("ceiling", "vault"),
 		ContentRegistry.pack_hash(),
 		Parity.props_hash(), Parity.hunters_hash(), Parity.region_hash()])
 
@@ -59,13 +61,15 @@ func _snapshot() -> String:
 ## One surface kind as the game paints it (RefTextures._paint, used for both the per-kind texture and the shared array:
 ## headless has no GPU copies to read back), plus whether that group's array still builds with every layer.
 func _surface_pixel(group: String, kind: String) -> String:
-	var table: Dictionary = RefTextures.FLOOR_PAINTERS if group == "floor" else RefTextures.WALL_PAINTERS
+	var table: Dictionary = {"floor": RefTextures.FLOOR_PAINTERS, "wall": RefTextures.WALL_PAINTERS,
+		"ceiling": RefTextures.CEILING_PAINTERS}[group]
 	var image := RefTextures._paint(group, kind, table[kind])
-	RefTextures._array_textures.erase(group)
-	RefTextures._build_array(group)
-	var arr: Texture2DArray = RefTextures._array_textures[group]
+	var array := "wall" if group == "wall" else "floor"   # ceilings live in the floor array
+	RefTextures._array_textures.erase(array)
+	RefTextures._build_array(array)
+	var arr: Texture2DArray = RefTextures._array_textures[array]
 	return "%s %s %s %s" % [image.get_size(), image.get_format(), image.get_pixel(3, 3).to_html(),
-		arr.get_layers() == RefTextures._array_kinds(group).size()]
+		arr.get_layers() == RefTextures._array_kinds(array).size()]
 
 
 ## A room bed AmbienceTable has (keyed "room:<purpose>").
@@ -110,6 +114,11 @@ func _check_loaded(dir: String) -> void:
 	var floor := _surface_pixel("floor", "terrazzo0")
 	_expect(floor == "(32, 32) %d %s true" % [Image.FORMAT_RGBA8, Color.DEEP_PINK.to_html()],
 		"floor replacement not painted at 32x32 RGBA8 into a complete array: %s" % floor)
+	var ceiling := _surface_pixel("ceiling", "vault")
+	_expect(ceiling == "(32, 32) %d %s true" % [Image.FORMAT_RGBA8, Color.DEEP_PINK.to_html()],
+		"ceiling replacement not painted into the floor/ceiling array: %s" % ceiling)
+	_expect(RefTextures.params("ceiling", "vault").b > 0.0 and RefTextures.params("ceiling", "glass").b > 0.0,
+		"replacing a ceiling's picture lost the glass/vault glow")
 	var wall := _surface_pixel("wall", "panel0")
 	_expect(wall == "(32, 128) %d %s true" % [Image.FORMAT_RGBA8, Color.LIME.to_html()],
 		"wall replacement (an RGB8 PNG) not converted into a complete array: %s" % wall)
@@ -124,6 +133,32 @@ func _check_loaded(dir: String) -> void:
 	for depth in range(1, 400):
 		draws[HunterRoster.pick_for_floor("PACK-DRAW", depth)] = true
 	_expect(draws.has("testpack_ember"), "pack hunter never drawn in 400 floors")
+
+
+## Another lane's kind (declared in res://data/kinds, here registered for the test): packs ship it like any kind, the
+## owner's validator checks the body, and unloading restores it.
+func _check_extension_kind(vanilla: String) -> void:
+	_expect(ContentRegistry.register_extension("test_things", {"schema": "test.thing/1", "root": ROOT.path_join("none"),
+		"validator": "res://scripts/ext_kind_fixture.gd"}), "could not register an extension kind")
+	_expect(not ContentRegistry.register_extension("props", {}), "a built-in kind was re-registered")
+	var good := ROOT.path_join("exttest")
+	_write(good.path_join("pack.json"), JSON.stringify({"schema": "lr.pack/1", "id": "exttest", "name": "x",
+		"version": "1.0.0"}))
+	_write(good.path_join("test_things/a.json"), JSON.stringify({"schema": "test.thing/1", "id": "exttest_a", "size": 3}))
+	var report := ContentRegistry.load_packs([good])
+	_expect(report["ok"] and ContentRegistry.get_def("test_things", "exttest_a").get("size") == 3,
+		"an extension-kind pack did not load: %s" % [report["errors"]])
+	ContentRegistry.unload_packs()
+	_expect(ContentRegistry.get_def("test_things", "exttest_a").is_empty(), "unloading left the extension definition")
+	var bad := ROOT.path_join("exttestbad")
+	_write(bad.path_join("pack.json"), JSON.stringify({"schema": "lr.pack/1", "id": "exttestbad", "name": "x",
+		"version": "1.0.0"}))
+	_write(bad.path_join("test_things/a.json"), JSON.stringify({"schema": "test.thing/1", "id": "exttestbad_a", "size": -1}))
+	report = ContentRegistry.load_packs([bad])
+	_expect(not report["ok"] and Array(report["errors"]).any(func(e): return String(e).contains("size must be a positive number")),
+		"the owner's validator did not refuse: %s" % [report["errors"]])
+	ContentRegistry.unregister_extension("test_things")
+	_expect(_snapshot() == vanilla, "the extension kind left the game changed")
 
 
 ## The shipped example (examples/mods/ember) stays a valid pack: copied to user:// as a player would, it loads, recolours
@@ -226,7 +261,7 @@ func _check_rejections(vanilla: String) -> void:
 func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], replace: Dictionary = {}) -> String:
 	var dir := ROOT.path_join(id)
 	var all_overrides := ["hunters/aki", "props/officePrinter", "regions/mall", "grabs/aki", "sounds/alert",
-		"ambience/mall", "ambience/room:%s" % _room_bed(), "floors/terrazzo0", "walls/panel0"] if overrides.is_empty() \
+		"ambience/mall", "ambience/room:%s" % _room_bed(), "floors/terrazzo0", "walls/panel0", "ceilings/vault"] if overrides.is_empty() \
 		else overrides
 	var files := {
 		"pack.json": JSON.stringify({"schema": "lr.pack/1", "id": id, "name": "Test " + id, "version": "1.0.0",
@@ -255,6 +290,8 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 			"image": "assets/floor.png"}]})
 		files["walls/walls.json"] = JSON.stringify({"schema": "lr.surface/1", "surfaces": [{"id": "panel0",
 			"image": "assets/wall.png"}]})
+		files["ceilings/ceilings.json"] = JSON.stringify({"schema": "lr.surface/1", "surfaces": [{"id": "vault",
+			"image": "assets/floor.png"}]})
 		files["props/ember.json"] = JSON.stringify({"schema": "lr.prop/1", "family": "ember", "props": [
 			{"id": "officePrinter", "models": ["assets/printer.glb"], "themes": ["ember"]},
 			{"id": "%s_lamp" % id, "models": ["assets/printer.glb"]}]})

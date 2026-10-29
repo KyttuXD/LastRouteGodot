@@ -1,0 +1,11 @@
+{
+	"schema": "lr.pack/1",
+	"id": "record_shop",
+	"name": "Record Shop",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (example)",
+	"description": "Example pack: a record shop joins the mall's shop cycle, furnished by a data room recipe.",
+	"overrides": [
+		"regions/mall"
+	]
+}

@@ -19,10 +19,11 @@ const ROOT := "res://data"
 const KINDS := ["props", "regions", "hunters"]
 ## What packs may ship: the built-in kinds plus kinds whose built-in data has its own reader (grabs: GrabStyles, which
 ## reads res://data/grabs itself and takes pack definitions through pack_defs()).
-const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls"]
-## Surface replacements (pack-only kinds): a floor or wall kind RefTextures paints, replaced by a pack PNG. Ceilings are
-## left out for now (glass and vault carry emission the sewer depends on).
-const SURFACE_KINDS := {"floors": "FLOOR_PAINTERS", "walls": "WALL_PAINTERS"}
+const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms"]
+const ROOMS_SCRIPT := "res://src/game/room_recipes.gd"
+## Surface replacements (pack-only kinds): a floor, wall or ceiling kind RefTextures paints, replaced by a pack PNG. Only
+## the picture changes: roughness, metal and the glow of glass/vault ceilings come from the kind (RefTextures.params).
+const SURFACE_KINDS := {"floors": "FLOOR_PAINTERS", "walls": "WALL_PAINTERS", "ceilings": "CEILING_PAINTERS"}
 ## Kinds packs may not replace: the safe-room floors mark the safe zone (gameplay information), and the runner_*/runnerz_*
 ## pieces are slices of one continuous strip (a pack replaces "runner"/"runnerz" whole).
 const SURFACE_LOCKED := {"floors": ["safe", "safe_plain", "safe_mark", "runner_l", "runner_c", "runner_r", "runnerz_l",
@@ -37,7 +38,10 @@ const HUNTER_FIELDS := {"name": "string", "tier": "string", "category": "string?
 	"chase_style": "string?"}
 ## `batchable`: may the view draw repeated placements of this prop in one MultiMesh. Absent = the default in
 ## PropModelCatalog.is_batchable() (pure dressing yes, anything interactive no).
-const PROP_FIELDS := {"models": "strings", "themes": "strings?", "coordinated": "bool?", "batchable": "bool?"}
+## `size`: [x, y, z] metres at hunter scale, the footprint the generator places a pack prop with when the built-in size
+## tables do not know it (room recipes need one).
+const PROP_FIELDS := {"models": "strings", "themes": "strings?", "coordinated": "bool?", "batchable": "bool?",
+	"size": "vec3?"}
 const REGION_FIELDS := {"hall_floor": "strings", "hall_runner": "bool", "room_default_floor": "strings",
 	"room_roles": "strings", "shop_names": "dict_strings?", "room_door": "string?", "double_room_door": "string?",
 	"prop_set": "prop_set"}
@@ -45,7 +49,7 @@ const REGION_FIELDS := {"hall_floor": "strings", "hall_runner": "bool", "room_de
 ## (AmbienceTable keys). `files`: .ogg variants, one picked per play; `gain_db`: volume offset.
 const SOUND_FIELDS := {"files": "strings", "gain_db": "float?"}
 const SCHEMAS := {"hunters": "lr.hunter/1", "props": "lr.prop/1", "regions": "lr.region/1", "sounds": "lr.sound/1",
-	"ambience": "lr.sound/1", "floors": "lr.surface/1", "walls": "lr.surface/1"}
+	"ambience": "lr.sound/1", "floors": "lr.surface/1", "walls": "lr.surface/1", "ceilings": "lr.surface/1"}
 const AMBIENCE_SCRIPT := "res://src/audio/ambience_table.gd"
 
 static var _loaded := false
@@ -67,6 +71,12 @@ static var _assets := {}
 ## Rebuild callbacks of the tables built from the registry (watch()). The registry never names its readers, so loading
 ## it never loads them: a reader loaded later builds its tables from whatever packs are loaded at that moment.
 static var _watchers: Array[Callable] = []
+## Kinds other lanes own (docs/DATA_DRIVEN_CONTENT.md, "Extension kinds"): kind -> {schema, root, validator}, declared in
+## res://data/kinds/<owner>.json so they exist before any pack is read. The validator script's static
+## validate(kind, entry, where) -> PackedStringArray checks an entry's body; everything else (ids, overrides, packs,
+## hash, hot-swap) is the registry's, as for the built-in kinds.
+const KINDS_ROOT := "res://data/kinds"
+static var _extensions := {}
 ## Code tables whose keys are built-in ids that are not (yet) data, read by path for the same reason.
 const _CODE_IDS := {"hunters": ["res://src/config/hunter_roster.gd", "_CODE_PROFILES"],
 	"props": ["res://src/config/prop_model_catalog.gd", "_CODE_MODEL_PATHS"],
@@ -77,9 +87,11 @@ static func ensure_loaded() -> void:
 	if _loaded:
 		return
 	_loaded = true
+	_load_extensions()
 	var hash_lines := PackedStringArray()
-	for kind in KINDS:
-		var dir := "%s/%s" % [ROOT, kind]
+	for kind in KINDS + _extensions.keys():
+		_builtin.get_or_add(kind, {})
+		var dir := "%s/%s" % [ROOT, kind] if KINDS.has(kind) else String(_extensions[kind]["root"])
 		var files := Array(DirAccess.get_files_at(dir))
 		files.sort()
 		for file_name in files:
@@ -104,6 +116,58 @@ static func ensure_loaded() -> void:
 	_apply([])
 	for message in _errors:
 		push_error("ContentRegistry: " + message)
+
+
+static func _load_extensions() -> void:
+	if not DirAccess.dir_exists_absolute(KINDS_ROOT):
+		return
+	var files := Array(DirAccess.get_files_at(KINDS_ROOT))
+	files.sort()
+	for file_name in files:
+		if not String(file_name).ends_with(".json"):
+			continue
+		var path := KINDS_ROOT.path_join(file_name)
+		var data = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if not data is Dictionary:
+			_errors.append("%s: not a JSON object" % path)
+			continue
+		for kind in data:
+			var spec = data[kind]
+			if not (spec is Dictionary and typeof(spec.get("schema")) == TYPE_STRING and typeof(spec.get("root")) == TYPE_STRING
+					and typeof(spec.get("validator")) == TYPE_STRING):
+				_errors.append("%s: %s needs schema, root and validator" % [path, kind])
+				continue
+			register_extension(String(kind), spec)
+
+
+## Add an extension kind (normally from res://data/kinds; validators may call it to test a kind). Built-in kinds and
+## names already taken are refused.
+static func register_extension(kind: String, spec: Dictionary) -> bool:
+	if PACK_KINDS.has(kind) or _extensions.has(kind) or not _is_id(kind) or kind != kind.to_lower():
+		_errors.append("extension kind \"%s\" is not a new lower-case id" % kind)
+		return false
+	_extensions[kind] = spec
+	_builtin[kind] = {}
+	if _defs.has("props"):
+		_defs[kind] = {}
+		_origin[kind] = {}
+		_added[kind] = []
+	return true
+
+
+## Remove an extension kind (tests).
+static func unregister_extension(kind: String) -> void:
+	_extensions.erase(kind)
+	for table in [_builtin, _defs, _origin, _added]:
+		table.erase(kind)
+
+
+## Every kind a pack may ship: the built-in pack kinds plus the extension kinds, in that order.
+static func pack_kinds() -> Array:
+	ensure_loaded()
+	var extra := _extensions.keys()
+	extra.sort()
+	return PACK_KINDS + extra
 
 
 ## Load exactly `dirs` (pack folders), replacing whatever packs were loaded. All or nothing: any error in any pack leaves
@@ -236,7 +300,7 @@ static func _apply(packs: Array) -> void:
 	_defs = {}
 	_origin = {}
 	_added = {}
-	for kind in PACK_KINDS:
+	for kind in PACK_KINDS + _extensions.keys():
 		_defs[kind] = _builtin.get(kind, {}).duplicate()
 		_origin[kind] = {}
 		_added[kind] = []
@@ -245,8 +309,8 @@ static func _apply(packs: Array) -> void:
 		_families[family] = _builtin_families[family].duplicate()
 	for pack in packs:
 		var pack_id := String(pack["manifest"]["id"])
-		for kind in PACK_KINDS:
-			for def in pack["defs"][kind]:
+		for kind in PACK_KINDS + _extensions.keys():
+			for def in pack["defs"].get(kind, []):
 				var id := String(def["id"])
 				_defs[kind][id] = def
 				_origin[kind][id] = pack_id
@@ -254,7 +318,7 @@ static func _apply(packs: Array) -> void:
 					_added[kind].append(id)
 				if kind == "props":
 					_families.get_or_add(String(def["family"]), []).append(id)
-	for kind in PACK_KINDS:
+	for kind in PACK_KINDS + _extensions.keys():
 		_added[kind].sort()
 		_added[kind].make_read_only()
 
@@ -280,8 +344,8 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 				continue
 			if not _is_builtin_id(parts[0], parts[1]):
 				errors.append("%s: overrides \"%s\", which the game does not have" % [pack["dir"], entry])
-		for kind in PACK_KINDS:
-			for def in pack["defs"][kind]:
+		for kind in PACK_KINDS + _extensions.keys():
+			for def in pack["defs"].get(kind, []):
 				var key := "%s/%s" % [kind, def["id"]]
 				if seen.has(key):
 					errors.append("%s: %s is also defined by pack %s" % [pack["dir"], key, seen[key]])
@@ -295,6 +359,24 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 		for def in pack["defs"]["grabs"]:
 			if not hunters.has(def["id"]) and not _is_builtin_id("hunters", String(def["id"])):
 				errors.append("%s: grabs for \"%s\", which is not a hunter" % [pack["dir"], def["id"]])
+	# room recipes place plain props the generator can size: known (built-in or from these packs), not interactive
+	var catalog: GDScript = load(_CODE_IDS["props"][0])
+	var pack_sizes := {}
+	for pack in packs:
+		for def in pack["defs"]["props"]:
+			if def.has("size"):
+				pack_sizes[def["id"]] = true
+	for pack in packs:
+		for def in pack["defs"]["rooms"]:
+			for type in load(ROOMS_SCRIPT).types_of(def):
+				if not props.has(type) and not _is_builtin_id("props", type):
+					errors.append("%s: room %s places \"%s\", which is not a known prop" % [pack["dir"], def["id"], type])
+				elif not String(catalog.interaction_for(type)).is_empty():
+					errors.append("%s: room %s places \"%s\", which is interactive (hiding spots, lockers and the like stay "
+						% [pack["dir"], def["id"], type] + "placed by the game)")
+				elif props.has(type) and not pack_sizes.has(type) and not _is_builtin_id("props", type):
+					errors.append("%s: room %s places \"%s\", which needs a \"size\" [x, y, z] in its prop definition"
+						% [pack["dir"], def["id"], type])
 	for pack in packs:
 		for def in pack["defs"]["regions"]:
 			for choice in def["prop_set"]:
@@ -306,6 +388,8 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 
 
 static func _is_builtin_id(kind: String, id: String) -> bool:
+	if _extensions.has(kind):
+		return _builtin[kind].has(id)
 	if kind == "sounds":
 		var sound := (Engine.get_main_loop() as SceneTree).root.get_node_or_null("Sound")
 		return sound != null and sound.knows_cue(id)
@@ -313,6 +397,9 @@ static func _is_builtin_id(kind: String, id: String) -> bool:
 		return not load(AMBIENCE_SCRIPT).layers(id).is_empty()
 	if SURFACE_KINDS.has(kind):
 		return load(SURFACE_SCRIPT).get_script_constant_map()[SURFACE_KINDS[kind]].has(id)
+	if kind == "rooms":
+		# only data recipes can be overridden; code recipes stay code
+		return load(ROOMS_SCRIPT).builtin_has(id)
 	if kind == "grabs":
 		# every built-in hunter (and secret creature) can have its grab pool replaced
 		var grabs: GDScript = load(GRAB_SCRIPT)
@@ -429,8 +516,10 @@ static func _without_meta(def: Dictionary) -> Dictionary:
 
 ## Parse one file of `kind`: {"defs": [runtime dicts], "errors": [messages naming file and field]}.
 static func parse_file(path: String, kind: String) -> Dictionary:
-	if kind == "grabs":
-		var parsed: Dictionary = load(GRAB_SCRIPT).parse_file(path)
+	if _extensions.has(kind):
+		return _parse_extension(path, kind)
+	if kind == "grabs" or kind == "rooms":
+		var parsed: Dictionary = load(GRAB_SCRIPT if kind == "grabs" else ROOMS_SCRIPT).parse_file(path)
 		return {"defs": [] if parsed["def"].is_empty() else [parsed["def"]], "errors": parsed["errors"]}
 	var errors := PackedStringArray()
 	var defs := []
@@ -482,6 +571,23 @@ static func parse_file(path: String, kind: String) -> Dictionary:
 		if not def.is_empty():
 			defs.append(def)
 	return {"defs": defs if errors.is_empty() else [], "errors": errors}
+
+
+## One extension-kind file: one definition, {"schema", "id", ...}; the owner's validator checks the body.
+static func _parse_extension(path: String, kind: String) -> Dictionary:
+	var spec: Dictionary = _extensions[kind]
+	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if not data is Dictionary:
+		return {"defs": [], "errors": PackedStringArray(["%s: not a JSON object" % path])}
+	if String(data.get("schema", "")) != String(spec["schema"]):
+		return {"defs": [], "errors": PackedStringArray(["%s: schema must be \"%s\"" % [path, spec["schema"]]])}
+	var id = data.get("id")
+	if typeof(id) != TYPE_STRING or not _is_id(id):
+		return {"defs": [], "errors": PackedStringArray(["%s: \"id\" must be letters, digits or _" % path])}
+	var def: Dictionary = data.duplicate(true)
+	def.erase("schema")
+	var errors: PackedStringArray = load(String(spec["validator"])).validate(kind, def, path)
+	return {"defs": [def] if errors.is_empty() else [], "errors": errors}
 
 
 static func _parse_entry(entry, fields: Dictionary, where: String, errors: PackedStringArray,
