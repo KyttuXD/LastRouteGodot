@@ -14,6 +14,7 @@ import { createModeration } from "./moderation.mjs";
 import { createModPacks } from "./mod_packs.mjs";
 import { CRASH_MAX_BODY_BYTES, createCrashReports } from "./crash_reports.mjs";
 import { createReservedRooms } from "./reserved_rooms.mjs";
+import { createRegions, parseAgentTokens } from "./regions.mjs";
 
 // Which deployment this is (production, test): shown in /api/health so nobody mistakes one for the other.
 const instanceName = String(process.env.LASTROUTE_INSTANCE || "production").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) || "production";
@@ -155,6 +156,8 @@ function publicEnetRoom(room, timestamp, relayAddress = "", relayPort = 0) {
     sessionActive: room.sessionActive,
     daytime: Boolean(room.daytime),
     protocol: room.protocol || "",   // the host build's NetProtocol fingerprint ("" from older builds)
+    dedicated: Boolean(room.dedicated),
+    region: room.region || "",
     expiresIn: Math.max(0, Math.ceil((room.expiresAt - timestamp) / 1000)),
   };
 }
@@ -300,6 +303,7 @@ export function createLastRouteServer({
   crashReportDirectory = null,
   reservedRoomStorePath = null,
   reservedRoomCodes = [],
+  agentTokens = new Map(),
   modDownloadBase = "",
   modPackLimits,
   rateLimitWindowMs = DEFAULT_RATE_LIMIT_WINDOW_MS,
@@ -342,6 +346,9 @@ export function createLastRouteServer({
   const crashReports = crashReportDirectory ? createCrashReports({ directory: crashReportDirectory, now }) : null;
   const reservedRooms = reservedRoomStorePath
     ? createReservedRooms({ storePath: reservedRoomStorePath, codes: reservedRoomCodes, now, logger }) : null;
+  const regions = createRegions({ tokens: agentTokens, now });
+  // code -> { ticket, expiresAt }: lets a dedicated host an agent spawned register that (reserved) code once
+  const spawnTickets = new Map();
   // A reserved room whose host stopped heartbeating this long ago may be taken over by another invited player.
   const RESERVED_TAKEOVER_MS = 30_000;
   const modPacks = createModPacks({ storePath: modPackStorePath, downloadBase: modDownloadBase, now, logger,
@@ -589,6 +596,10 @@ export function createLastRouteServer({
       });
     }
 
+    if (request.method === "GET" && url.pathname === "/api/regions") {
+      return json(response, 200, { ok: true, regions: regions.publicList() });
+    }
+
     if (request.method === "GET" && url.pathname === "/api/public/status") {
       await publicRouteReady;
       return json(response, 200, publicRoutes[publicGameId(url.searchParams.get("game"))].status());
@@ -619,6 +630,23 @@ export function createLastRouteServer({
       if (refused) return json(response, refused[0], refused[1]);
       const uploaded = skins.upload(String(request.headers[SKIN_TOKEN_HEADER] || ""), Buffer.concat(chunks));
       return json(response, uploaded[0], uploaded[1]);
+    }
+
+    if (url.pathname === "/api/regions/report") {
+      // signed by the region agent (regions.mjs); the raw body is what was signed
+      const chunks = [];
+      let received = 0;
+      for await (const chunk of request) {
+        received += chunk.length;
+        if (received > 64 * 1024) { request.destroy(); return; }
+        chunks.push(chunk);
+      }
+      const raw = Buffer.concat(chunks).toString("utf8");
+      const region = regions.verify(request.headers, raw);
+      if (!region) return json(response, 403, { ok: false, code: "BAD_AGENT_SIGNATURE", error: "Unknown region or bad signature" });
+      let report;
+      try { report = JSON.parse(raw); } catch { return json(response, 400, { ok: false, error: "INVALID JSON" }); }
+      return json(response, 200, { ok: true, actions: regions.report(region, report) });
     }
 
     let body;
@@ -687,6 +715,34 @@ export function createLastRouteServer({
         joinTicket: live && !stale ? reservedRooms.issueTicket(code) : "",
         canHost: stale, settings: reservedRooms.hostView(code).settings });
     }
+    if (url.pathname === "/api/admin/regions") {
+      const owner = accountService.sessionUsername(body.sessionToken);
+      if (!owner || !accountService.isAdminOwner(owner)) {
+        return json(response, 403, { ok: false, code: "ADMIN_OWNER_REQUIRED", error: "Full admin account required" });
+      }
+      const action = String(body.action || "list");
+      const region = String(body.region || "");
+      const code = normalizeEnetCode(body.code);
+      if (action === "list") return json(response, 200, { ok: true, regions: regions.ownerList() });
+      if (action === "stop") {
+        const result = regions.requestStop(region, code);
+        return json(response, result[0], result[1]);
+      }
+      if (action === "spawn") {
+        if (!code) return json(response, 400, { ok: false, error: "INVALID ROOM CODE" });
+        const live = enetRooms.get(code);
+        if (live && now() - (live.lastSeen || 0) <= RESERVED_TAKEOVER_MS) {
+          return json(response, 409, { ok: false, code: "ROOM_ALREADY_HOSTED", error: "Someone is hosting that code" });
+        }
+        const ticket = randomBytes(18).toString("base64url");
+        spawnTickets.set(code, { ticket, expiresAt: now() + 5 * 60_000 });
+        const result = regions.requestSpawn(region, code, { seed: body.seed, difficulty: body.difficulty,
+          idleMinutes: body.idleMinutes, spawnTicket: ticket });
+        if (result[0] !== 202) spawnTickets.delete(code);
+        return json(response, result[0], result[1]);
+      }
+      return json(response, 400, { ok: false, code: "INVALID_ACTION", error: "Actions: list, spawn, stop" });
+    }
     if (url.pathname === "/api/admin/reserved-rooms") {
       const owner = accountService.sessionUsername(body.sessionToken);
       if (!owner || !accountService.isAdminOwner(owner)) {
@@ -720,8 +776,11 @@ export function createLastRouteServer({
       if (!Number.isInteger(port) || port < 1 || port > 65_535) return json(response, 400, { ok: false, error: "INVALID ENET PORT" });
       const hostUser = body.sessionToken ? accountService.sessionUsername(body.sessionToken) || "" : "";
       const reserved = Boolean(reservedRooms?.isReserved(code));
+      const spawn = spawnTickets.get(code);
+      const spawned = Boolean(spawn && spawn.expiresAt > now() && body.spawnTicket && safeEqual(body.spawnTicket, spawn.ticket));
+      if (spawned) spawnTickets.delete(code);   // one dedicated host per ticket
       if (!reserved && !GENERATED_CODE_PATTERN.test(code)) return json(response, 400, { ok: false, error: "INVALID ROOM CODE" });
-      if (reserved && !reservedRooms.hasAccess(code, { username: hostUser, password: body.roomPassword,
+      if (reserved && !spawned && !reservedRooms.hasAccess(code, { username: hostUser, password: body.roomPassword,
         owner: Boolean(hostUser) && accountService.isAdminOwner(hostUser) })) {
         return json(response, 403, { ok: false, code: "ROOM_RESERVED", reserved: true,
           error: "THAT ROOM CODE IS RESERVED // INVITE OR ROOM PASSWORD REQUIRED" });
@@ -751,6 +810,8 @@ export function createLastRouteServer({
         expiresAt: now() + (publicCodes.has(code) ? PUBLIC_ENET_TTL_MS : enetRoomTtlMs),
         lastSeen: now(),
         protocol: /^[a-f0-9]{8}$/.test(String(body.protocol || "")) ? String(body.protocol) : "",
+        dedicated: spawned,
+        region: spawned ? regions.regionOf(code) || String(body.region || "").slice(0, 24) : "",
       };
       if (reserved) {
         room.reserved = true;
@@ -1076,6 +1137,7 @@ export function startLastRouteServerFromEnvironment() {
     modPackStorePath: environmentPath("LASTROUTE_MOD_INDEX_STORE") || join(dataDirectory, "mod_packs.json"),
     crashReportDirectory: environmentPath("LASTROUTE_CRASH_REPORTS_DIR") || join(dataDirectory, "crash-reports"),
     reservedRoomStorePath: environmentPath("LASTROUTE_RESERVED_ROOMS_STORE") || join(dataDirectory, "reserved_rooms.json"),
+    agentTokens: parseAgentTokens(process.env.LASTROUTE_AGENT_TOKENS),
     reservedRoomCodes: String(process.env.LASTROUTE_RESERVED_ROOMS ?? "KATHY,AKIRI").split(",").map((code) => code.trim()).filter(Boolean),
     // public URL of the VPS 2 mod folder, e.g. https://<vps2>/lr3d/mods (the index never serves pack files itself)
     modDownloadBase: String(process.env.LASTROUTE_MOD_DOWNLOAD_BASE || "").trim(),

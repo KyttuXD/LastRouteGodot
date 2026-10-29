@@ -51,6 +51,9 @@ var account_username := ""
 var account_session_token := ""
 ## A reserved room's password as the player typed it: memory only, sent to resolve/register, never saved.
 var room_password := ""
+## A dedicated host a region agent spawned: its one-time spawn ticket and region (from the agent's environment).
+var spawn_ticket := ""
+var host_region := ""
 ## The relay join ticket from the last reserved resolve, and the code it is for (used once by RoomState.join_room).
 var reserved_join_ticket := ""
 var reserved_join_code := ""
@@ -948,6 +951,8 @@ func register_room(code: String, port: int, player_count: int,
 		"deviceId": moderation.device_id(),
 		"roomPassword": room_password,   # only a reserved code needs it
 		"protocol": NetProtocol.fingerprint(),   # guests on another build are refused before they connect
+		"spawnTicket": spawn_ticket,
+		"region": host_region,
 	})
 	_heartbeat.start()
 

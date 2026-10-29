@@ -227,6 +227,8 @@ func _start_dedicated(options: Dictionary) -> void:
 	code = String(options["code"])
 	players = PackedStringArray([DEDICATED_NAME])
 	Backend.room_password = OS.get_environment("LASTROUTE_ROOM_PASSWORD")
+	Backend.spawn_ticket = OS.get_environment("LASTROUTE_SPAWN_TICKET")   # set by the region agent, used once
+	Backend.host_region = OS.get_environment("LASTROUTE_REGION")
 	if not OS.get_environment("LASTROUTE_HOST_SESSION").is_empty():
 		Backend.account_session_token = OS.get_environment("LASTROUTE_HOST_SESSION")
 	if options.has("seed"):
