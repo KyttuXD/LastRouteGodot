@@ -71,6 +71,12 @@ static var _assets := {}
 ## Rebuild callbacks of the tables built from the registry (watch()). The registry never names its readers, so loading
 ## it never loads them: a reader loaded later builds its tables from whatever packs are loaded at that moment.
 static var _watchers: Array[Callable] = []
+## Kinds other lanes own (docs/DATA_DRIVEN_CONTENT.md, "Extension kinds"): kind -> {schema, root, validator}, declared in
+## res://data/kinds/<owner>.json so they exist before any pack is read. The validator script's static
+## validate(kind, entry, where) -> PackedStringArray checks an entry's body; everything else (ids, overrides, packs,
+## hash, hot-swap) is the registry's, as for the built-in kinds.
+const KINDS_ROOT := "res://data/kinds"
+static var _extensions := {}
 ## Code tables whose keys are built-in ids that are not (yet) data, read by path for the same reason.
 const _CODE_IDS := {"hunters": ["res://src/config/hunter_roster.gd", "_CODE_PROFILES"],
 	"props": ["res://src/config/prop_model_catalog.gd", "_CODE_MODEL_PATHS"],
@@ -81,9 +87,11 @@ static func ensure_loaded() -> void:
 	if _loaded:
 		return
 	_loaded = true
+	_load_extensions()
 	var hash_lines := PackedStringArray()
-	for kind in KINDS:
-		var dir := "%s/%s" % [ROOT, kind]
+	for kind in KINDS + _extensions.keys():
+		_builtin.get_or_add(kind, {})
+		var dir := "%s/%s" % [ROOT, kind] if KINDS.has(kind) else String(_extensions[kind]["root"])
 		var files := Array(DirAccess.get_files_at(dir))
 		files.sort()
 		for file_name in files:
@@ -108,6 +116,58 @@ static func ensure_loaded() -> void:
 	_apply([])
 	for message in _errors:
 		push_error("ContentRegistry: " + message)
+
+
+static func _load_extensions() -> void:
+	if not DirAccess.dir_exists_absolute(KINDS_ROOT):
+		return
+	var files := Array(DirAccess.get_files_at(KINDS_ROOT))
+	files.sort()
+	for file_name in files:
+		if not String(file_name).ends_with(".json"):
+			continue
+		var path := KINDS_ROOT.path_join(file_name)
+		var data = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if not data is Dictionary:
+			_errors.append("%s: not a JSON object" % path)
+			continue
+		for kind in data:
+			var spec = data[kind]
+			if not (spec is Dictionary and typeof(spec.get("schema")) == TYPE_STRING and typeof(spec.get("root")) == TYPE_STRING
+					and typeof(spec.get("validator")) == TYPE_STRING):
+				_errors.append("%s: %s needs schema, root and validator" % [path, kind])
+				continue
+			register_extension(String(kind), spec)
+
+
+## Add an extension kind (normally from res://data/kinds; validators may call it to test a kind). Built-in kinds and
+## names already taken are refused.
+static func register_extension(kind: String, spec: Dictionary) -> bool:
+	if PACK_KINDS.has(kind) or _extensions.has(kind) or not _is_id(kind) or kind != kind.to_lower():
+		_errors.append("extension kind \"%s\" is not a new lower-case id" % kind)
+		return false
+	_extensions[kind] = spec
+	_builtin[kind] = {}
+	if _defs.has("props"):
+		_defs[kind] = {}
+		_origin[kind] = {}
+		_added[kind] = []
+	return true
+
+
+## Remove an extension kind (tests).
+static func unregister_extension(kind: String) -> void:
+	_extensions.erase(kind)
+	for table in [_builtin, _defs, _origin, _added]:
+		table.erase(kind)
+
+
+## Every kind a pack may ship: the built-in pack kinds plus the extension kinds, in that order.
+static func pack_kinds() -> Array:
+	ensure_loaded()
+	var extra := _extensions.keys()
+	extra.sort()
+	return PACK_KINDS + extra
 
 
 ## Load exactly `dirs` (pack folders), replacing whatever packs were loaded. All or nothing: any error in any pack leaves
@@ -240,7 +300,7 @@ static func _apply(packs: Array) -> void:
 	_defs = {}
 	_origin = {}
 	_added = {}
-	for kind in PACK_KINDS:
+	for kind in PACK_KINDS + _extensions.keys():
 		_defs[kind] = _builtin.get(kind, {}).duplicate()
 		_origin[kind] = {}
 		_added[kind] = []
@@ -249,8 +309,8 @@ static func _apply(packs: Array) -> void:
 		_families[family] = _builtin_families[family].duplicate()
 	for pack in packs:
 		var pack_id := String(pack["manifest"]["id"])
-		for kind in PACK_KINDS:
-			for def in pack["defs"][kind]:
+		for kind in PACK_KINDS + _extensions.keys():
+			for def in pack["defs"].get(kind, []):
 				var id := String(def["id"])
 				_defs[kind][id] = def
 				_origin[kind][id] = pack_id
@@ -258,7 +318,7 @@ static func _apply(packs: Array) -> void:
 					_added[kind].append(id)
 				if kind == "props":
 					_families.get_or_add(String(def["family"]), []).append(id)
-	for kind in PACK_KINDS:
+	for kind in PACK_KINDS + _extensions.keys():
 		_added[kind].sort()
 		_added[kind].make_read_only()
 
@@ -284,8 +344,8 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 				continue
 			if not _is_builtin_id(parts[0], parts[1]):
 				errors.append("%s: overrides \"%s\", which the game does not have" % [pack["dir"], entry])
-		for kind in PACK_KINDS:
-			for def in pack["defs"][kind]:
+		for kind in PACK_KINDS + _extensions.keys():
+			for def in pack["defs"].get(kind, []):
 				var key := "%s/%s" % [kind, def["id"]]
 				if seen.has(key):
 					errors.append("%s: %s is also defined by pack %s" % [pack["dir"], key, seen[key]])
@@ -328,6 +388,8 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 
 
 static func _is_builtin_id(kind: String, id: String) -> bool:
+	if _extensions.has(kind):
+		return _builtin[kind].has(id)
 	if kind == "sounds":
 		var sound := (Engine.get_main_loop() as SceneTree).root.get_node_or_null("Sound")
 		return sound != null and sound.knows_cue(id)
@@ -454,6 +516,8 @@ static func _without_meta(def: Dictionary) -> Dictionary:
 
 ## Parse one file of `kind`: {"defs": [runtime dicts], "errors": [messages naming file and field]}.
 static func parse_file(path: String, kind: String) -> Dictionary:
+	if _extensions.has(kind):
+		return _parse_extension(path, kind)
 	if kind == "grabs" or kind == "rooms":
 		var parsed: Dictionary = load(GRAB_SCRIPT if kind == "grabs" else ROOMS_SCRIPT).parse_file(path)
 		return {"defs": [] if parsed["def"].is_empty() else [parsed["def"]], "errors": parsed["errors"]}
@@ -507,6 +571,23 @@ static func parse_file(path: String, kind: String) -> Dictionary:
 		if not def.is_empty():
 			defs.append(def)
 	return {"defs": defs if errors.is_empty() else [], "errors": errors}
+
+
+## One extension-kind file: one definition, {"schema", "id", ...}; the owner's validator checks the body.
+static func _parse_extension(path: String, kind: String) -> Dictionary:
+	var spec: Dictionary = _extensions[kind]
+	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if not data is Dictionary:
+		return {"defs": [], "errors": PackedStringArray(["%s: not a JSON object" % path])}
+	if String(data.get("schema", "")) != String(spec["schema"]):
+		return {"defs": [], "errors": PackedStringArray(["%s: schema must be \"%s\"" % [path, spec["schema"]]])}
+	var id = data.get("id")
+	if typeof(id) != TYPE_STRING or not _is_id(id):
+		return {"defs": [], "errors": PackedStringArray(["%s: \"id\" must be letters, digits or _" % path])}
+	var def: Dictionary = data.duplicate(true)
+	def.erase("schema")
+	var errors: PackedStringArray = load(String(spec["validator"])).validate(kind, def, path)
+	return {"defs": [def] if errors.is_empty() else [], "errors": errors}
 
 
 static func _parse_entry(entry, fields: Dictionary, where: String, errors: PackedStringArray,

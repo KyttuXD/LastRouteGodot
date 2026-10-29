@@ -35,6 +35,7 @@ func run(_host: Node) -> int:
 	ContentRegistry.unload_packs()
 	_expect(_snapshot() == vanilla, "unloading did not restore the built-in tables")
 
+	_check_extension_kind(vanilla)
 	_check_example(vanilla)
 	_check_rejections(vanilla)
 	_wipe(ROOT)
@@ -132,6 +133,32 @@ func _check_loaded(dir: String) -> void:
 	for depth in range(1, 400):
 		draws[HunterRoster.pick_for_floor("PACK-DRAW", depth)] = true
 	_expect(draws.has("testpack_ember"), "pack hunter never drawn in 400 floors")
+
+
+## Another lane's kind (declared in res://data/kinds, here registered for the test): packs ship it like any kind, the
+## owner's validator checks the body, and unloading restores it.
+func _check_extension_kind(vanilla: String) -> void:
+	_expect(ContentRegistry.register_extension("test_things", {"schema": "test.thing/1", "root": ROOT.path_join("none"),
+		"validator": "res://scripts/ext_kind_fixture.gd"}), "could not register an extension kind")
+	_expect(not ContentRegistry.register_extension("props", {}), "a built-in kind was re-registered")
+	var good := ROOT.path_join("exttest")
+	_write(good.path_join("pack.json"), JSON.stringify({"schema": "lr.pack/1", "id": "exttest", "name": "x",
+		"version": "1.0.0"}))
+	_write(good.path_join("test_things/a.json"), JSON.stringify({"schema": "test.thing/1", "id": "exttest_a", "size": 3}))
+	var report := ContentRegistry.load_packs([good])
+	_expect(report["ok"] and ContentRegistry.get_def("test_things", "exttest_a").get("size") == 3,
+		"an extension-kind pack did not load: %s" % [report["errors"]])
+	ContentRegistry.unload_packs()
+	_expect(ContentRegistry.get_def("test_things", "exttest_a").is_empty(), "unloading left the extension definition")
+	var bad := ROOT.path_join("exttestbad")
+	_write(bad.path_join("pack.json"), JSON.stringify({"schema": "lr.pack/1", "id": "exttestbad", "name": "x",
+		"version": "1.0.0"}))
+	_write(bad.path_join("test_things/a.json"), JSON.stringify({"schema": "test.thing/1", "id": "exttestbad_a", "size": -1}))
+	report = ContentRegistry.load_packs([bad])
+	_expect(not report["ok"] and Array(report["errors"]).any(func(e): return String(e).contains("size must be a positive number")),
+		"the owner's validator did not refuse: %s" % [report["errors"]])
+	ContentRegistry.unregister_extension("test_things")
+	_expect(_snapshot() == vanilla, "the extension kind left the game changed")
 
 
 ## The shipped example (examples/mods/ember) stays a valid pack: copied to user:// as a player would, it loads, recolours
