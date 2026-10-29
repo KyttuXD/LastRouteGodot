@@ -67,7 +67,6 @@ const RAMP_PRESTREAM_CELLS := 6.0
 const CLIFF_WALL_KIND := "stone1"
 ## How far past the lip the sheet hangs.
 const FALLS_SPOUT := .12
-const FALLS_SOUND_RANGE := 28.0
 const SEWER_FALLS_SHADER := preload("res://src/look/sewer_falls.gdshader")
 
 const SEWER_WATER_SHADER := preload("res://src/look/sewer_water.gdshader")
@@ -2332,20 +2331,9 @@ func apply_breach(id: String, hp: int, opened: bool) -> void:
 	node.apply_breakable_state(hp, opened)
 
 
+## The fall's roar: a positional source of the level layer (LevelAmbience plays the nearest few, muffled behind walls).
 func _add_falls_sound(root: Node3D, at: Vector3) -> void:
-	if DisplayServer.get_name() == "headless":
-		return
-	var stream := FallsLoop.stream()
-	var roar := AudioStreamPlayer3D.new()
-	roar.name = "FallsRoar"
-	roar.stream = stream
-	roar.bus = &"SFX"
-	roar.unit_size = 7.0
-	roar.max_distance = FALLS_SOUND_RANGE
-	roar.volume_db = 3.0
-	roar.autoplay = true
-	roar.position = at
-	root.add_child(roar)
+	LevelAmbience.add(root, "falls", at)
 
 
 ## The sloped collider of every ramp whose upper end is this chunk's level: one
@@ -3240,6 +3228,9 @@ func _spawn_region_prop_now(parent: Node3D, coord: Vector3i, prop: Dictionary, f
 		var wall := Vector2(prop.get("outflow_wall", Vector2i.ZERO))
 		_add_pipe_drips(parent, Vector3(cell.x + .5 - wall.x * 2.53, float(prop.get("collider_y0", 1.0)) - .2,
 			cell.y + .5 - wall.y * 2.53), prop, Vector3(.7, 0.0, .7), 12)
+		# its trickle (LevelAmbience), by the main's breakable id so a burst can stop it
+		LevelAmbience.add(parent, "outflow", Vector3(cell.x + .5 - wall.x * 2.53, float(prop.get("collider_y0", 1.0)) - .2,
+			cell.y + .5 - wall.y * 2.53), "outflow:" + String(prop.get("breakable_id", "")))
 	_spawn_fixture_light(parent, type, Vector3(cell.x + .5 + mount_offset.x,
 		prop_y, cell.y + .5 + mount_offset.y))
 	if type in ["emberBrazier", "magmaCrystalCluster"]:

@@ -8,6 +8,7 @@ extends RefCounted
 
 const LAVA_Y := -0.7
 const BASIN_Y := -1.6
+const LAVA_SOUND_SPACING := 6.0
 const RAIL_H := 1.0
 const POST_STEP := 1.0
 const LAVA_SHADER_CODE := """
@@ -67,6 +68,13 @@ static func _build_pit(parent: Node3D, blockers: StaticBody3D, pit: Dictionary) 
 	lava_mesh.material_override = _lava()
 	lava_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(lava_mesh)
+	# the lava's bubbling: a positional source of the level layer every LAVA_SOUND_SPACING metres along the channel
+	var sounded: Array[Vector2i] = []
+	for cell_value in lava:
+		var cell: Vector2i = cell_value
+		if sounded.all(func(other: Vector2i) -> bool: return Vector2(other).distance_to(Vector2(cell)) >= LAVA_SOUND_SPACING):
+			sounded.append(cell)
+			LevelAmbience.add(parent, "lava", Vector3(cell.x + .5, .3, cell.y + .5))
 	var basin_mesh := MeshInstance3D.new()
 	basin_mesh.name = "LavaBasin"
 	basin_mesh.mesh = basin.commit()
