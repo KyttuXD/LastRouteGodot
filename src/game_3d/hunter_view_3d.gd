@@ -768,6 +768,22 @@ func _head_ahead_point() -> Vector2:
 ## motionless, silently-standing figure for however long it took the player
 ## to stumble across her -- which reads as a broken model, not as a hunter
 ## who has not woken up yet.
+## KT 2026-10-28: "no character should have full invisibility". A stealth gimmick (hidden_from_view: Blue Void, Gray,
+## Verrine, Porcelle, Ilyra's banish, ...) fades the model to MIN_VISIBLE_ALPHA, never further: a faint silhouette while
+## the hunter is awake. Only dormant hunters (brain.active false: Nyxie/Solyth/Wynelle before they wake) and a dispersed
+## Ceryth (retired, out of the room) draw nothing.
+const MIN_VISIBLE_ALPHA := .28
+
+
+## How much of the model shows: 0 dormant or retired, MIN_VISIBLE_ALPHA while a gimmick hides her, 1 otherwise.
+static func model_alpha(hunter: HunterBrain) -> float:
+	if hunter == null:
+		return 1.0
+	if not hunter.active or (hunter.gimmick is CerythGimmick and (hunter.gimmick as CerythGimmick).dispersed):
+		return 0.0
+	return MIN_VISIBLE_ALPHA if hunter.gimmick != null and hunter.gimmick.hidden_from_view() else 1.0
+
+
 func _apply_visibility() -> void:
 	if _model == null:
 		return
@@ -782,7 +798,7 @@ func _apply_visibility() -> void:
 	# This leaves 28% of the authored model visible. The fade helper also lifts
 	# ALPHA_SCISSOR while ghosted -- otherwise the remaining alpha falls under the
 	# default 0.5 MASK cutoff and the silhouette is gone.
-	var fade := .72 if gimmick_hidden else 0.0
+	var fade := 1.0 - MIN_VISIBLE_ALPHA if gimmick_hidden else 0.0
 	ModelSlot.set_character_fade(_model, fade)
 	if _kathy_beam != null:
 		_kathy_beam.visible = _model.visible and not grabbing()
