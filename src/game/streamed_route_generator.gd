@@ -2836,6 +2836,8 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 			SeededRandom.new("%s:ROOMDATA:%s" % [world_seed, String(room.get("id", ""))]),
 			{"@frame": _frame_type_for_region(region, false), "@painting": _frame_type_for_region(region, true),
 				"@rug": _rug_type_for_region(region)})
+	specs = _vary_specs(specs, side_span, depth_span, SeededRandom.new("%s:VARIETY:%s:%s" % [world_seed, chunk_id(coord),
+		String(room.get("id", ""))]))
 	var result := []
 	for spec_index in _claim_order(specs):
 		var spec: Dictionary = specs[spec_index]
@@ -3270,6 +3272,30 @@ static func _table_grid_specs(table_type: String, chair_type: String, columns: A
 				specs.append({"type": chair_type, "side": column - half - 1, "depth": row, "facing": "right"})
 				specs.append({"type": chair_type, "side": column + half + 1, "depth": row, "facing": "left"})
 	return specs
+
+
+## KT: "room generation seeds are too specific". Every furnished room (code or data recipe) gets its own variation, drawn
+## from a stream keyed on the seed, chunk and room id (so peers agree and no code draw shifts): its lights, rugs, frames,
+## signs and other non-solid or wall-mounted dressing move one or two cells, on top of the recipe's own mirror. Solid
+## furniture keeps its tuned place (aisles, key props and reachability are validated on it).
+static func _vary_specs(specs: Array, side_span: int, depth_span: int, rng: SeededRandom) -> Array:
+	var out := []
+	for spec_value in specs:
+		var spec: Dictionary = (spec_value as Dictionary).duplicate()
+		var mounted := bool(spec.get("wall_mount", false)) or bool(spec.get("wall_mounted", false))
+		if (mounted or not bool(spec.get("solid", true))) and rng.next_float() < .75:
+			var step := 1 + rng.next_index(2)
+			spec["side"] = int(spec.get("side", 0)) + (step if rng.next_float() < .5 else -step)
+			if not mounted and int(spec.get("depth", 0)) > 0 and rng.next_float() < .5:
+				spec["depth"] = maxi(1, int(spec.get("depth", 0)) + (1 if rng.next_float() < .5 else -1))
+		out.append(spec)
+	# and a lamp or two of its own where the room has the floor for it (non-solid: clearance never changes)
+	var half := (side_span - 3) / 2
+	if not specs.is_empty() and half >= 3 and depth_span >= 7:
+		for _extra in rng.next_index(3):
+			out.append({"type": "ceilingLight", "side": rng.next_index(half * 2 + 1) - half,
+				"depth": 1 + rng.next_index(maxi(1, depth_span - 4)), "facing": "open", "solid": false})
+	return out
 
 
 static func _room_template_specs(template: String, region: String,
