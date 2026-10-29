@@ -62,3 +62,31 @@ static func hunters_hash() -> String:
 		for i in 300:
 			parts.append(HunterRoster.pick_for_floor("%s-%d" % [SEED, i], 1 + i % 9, difficulty))
 	return sha(parts)
+
+
+## Night Watch (NIGHT-WATCH-DATA-PLAN.md): every table a mode reads (the *_data scripts' constants, by name), the shift board's modes and
+## calls, and every office's spec. Behaviour parity stays with each mode's own goldens (the Mask golden, the rules ports); this is the
+## "the data the engines read did not change" proof for each migration commit.
+const NW_DATA_SCRIPTS := ["res://src/night_watch/night_watch_data.gd", "res://src/night_watch/night_watch_modes_data.gd",
+	"res://src/night_watch/night_watch_calls_data.gd", "res://src/night_watch/bedroom/bedroom_data.gd", "res://src/night_watch/dayshift/dayshift_data.gd",
+	"res://src/night_watch/descent/descent_data.gd", "res://src/night_watch/lure/lure_data.gd", "res://src/night_watch/mask/mask_data.gd",
+	"res://src/night_watch/mixed/mixed_data.gd", "res://src/night_watch/openair/openair_data.gd", "res://src/night_watch/story/story_data.gd"]
+
+
+static func nw_hash() -> String:
+	var parts := []
+	for path in NW_DATA_SCRIPTS:
+		var constants := (load(path) as Script).get_script_constant_map()
+		var names := constants.keys()
+		names.sort()
+		for name in names:
+			if typeof(constants[name]) != TYPE_OBJECT:
+				parts.append([path.get_file(), name, constants[name]])
+	var modes := NightWatchOfficeRegistry.OFFICES.keys()
+	modes.sort()
+	for mode_id in modes:
+		var spec := NightWatchOfficeRegistry.spec_for(String(mode_id))
+		if spec != null:
+			parts.append([mode_id, spec.id, spec.footprint, spec.spawn, spec.entrances, spec.required_stations, spec.has_monitor, spec.mood,
+				spec.tone_cue, spec.controls, spec.rotation])
+	return sha(parts)
