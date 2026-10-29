@@ -832,13 +832,16 @@ static func _grab_lift(state: Dictionary) -> float:
 
 
 const NAME_TAG_HEIGHT := 1.92
-## One colour per teammate, stable for a peer id, shared by the 3D nametag and the minimap / full-map markers.
-const PEER_COLOURS := [Color("4fd1ff"), Color("ff8a3d"), Color("7ee26b"), Color("ff5fb4"), Color("ffd84a"), Color("a98bff"),
-	Color("3fe0c0"), Color("ff6b6b")]
-
-
+## One colour per player, from PlayerColors by the peer's rank in the room (the same on every client), shared by the 3D nametag, the maps,
+## the HUD waypoints, the player list and the chat.
 static func peer_colour(peer_id: int) -> Color:
-	return PEER_COLOURS[posmod(peer_id * 7 + 3, PEER_COLOURS.size())]
+	return PlayerColors.for_peer(peer_id, RoomState.peers.keys() if RoomState.online else [])
+
+
+## This player's own colour (their arrow on the map).
+static func local_colour() -> Color:
+	var id := RoomState.multiplayer.get_unique_id() if RoomState.online else 1
+	return peer_colour(id)
 
 
 func _add_name_tag(body: Node3D, display_name: String) -> void:
