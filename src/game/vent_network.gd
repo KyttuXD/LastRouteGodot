@@ -6,13 +6,16 @@ extends RefCounted
 ## nothing on a real level has to make room for them. Each chunk opens a few grates from a duct cell into a walkable
 ## cell of every level 0..+4 (a ceiling grate on level 0, wall grates above, a floor grate in the attic): LevelLink
 ## kind "grate" until the sewer lane adds "vent".
-## Only a crawling body fits (DUCT_HEIGHT); no hunter follows a runner in.
+## Only a crawling body fits (DUCT_HEIGHT): a crouched runner, and a hunter on hands and knees (KT: hunters crawl the
+## 1.25 m ducts; Verrine always, the others on Hard and Nightmare). Nobody stands up in one.
 
 const CHUNK_SIZE := StreamedRouteGenerator.CHUNK_SIZE
 const VENT_LEVEL := 100
 const LINES := [6, 38]
-## A crouched runner fits (crouched capsule + 0.05); nothing standing does.
-const DUCT_HEIGHT := PlayerController3D.CROUCH_COLLISION_HEIGHT + 0.05
+## Inside height of a duct: a crawling hunter (HUNTER_CRAWL_HEIGHT) and a crouched runner fit; nothing standing does.
+const DUCT_HEIGHT := 1.25
+## The body height a hunter crawls at in a duct (WORLD's VentCrawl uses this for the hunter's crawl capsule).
+const HUNTER_CRAWL_HEIGHT := 1.15
 const GRATES_PER_LEVEL := 1
 const SOLID := 1
 const DUCT := 0

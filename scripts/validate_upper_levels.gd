@@ -20,7 +20,9 @@ func run(_host: Node) -> int:
 		"a crouching runner does not fit the attic crawlspace")
 	_expect(not AtticRouteGenerator.passable(AtticRouteGenerator.CRAWL, HUNTER_HEIGHT),
 		"a full-size hunter fits the attic crawlspace")
-	_expect(VentNetwork.DUCT_HEIGHT < HUNTER_HEIGHT, "a hunter fits the vents")
+	_expect(VentNetwork.DUCT_HEIGHT < HUNTER_HEIGHT, "a hunter stands up in the vents")
+	_expect(VentNetwork.DUCT_HEIGHT >= VentNetwork.HUNTER_CRAWL_HEIGHT + 0.05, "a crawling hunter does not fit the vents")
+	_expect(is_equal_approx(VentNetwork.DUCT_HEIGHT, 1.25), "ducts are not the 1.25 m KT asked for")
 	_expect(VentNetwork.DUCT_HEIGHT >= PlayerController3D.CROUCH_COLLISION_HEIGHT, "a crouching runner does not fit the vents")
 	# the shared sealed-map table reads the same on every level
 	for level in range(0, 6):
