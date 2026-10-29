@@ -1435,7 +1435,8 @@ func _create_chunk_build(coord: Vector3i) -> Dictionary:
 		"fixture_index": 0,
 		"pickup_index": 0,
 		"prison_tasks": _prison_prop_tasks(data) if region == "prison" else [],
-		"door_headers": door_headers(region_props, heights, corridor_h),
+		"door_headers": door_headers(region_props, heights, corridor_h).merged(
+			seal_door_headers(data.get("breakables", []), heights, corridor_h)),
 	}
 
 
@@ -1718,7 +1719,10 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 				surface.add_wall(x, z, step, RefTextures.layer("wall", lip_kind), RefTextures.params("wall", lip_kind),
 					0.0, InfernoPitView.BASIN_Y, LEVEL_HEIGHT)
 				continue
-			if not outside and int(grid_data[nz][nx]) != 0:
+			# a channel, deck or drop is open space too: on the collector its vault drops under the trench above, and the
+			# step between the walkway's ceiling and it showed as a dark strip along the tunnel (KT: "gap in sewers")
+			if not outside and int(grid_data[nz][nx]) != 0 \
+					and not _sewer_code(build, nx, nz) in [SewerRouteGenerator.WATER, SewerRouteGenerator.BRIDGE, SewerRouteGenerator.FALL]:
 				continue
 			var neighbour_height := _seam_height(build, nx, nz) if outside \
 				else _height_in(build, Vector2i(nx, nz))
@@ -1742,6 +1746,18 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 		if not (build["open_above"] as Dictionary).has(cell):
 			surface.add_ceiling(x, z, _height_in(build, cell), RefTextures.layer("floor", ceiling_kind),
 				RefTextures.params("ceiling", ceiling_kind))
+		# a lower ceiling beside this channel cell (the cistern pool open to the drop, the vault under a trench above):
+		# close the step with a lintel face on the lower side, as the walkways do
+		var water_h := _height_in(build, cell)
+		for step_value in RefDecor.DIRS:
+			var n: Vector2i = cell + (step_value as Vector2i)
+			if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size or _sewer_code(build, n.x, n.y) == SewerRouteGenerator.SOLID:
+				continue
+			var n_h := _height_in(build, n)
+			if n_h < water_h - .01:
+				var lintel_kind := _ref_wall_kind(build, n.x, n.y, x, z)
+				surface.add_wall(n.x, n.y, -(step_value as Vector2i), RefTextures.layer("wall", lintel_kind),
+					RefTextures.params("wall", lintel_kind), water_h, n_h, water_h)
 	elif _sewer_code(build, x, z) == SewerRouteGenerator.FALL:
 		# The drop to the collector: blocked to walk like the channels, the vault
 		# overhead, and rough stone cliffs from the floor's edge down a full storey.
@@ -2745,6 +2761,24 @@ static func door_headers(region_props: Array, heights: Dictionary, corridor_h: f
 			out[door_cell] = {"normal": normal, "header_y": DoorwayFrames.header_y(String(prop.get("type", ""))),
 				"front_h": float(heights.get(door_cell + normal, corridor_h)),
 				"back_h": float(heights.get(door_cell - normal, corridor_h))}
+	return out
+
+
+## The top of a framed door seal (SewerRouteGenerator._frame_door_seal): brick from here up to the ceiling.
+const SEAL_DOOR_TOP := 2.9
+
+## Framed door seals get the same header as room doors: brick over the door to both sides' ceilings (KT: "gap in sewers").
+static func seal_door_headers(breakables: Array, heights: Dictionary, corridor_h: float) -> Dictionary:
+	var out := {}
+	for spec_value in breakables:
+		var extras: Dictionary = (spec_value as Dictionary).get("extras", {})
+		if not extras.has("door_frame"):
+			continue
+		var cell: Vector2i = (extras["cells"] as Array)[1]
+		var dir: Vector2 = extras["dir"]
+		var normal := Vector2i(roundi(dir.x), roundi(dir.y))
+		out[cell] = {"normal": normal, "header_y": SEAL_DOOR_TOP,
+			"front_h": float(heights.get(cell + normal, corridor_h)), "back_h": float(heights.get(cell - normal, corridor_h))}
 	return out
 
 

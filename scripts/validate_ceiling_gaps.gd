@@ -44,6 +44,7 @@ func run(host: Node) -> int:
 			await host.get_tree().process_frame
 		view.queue_free()
 		await host.get_tree().process_frame
+	await _sweep_sewers(host)
 	_expect(_openings >= 30, "only %d framed openings found" % _openings)
 	print("  ceiling_gaps  chunks swept (level region): %s" % str(_chunks.keys()))
 	print("  ceiling_gaps  %d framed openings in %s; frames %s: %d gaps" % [_openings, str(_regions.keys()), str(_kinds), _failures])
@@ -71,10 +72,11 @@ func _pick_chunks(generator: StreamedRouteGenerator) -> Array:
 
 
 ## [global aabb, mesh-ish node] for every drawn mesh of the chunk (MultiMesh instances one by one).
-func _drawn(root: Node3D) -> Array:
+func _drawn(root: Node3D, culled_too := false) -> Array:
 	var out := []
 	for node in root.find_children("*", "GeometryInstance3D", true, false):
-		if not (node as Node3D).is_visible_in_tree():
+		# culled_too: the maze-culling tiles a line of sight has not reached yet count (they are drawn once seen)
+		if not (node as Node3D).is_visible_in_tree() and not (culled_too and String(node.name).begins_with("Ref_")):
 			continue
 		if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
 			var mesh := node as MeshInstance3D
@@ -125,7 +127,7 @@ func _audit_opening(view: StreamedFacilityView3D, root: Node3D, drawn: Array, ce
 		# the chunk's own surfaces (walls, floors, ceilings, headers) span the whole chunk: they are what the rays should hit
 		if box.size.x > 3.0 and box.size.z > 3.0:
 			continue
-		if not box.intersects(column):
+		if not box.intersects(column) or _is_pipe(entry[3] as Node):
 			continue
 		var span := box.size.x if axis.x == 0 else box.size.z
 		if box.end.y - floor_y < FRAME_MIN_TOP or span < FRAME_MIN_SPAN:
@@ -152,6 +154,16 @@ func _audit_opening(view: StreamedFacilityView3D, root: Node3D, drawn: Array, ce
 				_expect(_hits(faces, from, -across * side, 1.45),
 					"%s: open air over the %s (top %.2f m) at %.2f m from the %s side, ceiling %.2f m" % [
 						where, frame_name, frame_top, y, "+" if side > 0 else "-", ceiling])
+
+
+## A sewer pipe crossing overhead is not a frame in a doorway (the crawl-under pipes span the walkway at head height).
+func _is_pipe(node: Node) -> bool:
+	var walk := node
+	while walk != null:
+		if walk is RouteInteractable3D and String((walk as RouteInteractable3D).breakable_spec.get("kind", "")) == Breach.KIND_PIPE:
+			return true
+		walk = walk.get_parent()
+	return false
 
 
 func _label(node: Node, root: Node) -> String:
@@ -188,3 +200,115 @@ func _hits(faces: PackedVector3Array, from: Vector3, direction: Vector3, reach: 
 		if hit != null and from.distance_to(hit) < reach:
 			return true
 	return false
+
+
+## ---------------------------------------------------------------- sewer storeys
+
+## The sewers (KT "gap in sewers, assuming upper level?"): on -1 and -2 every step in the ceiling between two neighbouring
+## open cells (walkway, channel, deck, drop, room) is closed by a drawn face, and every wall beside an open cell reaches
+## that cell's ceiling: no strip of open air between a wall top and the ceiling or the floor above.
+const SEWER_LEVELS := [-1, -2]
+const SEWER_COLUMNS := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, -1), Vector2i(2, -1)]
+const SEWER_OPEN := [SewerRouteGenerator.DRY, SewerRouteGenerator.WATER, SewerRouteGenerator.BRIDGE, SewerRouteGenerator.FALL]
+var _sewer_steps := 0
+var _sewer_walls := 0
+
+
+func _sweep_sewers(host: Node) -> void:
+	for seed_text in SEEDS:
+		var view := StreamedFacilityView3D.new()
+		host.add_child(view)
+		view.generator = StreamedRouteGenerator.new(seed_text)
+		view.world_state = StreamedWorldState.new()
+		for level in SEWER_LEVELS:
+			for column in SEWER_COLUMNS:
+				var coord := Vector3i(column.x, level, column.y)
+				if not view.generator.is_chunk_allowed(coord):
+					continue
+				view._load_chunk(coord)
+				var root := view.get_node_or_null("Chunk_%d_%d_%d" % [coord.x, coord.y, coord.z]) as Node3D
+				if root == null:
+					continue
+				_audit_sewer_chunk(view, root, coord, seed_text)
+				root.queue_free()
+				await host.get_tree().process_frame
+		view.queue_free()
+		await host.get_tree().process_frame
+	_expect(_sewer_steps >= 50 and _sewer_walls >= 500, "the sewer sweep checked only %d ceiling steps and %d wall tops" % [_sewer_steps, _sewer_walls])
+	print("  ceiling_gaps  sewers: %d ceiling steps and %d wall tops closed" % [_sewer_steps, _sewer_walls])
+
+
+func _audit_sewer_chunk(view: StreamedFacilityView3D, root: Node3D, coord: Vector3i, seed_text: String) -> void:
+	var data := view.generator.chunk(coord)
+	var codes: Array = data.get("sewer_grid", [])
+	if codes.is_empty():
+		return
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	# every drawn triangle of the chunk, bucketed by the cells its footprint covers
+	var buckets := {}
+	for entry in _drawn(root, true):
+		var xf: Transform3D = entry[1]
+		var faces := _triangles(entry[2] as Mesh)
+		for i in range(0, faces.size(), 3):
+			var a := root.global_transform.affine_inverse() * (xf * faces[i])
+			var b := root.global_transform.affine_inverse() * (xf * faces[i + 1])
+			var c := root.global_transform.affine_inverse() * (xf * faces[i + 2])
+			for bz in range(floori(minf(a.z, minf(b.z, c.z)) - .01), floori(maxf(a.z, maxf(b.z, c.z)) + .01) + 1):
+				for bx in range(floori(minf(a.x, minf(b.x, c.x)) - .01), floori(maxf(a.x, maxf(b.x, c.x)) + .01) + 1):
+					var key := Vector2i(bx, bz)
+					var bucket: PackedVector3Array = buckets.get(key, PackedVector3Array())   # packed arrays copy: store it back
+					bucket.append_array(PackedVector3Array([a, b, c]))
+					buckets[key] = bucket
+	var is_open := func(cell: Vector2i) -> bool:
+		return int(codes[cell.y][cell.x]) in SEWER_OPEN
+	var reported := 0
+	# three cells in from the seams: the band along a chunk edge is closed by the neighbour chunk, built on its own here
+	for z in range(3, size - 3):
+		for x in range(3, size - 3):
+			var cell := Vector2i(x, z)
+			if not is_open.call(cell):
+				continue
+			var h := view._cell_height(root, cell)
+			for step in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(0, -1)]:
+				var n: Vector2i = cell + step
+				var near := PackedVector3Array()
+				near.append_array(buckets.get(cell, PackedVector3Array()))
+				near.append_array(buckets.get(n, PackedVector3Array()))
+				var dir := Vector3(step.x, 0, step.y)
+				var centre := Vector3(x + .5, 0, z + .5)
+				var problem := ""
+				if is_open.call(n):
+					var hn := view._cell_height(root, n)
+					if hn >= h - .02:
+						continue
+					# a lower ceiling next door: the step between hn and h must be faced
+					_sewer_steps += 1
+					for y in [hn + .04, (hn + h) * .5, h - .04]:
+						if not _hits(near, centre + Vector3.UP * float(y), dir, .75):
+							problem = "open ceiling step %.2f -> %.2f m at %.2f m toward %s" % [h, hn, y, n]
+							break
+				elif int(codes[n.y][n.x]) == SewerRouteGenerator.SOLID:
+					_sewer_walls += 1
+					for y in [h - .3, h - .04]:
+						if not _hits(near, centre + Vector3.UP * float(y), dir, .75):
+							problem = "the wall toward %s stops below the %.2f m ceiling (open at %.2f m)" % [n, h, y]
+							break
+				if not problem.is_empty() and reported < 4:
+					reported += 1
+					_expect(false, "%s sewer %s cell %s: %s" % [seed_text, coord, cell, problem])
+				elif not problem.is_empty():
+					_failures += 1
+
+
+## The mesh's triangles from its surface arrays (Mesh.get_faces() came back empty for the chunk's Surface ArrayMesh).
+static func _triangles(mesh: Mesh) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	for surface_index in mesh.get_surface_count():
+		var arrays := mesh.surface_get_arrays(surface_index)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		if arrays[Mesh.ARRAY_INDEX] == null or (arrays[Mesh.ARRAY_INDEX] as PackedInt32Array).is_empty():
+			out.append_array(verts)
+			continue
+		for index in (arrays[Mesh.ARRAY_INDEX] as PackedInt32Array):
+			out.append(verts[index])
+	return out
