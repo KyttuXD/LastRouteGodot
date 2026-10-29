@@ -940,6 +940,8 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	var roles := []                # A, B, C fixed once every expected guest is in (a player joining later never takes a role)
 	var gate_ok := false           # every expected peer's live state seen in the route
 	var overlay := _coop_overlay(tree)
+	# the bots talk in the real room chat (TTS reads them aloud): --chat=off|quiet|on, quiet by default
+	var chat := BotChat.new(String(opts.get("chat", "quiet")), int(opts["bot_seed"]) * 7919 + me)
 	var next_shot := 30.0
 	var host_catch := String(opts.get("host_catch", "true")) != "false"
 	# no progress for 3 s while it should be moving: back off (1 s), then re-path from open floor, then (still stuck after ~9 s) hop to
@@ -1041,6 +1043,8 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 			bridge.screenshot(out.path_join("shots/%s_%04d_roster.png" % [_coop_name(role, opts), int(t)]))
 		if frames % 3 == 0 or obs.is_empty():
 			obs = bridge.observe()
+		if not obs.is_empty():
+			chat.tick(scene, obs, t, adapter)
 		if frames % SAMPLE_EVERY == 0 and float(obs.get("fps", 0.0)) > 0.0:
 			fps.append(float(obs["fps"]))
 			frame_ms.append(float(obs["frame_ms"]))
@@ -1098,6 +1102,7 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	Build.capture_rig = false
 	overlay.queue_free()
 	report["coop_stuck"] = stuck_log
+	report["bot_chat"] = {"mode": chat.mode, "said": chat.said}
 	report["coop_check"] = {"done": done, "steps": steps, "me": me, "guests": _coop_guests(tree.current_scene) if _soak_route(tree.current_scene) else []}
 	return {"outcome": "time_limit", "game_seconds": snappedf(float(frames) / hz, .1), "frames": frames,
 		"perf": PlaytestReporter.perf_summary(fps, frame_ms), "deaths": [], "scenario_failure": ""}
