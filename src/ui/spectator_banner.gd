@@ -35,10 +35,10 @@ static func attach(parent: Node) -> SpectatorBanner:
 	return banner
 
 
-## watching: display name of the followed runner, or "" for the free camera.
+## watching: display name of the followed runner, or "" while walking as the ghost.
 func show_for(watching: String, note: String = "") -> void:
-	var line := "SPECTATING  //  %s" % (watching.to_upper() if not watching.is_empty() else "FREE CAMERA")
-	line += "\n[E] NEXT   [Q] PREVIOUS   [F] FREE CAMERA"
+	var line := "GHOST  //  FOLLOWING %s" % watching.to_upper() if not watching.is_empty() else "GHOST  //  UNSEEN, UNHEARD"
+	line += "\n[F] FOLLOW A TEAMMATE / BACK   [LEFT] [RIGHT] WHO"
 	if not note.is_empty():
 		line += "\n" + note
 	text = line

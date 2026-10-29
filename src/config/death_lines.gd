@@ -14,6 +14,11 @@ const DEFAULT_COPY := "A hunter intercepted your signal on depth {depth}. Crouch
 
 static var _data: Dictionary = {}
 static var _loaded := false
+## The file as shipped, kept so content packs' deaths/ (docs/modding/content-types.md, "Death lines") can be applied
+## on top and taken off again (rebuild_from_registry).
+static var _base: Dictionary = {}
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
+const PACK_SCHEMA := "lr.deaths/1"
 
 
 static func data() -> Dictionary:
@@ -22,13 +27,70 @@ static func data() -> Dictionary:
 		var text := FileAccess.get_file_as_string(PATH)
 		var parsed = JSON.parse_string(text) if not text.is_empty() else null
 		if parsed is Dictionary and validate(parsed).is_empty():
-			_data = parsed
+			_base = parsed
+		_data = _with_packs(_base)
 	return _data
+
+
+## Packs changed: the shipped lines again, then the loaded packs' deaths/ files.
+static func rebuild_from_registry() -> void:
+	if _loaded:
+		_data = _with_packs(_base)
+
+
+## `base` with every pack death file applied: "replace" (default) swaps a hunter's lines (and lore line if given),
+## "add" appends to them. Pack hunters get lines this way too.
+static func _with_packs(base: Dictionary) -> Dictionary:
+	var defs := ContentRegistry.pack_defs("deaths")
+	if defs.is_empty():
+		return base
+	var out := base.duplicate(true)
+	var hunters: Dictionary = out.get_or_add("hunters", {})
+	for def in defs:
+		var key := file_id(String(def["id"]))
+		var entry: Dictionary = hunters.get_or_add(key, {"lines": []})
+		if String(def.get("mode", "replace")) == "add":
+			(entry.get_or_add("lines", []) as Array).append_array(def["lines"])
+		else:
+			entry["lines"] = (def["lines"] as Array).duplicate()
+			entry.erase("loreLine")
+		if def.has("lore_line"):
+			entry["loreLine"] = def["lore_line"]
+	return out
+
+
+## One pack deaths/ file -> {"def": {id, lines, lore_line?, mode?}, "errors"}, with the shipped file's line rules.
+static func parse_pack_file(path: String) -> Dictionary:
+	var out := {"def": {}, "errors": PackedStringArray()}
+	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if not data is Dictionary:
+		out["errors"].append("%s: not a JSON object" % path)
+		return out
+	var errors: PackedStringArray = out["errors"]
+	for key in data:
+		if not key in ["schema", "id", "lines", "lore_line", "mode"]:
+			errors.append("%s: unknown key \"%s\"" % [path, key])
+	if String(data.get("schema", "")) != PACK_SCHEMA:
+		errors.append("%s: schema must be %s" % [path, PACK_SCHEMA])
+	if typeof(data.get("id")) != TYPE_STRING or not ContentRegistry._is_id(data["id"]):
+		errors.append("%s: \"id\" must be the hunter id" % path)
+	var lines = data.get("lines")
+	if not lines is Array or (lines as Array).is_empty() or not (lines as Array).all(_valid_line):
+		errors.append("%s: lines must be a non-empty list of text (or {text, style: \"caption\"})" % path)
+	if data.has("lore_line") and not _valid_line(data["lore_line"]):
+		errors.append("%s: lore_line must be text" % path)
+	if data.has("mode") and not String(data["mode"]) in ["replace", "add"]:
+		errors.append("%s: mode must be replace or add" % path)
+	if errors.is_empty():
+		data.erase("schema")
+		out["def"] = data
+	return out
 
 
 ## Test hook.
 static func set_data(value: Dictionary) -> void:
-	_data = value
+	_base = value
+	_data = _with_packs(value)
 	_loaded = true
 
 

@@ -34,7 +34,7 @@ static func build(roster: Array, states: Dictionary, local: Dictionary, pings: D
 			if state.has("depth"):
 				floor_value = -int(state["depth"])
 		rows.append({
-			"id": id, "name": String(entry.get("name", "?")), "host": bool(entry.get("host", false)), "you": you,
+			"id": id, "colour": RemotePlayers.peer_colour(id).to_html(false), "name": String(entry.get("name", "?")), "host": bool(entry.get("host", false)), "you": you,
 			"ping": -1 if (not pings.has(id) and not you) else int(pings.get(id, 0)),
 			"status": status, "level": floor_value,
 			"talking": bool(talking.get(id, false)),

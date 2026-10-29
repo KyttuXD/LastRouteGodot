@@ -188,6 +188,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_update_lens_cull()
 	_end_grab_pose()
 	_doorway.restore()
 	_chase.restore()
@@ -198,6 +199,47 @@ func _process(delta: float) -> void:
 	_update_expression(delta)
 	_update_stars(delta)
 	_update_doorway(delta)
+
+
+## Lens culling in normal play (KT: Verrine up close showed the inside of her body as white and grey bands). A hunter's arms reach
+## right up to the runner's face, so the camera's near plane can slice through a cube and draw its inside. Any box of her model the
+## near plane is inside (or within LENS_MARGIN of) is drawn on a layer the viewing camera skips, for that frame only, and put back
+## the next; her light and shadow are untouched. Grabs do the same for themselves (HunterGrab._cull_near).
+const LENS_LAYER := 1 << 16
+const LENS_RANGE := 3.0
+const LENS_MARGIN := .02
+var _lens_culled: Array = []
+
+
+func _update_lens_cull() -> void:
+	for node in _lens_culled:
+		if is_instance_valid(node) and (node as Node).has_meta("lens_layers"):
+			(node as MeshInstance3D).layers = int((node as Node).get_meta("lens_layers"))
+			(node as Node).remove_meta("lens_layers")
+	_lens_culled.clear()
+	if _model == null or not is_inside_tree() or grabbing():
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var at := camera.global_position
+	if at.distance_squared_to(global_position) > LENS_RANGE * LENS_RANGE:
+		return
+	camera.cull_mask &= ~LENS_LAYER
+	var reach := camera.near + LENS_MARGIN
+	for node in _model.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh == null or not mesh_node.visible or mesh_node.has_meta("grab_layers"):
+			continue
+		var transform := mesh_node.global_transform
+		if absf(transform.basis.determinant()) < 1e-9:
+			continue
+		var scale := transform.basis.get_scale()
+		var local := transform.affine_inverse() * at
+		if mesh_node.mesh.get_aabb().grow(reach / maxf(minf(scale.x, minf(scale.y, scale.z)), .001)).has_point(local):
+			mesh_node.set_meta("lens_layers", mesh_node.layers)
+			mesh_node.layers = LENS_LAYER
+			_lens_culled.append(mesh_node)
 
 
 ## In a door frame: duck under a low lintel and turn the shoulders through a narrow opening (DoorwayPose), last of
@@ -900,7 +942,12 @@ func _begin_emote(index: int, seconds: float) -> void:
 	# Kathy's scythe is held by the carry clips; she emotes with her face only.
 	_emote_clip = "" if _carries_scythe else HunterEmoteCatalog.resolve_clip(index,
 		_shown_id, _animation_player, HunterEmotePersonality.clip_override(_shown_id, index))
-	_emote_cue(HunterEmoteCatalog.noise(index))
+	var voice := HunterEmotePersonality.voice(_shown_id, index)
+	if not voice.is_empty():
+		# a content pack's voice for this emote: heard like the noisy emotes, even when this one is normally silent
+		_emote_cue(maxf(HunterEmoteCatalog.noise(index), VOICE_RADIUS), voice[randi() % voice.size()])
+	else:
+		_emote_cue(HunterEmoteCatalog.noise(index))
 
 
 func _end_emote() -> void:
@@ -922,7 +969,10 @@ func _emote_plays_now() -> bool:
 
 
 ## Small positional cue for noisy emotes (laugh, hum, dance): quieter with distance, silent beyond the radius.
-func _emote_cue(radius: float) -> void:
+const VOICE_RADIUS := 16.0
+
+
+func _emote_cue(radius: float, voice: AudioStream = null) -> void:
 	if radius <= 0.0 or not is_inside_tree():
 		return
 	var camera := get_viewport().get_camera_3d()
@@ -932,6 +982,9 @@ func _emote_cue(radius: float) -> void:
 	if distance >= radius:
 		return
 	var side := (global_position - camera.global_position).dot(camera.global_basis.x)
+	if voice != null:
+		Sound.play_voice(voice, 1.0 - distance / radius)
+		return
 	Sound.hunter_laugh(clampf(side / maxf(radius * .5, 1.0), -1.0, 1.0), .05 * (1.0 - distance / radius))
 
 

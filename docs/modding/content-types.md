@@ -188,3 +188,37 @@ Rules: recipes place plain props only -- no hiding spots, lockers, booths or oth
 those). Every prop must be known (built-in or from your pack) and pack props need a `size`. Items that don't fit are
 skipped; the game checks every generated room keeps its entrance clear, all its floor reachable and room for pickups.
 See `examples/mods/record_shop` for a complete pack.
+
+## Death lines
+
+The line on the death screen comes from the hunter that caught you, picked from its lines by the route seed, so
+everyone in the room sees the same one.
+
+```json
+{"schema": "lr.deaths/1", "id": "mypack_runner", "lines": ["Caught you on depth {depth}.", "Run, {name}."],
+ "lore_line": "One for the archive.", "mode": "replace"}
+```
+
+| field | required | meaning |
+|---|---|---|
+| `id` | yes | the hunter: one of your pack's, or a built-in one listed in `overrides` as `"deaths/<id>"` |
+| `lines` | yes | text lines (`{depth}` and `{name}` are filled in), or `{"text": ..., "style": "caption"}` for a quiet caption |
+| `lore_line` | no | one more line in the pool |
+| `mode` | no | `replace` (default) swaps the hunter's lines; `add` keeps the built-in ones and adds yours |
+
+## Emotes (`emotes/`, `lr.emote/1`)
+
+One file per hunter: your pack's own hunter, or a built-in one listed in `overrides` as `"emotes/<hunter id>"`.
+
+```json
+{"schema": "lr.emote/1", "id": "aki",
+ "weights": {"taunt": 0, "dance": 3},
+ "clips": {"stretch": "emote_shy"},
+ "voice": {"laugh": ["assets/aki_laugh1.ogg", "assets/aki_laugh2.ogg"]}}
+```
+
+- `weights`: how often the hunter picks each emote (1 = normal, 0 = never).
+- `clips`: play another animation clip for an emote.
+- `voice`: recordings played (one at random, heard by distance) when the hunter does that emote.
+
+Emote names must be in `HunterEmoteCatalog`; anything left out keeps the built-in behaviour. Hot-swapped like every kind.

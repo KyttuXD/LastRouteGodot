@@ -173,24 +173,62 @@ checks the clearance, the placement and that hunters still reach every cell a cr
 
 ## Breaking pipes and floods
 
-The Axe breaks the sewer's pipes: every crawl pipe (hp 3) and outflow main (hp 4) is one `Breach` pipe spec (docs/BREACH.md,
-variant `"authored"`, Axe only) from `SewerRouteGenerator._pipe_breakables`. Its props carry `breakable_id`.
+The Axe breaks the sewer's pipes. Every crawl pipe (hp 3) and outflow main (hp 4) is one `Breach` pipe spec
+(docs/BREACH.md): variant `"authored"`, Axe only, from `SewerRouteGenerator._pipe_breakables`. Its props carry
+`breakable_id`. A swing is loud: `Breach.NOISE_LEVEL` brings hunters.
 
-A swing is loud: `Breach.NOISE_LEVEL` brings hunters. When the pipe gives way ("breached", on every machine):
+When the pipe gives way ("breached", on every machine):
 
-* the view removes its mains, collider and drips (an outflow main leaves its torn stump at the wall, the authored
-  `sewer_outflow_pipe_broken`, gushing along the old run while it floods), and a rebuilt chunk keeps it broken;
-* hunter navigation and the minimap drop it;
-* `SewerFloods` starts a flood over the spec's `flood_cells`: dry walkway within `FLOOD_REACH` steps, at most
-  `FLOOD_MAX_CELLS`.
+* the view removes its mains, collider and drips;
+* an outflow main leaves its torn stump at the wall (the authored `sewer_outflow_pipe_broken`), gushing along the old
+  run;
+* a rebuilt chunk keeps the pipe broken;
+* hunter navigation and the minimap drop the pipe;
+* `SewerFloods` starts a flood over the spec's `flood_cells` / `flood_steps`: walkway within `FLOOD_REACH` (12) steps,
+  at most `FLOOD_MAX_CELLS` (160).
 
-The water is one flat plane per flood, built once; only its height moves. It rises to `MAX_DEPTH` (0.35 m, shin) over
-`RISE` seconds while the pipe sprays and gushes, holds for `HOLD` seconds, then drains over `DRAIN` seconds (90 s).
-`StreamedWorldState.floods` keeps the burst time; a snapshot carries the seconds since, so a co-op join or a reloaded
-run picks up at the same depth.
+Unresolved, the flood keeps getting worse. It reaches shin depth (`MAX_DEPTH`, 0.35 m) in `RISE` seconds. Then, over
+`CREEP` (6 minutes), it creeps up to knee height (`DEEP_DEPTH`, 0.9 m) and spreads from `START_REACH` to `FULL_REACH`
+steps along the walkway, while the gush and spray grow. It never blocks a route, and hunters wade it at their normal
+pace.
 
-A runner wading in it is slowed (`WADE_SPEED_SCALE`) and soaked. Each step splashes at `WADE_NOISE`, louder than a
-sprint, so hunters hear it. Hunters wade at their normal pace. Validator: `sewer_floods`.
+A flood valve in that chunk stops it: the spread freezes and the water drains in `SHUT_DRAIN` (15 s). Each spread step
+is one water mesh, built once; only the holder's height and which steps show change.
+
+`StreamedWorldState.floods` and `flood_shut` keep the burst and shut times. A snapshot carries their ages, so a co-op
+join or a reloaded run picks up in the same state.
+
+A runner wading in the flood:
+
+* is slowed, down to `WADE_SPEED_SCALE` at knee depth;
+* splashes on every step (`WADE_NOISE` at shin depth up to `WADE_DEEP_NOISE` at knee depth, louder than a sprint);
+* stays soaked;
+* tires from `WADE_TIRING_DEPTH` on.
+
+## Valve wheels
+
+Every `sewerValveWheel` is a hold-to-use interactable (2 s). The wheel spins with a clank, and turning it is loud. The
+host decides what the turn does from the prop's `valve_effect` and publishes `stream_valve`; every machine applies it.
+`StreamedWorldState.valve_turns` keeps the count, in the snapshot.
+
+* `"flood"`: shuts the chunk's running floods. With none running, it turns the chunk's pipe drips off and on. A chunk
+  with breakable pipes always has a flood valve: a valve room's, or one added on a tunnel wall
+  (`_flood_valve_features`).
+* `"gate"`: raises or lowers its sluice gate (below).
+* Any other effect (room for more) just counts the turn.
+
+## Sluice gates
+
+A lifting leaf (`sewerSluiceGate`) is hinged on one walkway edge across the channel, out on an arm past its bridge
+(`GATE_OFFSETS`). It is placed at most once per chunk (`GATE_CHANCE`, own seed stream), with its gate valve on the
+hinge side's outer wall. The railings leave its ends open.
+
+Shut, the leaf stands up and the channel stays a wall. Turning its valve swings the leaf down in 2.4 s to lie flat
+across the three channel cells. Their channel collider becomes floor, hunter navigation treats them as floor (and
+paths over them), and the minimap shows the crossing. Open or shut, the bridges and the junction still connect
+everything; open, the gate is a shortcut.
+
+Validator: `sewer_floods`.
 
 Build them with:
 

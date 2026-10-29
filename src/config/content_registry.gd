@@ -19,7 +19,10 @@ const ROOT := "res://data"
 const KINDS := ["props", "regions", "hunters"]
 ## What packs may ship: the built-in kinds plus kinds whose built-in data has its own reader (grabs: GrabStyles, which
 ## reads res://data/grabs itself and takes pack definitions through pack_defs()).
-const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms"]
+const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms",
+	"deaths", "emotes"]
+const EMOTE_CATALOG := "res://src/config/hunter_emote_catalog.gd"
+const DEATHS_SCRIPT := "res://src/config/death_lines.gd"
 const ROOMS_SCRIPT := "res://src/game/room_recipes.gd"
 ## Surface replacements (pack-only kinds): a floor, wall or ceiling kind RefTextures paints, replaced by a pack PNG. Only
 ## the picture changes: roughness, metal and the glow of glass/vault ceilings come from the kind (RefTextures.params).
@@ -355,6 +358,14 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 				if kind == "hunters":
 					hunters[def["id"]] = true
 	for pack in packs:
+		for def in pack["defs"]["emotes"]:
+			if not hunters.has(def["id"]) and not _is_builtin_id("hunters", String(def["id"])):
+				errors.append("%s: emotes for \"%s\", which is not a hunter" % [pack["dir"], def["id"]])
+	for pack in packs:
+		for def in pack["defs"]["deaths"]:
+			if not hunters.has(def["id"]) and not _is_builtin_id("hunters", String(def["id"])):
+				errors.append("%s: death lines for \"%s\", which is not a hunter" % [pack["dir"], def["id"]])
+	for pack in packs:
 		# a grab pool belongs to a hunter: one the game has, or one these packs add
 		for def in pack["defs"]["grabs"]:
 			if not hunters.has(def["id"]) and not _is_builtin_id("hunters", String(def["id"])):
@@ -397,6 +408,8 @@ static func _is_builtin_id(kind: String, id: String) -> bool:
 		return not load(AMBIENCE_SCRIPT).layers(id).is_empty()
 	if SURFACE_KINDS.has(kind):
 		return load(SURFACE_SCRIPT).get_script_constant_map()[SURFACE_KINDS[kind]].has(id)
+	if kind == "deaths" or kind == "emotes":
+		return _is_builtin_id("hunters", id)
 	if kind == "rooms":
 		# only data recipes can be overridden; code recipes stay code
 		return load(ROOMS_SCRIPT).builtin_has(id)
@@ -518,6 +531,11 @@ static func _without_meta(def: Dictionary) -> Dictionary:
 static func parse_file(path: String, kind: String) -> Dictionary:
 	if _extensions.has(kind):
 		return _parse_extension(path, kind)
+	if kind == "emotes":
+		return _parse_emotes(path)
+	if kind == "deaths":
+		var death: Dictionary = load(DEATHS_SCRIPT).parse_pack_file(path)
+		return {"defs": [] if death["def"].is_empty() else [death["def"]], "errors": death["errors"]}
 	if kind == "grabs" or kind == "rooms":
 		var parsed: Dictionary = load(GRAB_SCRIPT if kind == "grabs" else ROOMS_SCRIPT).parse_file(path)
 		return {"defs": [] if parsed["def"].is_empty() else [parsed["def"]], "errors": parsed["errors"]}
@@ -571,6 +589,44 @@ static func parse_file(path: String, kind: String) -> Dictionary:
 		if not def.is_empty():
 			defs.append(def)
 	return {"defs": defs if errors.is_empty() else [], "errors": errors}
+
+
+## One emotes/ file (lr.emote/1, a hunter's emote personality): {"id", "weights"?: {emote: >= 0}, "clips"?: {emote: clip},
+## "voice"?: {emote: [assets/*.ogg]}}; emote names must be in HunterEmoteCatalog.
+static func _parse_emotes(path: String) -> Dictionary:
+	var errors := PackedStringArray()
+	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if not data is Dictionary:
+		return {"defs": [], "errors": PackedStringArray(["%s: not a JSON object" % path])}
+	for key in data:
+		if not key in ["schema", "id", "weights", "clips", "voice"]:
+			errors.append("%s: unknown key \"%s\"" % [path, key])
+	if String(data.get("schema", "")) != "lr.emote/1":
+		errors.append("%s: schema must be lr.emote/1" % path)
+	if typeof(data.get("id")) != TYPE_STRING or not _is_id(data["id"]):
+		errors.append("%s: \"id\" must be the hunter id" % path)
+	var catalog: GDScript = load(EMOTE_CATALOG)
+	for field in ["weights", "clips", "voice"]:
+		var table = data.get(field, {})
+		if not table is Dictionary:
+			errors.append("%s: %s must be an object of emote: value" % [path, field])
+			continue
+		for emote in table:
+			if catalog.index_of(String(emote)) < 0:
+				errors.append("%s: %s.%s is not an emote" % [path, field, emote])
+				continue
+			var value = table[emote]
+			var ok: bool = (field == "weights" and typeof(value) in [TYPE_INT, TYPE_FLOAT] and float(value) >= 0.0) \
+				or (field == "clips" and typeof(value) == TYPE_STRING and not String(value).is_empty()) \
+				or (field == "voice" and value is Array and not value.is_empty() and value.all(func(v): return v is String))
+			if not ok:
+				errors.append("%s: %s.%s must be %s" % [path, field, emote, {"weights": "a number >= 0",
+					"clips": "a clip name", "voice": "a list of .ogg files"}[field]])
+	if not errors.is_empty():
+		return {"defs": [], "errors": errors}
+	var def: Dictionary = data.duplicate(true)
+	def.erase("schema")
+	return {"defs": [def], "errors": errors}
 
 
 ## One extension-kind file: one definition, {"schema", "id", ...}; the owner's validator checks the body.

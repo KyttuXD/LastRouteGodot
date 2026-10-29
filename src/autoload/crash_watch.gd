@@ -159,6 +159,8 @@ class CrashSink extends Logger:
 
 func _enter_tree() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	if Engine.is_editor_hint():
+		autostart = false   # the editor and --import: no sentinel, logger, watchdog or reports
 	if autostart:
 		start()
 
@@ -278,7 +280,7 @@ func _poll_context() -> void:
 
 
 func _note(kind: String, value: String) -> void:
-	if String(_seen.get(kind, "\u0000")) == value:
+	if _seen.has(kind) and String(_seen[kind]) == value:
 		return
 	_seen[kind] = value
 	crumb(kind, value)
@@ -394,8 +396,14 @@ func previous_log_tail() -> String:
 	if file == null:
 		return ""
 	file.seek(maxi(0, file.get_length() - LOG_TAIL_BYTES))
-	# a killed process can leave NUL padding (and the cut can split a UTF-8 sequence): plain ASCII, NULs dropped
-	return file.get_buffer(mini(file.get_length(), LOG_TAIL_BYTES)).get_string_from_ascii().replace(char(0), "")
+	# a killed process can leave NUL padding (and the cut can split a UTF-8 sequence): NUL bytes dropped, plain ASCII.
+	# Keep NUL out of this script's own constants too: one in a string literal made every import print parse errors.
+	var bytes := file.get_buffer(mini(file.get_length(), LOG_TAIL_BYTES))
+	var at := bytes.find(0)
+	while at != -1:
+		bytes.remove_at(at)
+		at = bytes.find(0, at)
+	return bytes.get_string_from_ascii()
 
 
 ## Client-side redaction before anything is queued (the server scrubs again).

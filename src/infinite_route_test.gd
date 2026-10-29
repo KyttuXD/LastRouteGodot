@@ -104,6 +104,8 @@ var _admin_reveal_hunters := false
 var _drop_nodes := {}
 var pixel_signal_effect: PixelSignalEffect
 var jumpscare: HunterJumpscare
+## The level layer of the ambience (docs/AMBIENCE.md).
+var level_ambience: LevelAmbience
 ## Every catch plays the catching hunter's grab (GrabStyles pool, host roll, the runner's surroundings) before the end.
 var grab: HunterGrab
 ## The host's roll for the catch being resolved (GrabStyles.roll_for), and the host's count of catches it has rolled.
@@ -120,6 +122,9 @@ var _story
 var _death_screen_open := false
 var _death_moment: DeathMoment
 var _last_death_cause := {}
+## `_resolve_capture_outcome`'s hunter id for a fall to the bottom of the Mezzanine void (VoidRegion): the same death flow, no hunter.
+const VOID_FALL := "void_fall"
+var _void_fall_check := 0.0
 ## Spectator state: peer id of the followed runner (0 = free camera).
 ## How long a caught PUBLIC-route runner spectates before rejoining (scripts/public_test.gd stretches it).
 static var public_spectate_seconds := 8.0
@@ -168,6 +173,8 @@ func _ready() -> void:
 	world.add_child(jumpscare)
 	grab = HunterGrab.new()
 	world.add_child(grab)
+	level_ambience = LevelAmbience.new()
+	world.add_child(level_ambience)
 	_waypoint_overlay = WaypointOverlay.new()
 	hud.add_child(_waypoint_overlay)
 	Settings.visual_changed.connect(func() -> void: _waypoint_route_key = "")
@@ -237,6 +244,7 @@ func _ready() -> void:
 	facility.booth_requester = _request_booth
 	facility.booth_reporter = _report_booth
 	facility.carousel_requester = _request_carousel
+	facility.valve_requester = _request_valve
 	if not pending_payload.is_empty():
 		_loaded_from_save = _adopt_route_save_before_stream(pending_payload)
 	facility.begin(str(RoomState.run_seed()), player, world_state)
@@ -378,6 +386,7 @@ func _process(delta: float) -> void:
 	if not _slammed_doors.is_empty() and _remotes.simulates():
 		_tick_slammed_doors(delta)
 	_update_spectating()
+	_tick_void_fall(delta)
 	_update_revives(delta)
 	if _admin_show_collision and _collision_overlay != null:
 		_collision_overlay.refresh(facility.loaded_chunk_data(), StreamedFacilityView3D.LEVEL_HEIGHT)
@@ -450,6 +459,7 @@ func _process(delta: float) -> void:
 		_refresh_hunter_stream()
 	if not _remotes.simulates():
 		_pump_guest_hunters()
+		_present_guest_hunters()
 	if _remotes.simulates():
 		_hunter_simulation_accumulator = minf(
 			_hunter_simulation_accumulator + delta,
@@ -633,6 +643,44 @@ func _hunter_admin_labels(ids: Array) -> Dictionary:
 	return labels
 
 
+## Owner controls for a reserved private room: the host carries them out at once; an owner who is a guest queues
+## them on the directory, which hands them to whoever hosts (RoomState._on_reserved_commands).
+func _admin_private_room(command: String, same_seed: bool) -> void:
+	if not RoomState.reserved:
+		hud.show_message("NOT A PRIVATE ROOM")
+		return
+	if RoomState.is_host:
+		RoomState._on_reserved_commands([{"seq": 0, "command": command, "args": {"sameSeed": same_seed}}])
+	else:
+		Backend.send_reserved_command(RoomState.code, command, {"sameSeed": same_seed})
+		hud.show_message("PRIVATE ROOM // %s SENT TO THE HOST" % command.to_upper())
+
+
+## Whitelist (owner): every signed-in account in this private room now, from the synced runner states.
+func _admin_whitelist_everyone() -> void:
+	var names := {}
+	if not Backend.account_username.is_empty():
+		names[Backend.account_username.to_upper()] = true
+	for state_value in _remotes._states.values() if _remotes != null else []:
+		var account := String((state_value as Dictionary).get("account", ""))
+		if not account.is_empty():
+			names[account.to_upper()] = true
+	if names.is_empty():
+		hud.show_message("NOBODY HERE IS SIGNED IN")
+		return
+	for name in names:
+		_admin_whitelist("add", String(name))
+
+
+func _admin_whitelist(op: String, name: String) -> void:
+	if not RoomState.reserved:
+		hud.show_message("NOT A PRIVATE ROOM")
+		return
+	Backend.reserved_whitelist(RoomState.code, op, name, func(ok: bool, whitelist: Array, message: String) -> void:
+		if hud != null:
+			hud.show_message(("WHITELIST // %s" % ", ".join(PackedStringArray(whitelist))) if ok else message))
+
+
 func _infinite_admin_actions() -> Array:
 	var hunter_ids: Array = []
 	hunter_ids.append_array(HunterRoster.A_Z_IDS)
@@ -641,6 +689,16 @@ func _infinite_admin_actions() -> Array:
 	return [
 		{"label": "REFRESH ADMIN ROSTER", "action": Backend.admin_roster_refresh,
 			"owner_only": true, "no_debug": true},
+		{"heading": "PRIVATE ROOM", "label": "RESTART ROUTE // NEW SEED", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_private_room("restart", false)},
+		{"label": "RESTART ROUTE // SAME SEED", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_private_room("restart", true)},
+		{"label": "END ROUTE", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_private_room("end", false)},
+		{"label": "WHITELIST EVERYONE HERE", "owner_only": true, "no_debug": true,
+			"action": _admin_whitelist_everyone},
+		{"label": "SHOW WHITELIST", "owner_only": true, "no_debug": true,
+			"action": func() -> void: _admin_whitelist("list", "")},
 		{"heading": "ROOM CHAT", "label": "ROOM MUTE LAST SPEAKER", "owner_only": true, "no_debug": true,
 			"action": func() -> void: _admin_room_chat("mute")},
 		{"label": "ROOM UNMUTE EVERYONE", "owner_only": true, "no_debug": true,
@@ -1323,6 +1381,13 @@ func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
 			return
 		for x in side:
 			walls[z * side + x] = 1 if int(row[x]) != 0 else 0
+	# an open sewer sluice gate is a crossing on the map too
+	for gate_value in data.get("gates", []):
+		if world_state.valve_count(String((gate_value as Dictionary)["valve"])) % 2 == 1:
+			for cell_value in (gate_value as Dictionary)["cells"]:
+				var gate_cell: Vector2i = cell_value
+				if gate_cell.y < side and gate_cell.x < side:
+					walls[gate_cell.y * side + gate_cell.x] = 0
 	var visible_pickups := []
 	for value in data.get("pickups", []):
 		var pickup: Dictionary = value
@@ -1515,13 +1580,17 @@ func _clear_reached_waypoints(level: int) -> void:
 		_clear_local_waypoint()
 
 
-## Footstep surface under the runner and the ambient bed for where they stand (district or room purpose), ducked in chases.
+## Footstep surface under the runner, the ambient bed for where they stand (district or room purpose), ducked in chases, and
+## the level layer (LevelAmbience: the level's bed and reverb, and the nearest waterfalls, lava and floods).
 func _update_floor_audio(level: int) -> void:
 	var at := Vector2(player.global_position.x, player.global_position.z)
 	var kind := facility.floor_kind_at(at, level)
 	player.footstep_surface = SurfaceSounds.for_floor(kind) if kind != "" else ""
 	var region := String(facility.current_chunk_data().get("region", ""))
 	Sound.set_ambience(AmbienceTable.key_for(region, facility.room_type_at(at, level)))
+	var camera := get_viewport().get_camera_3d()
+	level_ambience.update(camera.global_position if camera != null else player.global_position, level,
+		facility.current_chunk_data())
 	var chased := false
 	for view_value in _hunter_views.values():
 		var view := view_value as HunterView3D
@@ -2409,11 +2478,15 @@ func _spawn_anti_idle_hunter(peer_id: int = 0, reason: String = "relay", idle_se
 ## leads to. Keeping every neighbouring level generated whether or not anything
 ## connects to it built a whole Inferno window the moment a runner reached the
 ## collector (a 110-180 ms frame on the level change).
-func _hunter_window_levels(center: Vector3i) -> Array:
+## `cached_only`: read the links from chunks already generated (a teammate's window): the generator otherwise builds the
+## chunks to find them, on this thread.
+func _hunter_window_levels(center: Vector3i, cached_only := false) -> Array:
 	var levels := [center.y]
 	for z in range(center.z - 1, center.z + 2):
 		for x in range(center.x - 1, center.x + 2):
-			for link_value in facility.generator.vertical_links(Vector3i(x, center.y, z)):
+			if cached_only and not facility.chunk_ready(Vector3i(x, center.y, z)):
+				continue
+			for link_value in facility.generator.vertical_links(Vector3i(x, center.y, z), cached_only):
 				var far := int(LevelLink.other_end(link_value, center.y)["level"])
 				if absi(far - center.y) <= HUNTER_VERTICAL_STREAM_RADIUS and not levels.has(far):
 					levels.append(far)
@@ -2424,7 +2497,8 @@ func _refresh_hunter_stream() -> void:
 	if _remotes == null or not _remotes.simulates() or facility.generator == null:
 		return
 	_repair_duplicate_hunter_identities()
-	var centers: Array[Vector3i] = [facility.current_chunk_coord()]
+	var own_center := facility.current_chunk_coord()
+	var centers: Array[Vector3i] = [own_center]
 	for value in _remotes.stream_centers():
 		var center: Vector3i = value
 		if not centers.has(center):
@@ -2438,6 +2512,7 @@ func _refresh_hunter_stream() -> void:
 	_hunter_stream_signature = stream_signature
 	_hunter_stream_waiting = false
 	var active_coords := {}
+	var generating_round_teammates := {}
 	var coords_by_level := {}
 	var navigation_centers: Array[Vector3i] = centers.duplicate()
 	# A pursuing hunter owns a small authority window too. Otherwise a runner
@@ -2461,7 +2536,7 @@ func _refresh_hunter_stream() -> void:
 	# hunter resident across successive stair transfers instead of unloading
 	# immediately when the player climbs twice.
 	for center in navigation_centers:
-		for level in _hunter_window_levels(center):
+		for level in _hunter_window_levels(center, center != own_center):
 			if not coords_by_level.has(level):
 				coords_by_level[level] = []
 			var level_coords: Array = coords_by_level[level]
@@ -2470,11 +2545,14 @@ func _refresh_hunter_stream() -> void:
 					var coord := Vector3i(x, level, z)
 					if not facility.generator.is_chunk_allowed(coord):
 						continue
-					# another level's chunks join once the view's worker has generated them,
-					# so reaching a level never generates a whole window on this thread
-					if level != center.y and not facility.chunk_ready(coord):
+					# another level's chunks, and every chunk round a teammate, join once the view's worker has
+					# generated them, so reaching a level or a teammate running onto fresh ground never generates a
+					# whole window on this thread (a teammate's new window cost the host ~320 ms in one frame)
+					if (level != center.y or center != own_center) and not facility.chunk_ready(coord):
 						facility.request_generation(coord)
 						_hunter_stream_waiting = true
+						if center != own_center:
+							generating_round_teammates[coord] = true
 						continue
 					active_coords[coord] = true
 					if not level_coords.has(coord):
@@ -2500,7 +2578,10 @@ func _refresh_hunter_stream() -> void:
 	for entity_id_value in world_state.hunters:
 		var entity_id := String(entity_id_value)
 		var state := world_state.hunter_state(entity_id)
-		if active_coords.has(_state_chunk(state)):
+		# a loaded hunter in a teammate's chunk that is still generating stays (one chasing them onto fresh ground would
+		# otherwise vanish until the worker caught up)
+		if active_coords.has(_state_chunk(state)) \
+				or (_hunter_views.has(entity_id) and generating_round_teammates.has(_state_chunk(state))):
 			desired[entity_id] = state
 	var candidates: Array[Dictionary] = []
 	for coord_value in active_coords:
@@ -3852,18 +3933,22 @@ func _tick_sync_gate(delta: float) -> void:
 	if step >= RouteSyncGate.STEPS.size():
 		_finish_sync_gate()
 		return
+	# the handshake: a current host tags its state with the wire version (RemotePlayers._wire_peers)
+	if _sync_gate.old_host(_remotes != null and int(_remotes._wire_peers.get(1, 0)) >= PlayerStateWire.VERSION):
+		_finish_sync_gate("HOST ON AN OLDER BUILD")
+		return
 	_sync_overlay.show_sync_step(step, RouteSyncGate.STEPS.size())
 	if _sync_gate.timed_out():
 		_sync_overlay.show_sync_stuck()
 
 
-func _finish_sync_gate() -> void:
+func _finish_sync_gate(notice: String = "ROUTE SYNCED") -> void:
 	_sync_gate = null
 	_sync_overlay.dismiss()
 	player.set_physics_process(true)
 	player.input_frozen = (pause_menu != null and pause_menu.is_open()) or hud.inventory_is_open() \
 		or (_admin_menu != null and _admin_menu.is_open()) or (_story != null and _story.is_active())
-	hud.show_message("ROUTE SYNCED")
+	hud.show_message(notice)
 
 
 ## Guest prediction (docs: COOP-PACKETS note): a guest's own door or pickup shows at once instead of after a host round
@@ -4190,6 +4275,78 @@ func _tick_carousels(delta: float) -> void:
 				_accept_carousel(0, {"carousel_id": ride_id})
 
 
+## Sewer valve wheels (docs/SEWERS.md): turning one (a 2 s hold) is loud (the turner's noise) and, host-authoritative like
+## the merry-go-round, does its valve_effect on every machine. "flood": shuts every running flood of that chunk's burst
+## pipes (SewerFloods drains it fast), or with none running turns the chunk's pipe drips off and on. "gate": raises or
+## lowers its sluice gate (a channel crossing for runners and hunters). Any other effect just counts the turn.
+const VALVE_REACH := 3.0
+
+
+func _request_valve(requesting_player: PlayerController3D, valve_id: String) -> String:
+	if requesting_player != null:
+		requesting_player.emit_noise_burst(StreamedFacilityView3D.VALVE_NOISE, StreamedFacilityView3D.VALVE_TURN_SECONDS)
+	var event := {"what": "stream_valve", "valve_id": valve_id}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_valve(_local_peer_id(), event)
+	return ""
+
+
+## {coord, at (Vector2 world cell centre), effect, gate} of a real generated valve wheel, else {}.
+func _valve_info(valve_id: String) -> Dictionary:
+	var parts := valve_id.split(":")
+	if valve_id.length() > 80 or parts.size() != 6 or parts[0] != "SEWER" or parts[4] != "PROP" \
+			or not parts[1].is_valid_int() or not parts[2].is_valid_int() or not parts[3].is_valid_int():
+		return {}
+	var coord := Vector3i(int(parts[1]), int(parts[2]), int(parts[3]))
+	if not facility.generator.is_chunk_allowed(coord):
+		return {}
+	for value in facility.generator.chunk(coord).get("region_props", []):
+		var prop: Dictionary = value
+		if String(prop.get("id", "")) == valve_id and String(prop.get("type", "")) == "sewerValveWheel":
+			var cell: Vector2i = prop["cell"]
+			var size := StreamedRouteGenerator.CHUNK_SIZE
+			return {"coord": coord, "at": Vector2(coord.x * size + cell.x + .5, coord.z * size + cell.y + .5),
+				"effect": String(prop.get("valve_effect", "flood")), "gate": String(prop.get("gate", ""))}
+	return {}
+
+
+func _accept_valve(peer_id: int, event: Dictionary) -> void:
+	var valve_id := String(event.get("valve_id", ""))
+	var info := _valve_info(valve_id)
+	if info.is_empty():
+		return
+	var target := _target_state_for_peer(peer_id)
+	var position = target.get("position")
+	if target.is_empty() or not position is Vector2 or -int(target.get("depth", 999999)) != (info["coord"] as Vector3i).y \
+			or (position as Vector2).distance_to(info["at"]) > VALVE_REACH:
+		return
+	var coord: Vector3i = info["coord"]
+	var effect := String(info["effect"])
+	var shut := effect == "flood" and _floods_running(coord)
+	var turns := world_state.valve_count(valve_id) + (0 if shut else 1)
+	_publish_stream_event({"what": "stream_valve", "valve_id": valve_id, "chunk": coord, "effect": effect, "shut": shut,
+		"turns": turns, "gate": info["gate"]})
+
+
+## Whether a burst pipe's flood in the chunk is still unshut (what a flood valve then stops).
+func _floods_running(coord: Vector3i) -> bool:
+	var prefix := "BRK:%d:%d:%d:" % [coord.x, coord.y, coord.z]
+	for id in world_state.floods:
+		if String(id).begins_with(prefix) and world_state.flood_shut_at(String(id)) < 0.0:
+			return true
+	return false
+
+
+func _apply_valve_event(event: Dictionary) -> void:
+	if bool(event.get("shut", false)):
+		world_state.shut_floods(event.get("chunk", Vector3i.ZERO) as Vector3i)
+	else:
+		world_state.set_valve_turns(String(event.get("valve_id", "")), int(event.get("turns", 0)))
+	facility.apply_valve(String(event.get("valve_id", "")), event)
+
+
 ## Breakables (Breach, docs/BREACH.md): a tool swing at a seal, board or pipe. Host-authoritative like doors: the host takes
 ## the hit points off and publishes "stream_breach" (the new hp, so replays are harmless); a guest asks.
 func _request_breach(id: String, tool: String) -> void:
@@ -4328,6 +4485,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_booth(peer_id, event)
 		"stream_carousel":
 			_accept_carousel(peer_id, event)
+		"stream_valve":
+			_accept_valve(peer_id, event)
 		"stream_breach_request":
 			_accept_breach_request(peer_id, event)
 		"stream_room_light":
@@ -4801,6 +4960,8 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			_apply_booth_event(event)
 		"stream_carousel":
 			_apply_carousel_event(event)
+		"stream_valve":
+			_apply_valve_event(event)
 		"stream_breach":
 			_apply_breach_event(event)
 		"stream_room_light":
@@ -5156,6 +5317,7 @@ func _sync_stream_progress() -> void:
 
 func _collect_hunter_report() -> void:
 	_hunter_report.clear()
+	var sent_ms := Time.get_ticks_msec()   # the host's clock: guests interpolate hunters on it (RemoteMotion)
 	var ids := _hunter_views.keys()
 	ids.sort()
 	for entity_id_value in ids:
@@ -5165,6 +5327,7 @@ func _collect_hunter_report() -> void:
 			continue
 		var state := world_state.hunter_state(entity_id)
 		state["entity_id"] = entity_id
+		state["sent_ms"] = sent_ms
 		state["target_peer_id"] = view.target_peer_id
 		state["look_target"] = view.look_target_position if view.has_look_target else null
 		state["on_stairs"] = false
@@ -5218,6 +5381,33 @@ func _apply_hunter_report(data: Array) -> void:
 			_guest_hunter_queue.erase(entity_id_value)
 
 
+var _guest_hunter_motion := {}
+var _guest_hunter_stamp := {}   # entity id -> newest report time taken (host clock)
+
+
+## Puts a guest's hunter where its interpolation buffer says it is now (position and facing).
+func _present_guest_hunter(view: HunterView3D, motion: RemoteMotion, now_ms: float) -> void:
+	var pose := motion.sample(now_ms)
+	if pose.is_empty():
+		return
+	var at: Vector3 = pose["at"]
+	view.brain.position = Vector2(at.x, at.z)
+	view.brain.facing = Vector2.from_angle(float(pose["facing"]))
+
+
+## Every frame on a guest: each hunter view follows its buffer between reports.
+func _present_guest_hunters() -> void:
+	var now_ms := float(Time.get_ticks_msec())
+	for entity_id_value in _guest_hunter_motion.keys():
+		var view := _hunter_views.get(entity_id_value) as HunterView3D
+		if view == null or not is_instance_valid(view) or view.brain == null:
+			_guest_hunter_motion.erase(entity_id_value)
+			_guest_hunter_stamp.erase(entity_id_value)
+			continue
+		_present_guest_hunter(view, _guest_hunter_motion[entity_id_value], now_ms)
+		view.sync_from_brain()
+
+
 ## Guest hunter views: built within GUEST_HUNTER_RADIUS chunks and one storey of this runner, dropped past
 ## GUEST_HUNTER_DROP_RADIUS or two storeys (hysteresis, so a hunter on the edge is not rebuilt every packet).
 const GUEST_HUNTER_RADIUS := 2
@@ -5257,7 +5447,27 @@ func _apply_guest_hunter_state(entity_id: String, state: Dictionary) -> void:
 	var view := _hunter_views.get(entity_id) as HunterView3D
 	if view == null or view.brain == null:
 		return
+	# a report older than the newest one taken (the reliable large-report channel can arrive after a newer small one)
+	# changes nothing
+	var stamp = state.get("sent_ms")
+	if stamp is int or stamp is float:
+		if float(stamp) <= float(_guest_hunter_stamp.get(entity_id, -1.0)):
+			return
+		_guest_hunter_stamp[entity_id] = float(stamp)
 	world_state.restore_hunter(view.brain, state)
+	# Interpolated like the runners (RemoteMotion): the body is drawn 100 ms behind the newest report, between the two
+	# reports that bracket that moment. Setting the brain to each 20 Hz report made a hunter jump to it within one physics
+	# frame and stand still until the next, so every late or bunched packet showed as a stall and a lurch.
+	var motion := _guest_hunter_motion.get(entity_id) as RemoteMotion
+	if motion == null:
+		motion = RemoteMotion.new()
+		_guest_hunter_motion[entity_id] = motion
+	var now_ms := float(Time.get_ticks_msec())
+	var sent_ms = state.get("sent_ms")   # an older host sends none: the arrival time stands in
+	var reported: Vector2 = view.brain.position
+	motion.push(float(sent_ms) if sent_ms is int or sent_ms is float else now_ms, now_ms,
+		Vector3(reported.x, 0.0, reported.y), view.brain.facing.angle())
+	_present_guest_hunter(view, motion, now_ms)
 	var level := int(state.get("level", 0))
 	_hunter_levels[entity_id] = level
 	view.surface_height_provider = facility.streamed_surface_height.bind(level)
@@ -5441,14 +5651,37 @@ func _resolve_escape_success(with_axe: bool = false, note: String = "") -> void:
 	_escaping_hunter_id = ""
 
 
+## Falling to the bottom of the Mezzanine void (VoidRegion) is a catch: standing below the pit floor's surface, over a pit
+## cell, ends the run through the normal death flow with no hunter (KT). Checked four times a second.
+func _tick_void_fall(delta: float) -> void:
+	_void_fall_check -= delta
+	if _void_fall_check > 0.0 or player == null or _capture_resolving or _death_screen_open:
+		return
+	_void_fall_check = .25
+	var at := player.global_position
+	var floor_y := float(VoidRegion.BOTTOM_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
+	if at.y > floor_y + 1.2 or at.y < floor_y - 2.0:
+		return
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var coord := Vector3i(floori(at.x / size), VoidRegion.BOTTOM_LEVEL, floori(at.z / size))
+	if not VoidRegion.is_void_chunk(facility.generator.world_seed, coord):
+		return
+	var grid: Array = facility.generator.chunk(coord).get("mezzanine_grid", [])
+	if grid.is_empty():
+		return
+	if int(grid[posmod(floori(at.z), size)][posmod(floori(at.x), size)]) == MezzanineRouteGenerator.PIT:
+		_resolve_capture_outcome(VOID_FALL)
+
+
 ## Shared by a failed struggle and an inescapable grab (void hunters, or a
 ## gimmick that declares the grab inescapable): the same local jumpscare and
 ## death report either way.
 func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void:
 	if _capture_resolving:
 		return
+	var fell := hunter_id == VOID_FALL
 	_capture_resolving = true
-	var catcher := _capture_view(hunter_id, entity_id)
+	var catcher = null if fell else _capture_view(hunter_id, entity_id)
 	GameState.resolve_escape_failure()
 	_save_after_local_death()
 	hud.set_escape_active(false)
@@ -5456,7 +5689,8 @@ func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void
 	_escaping_hunter_id = ""
 	_force_disable_admin_cheats()
 	_death_screen_open = true
-	_hunters_gloat(multiplayer.get_unique_id() if RoomState.online else 1, hunter_id)
+	if not fell:
+		_hunters_gloat(multiplayer.get_unique_id() if RoomState.online else 1, hunter_id)
 	_capture_cooldown = 60.0 * 60.0
 	player.velocity = Vector3.ZERO
 	player.input_frozen = true
@@ -5467,27 +5701,31 @@ func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void
 		pause_menu.close()
 	pause_menu.set_process(false)
 	pause_menu.set_process_unhandled_input(false)
-	var identity := HunterRoster.get_identity(hunter_id)
-	var hunter_name := String(identity.get("display_name", hunter_id)).to_upper()
+	var identity := {} if fell else HunterRoster.get_identity(hunter_id)
+	var hunter_name := "THE VOID" if fell else String(identity.get("display_name", hunter_id)).to_upper()
 	# Same local capture presentation as main_3d.gd: play the lunge/camera
 	# takeover before the death screen or spectator handoff so the player
 	# actually sees the hunter that caught them.
-	if catcher != null:
+	if catcher != null and not fell:
 		hud.set_death_flow(true)   # the grab owns the screen: no hotbar, minimap or stamina over it
 		await grab.play(player, catcher, hunter_id, _take_grab_roll())
-	if HunterJumpscare.ENABLED:
+	elif fell:
+		hud.set_death_flow(true)   # a fall into the void: the same clean death screen, no hunter
+	if HunterJumpscare.ENABLED and not fell:
 		Sound.office_jumpscare(hunter_id)
-	if jumpscare != null:
+	if jumpscare != null and not fell:
 		jumpscare.duration_scale = GameConfig.TROLL_SCARE_SCALE if player.troll_active else 1.0
 		await jumpscare.play(player.active_camera(), hunter_id)
 	# The death moment is only an overlay: online the spectator hand-off below happens at once, solo the run card
 	# waits for it so the line is read before the end card.
-	_last_death_cause = _death_cause(hunter_id)
-	var moment := _death_moment_for(hunter_id, _last_death_cause)
-	if RoomState.public_route or RoomState.online:
-		_play_death_moment(hunter_name, moment, hunter_id)
-	else:
-		await _play_death_moment(hunter_name, moment, hunter_id)
+	# a fall into the void has no hunter and no line, only the card
+	_last_death_cause = {} if fell else _death_cause(hunter_id)
+	if not fell:
+		var moment := _death_moment_for(hunter_id, _last_death_cause)
+		if RoomState.public_route or RoomState.online:
+			_play_death_moment(hunter_name, moment, hunter_id)
+		else:
+			await _play_death_moment(hunter_name, moment, hunter_id)
 	if RoomState.public_route:
 		await _public_spectate_then_rejoin(hunter_name)
 		return
@@ -5515,7 +5753,7 @@ func _resolve_capture_outcome(hunter_id: String, entity_id: String = "") -> void
 		"online": RoomState.online, "host": RoomState.is_host,
 		"respawn": true, "title": "YOU DIED",
 		"kicker": "RUNNER SIGNAL // LOST",
-		"reason": "CAUGHT BY %s" % hunter_name,
+		"reason": "FELL INTO THE VOID" if fell else "CAUGHT BY %s" % hunter_name,
 		"depth": -facility.current_level(), "score": GameState.score,
 		"relays": GameState.relays_collected,
 		"relay_target": GameState.relay_target,
@@ -5959,7 +6197,7 @@ func _update_spectating() -> void:
 	if _spectator_banner != null:
 		_spectator_banner.show_for(
 			RoomState.peer_display_name(int(watching.get("peer_id", 0))) \
-			if not watching.is_empty() else "", note)
+			if not watching.is_empty() and player.ghost_follow else "", note)
 	# Party wipe: the host was already spectating and the last guest just fell.
 	if RoomState.online and RoomState.is_host and not RoomState.public_route \
 			and not _death_screen_open and not _capture_resolving \
@@ -5997,13 +6235,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not player.spectator_mode or not (event is InputEventKey) \
 			or not event.pressed or event.echo:
 		return
+	# KT: a ghost walks; F looks over a living teammate's shoulder (the arrows pick who) and F again returns to the ghost
 	match (event as InputEventKey).physical_keycode:
-		KEY_E:
+		KEY_RIGHT:
 			_cycle_spectate_target(1)
-		KEY_Q:
+			player.set_ghost_follow(true)
+		KEY_LEFT:
 			_cycle_spectate_target(-1)
+			player.set_ghost_follow(true)
 		KEY_F:
-			_cycle_spectate_target(0)
+			player.set_ghost_follow(not player.ghost_follow)
 
 
 func _respawn_after_death() -> void:
