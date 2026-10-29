@@ -65,6 +65,14 @@ func _ready() -> void:
 
 ## True for a cue this class renders itself, as opposed to the fallback beep any unknown name gets (packs may only
 ## replace real cues).
+## A content pack's recording (a hunter's emote voice), `loudness` 0..1 with distance.
+func play_voice(stream: AudioStream, loudness: float) -> void:
+	if muted or stream == null:
+		return
+	_play_stream(stream, &"SFX", linear_to_db(clampf(loudness, 0.02, 1.0)))
+	_record("voice")
+
+
 func knows_cue(cue: String) -> bool:
 	var unknown := ("nw_" if cue.begins_with("nw_") else "") + "__unknown_cue__"
 	return var_to_str(_cue_components(cue, 0.0, 1.0)) != var_to_str(_cue_components(unknown, 0.0, 1.0))

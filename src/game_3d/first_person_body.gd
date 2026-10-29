@@ -130,9 +130,33 @@ func pose(feet: Vector3, basis: Basis, clip: String) -> void:
 	if clip != _clip or (animation != null and not animation.is_playing()):
 		_clip = clip
 		ModelSlot.play_if_available(animation, clip)
+	# back to rest only where the clip leaves a bone alone: one the clip drives is posed as everyone else's copy shows it
+	var keyed := _keyed_bones()
 	for bone in _arm_rest:
-		if is_instance_valid(bone):
+		if is_instance_valid(bone) and not keyed.has(bone):
 			(bone as Node3D).transform = _arm_rest[bone]
+
+
+var _keyed := {}
+
+
+## The bones the current clip has tracks for (cached per clip).
+func _keyed_bones() -> Dictionary:
+	if _keyed.has(_clip):
+		return _keyed[_clip]
+	var out := {}
+	if animation != null and animation.has_animation(_clip):
+		var anim := animation.get_animation(_clip)
+		var root := animation.get_node_or_null(animation.root_node)
+		if root != null:
+			for bone in _arm_rest:
+				var path := String(root.get_path_to(bone))
+				for i in anim.get_track_count():
+					if String(anim.track_get_path(i)).get_slice(":", 0) == path:
+						out[bone] = true
+						break
+	_keyed[_clip] = out
+	return out
 
 
 ## Where the camera goes (KT): in front of the head, on the plane where the head box ends (its face) plus FACE_GAP, at the
@@ -145,6 +169,11 @@ const FACE_GAP := .015
 func eye() -> Vector3:
 	if model == null:
 		return global_position + Vector3.UP * 1.35
+	return eye_of(model)
+
+
+## The same point on any player model (another runner's copy too): where their camera is on their own machine.
+static func eye_of(model: Node3D) -> Vector3:
 	var head := model.find_child("Head", true, false) as Node3D
 	var left := model.find_child("L-Eye-Attachment", true, false) as Node3D
 	var right := model.find_child("R-Eye-Attachment", true, false) as Node3D

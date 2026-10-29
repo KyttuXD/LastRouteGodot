@@ -36,6 +36,9 @@ static func _collect_pack_images() -> Dictionary:
 		out["floor:" + String(def["id"])] = String(def["image"])
 	for def in ContentRegistry.pack_defs("walls"):
 		out["wall:" + String(def["id"])] = String(def["image"])
+	# ceilings share the floor array (32x32); their glow (glass, vault) stays in params(), keyed by kind
+	for def in ContentRegistry.pack_defs("ceilings"):
+		out["ceiling:" + String(def["id"])] = String(def["image"])
 	return out
 
 

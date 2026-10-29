@@ -14,9 +14,11 @@ extends RefCounted
 
 const ROOT := "user://mods"
 const SCHEMA := "lr.pack/1"
-const KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls"]
+## Folders a pack may ship: ContentRegistry.pack_kinds() (built-in pack kinds plus other lanes' extension kinds).
+static func kinds() -> Array:
+	return ContentRegistry.pack_kinds()
 ## Kinds that only replace built-in things (a new id would never be used): every entry must be listed in overrides.
-const OVERRIDE_ONLY_KINDS := ["sounds", "ambience", "floors", "walls"]
+const OVERRIDE_ONLY_KINDS := ["sounds", "ambience", "floors", "walls", "ceilings"]
 const ASSET_EXTENSIONS := ["glb", "png", "ogg"]
 ## Finder litter that is skipped (and left out of the hash) rather than rejecting a hand-installed pack.
 const IGNORED_NAMES := [".DS_Store"]
@@ -108,7 +110,7 @@ static func read(dir: String, limits: Dictionary = LIMITS, folder_is_id: bool = 
 	for file in pack["files"]:
 		var rel := String(file["path"])
 		var kind := rel.get_base_dir()
-		if not KINDS.has(kind):
+		if not kinds().has(kind):
 			continue
 		var parsed := ContentRegistry.parse_file(dir.path_join(rel), kind)
 		errors.append_array(parsed["errors"])
@@ -125,7 +127,7 @@ static func read(dir: String, limits: Dictionary = LIMITS, folder_is_id: bool = 
 
 static func _empty_defs() -> Dictionary:
 	var out := {}
-	for kind in KINDS:
+	for kind in kinds():
 		out[kind] = []
 	return out
 
@@ -187,11 +189,11 @@ static func _placement_problem(rel: String) -> String:
 	if rel == "pack.json":
 		return ""
 	var parts := rel.split("/")
-	if parts.size() == 2 and KINDS.has(parts[0]) and rel.get_extension() == "json":
+	if parts.size() == 2 and kinds().has(parts[0]) and rel.get_extension() == "json":
 		return ""
 	if parts[0] == "assets" and parts.size() >= 2 and ASSET_EXTENSIONS.has(rel.get_extension().to_lower()):
 		return "" if rel.get_extension() == rel.get_extension().to_lower() else "extension must be lower case"
-	return "not allowed in a pack (only pack.json, %s/*.json and assets/*.{%s})" % ["|".join(KINDS),
+	return "not allowed in a pack (only pack.json, %s/*.json and assets/*.{%s})" % ["|".join(kinds()),
 		",".join(ASSET_EXTENSIONS)]
 
 
@@ -228,8 +230,8 @@ static func _read_manifest(dir: String, folder_is_id: bool, errors: PackedString
 		errors.append("%s: version must be 1-32 of 0-9 A-Z a-z . + -, starting with a letter or digit" % path)
 	for entry in data.get("overrides", []):
 		var parts := String(entry).split("/")
-		if parts.size() != 2 or not KINDS.has(parts[0]) or not ContentRegistry._is_id(parts[1], parts[0] == "ambience"):
-			errors.append("%s: override \"%s\" must be <kind>/<id> with kind one of %s" % [path, entry, KINDS])
+		if parts.size() != 2 or not kinds().has(parts[0]) or not ContentRegistry._is_id(parts[1], parts[0] == "ambience"):
+			errors.append("%s: override \"%s\" must be <kind>/<id> with kind one of %s" % [path, entry, kinds()])
 	return data if errors.size() == start else {}
 
 
@@ -260,7 +262,18 @@ static func _finish_def(def: Dictionary, kind: String, manifest: Dictionary, dir
 				errors.append("%s: files is empty" % where)
 				return {}
 			out["files"] = files
-		"floors", "walls":
+		"emotes":
+			var voice := {}
+			for emote in def.get("voice", {}):
+				var files := []
+				for file in def["voice"][emote]:
+					var absolute := _asset(String(file), "ogg", dir, assets, where, errors)
+					if absolute.is_empty():
+						return {}
+					files.append(absolute)
+				voice[emote] = files
+			out["voice"] = voice
+		"floors", "walls", "ceilings":
 			var image := _asset(String(def["image"]), "png", dir, assets, where, errors)
 			if image.is_empty():
 				return {}

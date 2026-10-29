@@ -112,7 +112,7 @@ func _build_world() -> void:
 
 func _spawn_hunters() -> void:
 	for id in BedroomData.CAST:
-		var model := ModelSlot.instantiate_hunter(BedroomData.identity(id))
+		var model := NightWatchHunterScale.instantiate(BedroomData.identity(id))
 		if model == null:
 			model = Node3D.new()
 		model.name = "Hunter_%s" % id

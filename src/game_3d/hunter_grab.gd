@@ -33,6 +33,7 @@ var _last_camera := Transform3D.IDENTITY
 var _base_fov := 78.0
 var _catch_camera := Transform3D.IDENTITY
 var _last_wanted := Vector3.INF
+var _view_roll := 0.0
 var _player: PlayerController3D
 var _view: Node3D
 var _origin := Vector3.ZERO
@@ -145,6 +146,7 @@ static func solve_arm(root: Node, arm_side: String, target: Vector3, amount: flo
 	if bend.length_squared() < 1e-6:
 		bend = direction.cross(Vector3.UP).cross(direction)
 	bend = bend.normalized()
+	bend = _limit_bend(root, arm, bend, direction, (elbow - shoulder) - direction * (elbow - shoulder).dot(direction), upper)
 	var cos_a := clampf((upper * upper + distance * distance - lower * lower) / (2.0 * upper * distance), -1.0, 1.0)
 	var wanted_elbow := shoulder + direction * cos_a * upper + bend * sqrt(1.0 - cos_a * cos_a) * upper
 	_turn(arm, elbow - shoulder, wanted_elbow - shoulder)
@@ -163,6 +165,32 @@ static func solve_arm(root: Node, arm_side: String, target: Vector3, amount: flo
 			var scale := arm.global_basis.get_scale()
 			arm.global_basis = (Basis(axis, twist) * arm.global_basis.orthonormalized()) * Basis.from_scale(scale)
 	_turn(forearm, grip_point(chain) - forearm.global_position, goal - forearm.global_position)
+
+
+## How fast an elbow may swing round into its pole's plane (radians a second): taken from the clip's own plane when an arm
+## starts to be posed, it swung round in one frame, however small the reach.
+const IK_BEND_RATE := 6.0
+
+
+static func _limit_bend(root: Node, arm: Node3D, bend: Vector3, direction: Vector3, own: Vector3, upper: float) -> Vector3:
+	var frame := Engine.get_process_frames()
+	if int(arm.get_meta("ik_frame", -10)) != frame:
+		# a new frame: last frame's plane is where this one starts (none after a gap: the clip's own)
+		arm.set_meta("ik_prev", arm.get_meta("ik_cur") if int(arm.get_meta("ik_frame", -10)) == frame - 1 else Vector3.ZERO)
+		arm.set_meta("ik_frame", frame)
+	var from: Vector3 = arm.get_meta("ik_prev")
+	if from == Vector3.ZERO:
+		from = own if own.length() > upper * .1 else bend
+	from -= direction * from.dot(direction)
+	var out := bend
+	if from.length_squared() > 1e-8:
+		from = from.normalized()
+		var angle := from.angle_to(bend)
+		var most := IK_BEND_RATE * maxf(root.get_process_delta_time(), 1.0 / 60.0)
+		if angle > most and from.dot(bend) > -.999:
+			out = from.slerp(bend, most / angle).normalized()
+	arm.set_meta("ik_cur", out)
+	return out
 
 
 ## Where an elbow points for a reach towards `along`: down, out to its own side and a little back.
@@ -186,22 +214,31 @@ static func pose_hunter_body(view: Node3D, along: Vector3, offsets: Array) -> vo
 	if releasing:
 		model.transform = model.get_meta("grab_rest")
 		model.remove_meta("grab_rest")
+		unbend(model)
 		view.remove_meta("grab_anchor")
 		return
 	# Her model is pinned where the grab began, turned square to the runner: on a live route the hunter keeps being
 	# simulated (and walks, wanders, turns) while she holds someone, and a model riding along with that would pull her hands
 	# off the body. The anchor is taken when a grab starts posing her (or after a gap of a quarter second).
 	if not was_grabbing or not view.has_meta("grab_anchor"):
-		var anchor := view.global_transform
 		model.transform = model.get_meta("grab_rest")
+		# her face's own direction, read with her head at rest (not where her head look happens to point it this frame)
 		var head := view.find_child("Head", true, false) as Node3D
+		var turned := head.quaternion if head != null else Quaternion.IDENTITY
+		if head != null and "_head_rest_q" in view:
+			head.quaternion = view.get("_head_rest_q")
 		var facing := face_forward(head, GrabStyles.look_for(String(view.call("shown_id")) if view.has_method("shown_id") else ""),
 			along) if head != null else along
+		if head != null:
+			head.quaternion = turned
 		var flat := Vector3(facing.x, 0.0, facing.z).normalized()
-		if flat.length_squared() > .5:
-			anchor.basis = Basis(Vector3.UP, flat.signed_angle_to(along, Vector3.UP)) * anchor.basis
-		view.set_meta("grab_anchor", anchor)
+		view.set_meta("grab_anchor", view.global_transform)
+		view.set_meta("grab_turn", flat.signed_angle_to(along, Vector3.UP) if flat.length_squared() > .5 else 0.0)
+		view.set_meta("grab_turn_msec", Time.get_ticks_msec())
+	# turned square to the runner over her reach, not in one frame
 	var anchored: Transform3D = view.get_meta("grab_anchor")
+	var turn_k := GrabStyles.smooth((Time.get_ticks_msec() - int(view.get_meta("grab_turn_msec"))) * .001 / GrabStyles.REACH_SECONDS)
+	anchored.basis = Basis(Vector3.UP, float(view.get_meta("grab_turn")) * turn_k) * anchored.basis
 	model.global_transform = anchored * (model.get_meta("grab_rest") as Transform3D)
 	var forward := float(offsets[0]) if offsets.size() > 0 else 0.0
 	var drop := float(offsets[1]) if offsets.size() > 1 else 0.0
@@ -210,8 +247,106 @@ static func pose_hunter_body(view: Node3D, along: Vector3, offsets: Array) -> vo
 	var axis := Vector3.UP.cross(along).normalized()
 	if axis.length_squared() > .5:
 		placed.basis = Basis(axis, lean) * placed.basis
-	placed.origin += along * forward + Vector3.DOWN * drop
+	placed.origin += along * forward
 	model.global_transform = placed
+	# down to the runner: she squats with her feet where they are, then bends at the waist (lowered whole, her legs went
+	# through the floor); a rig without those bones (a creature) is lowered
+	var rest_drop := _crouch(model, drop)
+	if rest_drop > 0.0:
+		model.global_position += Vector3.DOWN * rest_drop
+	# and her feet stay on her floor however she leans
+	var under := anchored.origin.y - lowest_point(model, FEET)
+	if under > 0.0 and under < 1.0:
+		model.global_position += Vector3.UP * under
+
+
+## The parts a body's lowest point is read from (never the arms: a hand may reach to the floor), and her feet.
+const BODY_PARTS := ["Head", "Chest", "Belly", "Pelvis", "L-Thigh", "R-Thigh", "L-Calf", "R-Calf", "L-Foot", "R-Foot"]
+const FEET := ["L-Calf", "R-Calf", "L-Foot", "R-Foot"]
+const WAIST_BEND := 1.2
+const SQUAT_BEND := 1.45
+
+
+## The lowest corner of the named parts' boxes (each bone's own box and its skin layers), in world height; INF without them.
+static func lowest_point(root: Node3D, parts: Array) -> float:
+	var low := INF
+	for part in parts:
+		var bone := root.find_child(String(part), true, false)
+		if bone == null:
+			continue
+		for node in [bone] + bone.get_children():
+			if node is MeshInstance3D and (node == bone or not String(node.name) in FirstPersonBody.BONES) \
+					and (node as MeshInstance3D).mesh != null and (node as MeshInstance3D).visible:
+				var box := (node as MeshInstance3D).mesh.get_aabb()
+				var at := (node as MeshInstance3D).global_transform
+				for corner in 8:
+					low = minf(low, (at * box.get_endpoint(corner)).y)
+	return low
+
+
+## A bone turned (and lowered, in its parent's frame) on top of what its clip did this frame, never on top of last frame's
+## turn: if nothing rewrote it since, it starts again from the pose underneath (as head_look does).
+static func _offset_bone(bone: Node3D, turn: float, lower: float) -> void:
+	if bone.has_meta("bend_written") and bone.transform.is_equal_approx(bone.get_meta("bend_written")):
+		bone.transform = bone.get_meta("bend_base")
+	bone.set_meta("bend_base", bone.transform)
+	var placed := bone.transform
+	placed.basis = Basis(Vector3.RIGHT, turn) * placed.basis
+	placed.origin += Vector3.DOWN * lower
+	bone.transform = placed
+	bone.set_meta("bend_written", placed)
+
+
+## Takes a crouch off (where no clip has rewritten the bone since) and forgets it.
+static func unbend(model: Node3D) -> void:
+	for part in BODY_PARTS:
+		var bone := model.find_child(String(part), true, false) as Node3D
+		if bone != null and bone.has_meta("bend_written"):
+			if bone.transform.is_equal_approx(bone.get_meta("bend_written")):
+				bone.transform = bone.get_meta("bend_base")
+			bone.remove_meta("bend_written")
+			bone.remove_meta("bend_base")
+
+
+## A bend that lowers by d goes as the square root of d from straight: the first centimetre would swing her head a hand's
+## width in one frame. Started softly instead (quadratic at first, a few centimetres short of d further down, which the
+## reach correction's next pass makes up).
+static func _soft(d: float) -> float:
+	return d * d / (d + .05) if d > 0.0 else 0.0
+
+
+## Brings her shoulders `drop` metres down: a squat (thighs forward, calves back, feet flat, hips lowered as far as the legs
+## fold, up to SQUAT_BEND), then a bend at the waist (up to WAIST_BEND). Returns what is left over (a rig without these bones: all of it).
+static func _crouch(model: Node3D, drop: float) -> float:
+	var belly := model.find_child("Belly", true, false) as Node3D
+	var pelvis := model.find_child("Pelvis", true, false) as Node3D
+	var arm := model.find_child("R-Arm", true, false) as Node3D
+	var legs := []
+	for side in ["L", "R"]:
+		var thigh := model.find_child(side + "-Thigh", true, false) as Node3D
+		var calf := model.find_child(side + "-Calf", true, false) as Node3D
+		var foot := model.find_child(side + "-Foot", true, false) as Node3D
+		if thigh != null and calf != null and foot != null:
+			legs.append([thigh, calf, foot])
+	if belly == null or pelvis == null or arm == null or legs.size() != 2:
+		return maxf(drop, 0.0)
+	drop = maxf(drop, 0.0)
+	# the squat first: it lowers her straight down (a bend at the waist also swings her head forward, a lot for a little)
+	var leg := ((legs[0][0] as Node3D).global_position.distance_to((legs[0][1] as Node3D).global_position)
+		+ (legs[0][1] as Node3D).global_position.distance_to((legs[0][2] as Node3D).global_position))
+	var squat_drop := minf(drop, leg * (1.0 - cos(SQUAT_BEND)))
+	var squat := acos(clampf(1.0 - _soft(squat_drop) / maxf(leg, .01), -1.0, 1.0))
+	var torso := arm.global_position.distance_to(belly.global_position)   # hip to shoulder
+	var waist := minf(drop - squat_drop, torso * (1.0 - cos(WAIST_BEND)))
+	var bend := acos(clampf(1.0 - _soft(waist) / maxf(torso, .01), -1.0, 1.0))
+	var unit := maxf(pelvis.get_parent_node_3d().global_basis.get_scale().y, .001) if pelvis.get_parent_node_3d() != null else 1.0
+	_offset_bone(pelvis, 0.0, squat_drop / unit)
+	_offset_bone(belly, -bend, 0.0)
+	for chain in legs:
+		_offset_bone(chain[0], squat, 0.0)
+		_offset_bone(chain[1], -2.0 * squat, 0.0)
+		_offset_bone(chain[2], squat, 0.0)
+	return drop - waist - squat_drop
 
 
 ## The shoulder carry: the carried runner's hips bend (thighs swung down the hunter's front), `amount` 0..1 of the way.
@@ -239,7 +374,8 @@ static func play_walk(view: Node3D, t: float) -> void:
 	var player := view.get("_animation_player") as AnimationPlayer if "_animation_player" in view else null
 	if player == null or not player.has_animation("walk"):
 		return
-	ModelSlot.play_if_available(player, "walk")
+	if player.current_animation != "walk":
+		player.play("walk", .25)   # blended in from where she stood, not popped
 	player.seek(fmod(t, maxf(player.get_animation("walk").length, .01)), true)
 
 
@@ -303,19 +439,20 @@ static func reach_correction(view: Node3D, along: Vector3, points: Array) -> Vec
 			continue
 		var reach := reach_of(chain)
 		var far := reach * .96
-		# the hand is only part of the way there while it reaches: correct for where it is headed this frame
-		var aim := grip_point(chain).lerp(entry[1] as Vector3, clampf(float(entry[2]), 0.0, 1.0))
-		var span := aim - (chain["arm"] as Node3D).global_position
+		# from the shoulder to the contact itself, eased in as the hand reaches (measured to the hand, a hand still hanging
+		# at her side read as a contact far below her, and each pass crouched her further into the floor)
+		var k := clampf(float(entry[2]), 0.0, 1.0)
+		var span := (entry[1] as Vector3) - (chain["arm"] as Node3D).global_position
 		var below := -span.y
 		if below > far * .8:
-			crouch = maxf(crouch, below - far * .8)
+			crouch = maxf(crouch, (below - far * .8) * k)
 			span.y += below - far * .8
 		var level := span.dot(along)
 		var across := span.length_squared() - level * level
 		if span.length() > far:
-			step = maxf(step, level - sqrt(far * far - across) if far * far > across else level)
+			step = maxf(step, (level - sqrt(far * far - across) if far * far > across else level) * k)
 		elif span.length() < reach * .4:
-			step = minf(step, span.length() - reach * .4)
+			step = minf(step, (span.length() - reach * .4) * k)
 	return Vector2(step, crouch)
 
 
@@ -330,9 +467,38 @@ static func pose_arms_on(view: Node3D, along: Vector3, points: Array, wide: bool
 	return worst
 
 
+## A hand holding nothing comes to rest on her knee as she crouches `drop` metres (hanging free from a deep crouch, it went
+## through the floor).
+static func rest_free_hands(view: Node3D, along: Vector3, points: Array, drop: float) -> void:
+	var amount := GrabStyles.smooth(drop / .7)
+	if amount <= 0.0:
+		return
+	var holding := {}
+	for entry in points:
+		holding[String(entry[0])] = true
+	for side in ["L", "R"]:
+		var calf := view.find_child(side + "-Calf", true, false) as Node3D
+		if holding.has(side) or calf == null:
+			continue
+		solve_arm(view, side, calf.global_position + Vector3.UP * .12 + along * .05, amount, elbow_pole(side, along))
+
+
 ## Where a held runner's own hands go (`body` is their mannequin; the local first-person body or another player's copy):
 ## onto her forearm when held up by it, against her chest when pushing her off, the held wrist out to her grip, clawing at
 ## the floor ahead when dragged; the clip's own arms otherwise (pinned, dangling).
+## Instant captures skip the grab (KT: "death grabs should be avoided by gray void and instant capture hunter events"):
+## an inescapable catch (every Void hunter, Void Gray's anti-idle catch among them; Nyxie's dead-lamp wake; Zellia's deal;
+## a napper who wakes in your room) goes straight to its own capture screen, with no hunter snap, grab camera or carry.
+## A re-catch inside the post-escape cooldown is not one of them: it is an ordinary hunter catching you again.
+static func skips_grab(inescapable: bool) -> bool:
+	return inescapable
+
+
+## The runner's own measures below were taken on the 1.60 m mannequin; the runner is now taller (PlayerModels.SCALE).
+const RUNNER := PlayerModels.SCALE / .9
+const ARM_BONES := ["R-Arm", "R-Forearm", "R-Hand", "L-Arm", "L-Forearm", "L-Hand"]
+
+
 static func runner_hand_targets(body: Node3D, view: Node3D, pose: Dictionary, along: Vector3, t: float) -> Array:
 	var hands := String(pose.get("hands", ""))
 	var basis := body.global_basis.orthonormalized()
@@ -350,32 +516,46 @@ static func runner_hand_targets(body: Node3D, view: Node3D, pose: Dictionary, al
 			var chest := view.find_child("Chest", true, false) as Node3D
 			var target := chest.global_position if chest != null else view.global_position + Vector3.UP
 			for side in [["L", -1.0], ["R", 1.0]]:
-				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0)
+				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0) * RUNNER
 				var toward := (target - shoulder).normalized()
-				out.append([side[0], shoulder + toward * .36 + Vector3.DOWN * .08])
+				out.append([side[0], shoulder + (toward * .36 + Vector3.DOWN * .08) * RUNNER])
 		"held":
 			for entry in pose.get("runner_arms", []):
 				out.append([String(entry[0]), body.global_position + basis * (GrabStyles.BODY_POINTS[String(entry[1])] as Vector3)])
 		"dangle":
 			# hanging head down: the arms hang towards the floor, out to the sides, clear of the face
 			for side in [["L", -1.0], ["R", 1.0]]:
-				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0)
-				out.append([side[0], shoulder + Vector3.DOWN * .38 + right * (.25 * float(side[1]))])
+				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0) * RUNNER
+				out.append([side[0], shoulder + (Vector3.DOWN * .38 + right * (.25 * float(side[1]))) * RUNNER])
 		"claw":
-			# reaching ahead along the floor in turn, as if digging in
-			var ahead := body.global_position + basis * Vector3(0.0, 1.3, -.2)
-			ahead.y = body.global_position.y + .06
+			# reaching ahead along the floor in turn, as if digging in: ahead of the head, flat along the floor (the body's
+			# front is the floor itself once it lies face down)
+			var ahead := body.global_position + basis * Vector3(0.0, 1.3, -.2) * RUNNER
+			ahead.y = body.global_position.y + .1   # the hand on the floor, not through it
+			var along_floor := Vector3(basis.y.x, 0.0, basis.y.z)
+			if along_floor.length_squared() < .09:
+				along_floor = Vector3(-basis.z.x, 0.0, -basis.z.z)
+			along_floor = along_floor.normalized()
 			for side in [["L", -1.0], ["R", 1.0]]:
-				var reach := .25 + .2 * sin(t * 5.0 + (0.0 if side[1] < 0.0 else PI))
-				out.append([side[0], ahead + right * (.18 * float(side[1])) - basis.z * reach])
+				var reach := RUNNER * .25 + RUNNER * .2 * sin(t * 5.0 + (0.0 if side[1] < 0.0 else PI))
+				out.append([side[0], ahead + right * (.18 * RUNNER * float(side[1])) + along_floor * reach])
 	return out
 
 
 static func pose_runner_arms(body: Node3D, view: Node3D, pose: Dictionary, along: Vector3, t: float) -> void:
 	var amount := float(pose.get("k", 1.0))
+	# elbows down and out; clawing along the floor face down they go up instead, and pushing up from flat on the back they
+	# go out to the sides and down towards the feet (down is through the floor for both)
+	var basis := body.global_basis.orthonormalized()
+	var hands := String(pose.get("hands", ""))
 	for entry in runner_hand_targets(body, view, pose, along, t):
-		solve_arm(body, String(entry[0]), entry[1], amount, Vector3.DOWN * .6 + body.global_basis.orthonormalized().x
-			* (.5 if entry[0] == "R" else -.5) + body.global_basis.orthonormalized().z * .4)
+		var side := .5 if entry[0] == "R" else -.5
+		var pole := Vector3.DOWN * .6 + basis.x * side + basis.z * .4
+		if hands == "claw":
+			pole = Vector3.UP * .6 + basis.x * side + basis.z * .4
+		elif hands == "push_up":
+			pole = basis.x * side * 2.0 - basis.y * .8
+		solve_arm(body, String(entry[0]), entry[1], amount, pole)
 
 
 ## The hunter turns her head (and so her eyes) towards `target`: the chest takes a share of the turn and the head the rest,
@@ -457,28 +637,58 @@ static func pose_nearest_hunter(from: Node, body: Node3D, packet: Array) -> void
 	if best == null:
 		return
 	var pose := GrabStyles.pose(String(packet[0]), float(packet[1]), {})
-	# the grab's own frame comes from the body's facing (to the hunter, or away for a leg grab), not from where she stands
-	# from the body's own heading (RemotePlayers sets it as rotation.y, apart from the lean in rotation.x): a basis read back
-	# would flip it for a body hung or carried head down
-	var front := Vector3(-sin(body.rotation.y), 0.0, -cos(body.rotation.y))
-	var along := -front * float(pose["face"])
-	if along.length_squared() < .5:
-		along = Vector3(body.global_position.x - best.global_position.x, 0.0, body.global_position.z - best.global_position.z).normalized()
-	pose_hunter_body(best, along, [packet[4], packet[5], packet[6]])
+	# the grab's own frame is hunter to runner, as on the runner's machine, taken when she starts holding them and kept: the
+	# copy's heading is still easing round to her then (caught from behind it faces away), and a frame read from it turned
+	# her away from the runner for the whole grab. Right on top of her, the heading (RemotePlayers keeps it: read back off
+	# a body hung head down it is turned round) is all there is.
+	var was_grabbing: bool = best.call("grabbing") if best.has_method("grabbing") else false
+	if not was_grabbing or not best.has_meta("grab_along"):
+		var flat := Vector3(body.global_position.x - best.global_position.x, 0.0, body.global_position.z - best.global_position.z)
+		var heading := float(body.get_meta("shown_yaw", body.rotation.y))
+		var front := Vector3(-sin(heading), 0.0, -cos(heading))
+		best.set_meta("grab_along", flat.normalized() if flat.length() > .05 else -front * float(pose["face"]))
+	var along: Vector3 = best.get_meta("grab_along")
+	var offsets := [float(packet[4]), float(packet[5]), float(packet[6])]
+	pose_hunter_body(best, along, offsets)
 	if bool(pose.get("walk", false)):
-		play_walk(best, float(packet[1]))
+		play_walk(best, float(pose.get("walk_t", packet[1])))
 	stretch_arms(best, stretch_for(String(packet[0]), float(packet[1])))
 	fold_legs(body, float(pose.get("fold", 0.0)))
 	var basis := body.global_basis.orthonormalized()
 	var points := contacts(body.global_position, basis, pose["arms"])
+	# the copy eases after the runner's packets: whatever little her reach is short of it by now, she makes up here
+	var fix := reach_correction(best, along, points)
+	if absf(fix.x) >= .005 or fix.y >= .005:
+		offsets[0] += fix.x
+		offsets[1] += fix.y
+		pose_hunter_body(best, along, offsets)
 	pose_arms_on(best, along, points, bool(pose.get("wide", false)))
+	rest_free_hands(best, along, points, float(offsets[1]))
 	pose_runner_arms(body, best, pose, along, float(packet[1]))
 	# then her eyes, on the runner's face (only her head turns, so the hands stay put)
 	var id := String(best.call("shown_id")) if best.has_method("shown_id") else ""
-	var her_target := body.global_position + basis * (GrabStyles.BODY_POINTS["neck"] + Vector3(0.0, .35, -.2))
+	# the copy's own eyes on its face, where the runner's camera is on their machine
+	var her_target := FirstPersonBody.eye_of(body)
 	if bool(pose.get("her_look_ahead", false)):
 		her_target = best.global_position + along * (4.0 + float(packet[4])) + Vector3.UP * 1.6
 	head_look(best, her_target, best.get_process_delta_time(), along, GrabStyles.look_away(id, float(packet[1])))
+	mark_posed(best)
+
+
+## The bones a grab poses on her (head, arms, chest, waist, legs): kept every frame she is posed, so once she lets go her own view can ease
+## them back to her clip from where they were (HunterView3D), instead of popping.
+const POSED_BONES := ["Head", "Chest", "R-Arm", "R-Forearm", "R-Hand", "L-Arm", "L-Forearm", "L-Hand", "Pelvis", "Belly", "L-Thigh",
+	"R-Thigh", "L-Calf", "R-Calf", "L-Foot", "R-Foot"]
+
+
+static func mark_posed(view: Node3D) -> void:
+	var bones := {}
+	for bone_name in POSED_BONES:
+		var bone := view.find_child(bone_name, true, false) as Node3D
+		if bone != null:
+			bones[bone] = bone.transform
+	view.set_meta("grab_bones", bones)
+	view.set_meta("grab_posed_frame", Engine.get_process_frames())
 
 
 ## The first-person camera while held (KT: the views must never look horrific). It starts at the eyes of the runner's own body
@@ -497,7 +707,7 @@ static var arm_stretch := 1.6
 static var fov_widen := 25.0
 const UPSIDE_DOWN_HIDDEN := ["Chest", "Belly", "Pelvis", "L-Thigh", "R-Thigh", "L-Arm", "R-Arm"]
 const STRETCH_STYLES := [GrabStyles.NECK_LIFT, GrabStyles.SHOULDER_GRAB, GrabStyles.WRIST_YANK, GrabStyles.WALL_PIN, GrabStyles.WRAP,
-	GrabStyles.COLLAR_DRAG, GrabStyles.LEG_GRAB, GrabStyles.UPSIDE_DOWN]
+	GrabStyles.COLLAR_DRAG, GrabStyles.LEG_GRAB, GrabStyles.UPSIDE_DOWN, GrabStyles.TACKLE]
 const WALL_MARGIN := .12
 const EASE_RATE := 30.0
 ## Speed limits on the eased camera, so nothing ever snaps: metres and radians per second.
@@ -722,7 +932,8 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	# Only her collider or a wall can move it (up or to the side, never back); any part of her model at the lens is not
 	# drawn for this camera that frame instead (_cull_near)
 	var at := _clear(wanted, CLEARANCE)
-	if at.distance_to(wanted) > .001:
+	var pushed := at.distance_to(wanted) > .001
+	if pushed:
 		pushes += 1
 	var previous := _last_camera
 	# the first CATCH_EASE seconds ease from the runner's own view when caught to the grabbed body's face (a body turned round
@@ -733,8 +944,10 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	# never a jump: a push (or coming back from one) moves at most MAX_PUSH a frame more than the eyes themselves moved
 	var eyes_moved := wanted.distance_to(_last_wanted) if _last_wanted != Vector3.INF else 0.0
 	_last_wanted = wanted
-	if step.length() > eyes_moved + MAX_PUSH:
-		at = previous.origin + step.limit_length(eyes_moved + MAX_PUSH)
+	# and back to the eyes once she has moved off it, at 40% of that: quick out of her way, never a jump back
+	var most := eyes_moved + (MAX_PUSH if pushed else MAX_PUSH * .4)
+	if step.length() > most:
+		at = previous.origin + step.limit_length(most)
 	_cull_near(at)
 	var to := look - at
 	var flat_to := Vector2(to.x, to.z).length()
@@ -754,7 +967,16 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	var gap := from.angle_to(to_q)
 	if gap * weight > MAX_TURN * delta:
 		weight = MAX_TURN * delta / gap
-	return Transform3D(Basis(from.slerp(to_q, weight)), at)
+	# heading, tilt and roll each eased on their own: one slerp between two steep views far apart in heading (swinging
+	# round to look down her back) rolls the view on the way
+	var ahead := -previous.basis.orthonormalized().z
+	var was_pitch := asin(clampf(ahead.y, -1.0, 1.0))
+	var was_yaw := atan2(-ahead.x, -ahead.z) if Vector2(ahead.x, ahead.z).length() > .02 else yaw
+	var eased_yaw := was_yaw + wrapf(yaw - was_yaw, -PI, PI) * weight
+	var eased_pitch := lerpf(was_pitch, pitch, weight)
+	_view_roll = lerp_angle(_view_roll, roll, weight)
+	var eased := Basis.from_euler(Vector3(eased_pitch, eased_yaw, 0.0))
+	return Transform3D(Basis(eased.z.normalized(), -_view_roll) * eased, at)
 
 
 ## During the hold only, the view widens (eased, at most fov_widen degrees) as far as her face is closer than
@@ -805,21 +1027,21 @@ func play(player: PlayerController3D, view: Node3D, hunter_id: String, roll: flo
 	pushes = 0
 	player.begin_grab_view()
 	_apply(0.0, 0.0)
+	# each frame's pose is applied in _process, after the hunter's clips and head look (applied here, before them, the
+	# clips drew over it and the hold popped in when the sequence ended)
 	while elapsed < GrabStyles.duration(style) and is_inside_tree() and is_instance_valid(player) and is_instance_valid(view):
 		await get_tree().process_frame
-		var delta := get_process_delta_time()
-		elapsed += delta
-		_apply(elapsed, delta)
 	playing = false
 
 
-func _apply(t: float, delta: float) -> void:
+func _apply(t: float, delta: float, begin: bool = true) -> void:
 	_applied_frame = Engine.get_process_frames()
 	culled.clear()
-	if t == 0.0:
+	if t == 0.0 and begin:
 		_last_camera = _player.first_person_camera.global_transform
 		_catch_camera = _last_camera
 		_last_wanted = Vector3.INF
+		_view_roll = 0.0
 	current = GrabStyles.pose(style, t, _ctx)
 	var at: Vector3 = current["at"]
 	var r := GrabStyles.smooth(t / GrabStyles.REACH_SECONDS)
@@ -831,11 +1053,21 @@ func _apply(t: float, delta: float) -> void:
 	_player.global_position = _start.lerp(feet, r)
 	_player.velocity = Vector3.ZERO
 	var body_feet := _player.global_position + Vector3.UP * lift
+	# the runner's own body first, posed like everyone else sees it: knocked flat, hung or dragged it is lifted just clear of
+	# the floor where its turn would put its head or back through it (the lift goes out in the state, so every peer has it)
+	var body := _player.first_person_body()
+	if not _player.xr_active and body.model != null:
+		body.pose(body_feet, basis, String(current["clip"]))
+		var under := _origin.y - lowest_point(body.model, BODY_PARTS)
+		if under > 0.0:
+			lift += under
+			body_feet.y += under
+			body.pose(body_feet, basis, String(current["clip"]))
 	# the hunter steps in or back until every hand reaches its contact, then the arms bend onto it
 	var offsets: Array = (current["hunter"] as Array).duplicate()
 	pose_hunter_body(_view, _along, offsets)
 	if bool(current.get("walk", false)):
-		play_walk(_view, t)
+		play_walk(_view, float(current.get("walk_t", t)))
 	stretch_arms(_view, stretch_for(style, t))
 	var points := contacts(body_feet, basis, current["arms"])
 	for _i in 3:
@@ -846,16 +1078,16 @@ func _apply(t: float, delta: float) -> void:
 		offsets[1] = float(offsets[1]) + fix.y
 		pose_hunter_body(_view, _along, offsets)
 	contact_gap = pose_arms_on(_view, _along, points, bool(current.get("wide", false)))
+	rest_free_hands(_view, _along, points, float(offsets[1]))
 	# her eyes go to the camera itself (last frame's: the camera is fitted after), after the arms: only her head turns, so the
 	# hands stay on what they hold
 	var her_target := _last_camera.origin
 	if bool(current.get("her_look_ahead", false)):
 		her_target = _view.global_position + _along * (4.0 + float((current["hunter"] as Array)[0])) + Vector3.UP * 1.6
 	head_look(_view, her_target, delta, _along, GrabStyles.look_away(_hunter_id, t))
-	# the runner's own body, drawn from inside: posed like everyone else sees it, its hands on what they hold
-	var body := _player.first_person_body()
+	mark_posed(_view)
+	# the runner's own body, drawn from inside, its hands on what they hold
 	if not _player.xr_active:
-		body.pose(body_feet, basis, String(current["clip"]))
 		# hung head down, the runner looks up along their own body at her: their torso and thighs are left out of their own
 		# view (others still see them; the calves and feet in her hand stay)
 		body.hide_parts(UPSIDE_DOWN_HIDDEN if style == GrabStyles.UPSIDE_DOWN else [])
@@ -885,15 +1117,18 @@ func _body_yaw(face: float) -> float:
 
 
 func _process(delta: float) -> void:
-	# keep holding after the sequence (the death line and the end card play over it), after the clips have run
-	if playing or _view == null or not is_instance_valid(_view) or current.is_empty() or _player == null:
+	# every frame of the grab, and the hold after it (the death line and the end card play over it), after the clips have run
+	if _view == null or not is_instance_valid(_view) or current.is_empty() or _player == null:
 		return
 	if _player.spectator_mode:
 		release()   # a caught co-op runner who has moved on to spectating is no longer held (nor drawn held by anyone)
 		return
 	if _applied_frame == Engine.get_process_frames():
+		_apply(elapsed, 0.0, false)   # play() began it this frame, before the clips: again over them, as it was
 		return
-	_apply(GrabStyles.duration(style), delta)
+	if playing:
+		elapsed += delta
+	_apply(minf(elapsed, GrabStyles.duration(style)), delta)
 
 
 ## Lets go: the runner stands back up and the hunter's model is put back (a new run, a respawn).
@@ -911,13 +1146,15 @@ func release() -> void:
 			(node as MeshInstance3D).layers = int(node.get_meta("grab_layers"))
 			node.remove_meta("grab_layers")
 	if _view != null and is_instance_valid(_view):
-		stretch_arms(_view, 1.0)
 		for node in _view.find_children("*", "MeshInstance3D", true, false):
 			if node.has_meta("grab_layers"):
 				(node as MeshInstance3D).layers = int(node.get_meta("grab_layers"))
 				node.remove_meta("grab_layers")
 		culled.clear()
-		pose_hunter_body(_view, _along, [])
+		# a hunter view eases her model, arms and stretch back itself (HunterView3D); anything else is put back at once
+		if not _view.has_method("ease_out_grab"):
+			stretch_arms(_view, 1.0)
+			pose_hunter_body(_view, _along, [])
 		for key in ["grab_head_turn", "grab_chest_turn"]:
 			_view.remove_meta(key)
 		if "grab_until_msec" in _view:

@@ -27,6 +27,7 @@ const REMOTE_HELD_SCALES := {
 const REMOTE_BEAM_HAND_OFFSET := .38
 const SEND_HZ := 20.0
 const INTERPOLATION_SPEED := 14.0
+const MAX_TURN_RATE := 4.0 * PI   # radians a second another runner's copy may turn
 const REMOTE_STATE_TIMEOUT_USEC := 2_000_000
 ## The maps keep a quiet teammate at their last known spot (dimmed) this long instead of dropping them on one late packet.
 const MAP_STALE_GRACE_USEC := 60_000_000
@@ -633,6 +634,12 @@ func _place(packet: Variant) -> void:
 		return
 	if seq > 0:
 		_last_seq[id] = seq
+	receive_state(id, state)
+
+
+## One state packet from peer `id` (already known to be theirs): stored, and their body made or moved. The validators feed
+## recorded packets through here exactly as _place does.
+func receive_state(id: int, state: Dictionary) -> void:
 	var at = state.get("at")
 	var grid = state.get("position")
 	if not at is Vector3 or not grid is Vector2:
@@ -712,6 +719,8 @@ func _place(packet: Variant) -> void:
 	if ghost != bool(body.get_meta("ghost", false)):
 		body.set_meta("ghost", ghost)
 		PlayerController3D._ghost_overlay(body, PlayerController3D.GHOST_OVERLAY if ghost else null)
+	if not _grab_packet(state).is_empty() and not body.has_meta("grab_shown"):
+		_blend_clips(body, true)   # caught: their arms swing from the run into the grab clip, not in one frame
 	ModelSlot.play_if_available(_players.get(id), "idle" if clip == "crouch" else clip)
 
 
@@ -780,12 +789,19 @@ func _interpolate_bodies(delta: float) -> void:
 			continue
 		var previous := body.global_position
 		var pose: Dictionary = (_motion[id] as RemoteMotion).sample(Time.get_ticks_msec()) if _motion.has(id) else {}
+		# heading and lean are kept here, not read back off the body: a body pitched past 90 degrees (hung head down,
+		# carried over a shoulder) reads back with its heading turned round, and the copy spun
+		var was_yaw := float(body.get_meta("shown_yaw", body.rotation.y))
+		var yaw := was_yaw
 		if pose.is_empty():
 			body.global_position = body.global_position.lerp(_positions[id], weight)
-			body.rotation.y = lerp_angle(body.rotation.y, float(_facings.get(id, body.rotation.y)), weight)
+			yaw = lerp_angle(was_yaw, float(_facings.get(id, body.rotation.y)), weight)
 		else:
 			body.global_position = pose["at"]
-			body.rotation.y = float(pose["facing"])
+			yaw = float(pose["facing"])
+		# and never faster than MAX_TURN_RATE: caught from behind, the copy turns round to the hunter, not in a frame or two
+		yaw = was_yaw + clampf(wrapf(yaw - was_yaw, -PI, PI), -MAX_TURN_RATE * delta, MAX_TURN_RATE * delta)
+		body.set_meta("shown_yaw", yaw)
 		var fade := move_toward(float(body.get_meta("fade_current", 0.0)),
 			float(body.get_meta("fade_target", 0.0)), delta * 2.8)
 		body.set_meta("fade_current", fade)
@@ -795,12 +811,24 @@ func _interpolate_bodies(delta: float) -> void:
 			VRPoseSync.apply(body, _vr_current[id])
 		_update_remote_equipment_pose(id, body)
 		_update_remote_footstep(id, body, previous)
-		var grab := _grab_packet(_states.get(id, {}))
-		body.rotation.x = lerp_angle(body.rotation.x, float(grab[3]) if not grab.is_empty() else 0.0, weight)
-		body.rotation.z = 0.0
+		var grab := _shown_grab(body, _grab_packet(_states.get(id, {})), delta, weight)
+		var pitch := lerp_angle(float(body.get_meta("shown_pitch", 0.0)), float(grab[3]) if not grab.is_empty() else 0.0, weight)
+		body.set_meta("shown_pitch", pitch)
+		body.rotation = Vector3(pitch, yaw, 0.0)
 		if not grab.is_empty():
 			# after every hunter view has run its clips and head look this frame
-			(func(): if is_instance_valid(body): HunterGrab.pose_nearest_hunter(self, body, grab)).call_deferred()
+			var floor_y := float((_positions[id] as Vector3).y) - _grab_lift(_states.get(id, {}))
+			(func():
+				if not is_instance_valid(body):
+					return
+				# this copy's clip is at its own point: knocked flat or dragged, it is kept clear of the runner's floor here
+				var under := floor_y - HunterGrab.lowest_point(body, HunterGrab.BODY_PARTS)
+				if under > 0.0 and under < 1.0:
+					body.global_position.y += under
+				HunterGrab.pose_nearest_hunter(self, body, grab)).call_deferred()
+		elif body.has_meta("grab_drawn"):
+			body.remove_meta("grab_drawn")
+			HunterGrab.fold_legs(body, 0.0)   # carried, the legs were folded: straight again
 		_pose_remote_climb(body)
 
 
@@ -839,12 +867,44 @@ static func _grab_packet(state: Dictionary) -> Array:
 			return []
 	var out: Array = (grab as Array).duplicate()
 	out[1] = clampf(float(out[1]), 0.0, GrabStyles.MAX_SECONDS)
-	out[2] = clampf(float(out[2]), 0.0, 2.2)
+	out[2] = clampf(float(out[2]), 0.0, 3.2)   # over a hunter's shoulder the runner's feet are up to about 2.5 m off the floor
 	out[3] = clampf(float(out[3]), -PI, PI)
-	out[4] = clampf(float(out[4]), -1.5, GrabStyles.CARRY_METRES + 1.0)   # she may walk off with the runner (shoulder carry)
+	out[4] = clampf(float(out[4]), -3.0, GrabStyles.CARRY_METRES + 1.0)   # she backs off up to about 2 m dragging a runner by the collar   # she may walk off with the runner (shoulder carry)
 	for i in range(5, 7):
 		out[i] = clampf(float(out[i]), -1.5, 1.5)
 	return out
+
+
+## The grab as this copy draws it: packets come SEND_HZ times a second, so between them the grab's own clock runs on here
+## (never more than a packet past the last one, never past the grab's end) and her offsets ease to the last packet's, the
+## way the body's position does; a new grab, or one far behind, starts from the packet as it is. [] when free.
+func _shown_grab(body: Node3D, grab: Array, delta: float, weight: float) -> Array:
+	if grab.is_empty():
+		if body.has_meta("grab_shown"):
+			body.remove_meta("grab_shown")
+			_blend_clips(body, false)
+		return []
+	body.set_meta("grab_drawn", true)
+	var shown: Array = body.get_meta("grab_shown", [])
+	if shown.is_empty() or String(shown[0]) != String(grab[0]):
+		shown = grab.duplicate()
+		for i in [4, 5, 6]:
+			shown[i] = 0.0   # a new grab: her step, crouch and lean ease in from standing, as on the runner's machine
+	elif absf(float(shown[1]) - float(grab[1])) > .3:
+		shown = grab.duplicate()
+	else:
+		shown[1] = clampf(float(shown[1]) + delta, 0.0, minf(float(grab[1]) + 1.0 / SEND_HZ, GrabStyles.duration(String(grab[0]))))
+		for i in [2, 3, 4, 5, 6]:
+			shown[i] = lerpf(float(shown[i]), float(grab[i]), weight)
+	body.set_meta("grab_shown", shown)
+	return shown
+
+
+## The copy's clips blend for a moment while a grab starts (any other time they switch as the runner's own do).
+func _blend_clips(body: Node3D, on: bool) -> void:
+	for id in _bodies:
+		if _bodies[id] == body and _players.get(id) != null:
+			(_players[id] as AnimationPlayer).playback_default_blend_time = .2 if on else 0.0
 
 
 static func _grab_lift(state: Dictionary) -> float:

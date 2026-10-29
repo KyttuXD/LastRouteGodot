@@ -557,3 +557,19 @@ lane's recipe checks) present. Determinism: two generations hash equal. Hot-swap
    WORLD (doors, archways, sizes; a window for any region with hiding spots near doors) and MUSIC, parity hash per
    region. Recipes with computed loops or derived edges (music_stage, dining rows) keep a named code `"layout"`.
 4. Levels (`lr.level/1`, the level-0 pilot already approved) come after, so pack regions can be placed.
+
+## Extension kinds (other lanes' data)
+
+A lane that owns a system can make it data-driven and moddable without editing the registry:
+
+1. Declare the kinds in `res://data/kinds/<owner>.json`:
+   `{"nw_offices": {"schema": "nw.office/1", "root": "res://data/night_watch/offices", "validator": "res://src/night_watch/data/nw_schemas.gd"}}`.
+   The registry reads every file there before anything else, so the kinds exist before any pack is read.
+2. Write the validator: `static func validate(kind: String, entry: Dictionary, where: String) -> PackedStringArray`
+   (errors naming `where` and the field; empty = valid). `entry` is the file minus `schema`, `id` included.
+3. Put built-in files under `root`, one definition per file: `{"schema", "id", ...}`.
+4. Read with `ContentRegistry.get_def(kind, id)` / `ids(kind)`, and register a rebuild with `ContentRegistry.watch()`.
+
+The registry does the rest the same way as for its own kinds: ids, `<pack>_` prefixes for new pack content,
+`overrides` for built-in ids, all-or-nothing loading, the pack hash, hot-swap. Packs ship the kind as a folder of
+the same name; `ContentRegistry.pack_kinds()` lists every kind a pack may contain (the starter kit and the index use it).

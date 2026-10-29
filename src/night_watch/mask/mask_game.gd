@@ -188,7 +188,7 @@ func _wire_stations() -> void:
 
 func _spawn_hunters() -> void:
 	for id in MaskData.CAST:
-		var model := ModelSlot.instantiate_hunter(HunterRoster.get_identity(id))
+		var model := NightWatchHunterScale.instantiate(HunterRoster.get_identity(id))
 		if model == null:
 			push_warning("Masked Hours: no model for %s" % id)
 			model = Node3D.new()

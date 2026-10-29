@@ -189,7 +189,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_lens_cull()
-	_end_grab_pose()
+	_end_grab_pose(delta)
 	_doorway.restore()
 	_chase.restore()
 	_update_head_look(delta)
@@ -546,13 +546,100 @@ func grabbing() -> bool:
 	return Time.get_ticks_msec() < grab_until_msec
 
 
-## A grab (on this peer or drawn for another) stretched her arms: once nothing grabs with her, they are put back.
-func _end_grab_pose() -> void:
-	if grabbing() or _model == null:
+## Once a grab (on this peer or drawn for another) lets go of her, her model, arms and stretch ease back over
+## GRAB_EASE_SECONDS from where the grab last posed them to where she is and what her clip does: nothing pops, on any
+## machine. Checked after everything else this frame (deferred: a guest's copy of the grab poses her deferred too), so a
+## frame she is still held is never eased.
+const GRAB_EASE_SECONDS := .45
+var _grab_ease := 0.0
+var _grab_ease_from := {}
+var _grab_ease_delta := 0.0
+
+
+func _end_grab_pose(delta: float) -> void:
+	if _model == null:
 		return
-	var arm := _model.find_child("R-Arm", true, false)
-	if arm != null and arm.has_meta("grab_scale"):
+	if _model.has_meta("grab_rest") or _grab_ease > 0.0:
+		_grab_ease_delta = delta
+		# twice deferred: after every first-level deferred call this frame, a guest's posing of her among them
+		(func(): ease_out_grab.call_deferred()).call_deferred()
+	elif not grabbing():
+		var arm := _model.find_child("R-Arm", true, false)
+		if arm != null and arm.has_meta("grab_scale"):
+			HunterGrab.stretch_arms(self, 1.0)
+
+
+func ease_out_grab() -> void:
+	if _model == null or not is_instance_valid(_model):
+		return
+	if int(get_meta("grab_posed_frame", -1)) == Engine.get_process_frames():
+		_grab_ease = 0.0   # held (again) this frame: the grab has her
+		_grab_ease_from = {}
+		return
+	if _grab_ease_from.is_empty():
+		if not _model.has_meta("grab_rest"):
+			return
+		# let go: ease from the last held pose (her stretch is taken off now; the bones' blend carries it)
+		_grab_ease_from = {"model": _model.transform, "bones": get_meta("grab_bones", {}), "target": {}, "written": {},
+			"stretch": _arm_stretch_now()}
+		_grab_ease = 1.0
+		remove_meta("grab_anchor")
+		remove_meta("grab_along")
 		HunterGrab.stretch_arms(self, 1.0)
+		for bone in _grab_ease_from["bones"]:
+			if is_instance_valid(bone):
+				# where the bone goes back to: what something else (a clip, the chase layer) has put on it since the grab,
+				# else the pose under her crouch, else where it is
+				var node := bone as Node3D
+				var crouched: bool = bone.has_meta("bend_written") and node.transform.is_equal_approx(bone.get_meta("bend_written"))
+				_grab_ease_from["target"][bone] = bone.get_meta("bend_base") if crouched else node.transform
+		HunterGrab.unbend(_model)
+	# smoothstep over GRAB_EASE_SECONDS, so it starts and ends slowly (an exponential ease moves fastest the moment she lets go)
+	_grab_ease_from["t"] = float(_grab_ease_from.get("t", 0.0)) + _grab_ease_delta
+	_grab_ease = 1.0 - GrabStyles.smooth(float(_grab_ease_from["t"]) / GRAB_EASE_SECONDS)
+	var rest: Transform3D = _model.get_meta("grab_rest")
+	var bones: Dictionary = _grab_ease_from["bones"]
+	var target: Dictionary = _grab_ease_from["target"]
+	var written: Dictionary = _grab_ease_from["written"]
+	for bone in bones:
+		if not is_instance_valid(bone):
+			continue
+		var node := bone as Node3D
+		if written.has(bone) and not node.transform.is_equal_approx(written[bone]):
+			# rewritten since (a clip keys it): that is where it goes back to now, at the size it has without the grab
+			var scale := (target[bone] as Transform3D).basis.get_scale()
+			target[bone] = Transform3D(Basis(node.transform.basis.get_rotation_quaternion()).scaled(scale), node.transform.origin)
+		var w := _grab_ease if _grab_ease >= .01 else 0.0
+		if HunterGrab.ARM_BONES.has(String(node.name)):
+			# an arm turns back only: its length (the grab's stretch, set on each bone in world space) eases off below
+			var from_q := (target[bone] as Transform3D).basis.get_rotation_quaternion()
+			node.quaternion = from_q.slerp((bones[bone] as Transform3D).basis.get_rotation_quaternion(), w)
+		else:
+			node.transform = (target[bone] as Transform3D).interpolate_with(bones[bone], w)
+	var stretch := 1.0 + (float(_grab_ease_from["stretch"]) - 1.0) * (_grab_ease if _grab_ease >= .01 else 0.0)
+	HunterGrab.stretch_arms(self, stretch)
+	for bone in bones:
+		if is_instance_valid(bone):
+			written[bone] = (bone as Node3D).transform
+	if _head_node != null:
+		_head_written_q = _head_node.quaternion   # her own head look goes on from the rest pose next frame, as it does after hers
+	if _grab_ease < .01:
+		_model.transform = rest
+		_model.remove_meta("grab_rest")
+		_grab_ease = 0.0
+		_grab_ease_from = {}
+		return
+	_model.transform = rest.interpolate_with(_grab_ease_from["model"], _grab_ease)
+
+
+## How far a grab has her upper arm stretched right now (1 when it has not).
+func _arm_stretch_now() -> float:
+	var arm := _model.find_child("R-Arm", true, false) as Node3D
+	if arm == null or not arm.has_meta("grab_scale"):
+		return 1.0
+	var parent := arm.get_parent() as Node3D
+	var rest := (arm.get_meta("grab_scale") as Vector3).y * (parent.global_basis.get_scale().y if parent != null else 1.0)
+	return arm.global_basis.y.length() / maxf(rest, 1e-6)
 
 
 func _update_beam_visual(delta: float) -> void:
@@ -942,7 +1029,12 @@ func _begin_emote(index: int, seconds: float) -> void:
 	# Kathy's scythe is held by the carry clips; she emotes with her face only.
 	_emote_clip = "" if _carries_scythe else HunterEmoteCatalog.resolve_clip(index,
 		_shown_id, _animation_player, HunterEmotePersonality.clip_override(_shown_id, index))
-	_emote_cue(HunterEmoteCatalog.noise(index))
+	var voice := HunterEmotePersonality.voice(_shown_id, index)
+	if not voice.is_empty():
+		# a content pack's voice for this emote: heard like the noisy emotes, even when this one is normally silent
+		_emote_cue(maxf(HunterEmoteCatalog.noise(index), VOICE_RADIUS), voice[randi() % voice.size()])
+	else:
+		_emote_cue(HunterEmoteCatalog.noise(index))
 
 
 func _end_emote() -> void:
@@ -964,7 +1056,10 @@ func _emote_plays_now() -> bool:
 
 
 ## Small positional cue for noisy emotes (laugh, hum, dance): quieter with distance, silent beyond the radius.
-func _emote_cue(radius: float) -> void:
+const VOICE_RADIUS := 16.0
+
+
+func _emote_cue(radius: float, voice: AudioStream = null) -> void:
 	if radius <= 0.0 or not is_inside_tree():
 		return
 	var camera := get_viewport().get_camera_3d()
@@ -974,6 +1069,9 @@ func _emote_cue(radius: float) -> void:
 	if distance >= radius:
 		return
 	var side := (global_position - camera.global_position).dot(camera.global_basis.x)
+	if voice != null:
+		Sound.play_voice(voice, 1.0 - distance / radius)
+		return
 	Sound.hunter_laugh(clampf(side / maxf(radius * .5, 1.0), -1.0, 1.0), .05 * (1.0 - distance / radius))
 
 

@@ -197,10 +197,90 @@ func _ready() -> void:
 	# in a mode from the editor gets a valid singleplayer room.
 	if code.is_empty():
 		create_local(Mode.DEFAULT)
+	var dedicated_options := parse_dedicated_args(OS.get_cmdline_user_args())
+	if not dedicated_options.is_empty():
+		_start_dedicated.call_deferred(dedicated_options)
+
+
+# --- dedicated headless host (docs/SERVER_HOSTING.md) ---------------------------------------------------------------
+## This process is a dedicated host: no local runner, it only serves the route to guests (--dedicated-host CODE).
+var dedicated := false
+var dedicated_idle_minutes := 10.0
+var _dedicated_empty_seconds := 0.0
+const DEDICATED_NAME := "SERVER"
+
+
+## `-- --dedicated-host CODE [--seed TEXT] [--mode N] [--scale N] [--difficulty N] [--port N] [--idle-minutes M]`
+## as options, or {} when this is not a dedicated host. The room password / owner session for a reserved code come
+## from the environment (LASTROUTE_ROOM_PASSWORD, LASTROUTE_HOST_SESSION), never the command line.
+static func parse_dedicated_args(args: PackedStringArray) -> Dictionary:
+	var index := args.find("--dedicated-host")
+	if index < 0 or index + 1 >= args.size():
+		return {}
+	var room := String(args[index + 1]).strip_edges().to_upper()
+	if not valid_join_code(room):
+		return {}
+	var options := {"code": room, "port": DEFAULT_PORT, "idle_minutes": 10.0}
+	for key in ["--seed", "--mode", "--scale", "--difficulty", "--port", "--idle-minutes"]:
+		var at := args.find(key)
+		if at >= 0 and at + 1 < args.size():
+			var value := String(args[at + 1])
+			match key:
+				"--seed": options["seed"] = value
+				"--idle-minutes": options["idle_minutes"] = maxf(0.5, value.to_float())
+				_: options[key.trim_prefix("--")] = value.to_int()
+	return options
+
+
+func _start_dedicated(options: Dictionary) -> void:
+	create_local(Mode.DEFAULT)
+	dedicated = true
+	dedicated_idle_minutes = float(options.get("idle_minutes", 10.0))
+	code = String(options["code"])
+	players = PackedStringArray([DEDICATED_NAME])
+	Backend.room_password = OS.get_environment("LASTROUTE_ROOM_PASSWORD")
+	Backend.spawn_ticket = OS.get_environment("LASTROUTE_SPAWN_TICKET")   # set by the region agent, used once
+	Backend.host_region = OS.get_environment("LASTROUTE_REGION")
+	if not OS.get_environment("LASTROUTE_HOST_SESSION").is_empty():
+		Backend.account_session_token = OS.get_environment("LASTROUTE_HOST_SESSION")
+	if options.has("seed"):
+		seed_text = String(options["seed"])
+	else:
+		reroll_seed()
+	if options.has("mode") and Mode.values().has(int(options["mode"])):
+		mode = int(options["mode"])
+	if options.has("scale") and SCALE_LABELS.has(int(options["scale"])):
+		map_scale = int(options["scale"])
+	if options.has("difficulty"):
+		difficulty = _selectable_difficulty_or_standard(int(options["difficulty"]))
+	var error := host_room(int(options.get("port", DEFAULT_PORT)))
+	print("[dedicated] room %s seed %s port %d: %s" % [code, seed_text, int(options.get("port", DEFAULT_PORT)),
+		"hosting" if error.is_empty() else error])
+	if not error.is_empty():
+		get_tree().quit(2)
+		return
+	peers[1] = DEDICATED_NAME
+	enter(get_tree())   # the route runs from the start; guests late-join into it
+
+
+## Seconds of an empty room after which a dedicated host should shut down.
+static func dedicated_should_exit(empty_seconds: float, idle_minutes: float) -> bool:
+	return empty_seconds >= idle_minutes * 60.0
+
+
+func _tick_dedicated(delta: float) -> void:
+	_dedicated_empty_seconds = _dedicated_empty_seconds + delta if peers.size() <= 1 else 0.0
+	if dedicated_should_exit(_dedicated_empty_seconds, dedicated_idle_minutes):
+		print("[dedicated] room %s empty for %.0f min: shutting down" % [code, dedicated_idle_minutes])
+		dedicated = false
+		leave_network()   # unregisters: the code is gone at once
+		get_tree().quit(0)
 
 
 func _process(delta: float) -> void:
 	_tick_start_heal(delta)
+	if dedicated:
+		_tick_dedicated(delta)
 	if reconnect_active:
 		_tick_reconnect()
 		return

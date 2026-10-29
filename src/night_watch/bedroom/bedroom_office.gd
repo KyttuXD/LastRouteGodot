@@ -8,7 +8,7 @@ extends NightWatchOfficeBase
 
 const A := preload("res://src/night_watch/night_watch_art.gd")
 const HALF := 2.5
-const HEIGHT := 2.8
+const HEIGHT := 3.6
 const EYE := Vector3(0.0, 0.95, 1.9)
 ## The hall runs east from the doorway; Javelle comes up it.
 const DOORWAY := Vector3(HALF + 0.1, 0.0, -0.9)

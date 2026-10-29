@@ -25,8 +25,10 @@ const GAMES := [
 		"tagline": "Hold the desk through the night. Watch the feeds, keep them out.",
 		"scene": "res://scenes/night_watch_menu.tscn",
 		"theme": "res://src/ui/theme_nightwatch.tres",
-		"locked": false,
-		"locked_note": "",
+		# KT 2026-10-28: locked for players until Night Watch is fully data-driven and moddable; admins and devs still open it to test.
+		"locked": true,
+		"locked_note": "NIGHT WATCH // COMING BACK SOON",
+		"dev_open": true,
 	},
 ]
 
@@ -75,7 +77,22 @@ static func get_game(id: String) -> Dictionary:
 
 static func is_launchable(id: String) -> bool:
 	var game := get_game(id)
-	return not game.is_empty() and not bool(game["locked"]) and not String(game["scene"]).is_empty()
+	return not game.is_empty() and (not bool(game["locked"]) or dev_unlocked(id)) and not String(game["scene"]).is_empty()
+
+
+## A locked game with "dev_open" still opens for whoever may test it: a signed-in admin (the admin overlay's login), headless
+## validation, or a debug build started with KYTTU_DEV set. Players see the locked card and cannot reach the scene by any path.
+static func dev_unlocked(id: String) -> bool:
+	var game := get_game(id)
+	if game.is_empty() or not bool(game.get("dev_open", false)):
+		return false
+	return Build.tools_enabled() or (OS.is_debug_build() and OS.has_environment("KYTTU_DEV"))
+
+
+## The card's line for a locked game: the note as written when it carries its own "//" label, else "LOCKED // note".
+static func locked_line(game: Dictionary) -> String:
+	var note := String(game.get("locked_note", ""))
+	return note if note.contains("//") else "LOCKED // %s" % note
 
 
 static func launchable_ids() -> Array:

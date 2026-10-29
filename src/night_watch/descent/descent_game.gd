@@ -127,7 +127,7 @@ func _build_meter() -> void:
 
 
 func _spawn_elise() -> void:
-	var model := ModelSlot.instantiate_hunter(HunterRoster.get_identity(ELISE_MODEL))
+	var model := NightWatchHunterScale.instantiate(HunterRoster.get_identity(ELISE_MODEL))
 	if model == null:
 		push_warning("Descent: no model for Elise")
 		model = Node3D.new()

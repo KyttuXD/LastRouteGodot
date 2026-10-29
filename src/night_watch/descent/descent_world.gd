@@ -9,11 +9,11 @@ extends Node3D
 const A := preload("res://src/night_watch/night_watch_art.gd")
 const HALF_W := 1.7
 const HALF_D := 1.4
-const HEIGHT := 2.5
-const WINDOW_X := 1.2          # centre of each window
-const WINDOW_W := 0.7
+const HEIGHT := 3.6
+const WINDOW_X := 1.1          # centre of each window
+const WINDOW_W := 0.9
 const WINDOW_BOTTOM := 0.85
-const WINDOW_TOP := 2.1
+const WINDOW_TOP := 3.2
 const BEAM_GAP := 3.0
 const RIDE_DROP := 3.0         # how far the shaft slides past in one ride (one beam gap)
 const SILL_FAR := -5.6         # where Elise starts, far down the sill

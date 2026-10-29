@@ -43,7 +43,7 @@ static func validate(dir: String) -> Dictionary:
 		return result
 	result["errors"].append_array(ContentRegistry._conflicts([pack]))
 	var counts := {}
-	for kind in ContentPacks.KINDS:
+	for kind in ContentPacks.kinds():
 		counts[kind] = pack["defs"][kind].size()
 	var bytes := 0
 	for file in pack["files"]:

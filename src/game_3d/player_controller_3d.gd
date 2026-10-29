@@ -364,7 +364,7 @@ const SIT_EYE_ABOVE_SEAT := .83
 ## Seat height the mannequin's "sit" clip is authored for (at PlayerModels.SCALE): peers lift a seated runner by the rest.
 const SIT_CLIP_SEAT := .498
 const LAY_EYE_ABOVE_MATTRESS := .26
-const REST_EASE_SECONDS := 0.35
+const REST_EASE_SECONDS := 0.45   # from the face (in front of the head) to a bed: a longer way than from the centre line
 const SIT_YAW_LIMIT := deg_to_rad(75.0)
 const LAY_YAW_LIMIT := deg_to_rad(55.0)
 const SIT_PITCH := Vector2(-0.95, 0.6)
@@ -976,6 +976,44 @@ func _update_camera_pose(delta: float, moving_on_floor: bool,
 		target_y, delta * 3.2)
 	first_person_pivot.position.x = move_toward(first_person_pivot.position.x,
 		target_x, delta * .8)
+	if resting_furniture == null and _rest_ease.is_empty() and _hide_move.is_empty():
+		# out to the face at walking pace after a seat, a bed or a hiding spot put the eye on the centre line; back from a
+		# wall at once (the near plane never goes into it)
+		var face_z := -_face_ahead_clear(first_person_pivot.position.y)
+		first_person_pivot.position.z = face_z if face_z > first_person_pivot.position.z \
+			else move_toward(first_person_pivot.position.z, face_z, delta * FACE_EASE_SPEED)
+
+
+## Every first-person view sits at the head's front face (KT): FirstPersonBody.eye_of, the same point the grab camera uses,
+## measured once on the standing model as how far in front of the body's centre line it is. Facing a wall the view is
+## pulled back toward the centre line (never past it, into the head) far enough that the near plane stays out of it.
+const FACE_WALL_MARGIN := .03
+const FACE_EASE_SPEED := 1.2
+var _face_ahead := -1.0
+
+
+func face_ahead() -> float:
+	if _face_ahead < 0.0 and _body_model != null and _body_model.is_inside_tree():
+		_face_ahead = maxf(-(global_transform.affine_inverse() * FirstPersonBody.eye_of(_body_model)).z, 0.0)
+	return maxf(_face_ahead, 0.0)
+
+
+func _face_ahead_clear(eye_y: float) -> float:
+	var ahead := face_ahead()
+	if ahead <= 0.0 or not is_inside_tree():
+		return ahead
+	var forward := -global_basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 1e-6:
+		return ahead
+	forward = forward.normalized()
+	var from := global_position + Vector3.UP * eye_y
+	var reach := ahead + first_person_camera.near + FACE_WALL_MARGIN
+	var query := PhysicsRayQueryParameters3D.create(from, from + forward * reach, collision_mask, [get_rid()])
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return ahead
+	return clampf(from.distance_to(hit["position"]) - first_person_camera.near - FACE_WALL_MARGIN, 0.0, ahead)
 
 
 func _update_controller_look(delta: float) -> void:
@@ -1361,7 +1399,7 @@ func end_grab_view() -> void:
 	first_person_pivot.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, _standing_camera_height, 0.0))
 	_apply_look_rotation()
 	if first_person_items != null:
-		first_person_items.visible = true
+		first_person_items.visible = not xr_active   # never the flat viewmodel in a headset
 	_end_first_person_body()
 
 

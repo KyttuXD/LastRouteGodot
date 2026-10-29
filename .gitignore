@@ -46,3 +46,4 @@ captures/videos/
 # Built by tools/android/build_installer_plugin.sh (docs/XR_ANDROID.md); never committed
 addons/kyttu_installer/bin/
 .validate_timings.json
+backend/pack_kinds.json

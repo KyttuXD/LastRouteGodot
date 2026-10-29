@@ -9,7 +9,7 @@ extends Node3D
 const A := preload("res://src/night_watch/night_watch_art.gd")
 const CELL := 8.0
 const ROOM_W := 6.0
-const ROOM_H := 3.2
+const ROOM_H := 3.6
 ## Where the building sits relative to the office (north of it, out of sight of the office camera).
 const ORIGIN := Vector3(-8.0, 0.0, -40.0)
 
@@ -63,7 +63,7 @@ const DOORWAYS := {
 	"E": ["backstage", "westhall", "dining"],
 }
 const DOOR_GAP := 1.8
-const DOOR_TOP := 2.5
+const DOOR_TOP := 3.2
 
 var wall_boxes := []   # [{room, rect: Rect2 on the XZ plane (world), name}] for the path validator
 

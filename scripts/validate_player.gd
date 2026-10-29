@@ -68,6 +68,7 @@ func run(host: Node) -> int:
 	host.get_tree().root.add_child(route)
 	await host.get_tree().process_frame
 	await _expect_xr(route)
+	await _expect_face_camera(route.player, route)
 	await _expect_small_hop(route, host)
 	await _expect_hard_landing_stun(route, host)
 	route.queue_free()
@@ -702,6 +703,52 @@ func _expect_player_camera_and_crouch(controller: PlayerController3D) -> void:
 	controller._update_camera_pose(1.0, false, false, false)
 	print("  camera    eye-aligned POV; crouch lowers camera and %.2fm hitbox; bob active"
 		% PlayerController3D.CROUCH_COLLISION_HEIGHT)
+
+
+## Walking first person is at the head's front face like every other view (KT): the face point of the player's own model,
+## in front of the body's centre line; facing a wall the view pulls back toward the centre line, never past it, and the near
+## plane stays out of the wall.
+func _expect_face_camera(controller: PlayerController3D, host: Node) -> void:
+	controller._update_camera_pose(1.0, false, false, false)
+	var ahead := controller.face_ahead()
+	if ahead < .05:
+		_fail("the first-person view is not in front of the head (%.3f m ahead of the centre line)" % ahead)
+		return
+	if absf(controller.first_person_pivot.position.z + ahead) > .01:
+		_fail("standing in the open the view is %.3f m ahead, not at the face (%.3f m)" % [-controller.first_person_pivot.position.z, ahead])
+	var eye := FirstPersonBody.eye_of(controller._body_model)
+	var camera := controller.first_person_camera.global_position
+	if Vector2(eye.x - camera.x, eye.z - camera.z).length() > .03:
+		_fail("the first-person view is %.3f m from the model's face point" % Vector2(eye.x - camera.x, eye.z - camera.z).length())
+	# a wall right in front of the face
+	var forward := -controller.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var wall := StaticBody3D.new()
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(3.0, 3.0, .2)
+	shape.shape = box
+	wall.add_child(shape)
+	wall.collision_layer = controller.collision_mask
+	host.get_tree().root.add_child(wall)
+	var face_at := controller.global_position + forward * (ahead * .5)
+	wall.global_transform = Transform3D(Basis.looking_at(forward, Vector3.UP), face_at + forward * .1 + Vector3.UP * controller._standing_camera_height)
+	await host.get_tree().physics_frame
+	await host.get_tree().physics_frame
+	controller._update_camera_pose(1.0, false, false, false)
+	var z := controller.first_person_pivot.position.z
+	var lens := controller.first_person_camera.global_position
+	var to_wall := (face_at - (controller.global_position)).dot(forward) - (lens - controller.global_position).dot(forward)
+	if z > .001 or z < -ahead - .001:
+		_fail("facing a wall the view went behind the centre line or past the face (z %.3f)" % z)
+	if to_wall < controller.first_person_camera.near:
+		_fail("facing a wall the near plane is inside it (%.3f m clear)" % to_wall)
+	wall.free()
+	await host.get_tree().physics_frame
+	await host.get_tree().process_frame
+	controller._update_camera_pose(1.0, false, false, false)
+	print("  face cam  %.2f m ahead of the centre line; pulled back to %.2f m by a wall" % [ahead, -z])
 
 
 func _expect_controller_bindings() -> void:
