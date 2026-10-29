@@ -52,7 +52,9 @@ func _snapshot() -> String:
 		var_to_str(StreamedRouteGenerator.REGION_PROP_SETS), var_to_str(StreamedRouteGenerator.SHOP_NAMES),
 		var_to_str(StreamedRouteGenerator.MALL_ROOMS), var_to_str(_grabs()),
 		var_to_str([Sound._cue_overrides.keys(), Sound._ambience_overrides.keys()]),
-		var_to_str(RefTextures._pack_images), var_to_str(DeathLines.data()), _surface_pixel("floor", "terrazzo0"), _surface_pixel("wall", "panel0"),
+		var_to_str(RefTextures._pack_images), var_to_str(DeathLines.data()),
+		var_to_str([HunterEmotePersonality.weight("aki", HunterEmoteCatalog.TAUNT),
+			HunterEmotePersonality.voice("aki", HunterEmoteCatalog.LAUGH).size()]), _surface_pixel("floor", "terrazzo0"), _surface_pixel("wall", "panel0"),
 		_surface_pixel("ceiling", "vault"),
 		ContentRegistry.pack_hash(),
 		Parity.props_hash(), Parity.hunters_hash(), Parity.region_hash()])
@@ -110,6 +112,12 @@ func _check_loaded(dir: String) -> void:
 	_expect(ContentRegistry.pack_scene("user://elsewhere/x.glb") == null, "loaded a model outside every pack")
 	_expect(HunterDossier.portrait("testpack_ember") != null, "pack portrait did not load")
 	_expect(Sound._cue_overrides.has("alert") and Sound._ambience_overrides.has("mall"), "pack sounds not loaded")
+	_expect(HunterEmotePersonality.weight("aki", HunterEmoteCatalog.TAUNT) == 0.0
+		and HunterEmotePersonality.weight("testpack_ember", HunterEmoteCatalog.DANCE) == 3.0
+		and HunterEmotePersonality.clip_override("testpack_ember", HunterEmoteCatalog.STRETCH) == "emote_shy",
+		"pack emote personality not applied")
+	_expect(HunterEmotePersonality.voice("aki", HunterEmoteCatalog.LAUGH).size() == 1
+		and HunterEmotePersonality.voice("aki", HunterEmoteCatalog.TAUNT).is_empty(), "pack emote voice not loaded")
 	var ember_line := DeathLines.pick({"hunter_id": "testpack_ember"}, "S", 3)
 	_expect(ember_line["text"] == "Ember found you on depth 3." and ember_line["source"] == "hunter",
 		"pack hunter's death line not used: %s" % [ember_line])
@@ -230,6 +238,8 @@ func _check_rejections(vanilla: String) -> void:
 		"schema": "lr.surface/1", "surfaces": [{"id": "lava_floor", "image": "assets/ember.png"}]})})], "does not have"])
 	cases.append(["undeclared wall", [_good_pack("sneaky", {"walls/x.json": JSON.stringify({"schema": "lr.surface/1",
 		"surfaces": [{"id": "brick0", "image": "assets/ember.png"}]})})], "replace built-in ones"])
+	cases.append(["unknown emote", [_good_pack("badmote", {"emotes/x.json": JSON.stringify({"schema": "lr.emote/1",
+		"id": "badmote_ember", "weights": {"backflip": 1}})})], "is not an emote"])
 	cases.append(["death lines for no hunter", [_good_pack("ghostline", {"deaths/x.json": JSON.stringify({
 		"schema": "lr.deaths/1", "id": "ghostline_nobody", "lines": ["boo"]})})], "not a hunter"])
 	cases.append(["empty death lines", [_good_pack("mute", {"deaths/x.json": JSON.stringify({"schema": "lr.deaths/1",
@@ -271,7 +281,7 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 	var dir := ROOT.path_join(id)
 	var all_overrides := ["hunters/aki", "props/officePrinter", "regions/mall", "grabs/aki", "sounds/alert",
 		"ambience/mall", "ambience/room:%s" % _room_bed(), "floors/terrazzo0", "walls/panel0", "ceilings/vault",
-		"deaths/aki"] if overrides.is_empty() \
+		"deaths/aki", "emotes/aki"] if overrides.is_empty() \
 		else overrides
 	var files := {
 		"pack.json": JSON.stringify({"schema": "lr.pack/1", "id": id, "name": "Test " + id, "version": "1.0.0",
@@ -300,6 +310,10 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 			"image": "assets/floor.png"}]})
 		files["walls/walls.json"] = JSON.stringify({"schema": "lr.surface/1", "surfaces": [{"id": "panel0",
 			"image": "assets/wall.png"}]})
+		files["emotes/aki.json"] = JSON.stringify({"schema": "lr.emote/1", "id": "aki", "weights": {"taunt": 0},
+			"voice": {"laugh": ["assets/tone.ogg"]}})
+		files["emotes/ember.json"] = JSON.stringify({"schema": "lr.emote/1", "id": "%s_ember" % id,
+			"weights": {"dance": 3}, "clips": {"stretch": "emote_shy"}})
 		files["deaths/ember.json"] = JSON.stringify({"schema": "lr.deaths/1", "id": "%s_ember" % id,
 			"lines": ["Ember found you on depth {depth}."]})
 		files["deaths/aki.json"] = JSON.stringify({"schema": "lr.deaths/1", "id": "aki", "mode": "add",

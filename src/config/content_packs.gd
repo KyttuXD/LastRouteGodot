@@ -262,6 +262,17 @@ static func _finish_def(def: Dictionary, kind: String, manifest: Dictionary, dir
 				errors.append("%s: files is empty" % where)
 				return {}
 			out["files"] = files
+		"emotes":
+			var voice := {}
+			for emote in def.get("voice", {}):
+				var files := []
+				for file in def["voice"][emote]:
+					var absolute := _asset(String(file), "ogg", dir, assets, where, errors)
+					if absolute.is_empty():
+						return {}
+					files.append(absolute)
+				voice[emote] = files
+			out["voice"] = voice
 		"floors", "walls", "ceilings":
 			var image := _asset(String(def["image"]), "png", dir, assets, where, errors)
 			if image.is_empty():

@@ -40,14 +40,37 @@ const CLIP_OVERRIDES := {
 }
 
 
+## A content pack's emotes/ file for this hunter (docs/modding/content-types.md, "Emotes"): its weights, clips and voice
+## come first; anything it leaves out falls back to the tables above.
+static func _pack(hunter_id: String) -> Dictionary:
+	return ContentRegistry.get_def("emotes", hunter_id)
+
+
 static func weight(hunter_id: String, emote_index: int) -> float:
 	var id := String(HunterEmoteCatalog.entry(emote_index).get("id", ""))
 	if id.is_empty():
 		return 0.0
+	var pack_weights: Dictionary = _pack(hunter_id).get("weights", {})
+	if pack_weights.has(id):
+		return float(pack_weights[id])
 	var table: Dictionary = VOID if hunter_id.begins_with("void_") else WEIGHTS.get(hunter_id, {})
 	return float(table.get(id, 1.0))
 
 
 static func clip_override(hunter_id: String, emote_index: int) -> String:
 	var id := String(HunterEmoteCatalog.entry(emote_index).get("id", ""))
+	var pack_clips: Dictionary = _pack(hunter_id).get("clips", {})
+	if pack_clips.has(id):
+		return String(pack_clips[id])
 	return String((CLIP_OVERRIDES.get(hunter_id, {}) as Dictionary).get(id, ""))
+
+
+## A pack's recordings for this hunter's emote (AudioStreams; [] when none).
+static func voice(hunter_id: String, emote_index: int) -> Array:
+	var id := String(HunterEmoteCatalog.entry(emote_index).get("id", ""))
+	var out := []
+	for path in (_pack(hunter_id).get("voice", {}) as Dictionary).get(id, []):
+		var stream := ContentRegistry.pack_audio(String(path))
+		if stream != null:
+			out.append(stream)
+	return out

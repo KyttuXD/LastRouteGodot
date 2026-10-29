@@ -205,3 +205,20 @@ everyone in the room sees the same one.
 | `lines` | yes | text lines (`{depth}` and `{name}` are filled in), or `{"text": ..., "style": "caption"}` for a quiet caption |
 | `lore_line` | no | one more line in the pool |
 | `mode` | no | `replace` (default) swaps the hunter's lines; `add` keeps the built-in ones and adds yours |
+
+## Emotes (`emotes/`, `lr.emote/1`)
+
+One file per hunter: your pack's own hunter, or a built-in one listed in `overrides` as `"emotes/<hunter id>"`.
+
+```json
+{"schema": "lr.emote/1", "id": "aki",
+ "weights": {"taunt": 0, "dance": 3},
+ "clips": {"stretch": "emote_shy"},
+ "voice": {"laugh": ["assets/aki_laugh1.ogg", "assets/aki_laugh2.ogg"]}}
+```
+
+- `weights`: how often the hunter picks each emote (1 = normal, 0 = never).
+- `clips`: play another animation clip for an emote.
+- `voice`: recordings played (one at random, heard by distance) when the hunter does that emote.
+
+Emote names must be in `HunterEmoteCatalog`; anything left out keeps the built-in behaviour. Hot-swapped like every kind.
