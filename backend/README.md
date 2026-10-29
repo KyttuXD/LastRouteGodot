@@ -341,7 +341,7 @@ The pack **index** lives here (VPS 3); the pack **files** live only on VPS 2. Th
     exists is refused with 409 `VERSION_EXISTS` unless `replace` is set.
   - `POST /api/admin/mods/block` with `{ id, reason? }` and `POST /api/admin/mods/unblock` with `{ id }`.
 - Caps follow the client loader: 16 MB per file, 128 MB per version, 512 files. The index holds at most 2000 packs and
-  keeps the 5 newest versions of each. Paths must follow the loader's layout: `pack.json`; `props|regions|hunters|grabs/*.json`
+  keeps the 5 newest versions of each. Paths must follow the loader's layout: `pack.json`; `props|regions|hunters|grabs|sounds|ambience|floors|walls|ceilings|rooms/*.json`
   one level deep; `assets/**` `.glb` `.png` `.ogg` (lower case). Anything else is refused at deploy time.
   The register body may be up to 256 KB; every other route keeps the 64 KB cap. `/api/mods/*` has its own
   rate-limit bucket (`LASTROUTE_MOD_RATE_LIMIT`).
