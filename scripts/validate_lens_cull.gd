@@ -54,5 +54,19 @@ func run(host: Node) -> int:
 		camera.global_position = Vector3(0, 1.3, 6.0)
 		view._update_lens_cull()
 		_expect(view._lens_culled.is_empty(), "%s: something is culled with the camera 6 m away" % id)
+		# co-op "hunters invisible": a camera with a big near plane 0.5 m off her face never hides her whole body
+		var near := camera.near
+		camera.near = 1.0
+		camera.global_position = centre + chest.global_transform.basis.z.normalized() * .5
+		view._update_lens_cull()
+		var parts := model.find_children("*", "MeshInstance3D", true, false).size()
+		_expect(view._lens_culled.size() < parts / 2, "%s: a 1 m near plane culls %d of %d parts" % [id, view._lens_culled.size(), parts])
+		# put back when the camera moves into her chest and she then leaves the tree
+		camera.near = near
+		camera.global_position = centre
+		view._update_lens_cull()
+		view.get_parent().remove_child(view)
+		_expect(view._lens_culled.is_empty() and chest.layers & HunterView3D.LENS_LAYER == 0,
+			"%s: culled parts were not restored when the view left the tree" % id)
 		view.queue_free()
 	return _failures

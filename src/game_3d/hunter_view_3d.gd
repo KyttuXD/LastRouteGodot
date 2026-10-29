@@ -208,25 +208,37 @@ func _process(delta: float) -> void:
 const LENS_LAYER := 1 << 16
 const LENS_RANGE := 3.0
 const LENS_MARGIN := .02
+## World-space reach is never more than this (a camera with a large near plane must not hide her whole body), and a part
+## thinner than LENS_MIN_SCALE on any axis is never culled (its margin in local space would blow up).
+const LENS_MAX_REACH := .12
+const LENS_MIN_SCALE := .05
 var _lens_culled: Array = []
 
 
-func _update_lens_cull() -> void:
+func _exit_tree() -> void:
+	_restore_lens_cull()
+
+
+func _restore_lens_cull() -> void:
 	for node in _lens_culled:
 		if is_instance_valid(node) and (node as Node).has_meta("lens_layers"):
 			(node as MeshInstance3D).layers = int((node as Node).get_meta("lens_layers"))
 			(node as Node).remove_meta("lens_layers")
 	_lens_culled.clear()
-	if _model == null or not is_inside_tree() or grabbing():
+
+
+func _update_lens_cull() -> void:
+	_restore_lens_cull()
+	if _model == null or not is_inside_tree() or grabbing() or not is_visible_in_tree():
 		return
 	var camera := get_viewport().get_camera_3d()
-	if camera == null:
+	if camera == null or not camera.current:
 		return
 	var at := camera.global_position
 	if at.distance_squared_to(global_position) > LENS_RANGE * LENS_RANGE:
 		return
 	camera.cull_mask &= ~LENS_LAYER
-	var reach := camera.near + LENS_MARGIN
+	var reach := minf(camera.near + LENS_MARGIN, LENS_MAX_REACH)
 	for node in _model.find_children("*", "MeshInstance3D", true, false):
 		var mesh_node := node as MeshInstance3D
 		if mesh_node.mesh == null or not mesh_node.visible or mesh_node.has_meta("grab_layers"):
@@ -234,9 +246,13 @@ func _update_lens_cull() -> void:
 		var transform := mesh_node.global_transform
 		if absf(transform.basis.determinant()) < 1e-9:
 			continue
-		var scale := transform.basis.get_scale()
+		var scale := transform.basis.get_scale().abs()
+		if minf(scale.x, minf(scale.y, scale.z)) < LENS_MIN_SCALE:
+			continue
 		var local := transform.affine_inverse() * at
-		if mesh_node.mesh.get_aabb().grow(reach / maxf(minf(scale.x, minf(scale.y, scale.z)), .001)).has_point(local):
+		var box := mesh_node.mesh.get_aabb()
+		var margin := Vector3(reach / scale.x, reach / scale.y, reach / scale.z)
+		if AABB(box.position - margin, box.size + margin * 2.0).has_point(local):
 			mesh_node.set_meta("lens_layers", mesh_node.layers)
 			mesh_node.layers = LENS_LAYER
 			_lens_culled.append(mesh_node)
