@@ -1,6 +1,6 @@
 # NPC teammates
 
-The host can add AI runners to a co-op route: the staging screen's **NPC TEAMMATES** row (host only, 0–4, default none).
+Admins and devs can add AI runners to a co-op route: the staging screen's **NPC TEAMMATES** scroller (◀ N ▶, 0–16, default 0). Players never see it; it shows only with admin tools (`Build.tools_enabled()`) for the host.
 Guests need nothing: they see each NPC as another runner.
 
 - **Who runs them:** the host only (`NpcTeammates`, `src/game_3d/npc_teammates.gd`). Each NPC's state goes out through
@@ -34,3 +34,18 @@ Guests need nothing: they see each NPC as another runner.
 - the packet budget;
 - following;
 - capture, the revive window, revive, and being out.
+
+## Admin tools
+
+The admin menu's **NPCS** page needs the `world` permission and works solo or as host. A guest admin's commands go to the
+host, which checks the guest's admin proof first and logs refused ones (`[coop] admin request refused …`).
+- **Spawn:** ◀ N ▶ NPCs with a smartness (30/50/70/90), at the crosshair's floor when it is walkable and within 40 m, else
+  beside you.
+- **Remove:** the nearest NPC, or all of them.
+- **One NPC from the live list** (name, state, distance): teleport to me, go to me, follow me / stop following, set smartness,
+  chat on or off, freeze or resume, hunters ignore or target it, down, revive, kill, remove, and spectate it (your camera only).
+- **Sync:** the admin flags ride the NPC's state (`no_target`, `npc_admin`: [frozen | chat << 1, smartness, followed peer]), so
+  every peer lists the same. A removed NPC disappears on every guest at once (`_xnpc_remove`).
+- **Smartness:** sets how early an NPC notices a chasing hunter, from half the range at 0 to one and a half times at 100.
+- **Chat:** with chat on, an NPC calls out a hunter chasing it within 12 m, at most once every 30 s, read aloud by the TTS in
+  its own voice.

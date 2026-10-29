@@ -131,6 +131,8 @@ var _void_fall_check := 0.0
 ## How long a caught PUBLIC-route runner spectates before rejoining (scripts/public_test.gd stretches it).
 static var public_spectate_seconds := 8.0
 var _spectate_peer := 0
+## An admin watching an NPC through the spectator camera (AdminNpcPanel): not a caught runner, so no party-wipe check.
+var _admin_spectating := false
 var _spectator_banner: SpectatorBanner
 var _capture_resolving := false
 ## Streamed entity id / hunter id of whichever grab the local escape struggle
@@ -768,6 +770,9 @@ func _infinite_admin_actions() -> Array:
 			"action": func() -> void: _admin_world_action("freeze_hunters")},
 		{"label": "RELEASE ALL HUNTERS", "permission": "hunters",
 			"action": func() -> void: _admin_world_action("release_hunters")},
+		{"heading": "NPCS", "permission": "world"},
+		{"permission": "world", "build": func(column: VBoxContainer) -> void:
+			column.add_child(AdminNpcPanel.new(self))},
 		{"heading": "WORLD", "permission": "world"},
 		{"heading": "GAME SPEED // SOLO RUNS ONLY", "permission": "world",
 			"items": ["0", "0.25", "1", "2", "4", "step"],
@@ -4553,6 +4558,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			return
 		var ticket := String(event.get("admin_ticket", ""))
 		if ticket.is_empty():
+			print("[coop] admin request refused from peer %d (%s): %s with no room proof" % [peer_id,
+				RoomState.peer_display_name(peer_id), String(event.get("action", what))])
 			_remotes.send_player_event(peer_id, {"what": "message",
 				"message": "ADMIN REQUEST REJECTED // ROOM PROOF REQUIRED"})
 			return
@@ -6089,6 +6096,59 @@ func _revives_enabled() -> bool:
 
 
 ## Host: a runner went down at `at` (where the hunter took them); their revive window opens for everyone.
+## The NPC system, made on first use (an admin's spawn mid-run, solo or host); null on a guest.
+func _ensure_npcs() -> NpcTeammates:
+	if _npcs == null and (not RoomState.online or RoomState.is_host):
+		_npcs = NpcTeammates.new()
+		_npcs.name = "NpcTeammates"
+		add_child(_npcs)
+		_npcs.setup(self, 0)
+		_remotes.npc_captured.connect(_npcs.down)
+	return _npcs
+
+
+## Host (or solo): an admin's NPC command (AdminMenu NPCS), already checked for the "world" permission. Spawns at the point
+## sent when it is walkable, else beside the admin; per-NPC ops go to NpcTeammates.command.
+func _admin_npc(peer_id: int, event: Dictionary) -> void:
+	var npcs := _ensure_npcs()
+	if npcs == null:
+		return
+	var op := String(event.get("op", ""))
+	var me := _target_state_for_peer(peer_id)
+	var local_id := multiplayer.get_unique_id() if RoomState.online else 1
+	var at: Vector3 = player.global_position if peer_id == local_id else (me.get("at") if me.get("at") is Vector3 else Vector3.INF)
+	match op:
+		"spawn":
+			var spot: Vector3 = at
+			var asked = event.get("at")
+			if asked is Vector3 and at != Vector3.INF and (asked as Vector3).distance_to(at) < 40.0:
+				var nav := _navigations.get(npcs._level_of((asked as Vector3).y)) as StreamedHunterNavigation
+				if nav != null and nav.can_occupy((asked as Vector3).x, (asked as Vector3).z):
+					spot = asked
+			if spot == Vector3.INF:
+				return
+			var ids := npcs.spawn(int(event.get("count", 1)), spot, int(event.get("smart", 70)))
+			_admin_feedback(peer_id, "ADMIN // %d NPC%s SPAWNED" % [ids.size(), "" if ids.size() == 1 else "S"] if not ids.is_empty()
+				else "ADMIN // NPC LIMIT (%d) REACHED" % NpcTeammates.MAX_COUNT)
+		"remove_nearest":
+			var nearest := -1
+			var best := INF
+			for npc in npcs.npcs:
+				var d := (npc["at"] as Vector3).distance_to(at) if at != Vector3.INF else 0.0
+				if d < best:
+					best = d
+					nearest = int(npc["id"])
+			if nearest >= 0:
+				npcs.remove(nearest)
+		"remove_all":
+			for npc in npcs.npcs.duplicate():
+				npcs.remove(int(npc["id"]))
+		_:
+			var value := int(event.get("smart" if op == "smart" else "value", 0))
+			if not npcs.command(int(event.get("id", 0)), op, at, peer_id, value):
+				_admin_feedback(peer_id, "ADMIN // NO SUCH NPC")
+
+
 ## Host: `count` NPC teammates (NpcTeammates) join this run; co-op only, since they need the revive window.
 func _start_npcs(count: int) -> void:
 	if _npcs != null or count <= 0 or not _revives_enabled() or not RoomState.is_host:
@@ -6319,8 +6379,30 @@ func _cycle_spectate_target(dir: int) -> void:
 	_spectate_peer = int(living[index].get("peer_id", 0))
 
 
+## Admin: the spectator camera follows NPC `id`; called again (or with 0, or once the NPC is gone) it comes back.
+func _admin_spectate_npc(id: int) -> void:
+	if _admin_spectating or id == 0:
+		if _admin_spectating:
+			_admin_spectating = false
+			_end_spectating()
+		return
+	if player.spectator_mode or _remotes.peer_state(id).is_empty():
+		return
+	_admin_spectating = true
+	player.enter_spectator()
+	_spectate_peer = id
+
+
 func _update_spectating() -> void:
 	if not player.spectator_mode:
+		return
+	if _admin_spectating:
+		var npc := _remotes.peer_state(_spectate_peer)
+		if npc.get("at") is Vector3:
+			player.spectator_follow_valid = true
+			player.spectator_follow_at = npc["at"]
+		else:
+			_admin_spectate_npc(0)
 		return
 	var watching := {}
 	if _spectate_peer != 0:
@@ -6538,9 +6620,13 @@ func _accept_stream_admin(peer_id: int, event: Dictionary) -> void:
 	var allowed := Build.admin_permission(permission) if peer_id == local_id \
 		else _remotes.remote_admin_peer_allowed(peer_id, permission)
 	if permission.is_empty() or not allowed:
+		print("[coop] admin request refused from peer %d (%s): %s, no %s permission" % [peer_id,
+			RoomState.peer_display_name(peer_id), action, permission if not permission.is_empty() else "known"])
 		_admin_feedback(peer_id, "ADMIN REQUEST REJECTED // PERMISSION REQUIRED")
 		return
 	match action:
+		"npc":
+			_admin_npc(peer_id, event)
 		"grant_relay":
 			_admin_collect_loaded_relays(false)
 		"all_relays":
@@ -6611,7 +6697,7 @@ func _admin_action_permission(action: String) -> String:
 	if action == "pulse_player":
 		return "visual"
 	if action in ["grant_relay", "all_relays", "damage_checkpoint",
-			"repair_checkpoint", "story_start", "story_stop", "story_reset"]:
+			"repair_checkpoint", "story_start", "story_stop", "story_reset", "npc"]:
 		return "world"
 	if action in ["stun_hunters", "wake_hunters", "calm_hunters",
 			"freeze_hunters", "release_hunters",

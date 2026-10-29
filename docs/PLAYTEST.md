@@ -117,3 +117,23 @@ validators, so treat the CPU figures as upper bounds.
 - About 700 MB per bot means 8 bots use about 5.6 GB.
 - From 6 bots up, short stalls drop a frame to 1 fps.
 - So 6 is a comfortable count for a 10-core, 16 GB machine.
+
+## NPC teammates: host cost
+
+Measured on 2026-10-28 with a windowed host on KT-Mini4-1 (`--npcs=N`) and one headless guest on KT-Mini4-2, in a
+TEST-service room, about 3 minutes each, after the first 30 s. Frame times are the p95 of each second's drawn frames; network is
+the host's ENet bytes per second.
+
+| NPCs | host fps avg / min | frame p95 (median second / worst) | host tx | host rx |
+|-----:|-------------------:|----------------------------------:|--------:|--------:|
+| 0 | 74 / 43 | 18.5 / 88 ms | 174 KB/s | 7.3 KB/s |
+| 2 | 70 / 15 | 19.7 / 241 ms | 176 KB/s | 7.3 KB/s |
+| 4 | 42 / 2 | 29.4 / 1249 ms | 156 KB/s | 7.0 KB/s |
+| 8 | 52 / 1 | 23.4 / 1344 ms | 183 KB/s | 7.1 KB/s |
+
+- **Network:** NPCs add little to host upload. Most of the 174 KB/s happens with no NPCs at all (the host's hunter and
+  world broadcasts to one guest).
+- **Unreliable rows:** the 4- and 8-NPC runs overlapped validator runs on the same machine, so their minimum fps and
+  worst-second spikes are not NPC cost. Repeat those rows on an idle host before trusting them.
+- **Median frame time:** it moves about 1–11 ms from 0 to 8 NPCs.
+- **Headless bots:** see the table above.

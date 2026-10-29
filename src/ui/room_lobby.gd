@@ -187,13 +187,10 @@ func _config_block() -> Control:
 		RoomState.DIFFICULTY_BLURBS)
 	difficulty_group.add_child(_label(String(RoomState.DIFFICULTY_BLURBS.get(RoomState.difficulty, "")), Palette.MUTED, 6))
 	groups.add_child(difficulty_group)
-	# AI teammates the host runs (co-op only: they need the revive window); 0 = none
-	var npc_group := _config_group("NPC TEAMMATES", {0: "NONE", 1: "1", 2: "2", 3: "3", 4: "4"},
-		RoomState.npc_teammates,
-		func(value: int) -> void: RoomState.set_npc_teammates(value),
-		func(_value: int) -> bool: return RoomState.is_host and RoomState.online and not RoomState.public_route,
-		{0: "Only real players.", 1: "AI runners join the route, run from hunters and can be revived."})
-	groups.add_child(npc_group)
+	# AI teammates the host runs (co-op only: they need the revive window). Admins and devs only (KT 2026-10-28): players
+	# never see the row.
+	if Build.tools_enabled() and RoomState.is_host:
+		groups.add_child(_npc_scroller())
 	groups.add_child(_archive_group())
 
 	stack.add_child(_label("THE RUN SAVES ITSELF // DEATH ENDS IT", Palette.MUTED, 6))
@@ -262,6 +259,39 @@ func _config_group(title: String, labels: Dictionary, selected: int,
 	group.add_theme_constant_override("separation", 2)
 	group.add_child(_label(title, Palette.MUTED, 6))
 	group.add_child(_toggles(labels, selected, on_pick, is_allowed, tips))
+	return group
+
+
+## NPC TEAMMATES  ◀ N ▶  (0..NpcTeammates.MAX_COUNT); usable in an online, non-public room.
+func _npc_scroller() -> Control:
+	var group := VBoxContainer.new()
+	group.name = "LobbyNpcTeammates"
+	group.add_theme_constant_override("separation", 2)
+	group.add_child(_label("NPC TEAMMATES (ADMIN)", Palette.MUTED, 6))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 3)
+	group.add_child(row)
+	var allowed := RoomState.online and not RoomState.public_route
+	for step in [-1, 0, 1]:
+		if step == 0:
+			var value := _label("%d" % RoomState.npc_teammates, Palette.INK, 8)
+			value.name = "NpcCount"
+			value.custom_minimum_size = Vector2(22, ROW_HEIGHT)
+			value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			row.add_child(value)
+			continue
+		var button := Button.new()
+		button.name = "NpcLess" if step < 0 else "NpcMore"
+		button.text = "◀" if step < 0 else "▶"
+		button.custom_minimum_size = Vector2(ROW_HEIGHT, ROW_HEIGHT)
+		button.focus_mode = Control.FOCUS_ALL
+		Palette.style_button(button, false)
+		var next: int = RoomState.npc_teammates + step
+		button.disabled = not allowed or next < 0 or next > NpcTeammates.MAX_COUNT
+		button.pressed.connect(func() -> void: RoomState.set_npc_teammates(RoomState.npc_teammates + step))
+		row.add_child(button)
+	if not allowed:
+		group.add_child(_label("ONLINE ROOMS ONLY", Palette.MUTED, 6))
 	return group
 
 
