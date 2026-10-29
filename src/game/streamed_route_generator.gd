@@ -1758,7 +1758,9 @@ func _maze_warren_layout(coord: Vector3i, grid: Array, region: String = "maze") 
 			"axis": "east_west" if index == 0 else "north_south", "serves_many_rooms": true})
 	# the region's own rooms that fit a 12 x 12 corner (RoomSizeProfiles)
 	var room_types := []
-	for type_name in _room_type_choices(region):
+	# the hotel's rooms are named by its bank layout, not the region table
+	var choices: Array = ["guest_room", "hotel_bathroom"] if region == "hotel" else _room_type_choices(region)
+	for type_name in choices:
 		if RoomSizeProfiles.within(String(type_name), Vector2i(WARREN_CELL * 2, WARREN_CELL * 2)) and not room_types.has(type_name) \
 				and not WARREN_ROOM_EXCLUDE.has(type_name):
 			room_types.append(type_name)
