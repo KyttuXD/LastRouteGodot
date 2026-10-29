@@ -1,0 +1,58 @@
+{
+	"schema": "lr.room/1",
+	"id": "library_rooms_archive",
+	"items": [
+		{
+			"type": [
+				"gothicBookcase",
+				"normalBookcase"
+			],
+			"side": [
+				"-half+1",
+				"half",
+				2
+			],
+			"depth": "back",
+			"wall_backed": true,
+			"facing": "open"
+		},
+		{
+			"type": [
+				"gothicBookcase",
+				"mansionBookshelf"
+			],
+			"side": [
+				"-half+2",
+				"half-1",
+				2
+			],
+			"depth": "mid",
+			"facing": "back",
+			"when": {
+				"min_depth": 9
+			}
+		},
+		{
+			"type": "library_rooms_ladder",
+			"side": -1,
+			"depth": "back+1",
+			"facing": "open",
+			"wall_backed": true
+		},
+		{
+			"type": "filingCabinet",
+			"side": -2,
+			"depth": "front-1",
+			"facing": "open"
+		},
+		{
+			"type": "woodenTable",
+			"side": 2,
+			"depth": "front-1",
+			"facing": "open",
+			"when": {
+				"min_side": 9
+			}
+		}
+	]
+}

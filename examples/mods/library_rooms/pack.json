@@ -1,0 +1,11 @@
+{
+	"schema": "lr.pack/1",
+	"id": "library_rooms",
+	"name": "Library Rooms",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (example)",
+	"description": "Example pack: a reading room and an archive join the mall's shop cycle. The archive brings its own rolling ladder prop.",
+	"overrides": [
+		"regions/mall"
+	]
+}
