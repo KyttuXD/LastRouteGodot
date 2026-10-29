@@ -34,7 +34,7 @@ const CAMERA_HEIGHT := 1.6 * PlayerModels.SCALE
 const CAMERA_HEIGHT_MIN := 1.35 * PlayerModels.SCALE
 const CAMERA_HEIGHT_MAX := 1.78 * PlayerModels.SCALE
 const CONTROLLER_LOOK_RADIANS_PER_SECOND := 2.8
-## Capsule, eye, crouch and step all follow the runner's size (PlayerModels.SCALE); the radius is 0.28 (0.85x of the hunter's).
+## Capsule, eye, crouch and step all follow the runner's size (PlayerModels.SCALE); the radius is 0.24 (0.74x of the hunter's).
 const STANDING_COLLISION_HEIGHT := 1.7 * PlayerModels.SCALE
 const CROUCH_COLLISION_HEIGHT := 1.08 * PlayerModels.SCALE
 const STANDING_COLLISION_CENTER_Y := STANDING_COLLISION_HEIGHT * .5
@@ -231,13 +231,19 @@ var admin_god_mode := false
 var admin_noclip := false
 ## Admin run-speed multiplier (1 = normal); applied to walk, crouch and sprint.
 var admin_speed_scale := 1.0
-## A captured co-op guest remains in the room as a free-flying spectator rather
-## than respawning or being forced back to the menu. The host still treats this
-## state as game-over for targeting and replication purposes.
+## A caught co-op runner stays in the room as a GHOST (KT 2026-10-28: "more of a ghost player mode, not a free noclip
+## thing"): the same walking body with world collision, gravity, speed, stairs, ladders and level links, drawn
+## translucent and washed out; silent to hunters, never targeted (replicated as `spectating`), and unable to use, pick
+## up, open or trigger anything. Free flight is only the admin noclip.
 var spectator_mode := false
-## Follow cam: while valid the spectator trails this world position instead of free-flying.
+## Follow view: while `ghost_follow` and a living teammate is known (`spectator_follow_valid`), a separate camera trails
+## `spectator_follow_at`; the ghost body stays where it was.
+var ghost_follow := false
 var spectator_follow_valid := false
 var spectator_follow_at := Vector3.ZERO
+var _follow_camera: Camera3D
+## How see-through a ghost is (ModelSlot.set_character_fade).
+const GHOST_FADE := .55
 
 ## Exposure / noise / temperature, shared with hunter gimmicks that read them
 ## (see src/game/player_meters.gd).
@@ -331,11 +337,15 @@ const PLUNGE_SWIM_NOISE := .8
 const SOAKED_SECONDS := 30.0
 const SOAKED_NOISE_SCALE := 1.45
 const SOAKED_DRIP_EVERY := Vector2(1.1, 2.4)
-## Wading a sewer flood (SewerFloods.MAX_DEPTH deep): the speed at full depth, the noise of a splashing step (louder than a
-## sprint on stone) and how often a step splashes.
-const WADE_SPEED_SCALE := .6
+## Wading a sewer flood, scaled by depth: the speed at knee depth (SewerFloods.DEEP_DEPTH), the noise of a splashing step
+## at shin depth (louder than a sprint on stone) and at knee depth, how often a step splashes, and from what depth wading
+## tires (stamina per second).
+const WADE_SPEED_SCALE := .45
 const WADE_NOISE := 12.0
+const WADE_DEEP_NOISE := 17.0
 const WADE_SPLASH_EVERY := .42
+const WADE_TIRING_DEPTH := .6
+const WADE_STAMINA_DRAIN := 6.0
 const LADDER_CLIMB_SPEED := 1.7
 const LADDER_LET_GO_HEIGHT := 1.3 * PlayerModels.SCALE
 const LADDER_MOUNT_SECONDS := .3
@@ -346,15 +356,15 @@ const MODEL_EYE_NEAR := .02
 var resting_pose := ""
 ## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
 ## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
-const SIT_EYE := 1.58   # 1.15 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
+const SIT_EYE := 1.36   # 1.15 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
 ## How far short of an aim box a solid may be hit and still count as the box itself (its frame, its wall).
 const AIM_RAY_SLACK := .06
-## The 2.2 m runner's seated eye above the seat pan (eye 1.87 standing, hip 1.11, plus the thigh under her).
-const SIT_EYE_ABOVE_SEAT := .96
+## The 1.9 m runner's seated eye above the seat pan (eye 1.61 standing, hip 0.96, plus the thigh under her).
+const SIT_EYE_ABOVE_SEAT := .83
 ## Seat height the mannequin's "sit" clip is authored for (at PlayerModels.SCALE): peers lift a seated runner by the rest.
-const SIT_CLIP_SEAT := .577
-const LAY_EYE_ABOVE_MATTRESS := .30
-const REST_EASE_SECONDS := 0.35
+const SIT_CLIP_SEAT := .498
+const LAY_EYE_ABOVE_MATTRESS := .26
+const REST_EASE_SECONDS := 0.45   # from the face (in front of the head) to a bed: a longer way than from the centre line
 const SIT_YAW_LIMIT := deg_to_rad(75.0)
 const LAY_YAW_LIMIT := deg_to_rad(55.0)
 const SIT_PITCH := Vector2(-0.95, 0.6)
@@ -966,6 +976,44 @@ func _update_camera_pose(delta: float, moving_on_floor: bool,
 		target_y, delta * 3.2)
 	first_person_pivot.position.x = move_toward(first_person_pivot.position.x,
 		target_x, delta * .8)
+	if resting_furniture == null and _rest_ease.is_empty() and _hide_move.is_empty():
+		# out to the face at walking pace after a seat, a bed or a hiding spot put the eye on the centre line; back from a
+		# wall at once (the near plane never goes into it)
+		var face_z := -_face_ahead_clear(first_person_pivot.position.y)
+		first_person_pivot.position.z = face_z if face_z > first_person_pivot.position.z \
+			else move_toward(first_person_pivot.position.z, face_z, delta * FACE_EASE_SPEED)
+
+
+## Every first-person view sits at the head's front face (KT): FirstPersonBody.eye_of, the same point the grab camera uses,
+## measured once on the standing model as how far in front of the body's centre line it is. Facing a wall the view is
+## pulled back toward the centre line (never past it, into the head) far enough that the near plane stays out of it.
+const FACE_WALL_MARGIN := .03
+const FACE_EASE_SPEED := 1.2
+var _face_ahead := -1.0
+
+
+func face_ahead() -> float:
+	if _face_ahead < 0.0 and _body_model != null and _body_model.is_inside_tree():
+		_face_ahead = maxf(-(global_transform.affine_inverse() * FirstPersonBody.eye_of(_body_model)).z, 0.0)
+	return maxf(_face_ahead, 0.0)
+
+
+func _face_ahead_clear(eye_y: float) -> float:
+	var ahead := face_ahead()
+	if ahead <= 0.0 or not is_inside_tree():
+		return ahead
+	var forward := -global_basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 1e-6:
+		return ahead
+	forward = forward.normalized()
+	var from := global_position + Vector3.UP * eye_y
+	var reach := ahead + first_person_camera.near + FACE_WALL_MARGIN
+	var query := PhysicsRayQueryParameters3D.create(from, from + forward * reach, collision_mask, [get_rid()])
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return ahead
+	return clampf(from.distance_to(hit["position"]) - first_person_camera.near - FACE_WALL_MARGIN, 0.0, ahead)
 
 
 func _update_controller_look(delta: float) -> void:
@@ -1065,7 +1113,7 @@ func is_plunging() -> bool:
 ## `surface_y`), the splash and a muffled moment, a slow swim to `exit` on the walkway ring (floor height `exit.y`), then SOAKED_SECONDS
 ## of soaked. Collision is off for the duration; no damage, input is ignored. The level changes by itself as the feet cross the storey.
 func begin_plunge(from: Vector3, land: Vector3, exit: Vector3, surface_y: float) -> void:
-	if is_plunging() or is_climbing() or hidden or spectator_mode:
+	if is_plunging() or is_climbing() or hidden:   # a ghost takes the falls too (a level link)
 		return
 	if resting_furniture != null:
 		leave_furniture()
@@ -1152,7 +1200,10 @@ func _update_wading(delta: float, is_moving: bool) -> void:
 	soaked_left = maxf(soaked_left, SOAKED_SECONDS * .5)
 	if not is_moving:
 		return
-	noise = maxf(noise, WADE_NOISE * clampf(wading_depth / SewerFloods.MAX_DEPTH, .5, 1.0))
+	var deep := clampf((wading_depth - SewerFloods.MAX_DEPTH) / (SewerFloods.DEEP_DEPTH - SewerFloods.MAX_DEPTH), 0.0, 1.0)
+	noise = maxf(noise, lerpf(WADE_NOISE * clampf(wading_depth / SewerFloods.MAX_DEPTH, .5, 1.0), WADE_DEEP_NOISE, deep))
+	if wading_depth >= WADE_TIRING_DEPTH and not admin_god_mode:
+		stamina = maxf(0.0, stamina - WADE_STAMINA_DRAIN * delta)
 	_splash_left -= delta
 	if _splash_left <= 0.0:
 		_splash_left = WADE_SPLASH_EVERY
@@ -1178,7 +1229,7 @@ func _update_soaked(delta: float) -> void:
 ## The camera stays free; movement, items and collision are off on the rungs.
 func begin_ladder_climb(foot: Vector3, rise: float, height: float, yaw: float,
 		top_exit: Vector3, bottom_exit: Vector3, top_level: int, bottom_level: int) -> void:
-	if is_climbing() or hidden or spectator_mode:
+	if is_climbing() or hidden:   # a ghost climbs ladders too (a level link)
 		return
 	if resting_furniture != null:
 		leave_furniture()
@@ -1348,7 +1399,7 @@ func end_grab_view() -> void:
 	first_person_pivot.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, _standing_camera_height, 0.0))
 	_apply_look_rotation()
 	if first_person_items != null:
-		first_person_items.visible = true
+		first_person_items.visible = not xr_active   # never the flat viewmodel in a headset
 	_end_first_person_body()
 
 
@@ -1531,56 +1582,98 @@ func enter_spectator() -> void:
 	set_admin_noclip(false)
 	spectator_mode = true
 	clear_stim()
+	if hidden:
+		leave_hiding()
 	input_frozen = false
 	look_frozen = false
 	velocity = Vector3.ZERO
+	# the world still blocks a ghost (mask), but nothing collides with it (layer)
 	collision_layer = 0
-	collision_mask = 0
+	collision_mask = 1
 	if player_collision != null:
-		player_collision.disabled = true
-	if body_visual != null:
-		body_visual.visible = false
+		player_collision.disabled = false
+	set_ghost_look(body_visual, true)
+	ghost_follow = false
 
 
 func leave_spectator() -> void:
 	spectator_mode = false
 	spectator_follow_valid = false
+	set_ghost_follow(false)
 	velocity = Vector3.ZERO
 	collision_layer = 1
 	collision_mask = 1
 	if player_collision != null:
 		player_collision.disabled = false
+	set_ghost_look(body_visual, false)
 	if body_visual != null:
 		body_visual.visible = true
 
 
-func _update_spectator(delta: float) -> void:
-	if spectator_follow_valid:
-		var forward := -active_camera().global_basis.z
-		forward.y = 0.0
-		forward = forward.normalized() if forward.length_squared() > 0.001 else Vector3.FORWARD
-		var wanted := spectator_follow_at + Vector3.UP * 1.3 - forward * 3.0
-		global_position = global_position.lerp(wanted, clampf(delta * 8.0, 0.0, 1.0))
-		velocity = Vector3.ZERO
-		noise = 0.0
-		_clip = "idle"
-		ModelSlot.play_if_available(_animation_player, _clip)
+## A ghost's look on any character model: see-through (GHOST_FADE, or `fade`) with a pale overlay that washes the skin out.
+static func set_ghost_look(root: Node, on: bool, fade: float = GHOST_FADE) -> void:
+	if root == null:
 		return
-	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	var basis := active_camera().global_basis
-	var direction := basis.x * input_vector.x + (-basis.z) * -input_vector.y
-	if Input.is_action_pressed("jump"):
-		direction += Vector3.UP
-	if Input.is_action_pressed("crouch"):
-		direction += Vector3.DOWN
-	var fast := Input.is_action_pressed("sprint")
-	var speed := 12.0 if fast else 6.0
-	if direction.length_squared() > 0.0:
-		global_position += direction.normalized() * speed * delta
-	velocity = Vector3.ZERO
+	ModelSlot.set_character_fade(root, fade if on else 0.0)
+	_ghost_overlay(root, GHOST_OVERLAY if on else null)
+
+
+static var GHOST_OVERLAY: StandardMaterial3D = _make_ghost_overlay()
+
+
+static func _make_ghost_overlay() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color(.72, .80, .92, .5)
+	return m
+
+
+static func _ghost_overlay(node: Node, overlay: Material) -> void:
+	if node is GeometryInstance3D:
+		(node as GeometryInstance3D).material_overlay = overlay
+	for child in node.get_children():
+		_ghost_overlay(child, overlay)
+
+
+## The follow view on (a living teammate's back) or off (back in the ghost's own eyes).
+func set_ghost_follow(on: bool) -> void:
+	ghost_follow = on and spectator_mode
+	if ghost_follow:
+		if _follow_camera == null:
+			_follow_camera = Camera3D.new()
+			_follow_camera.name = "GhostFollowCamera"
+			_follow_camera.top_level = true
+			add_child(_follow_camera)
+		_follow_camera.global_transform = active_camera().global_transform
+		_follow_camera.current = true
+	elif _follow_camera != null and _follow_camera.current:
+		_follow_camera.current = false
+		var own := active_camera()
+		if own != null:
+			own.current = true
+
+
+## The follow view: the ghost body stands still (gravity only) while its camera trails the followed teammate, looking
+## the way the mouse points. True when it ran (the walking ghost is skipped this frame).
+func _update_ghost_follow(delta: float) -> bool:
+	if not ghost_follow or not spectator_follow_valid or _follow_camera == null:
+		return false
+	var look := first_person_pivot.global_basis if first_person_pivot != null else global_basis
+	var forward := -look.z
+	forward.y = 0.0
+	forward = forward.normalized() if forward.length_squared() > 0.001 else Vector3.FORWARD
+	var wanted := spectator_follow_at + Vector3.UP * 2.0 - forward * 3.4
+	_follow_camera.global_position = _follow_camera.global_position.lerp(wanted, clampf(delta * 8.0, 0.0, 1.0))
+	_follow_camera.look_at(spectator_follow_at + Vector3.UP * 1.4, Vector3.UP)
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_update_vertical_motion(delta, false)
+	_move_and_resolve_landing()
 	noise = 0.0
 	_clip = "idle"
 	ModelSlot.play_if_available(_animation_player, _clip)
+	return true
 
 
 func _update_admin_noclip(delta: float) -> void:
@@ -1633,8 +1726,7 @@ func _physics_process(delta: float) -> void:
 	taser_cooldown = maxf(0.0, taser_cooldown - delta)
 	_update_first_person_item_lights()
 	_update_flashlight_occlusion()
-	if spectator_mode:
-		_update_spectator(delta)
+	if spectator_mode and _update_ghost_follow(delta):
 		return
 	if hiding_lock_timer > 0.0:
 		hiding_lock_timer = maxf(0.0, hiding_lock_timer - delta)
@@ -1748,13 +1840,15 @@ func _physics_process(delta: float) -> void:
 
 	movement_speed *= admin_speed_scale
 	if wading_depth > 0.0:
-		movement_speed *= lerpf(1.0, WADE_SPEED_SCALE, clampf(wading_depth / SewerFloods.MAX_DEPTH, 0.0, 1.0))
+		movement_speed *= lerpf(1.0, WADE_SPEED_SCALE, clampf(wading_depth / SewerFloods.DEEP_DEPTH, 0.0, 1.0))
 
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
 	if _noise_burst_timer > 0.0:
 		noise = maxf(noise, _noise_burst)
 	if soaked_left > 0.0:
 		noise *= SOAKED_NOISE_SCALE
+	if spectator_mode:
+		noise = 0.0   # a ghost's footsteps are silent to hunters
 	_update_wading(delta, is_moving)
 
 	meters.update(delta, {
@@ -1853,6 +1947,8 @@ func _physics_process(delta: float) -> void:
 	# mouse (after focus loss or a menu) and clicks on open menus never swing, spend or blip.
 	var click_ready := xr_active or (_cursor_was_captured and MouseLock.is_captured())
 	_cursor_was_captured = MouseLock.is_captured()
+	if spectator_mode:
+		return   # a ghost uses, drops, opens and triggers nothing (its hotbar waits for a revive)
 	if inventory_enabled:
 		if inventory_enabled and Input.is_action_just_pressed("taser") and owns_inventory_item("taser"):
 			_fire_taser()
@@ -3413,6 +3509,8 @@ func is_in_safe_zone() -> bool:
 
 
 func get_interaction_prompt() -> String:
+	if spectator_mode:
+		return ""
 	if resting_furniture != null:
 		# resting: what you can do from here, never the "LIE DOWN" of the furniture you are on
 		if asleep:
@@ -3488,6 +3586,8 @@ func xr_poke(target: RouteInteractable3D) -> void:
 
 
 func _try_interact() -> void:
+	if spectator_mode:
+		return   # a ghost triggers nothing
 	var target := _nearest_interactable()
 	if target == null:
 		if shop_resolver.is_valid():
@@ -3585,6 +3685,9 @@ func _hold_seconds(target: RouteInteractable3D) -> float:
 		return GameConfig.MUSIC_BOX_WIND_HOLD
 	if target.kind == RouteInteractable3D.Kind.REVIVE_SPOT and owns_inventory_item("revive_kit"):
 		return GameConfig.REVIVE_HOLD_SECONDS
+	# anything else that asks for a hold (a sewer valve wheel)
+	if target.has_meta("hold_seconds"):
+		return float(target.get_meta("hold_seconds"))
 	return 0.0
 
 

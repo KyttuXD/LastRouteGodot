@@ -3,7 +3,7 @@
 [ext_resource type="Script" path="res://src/game_3d/player_controller_3d.gd" id="3_player"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
-radius = 0.25
+radius = 0.24
 height = 1.7
 
 [node name="Player" type="CharacterBody3D"]

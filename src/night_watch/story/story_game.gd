@@ -396,7 +396,7 @@ func _walk_to(id: String, room_id: String, spot: Vector3, look: Vector3) -> void
 
 func _spawn_hunters() -> void:
 	for id in StoryData.CAST:
-		var model := ModelSlot.instantiate_hunter(StoryData.identity(id))
+		var model := NightWatchHunterScale.instantiate(StoryData.identity(id))
 		if model == null:
 			model = Node3D.new()
 		model.name = "Hunter_%s" % id

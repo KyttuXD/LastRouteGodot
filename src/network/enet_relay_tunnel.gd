@@ -91,14 +91,19 @@ func update_host_token(token: String) -> void:
 ## Returns the loopback UDP port an ENet client should connect to, or zero on
 ## failure. It is intentionally opened before the relay acknowledges the room:
 ## ENet's first connect datagrams are queued and flushed once GUEST_ACK lands.
-func start_guest(code: String, address: String, port: int) -> int:
+## `join_ticket` (a reserved private room's, base64url from /api/rooms/reserved/resolve) replaces the random nonce:
+## the relay admits only ticket holders to such a room.
+func start_guest(code: String, address: String, port: int, join_ticket: String = "") -> int:
 	close()
 	var error := _open(code, address, port)
 	if not error.is_empty():
 		relay_failed.emit(error)
 		return 0
 	mode = Mode.GUEST
-	_nonce = Crypto.new().generate_random_bytes(12)
+	_nonce = Marshalls.base64_to_raw(join_ticket.replace("-", "+").replace("_", "/") + "=".repeat((4 - join_ticket.length() % 4) % 4)) \
+		if not join_ticket.is_empty() else Crypto.new().generate_random_bytes(12)
+	if _nonce.size() < 8 or _nonce.size() > 32:
+		_nonce = Crypto.new().generate_random_bytes(12)
 	_send_guest_join()
 	return _socket.get_local_port()
 
@@ -258,10 +263,10 @@ func _keep_alive(address: String, port: int) -> void:
 		if not frame.is_empty():
 			socket.put_packet(frame)
 			alive_sent += 1
-		var waited := 0
-		while waited < HOST_ALIVE_INTERVAL_MSEC and not _alive_stop:
-			OS.delay_msec(25)
-			waited += 25
+		# wall clock, not a sum of sleeps: a loaded machine oversleeps, and the next frame must not slip with it
+		var next_at := Time.get_ticks_msec() + HOST_ALIVE_INTERVAL_MSEC
+		while Time.get_ticks_msec() < next_at and not _alive_stop:
+			OS.delay_msec(10)
 	socket.close()
 
 

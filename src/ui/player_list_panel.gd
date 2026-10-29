@@ -47,6 +47,7 @@ func _header() -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.name = "PlayerListHeader"
 	row.add_theme_constant_override("separation", 4)
+	row.add_child(_cell("", 8, Palette.MUTED, 6))
 	row.add_child(_cell("", 34, Palette.MUTED, 6))
 	row.add_child(_cell("NAME", NAME_W, Palette.MUTED, 6))
 	for column in COLUMNS:
@@ -86,13 +87,20 @@ func _build_row(row: Dictionary) -> Control:
 	var line := HBoxContainer.new()
 	line.name = "Player_%d" % int(row["id"])
 	line.add_theme_constant_override("separation", 4)
+	# the player's colour: the same on their map arrow, their HUD waypoint and their nametag
+	var swatch := ColorRect.new()
+	swatch.name = "PlayerColour"
+	swatch.color = Color(String(row.get("colour", "ffffff")))
+	swatch.custom_minimum_size = Vector2(4, 9)
+	swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(swatch)
 	var badge := _cell("HOST" if row["host"] else "", 34, Palette.ON_AMBER, 6)
 	if row["host"]:
 		badge.add_theme_stylebox_override("normal", _tag(Palette.ACCENT))
 	badge.name = "HostBadge"
 	line.add_child(badge)
 	var name_label := _cell(String(row["name"]) + (" (YOU)" if row["you"] else ""), NAME_W,
-		Palette.INK if row["you"] else Palette.BODY)
+		Color(String(row.get("colour", "ffffff"))).lightened(.35))
 	name_label.name = "PlayerName"
 	line.add_child(name_label)
 	var ping_label := _cell(RoomPlayerList.ping_text(int(row["ping"])), COLUMNS[0][1], Palette.BODY)

@@ -10,9 +10,9 @@ extends NightWatchOfficeBase
 const A := preload("res://src/night_watch/night_watch_art.gd")
 const ROOM_W := 5.6
 const ROOM_D := 5.0
-const HEIGHT := 3.0
+const HEIGHT := 3.6
 const DOOR_GAP := 1.5
-const DOOR_TOP := 2.3
+const DOOR_TOP := 3.2
 const SPAWN := Vector3(0.0, 0.0, 0.6)
 
 var note_label: Label3D

@@ -17,6 +17,11 @@ static func start(night_number: int, seed_number: int = -1) -> void:
 	start_mode("classic", night_number, {}, seed_number)
 
 
+## While Night Watch is locked (GameRegistry) only a tester starts a shift; is_open() is what the mode scenes check.
+static func is_open() -> bool:
+	return GameRegistry.is_launchable("night_watch")
+
+
 static func start_mode(mode: String, level: int, custom := {}, seed_number: int = -1) -> void:
 	mode_id = mode
 	night = maxi(1, level)

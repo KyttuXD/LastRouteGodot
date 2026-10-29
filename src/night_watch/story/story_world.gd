@@ -10,9 +10,9 @@ const A := preload("res://src/night_watch/night_watch_art.gd")
 const CELL := 6.0
 const ROOM_W := 5.6
 const ROOM_D := 5.0
-const HEIGHT := 3.0
+const HEIGHT := 3.6
 const DOOR_GAP := 1.5
-const DOOR_TOP := 2.3
+const DOOR_TOP := 3.2
 const ORDER := ["breaker", "gallery", "control", "workshop", "auditorium"]
 const TINTS := {
 	"breaker": Color(1.1, 1.0, 0.8), "gallery": Color(0.85, 0.8, 1.3), "control": Color(0.85, 1.05, 1.2), "workshop": Color(1.25, 1.0, 0.8),

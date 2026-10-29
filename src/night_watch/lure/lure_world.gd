@@ -6,9 +6,9 @@ extends Node3D
 ## by the rules' sim ids (lobby, arcade, ...) and built from shaded cubes (NightWatchArt). A feed camera sits high in a corner of each room. Generated, so identical everywhere.
 
 const A := preload("res://src/night_watch/night_watch_art.gd")
-const HEIGHT := 3.2
+const HEIGHT := 3.6
 const DOOR_GAP := 1.6
-const DOOR_TOP := 2.5
+const DOOR_TOP := 3.2
 const TINTS := {
 	"reception": Color(1.3, 1.05, 0.8), "studio": Color(0.9, 0.85, 1.3), "live": Color(1.2, 0.85, 0.95), "tapes": Color(1.2, 1.15, 0.8),
 	"transmitter": Color(0.85, 1.05, 1.15), "crawl": Color(0.85, 0.95, 1.05),

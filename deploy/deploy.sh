@@ -161,6 +161,8 @@ DEST="$APP/releases/$RELEASE"
 say "release: $RELEASE (from $SRC)"
 if [ "$APPLY" = 1 ]; then
   mkdir -p "$DEST"
+  # the mod index's pack folders come from the game's sources, which the release does not ship (backend/pack_kinds.mjs)
+  ( cd "$SRC" && node backend/pack_kinds.mjs --write ) || { echo "could not write backend/pack_kinds.json" >&2; exit 1; }
   ( cd "$SRC" && tar cf - --exclude='.env' --exclude='.data' --exclude='._*' --exclude='.DS_Store' \
       index.js package.json backend deploy docs 2>/dev/null ) | tar xf - -C "$DEST"
   [ -f "$DEST/index.js" ] && [ -f "$DEST/backend/server.mjs" ] || { echo "release copy is incomplete" >&2; rm -rf "$DEST"; exit 1; }

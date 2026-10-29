@@ -7,7 +7,7 @@ extends Node3D
 ## cameras and the three nightly dressings: 0 the station as it is, 1 a party floor (Masked Hours' balloons, tables, streamers, arcade cabinets), 2 a salvage yard (Salvage Run's containers, scrap, barrels, a crane arm).
 
 const A := preload("res://src/night_watch/night_watch_art.gd")
-const H := 3.4
+const H := 3.6
 const THICK := 0.2
 const BALLOON_TINTS := [Color(1.9, 0.5, 0.5), Color(0.6, 1.0, 1.9), Color(1.9, 1.6, 0.4), Color(0.7, 1.8, 0.7), Color(1.8, 0.7, 1.7)]
 ## each sim room: its floor rectangle [x0, x1, z0, z1] in building space (the office is at the origin) and the floor tint of the plain station

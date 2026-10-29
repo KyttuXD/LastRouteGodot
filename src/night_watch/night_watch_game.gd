@@ -152,7 +152,7 @@ func _wire_stations() -> void:
 func _spawn_hunters() -> void:
 	for id in NightWatchData.CAST:
 		var identity := HunterRoster.get_identity(id)
-		var model := ModelSlot.instantiate_hunter(identity)
+		var model := NightWatchHunterScale.instantiate(identity)
 		if model == null:
 			push_warning("NightWatch: no model for %s" % id)
 			model = Node3D.new()

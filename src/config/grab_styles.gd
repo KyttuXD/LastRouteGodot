@@ -59,22 +59,22 @@ const MAX_SECONDS := CARRY_SECONDS
 static func duration(style: String) -> float:
 	return CARRY_SECONDS if style == SHOULDER_CARRY else TOTAL_SECONDS
 
-## Points on the 2.2 m runner body (measured at 1.60 m, times PlayerModels.SCALE / 0.9) the hunter's hands go to, in the body's own frame (facing -Z, +X its right, feet at 0).
+## Points on the 1.9 m runner body (measured at 1.60 m, times PlayerModels.SCALE / 0.9) the hunter's hands go to, in the body's own frame (facing -Z, +X its right, feet at 0).
 const BODY_POINTS := {
-	"neck": Vector3(0, 1.483, -0.233),
-	"l_shoulder": Vector3(-0.412, 1.744, -0.041),
-	"r_shoulder": Vector3(0.412, 1.744, -0.041),
-	"l_wrist": Vector3(-0.412, 1.703, -0.508),
-	"back_l": Vector3(-0.33, 1.442, 0.11),
-	"back_r": Vector3(0.33, 1.442, 0.11),
-	"r_ankle": Vector3(0.137, 0.137, 0.137),
-	"knees": Vector3(0, 1.099, -0.371),   # the front of the thighs, legs folded down her front in the shoulder carry (0.8 / -0.27 at the old 1.60 m)
+	"neck": Vector3(0, 1.28, -0.202),
+	"l_shoulder": Vector3(-0.356, 1.506, -0.036),
+	"r_shoulder": Vector3(0.356, 1.506, -0.036),
+	"l_wrist": Vector3(-0.414, 1.312, -0.5),   # held out low and to the side, not up in front of the runner's own face
+	"back_l": Vector3(-0.285, 1.245, 0.095),
+	"back_r": Vector3(0.285, 1.245, 0.095),
+	"r_ankle": Vector3(0.119, 0.296, 0.119),   # the lower calf just above the ankle: her big hand closes round it clear of the floor
+	"knees": Vector3(0, 0.948, -0.32),   # the front of the thighs, legs folded down her front in the shoulder carry (0.8 / -0.27 at the old 1.60 m)
 }
-## The mannequin's joints these points were measured from (at the old scale .9; multiplied by 1.236 / 0.9 here): neck pivot 1.18, shoulders 1.08 (arm tops ~1.2),
+## The mannequin's joints these points were measured from (at the old scale .9; multiplied by 1.067 / 0.9 here): neck pivot 1.18, shoulders 1.08 (arm tops ~1.2),
 ## arms .44 long, torso .2 deep, head .4. Contacts sit just off the surface so a hunter's (much bigger) hand closes on it.
 
 ## Standing eye height of the runner the poses assume when no real camera is involved (the other players' view of a body).
-const BODY_EYE := 1.868   # 1.36 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
+const BODY_EYE := 1.612   # 1.36 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
 
 static var _pools := {}
 static var _looks := {}
@@ -326,7 +326,7 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["hands"] = "push_up"
 			out["arms"] = [["R", "l_shoulder", r], ["L", "r_shoulder", r]]
 			var down := smooth((t - REACH_SECONDS - ACT_SECONDS * .4) / (ACT_SECONDS * .6 + HOLD_SECONDS * .4))
-			out["hunter"] = [.3 * down, .3 * down, .6 * down]   # she follows the runner down once they have hit the floor
+			out["hunter"] = [.3 * down, .3 * down, .3 * down]   # she follows the runner down once they have hit the floor, kneeling over them
 			out["clip"] = "fall"
 		WRIST_YANK:
 			# her hand closes on the runner's outstretched wrist and she hauls them in, leaning back into the pull
@@ -356,7 +356,9 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			var carried := pelvis - Vector3(0.0, .6 * cos(tilt), .6 * sin(tilt))
 			# out to her side first, then up and over, so the body never swings through hers
 			var out_side := smooth((t - REACH_SECONDS * .5) / .35)   # stepped out to her shoulder side before going up
-			out["at"] = Vector3(carried.x * out_side, carried.y * hoist, lerpf(.75, carried.z, hoist))
+			# swung a little wider on the way up (the runner's head passes her side close to her body), in again at the top
+			var wide := 1.0 + .3 * sin(PI * clampf(hoist, 0.0, 1.0))
+			out["at"] = Vector3(carried.x * out_side * wide, carried.y * hoist, lerpf(.75, carried.z, hoist))
 			out["tilt"] = tilt
 			out["fold"] = hoist
 			out["view_pitch"] = 0.0
@@ -366,6 +368,7 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["arms"] = [["R", "knees", r]]
 			out["hunter"] = [walk * CARRY_METRES, 0.0, 0.0]
 			out["walk"] = walk > .001 and walk < .999
+			out["walk_t"] = maxf(t - REACH_SECONDS - 1.0, 0.0)   # her steps from the clip's start, not from mid-stride
 			out["her_look_ahead"] = true   # she looks where she is carrying them, not round at the runner over her shoulder
 			out["clip"] = "idle"
 		LEG_GRAB:
@@ -406,7 +409,8 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["hands"] = "claw"
 			out["k"] = a
 			out["arms"] = [["R", "neck", r]]
-			out["hunter"] = [lerpf(0.0, -.9, a) - .4 * pull, .3 * a, .35 * a]
+			# backed off as far again as the runner is tall: dragged face down, their face stays where she can look at it
+			out["hunter"] = [(lerpf(0.0, -.9, a) - .4 * pull) * PlayerModels.SCALE / .9, .3 * a, .35 * a]
 			out["clip"] = "fall"
 		WALL_PIN:
 			# shoved back against the wall behind the runner and held there by the throat at arm's length, feet off the floor

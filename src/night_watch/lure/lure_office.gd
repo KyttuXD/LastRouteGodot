@@ -10,7 +10,7 @@ extends NightWatchOfficeBase
 const A := preload("res://src/night_watch/night_watch_art.gd")
 const HALF_W := 3.0
 const HALF_D := 2.5
-const HEIGHT := 3.0
+const HEIGHT := 3.6
 const VENT_W := 1.5
 const VENT_H := 2.2
 const SLAB_OPEN_Y := VENT_H + 1.3

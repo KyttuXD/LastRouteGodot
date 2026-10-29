@@ -7,7 +7,7 @@ extends RefCounted
 ## can), and every vent grate opens onto a walkable cell and a duct.
 
 const SEEDS := ["UPPER-A", "UPPER-B", "KYTTU-LAB", "ENDLESS-ROUTE", "PICKUPS"]
-const RADIUS := 4
+const RADIUS := 8
 ## A full-size humanoid hunter: the rig is about 1.8 m tall before HunterRoster.MODEL_SCALE.
 const HUNTER_HEIGHT := 1.8 * HunterRoster.MODEL_SCALE
 const OWN_GRID := {1: "mezzanine_grid", 2: "offices_grid", 3: "archive_grid", 4: "attic_grid"}
@@ -58,6 +58,9 @@ func run(_host: Node) -> int:
 		var vents := VentNetwork.new(stack[0], stack.slice(1))
 		for dz in range(-RADIUS, RADIUS + 1):
 			for dx in range(-RADIUS, RADIUS + 1):
+				# the Offices, Archive and Attic stack on a deck patch (DeckPatches); the void has its own suite
+				if not stack[0].is_chunk_allowed(Vector3i(dx, 1, dz)) or stack[0].is_void_column(Vector3i(dx, 0, dz)):
+					continue
 				chunks += 1
 				var where := "%s (%d,%d)" % [seed_text, dx, dz]
 				var grids := {0: stack[0].chunk(Vector3i(dx, 0, dz))["grid"]}

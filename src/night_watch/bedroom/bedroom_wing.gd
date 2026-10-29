@@ -6,9 +6,9 @@ extends Node3D
 ## BedroomOffice leaves open at the same places). Built from shaded cubes (NightWatchArt); dark like the rest of the house, with one very faint glow in the living room.
 
 const A := preload("res://src/night_watch/night_watch_art.gd")
-const HEIGHT := 2.8
+const HEIGHT := 3.6
 const DOOR_GAP := 1.6
-const DOOR_TOP := 2.2
+const DOOR_TOP := 3.2
 const WING_ROOMS := ["kids_room", "bathroom", "landing", "stairs", "living_room", "galley"]
 const TINTS := {
 	"kids": Color(0.8, 1.1, 1.3), "bath": Color(0.85, 1.25, 1.25), "landing": Color(1.0, 0.9, 1.2), "stairs": Color(0.9, 0.85, 1.1),

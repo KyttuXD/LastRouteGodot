@@ -184,7 +184,7 @@ func _wire_stations() -> void:
 func _spawn_hunters() -> void:
 	for p in MixedData.POOL:
 		var id := String(p["id"])
-		var model := ModelSlot.instantiate_hunter(HunterRoster.get_identity(id))
+		var model := NightWatchHunterScale.instantiate(HunterRoster.get_identity(id))
 		if model == null:
 			push_warning("Mixed Shift: no model for %s" % id)
 			model = Node3D.new()

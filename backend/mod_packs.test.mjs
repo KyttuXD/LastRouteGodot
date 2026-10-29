@@ -7,7 +7,8 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createLastRouteServer } from "./server.mjs";
-import { MOD_LIMITS, MOD_PACK_KINDS, packIdentity, validatePackManifest } from "./mod_packs.mjs";
+import { FALLBACK_PACK_KINDS, MOD_LIMITS, MOD_PACK_KINDS, packIdentity, validatePackManifest } from "./mod_packs.mjs";
+import { readPackKindsFromRepo } from "./pack_kinds.mjs";
 import { buildPack, deployPack, localTransport } from "./deploy_mod_pack.mjs";
 
 const quiet = { error() {}, log() {}, warn() {} };
@@ -80,7 +81,12 @@ test("manifest validation follows the client loader (lr.pack/1) and refuses trav
     const ok = manifest({ overrides: [`${kind}/x`], files: [{ path: "pack.json", sha256: sha("{}"), size: 2 }, { path: `${kind}/a.json`, sha256: sha("a"), size: 1 }] });
     assert.ok(validatePackManifest(ok).pack, `${kind}/*.json is a pack data folder`);
   }
-  assert.deepEqual(MOD_PACK_KINDS, ["props", "regions", "hunters", "grabs"], "same list as ContentPacks.KINDS");
+  assert.deepEqual(MOD_PACK_KINDS, readPackKindsFromRepo(), "the index takes its pack folders from the game");
+  // only ambience override ids may contain ":" (not at either end)
+  assert.ok(validatePackManifest(manifest({ overrides: ["ambience/room:chapel"] })).pack);
+  for (const bad of ["props/room:chapel", "ambience/:chapel", "ambience/room:", "ceilings/a b", "basements/x"]) {
+    assert.equal(validatePackManifest(manifest({ overrides: [bad] })).error, "INVALID_PACK_OVERRIDES", bad);
+  }
   for (const path of ["props/sub/x.json", "assets/a.GLB", "maps/x.json", "assets/a.gd", "props/x.png"]) {
     const bad = manifest({ files: [{ path: "pack.json", sha256: sha("{}"), size: 2 }, { path, sha256: sha("x"), size: 1 }] });
     assert.equal(validatePackManifest(bad).error, "INVALID_FILE_PATH", path);
@@ -240,5 +246,23 @@ test("buildPack: a pack.json files list must cover every other file with exact h
     assert.throws(() => buildPack(work), /INVALID_FILE_PATH/, "files the loader would refuse stop the deploy");
   } finally {
     await rm(work, { recursive: true });
+  }
+});
+
+
+test("pack folders come from the game: ContentRegistry.PACK_KINDS plus data/kinds extensions", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pack-kinds-"));
+  try {
+    assert.equal(readPackKindsFromRepo(root), null, "not a checkout");
+    mkdirSync(join(root, "src", "config"), { recursive: true });
+    writeFileSync(join(root, "src", "config", "content_registry.gd"),
+      'const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms",\n\t"deaths", "emotes"]\n');
+    mkdirSync(join(root, "data", "kinds"), { recursive: true });
+    writeFileSync(join(root, "data", "kinds", "night_watch.json"), JSON.stringify({ nw_offices: {}, nw_calls: {}, props: {}, "Bad-Kind": {} }));
+    writeFileSync(join(root, "data", "kinds", "broken.json"), "{ not json");
+    assert.deepEqual(readPackKindsFromRepo(root), [...FALLBACK_PACK_KINDS, "nw_calls", "nw_offices"],
+      "multi-line built-ins, then extension kinds sorted; duplicates, bad names and broken files ignored");
+  } finally {
+    await rm(root, { recursive: true });
   }
 });

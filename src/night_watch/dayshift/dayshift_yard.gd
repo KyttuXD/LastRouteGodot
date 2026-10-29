@@ -8,7 +8,7 @@ extends Node3D
 ## to the window. Nothing jumps; every doorway is a gap in a wall recorded in `wall_boxes` for the path validator.
 
 const A := preload("res://src/night_watch/night_watch_art.gd")
-const H := 3.2
+const H := 3.6
 const THICK := 0.2
 const STEEL := Color(0.8, 0.85, 1.0)
 const RUST := Color(1.6, 0.9, 0.6)

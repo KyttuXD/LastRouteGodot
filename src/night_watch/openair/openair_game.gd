@@ -179,7 +179,7 @@ func _wire_stations() -> void:
 
 func _spawn_hunters() -> void:
 	for id in NightWatchOpenAirData.active_hunters(watch):
-		var model := ModelSlot.instantiate_hunter(HunterRoster.get_identity(String(D.MODELS[id])))
+		var model := NightWatchHunterScale.instantiate(HunterRoster.get_identity(String(D.MODELS[id])))
 		if model == null:
 			push_warning("OpenAir: no model for %s" % id)
 			model = Node3D.new()

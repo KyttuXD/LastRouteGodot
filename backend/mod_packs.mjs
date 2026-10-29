@@ -6,6 +6,7 @@
 // Follows the DATA lane's loader contract (lr.pack/1, see DATA-PACKS-API / docs/DATA_DRIVEN_CONTENT.md): a pack the
 // client would refuse is refused here at deploy time, not after players download it. See backend/README.md "Mod packs".
 
+import { loadPackKinds } from "./pack_kinds.mjs";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -17,12 +18,17 @@ const MANIFEST_KEYS = new Set(["schema", "id", "name", "version", "author", "des
 export const MOD_VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 // the loader's layout: pack.json; <kind>/*.json one level deep; assets/** .glb .png .ogg (lower-case)
-// keep in step with ContentPacks.KINDS (src/config/content_packs.gd)
-export const MOD_PACK_KINDS = ["props", "regions", "hunters", "grabs"];
+// What the game accepts (ContentRegistry.pack_kinds(): built-in kinds + other lanes' data/kinds extensions), from
+// pack_kinds.json written at deploy, the repo when run from a checkout, or this fallback (pack_kinds.mjs).
+export const FALLBACK_PACK_KINDS = ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls",
+  "ceilings", "rooms", "deaths", "emotes"];
+export const MOD_PACK_KINDS = loadPackKinds(FALLBACK_PACK_KINDS);
 const KIND_GROUP = MOD_PACK_KINDS.join("|");
 const SEGMENT = "[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}";
 const FILE_PATH_PATTERN = new RegExp(`^(?:pack\\.json|(?:${KIND_GROUP})/${SEGMENT}\\.json|assets/(?:${SEGMENT}/){0,6}${SEGMENT}\\.(?:glb|png|ogg))$`);
-const OVERRIDE_PATTERN = new RegExp(`^(?:${KIND_GROUP})/[A-Za-z0-9_]{1,64}$`);
+// "<kind>/<id>"; only ambience ids may contain ":" (e.g. "ambience/room:chapel"), never at either end
+// (ContentRegistry._is_id with colon = kind == "ambience")
+const OVERRIDE_PATTERN = new RegExp(`^(?:(?:${KIND_GROUP})/[A-Za-z0-9_]{1,64}|ambience/[A-Za-z0-9_](?:[A-Za-z0-9_:]{0,62}[A-Za-z0-9_])?)$`);
 
 export const MOD_LIMITS = Object.freeze({
   maxFileBytes: 16 * 1024 * 1024,     // one file      (the client loader's limits: a bigger pack would be refused there)

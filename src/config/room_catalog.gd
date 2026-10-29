@@ -662,8 +662,9 @@ static func surface_parent_covers(parent: Dictionary, child: Dictionary) -> bool
 	return (parent.get("occupied_cells", []) as Array).has(child_cell)
 
 
+## The authored (person-sized) top, raised with the parent's hunter scale (PropModelCatalog.HUNTER_SCALE).
 static func surface_height(parent_type: String) -> float:
-	return float(SURFACE_HEIGHTS.get(parent_type, 0.8))
+	return float(SURFACE_HEIGHTS.get(parent_type, 0.8)) * PropModelCatalog.hunter_scale(parent_type)
 
 
 static func display_height(type: String) -> float:
