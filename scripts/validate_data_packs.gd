@@ -37,6 +37,8 @@ func run(_host: Node) -> int:
 
 	_check_extension_kind(vanilla)
 	_check_example(vanilla)
+	_check_example_packs(vanilla)
+	_check_test_packs(vanilla)
 	_check_rejections(vanilla)
 	_wipe(ROOT)
 	if _failures == 0:
@@ -191,6 +193,93 @@ func _check_example(vanilla: String) -> void:
 			model.free()
 	ContentRegistry.unload_packs()
 	_expect(_snapshot() == vanilla, "unloading the example did not restore the built-in game")
+
+## The example packs (examples/mods, docs/modding/examples): each loads as a player would install it, shows its
+## content in the live tables, and unloads back to the exact built-in game. A swap from one straight to another leaves
+## nothing of the first behind.
+func _check_example_packs(vanilla: String) -> void:
+	var dirs := {}
+	var ids := Array(DirAccess.get_directories_at("res://examples/mods")).filter(func(name: String) -> bool:
+		return not name.begins_with("_") and not ["ember", "record_shop", "template"].has(name))
+	ids.sort()
+	for id in ids:
+		_copy_tree("res://examples/mods/" + id, ROOT.path_join("example_" + id + "/" + id))
+		dirs[id] = ROOT.path_join("example_" + id + "/" + id)
+		var report := ContentRegistry.load_packs([dirs[id]])
+		_expect(report["ok"], "%s was refused: %s" % [id, ", ".join(report["errors"])])
+		if report["ok"]:
+			_check_example_content(id)
+		ContentRegistry.unload_packs()
+		_expect(_snapshot() == vanilla, "unloading %s did not restore the built-in game" % id)
+	# hot-swap: every example straight to the next, with no unload in between
+	var previous := ""
+	for id in ids:
+		var swap := ContentRegistry.load_packs([dirs[id]])
+		_expect(swap["ok"], "swapping %s -> %s failed: %s" % [previous, id, swap["errors"]])
+		if swap["ok"]:
+			_check_example_content(id)
+			if not previous.is_empty() and previous != id:
+				_expect(ContentRegistry.loaded_packs().size() == 1, "the swap to %s left %s loaded" % [id, previous])
+		previous = id
+	ContentRegistry.unload_packs()
+	_expect(_snapshot() == vanilla, "swapping examples left the game changed")
+
+
+func _check_example_content(id: String) -> void:
+	match id:
+		"neon_arcade":
+			_expect(RoomRecipes.has("neon_arcade_hall") and StreamedRouteGenerator.SHOP_NAMES.get("neon_arcade_hall") == "ARCADE",
+				"the arcade room or its sign is missing")
+			_expect(_surface_pixel("floor", "terrazzo0") != _surface_pixel("floor", "terrazzo1"), "arcade floors not painted")
+		"rainy_night":
+			for bed in ["maze", "sewer"]:
+				_expect(Sound._ambience_overrides.has(bed), "rain bed %s missing" % bed)
+			for cue in ["door_open", "door_close", "footstep_walk"]:
+				_expect(Sound._cue_overrides.has(cue), "cue %s not replaced" % cue)
+		"frostbite_aki":
+			_expect(HunterRoster.PROFILES.has("frostbite_aki_aki") and HunterRoster.PROFILES["frostbite_aki_aki"]["chase"] < HunterRoster.PROFILES["aki"]["chase"],
+				"the frost variant is missing or not slower than Aki")
+			_expect(HunterEmotePersonality.weight("frostbite_aki_aki", HunterEmoteCatalog.DANCE) == 0.0, "emote weights not applied")
+			_expect(DeathLines.pick({"hunter_id": "frostbite_aki_aki"}, "S", 2)["source"] == "hunter", "her death lines are not used")
+		"library_rooms":
+			_expect(RoomRecipes.has("library_rooms_reading") and RoomRecipes.has("library_rooms_archive"), "a library recipe is missing")
+			_expect(PropModelCatalog.MODEL_PATHS.has("library_rooms_ladder"), "the ladder prop is missing")
+		"gentle_grabs":
+			_expect(not GrabStyles.pool_for("kathy").has("neck_lift") and GrabStyles.pool_for("glyra").has("wrap"), "grab pools not softened")
+		"death_lines_plus":
+			var lines: Array = DeathLines.data()["hunters"]["aki"]["lines"]
+			_expect(lines.has("I folded the corner of your page. Sorry, that's rude.") and lines.size() > 2, "Aki's extra lines missing")
+			_expect(not (DeathLines.data()["hunters"]["kathy"]["lines"] as Array).is_empty(), "Kathy still has no lines")
+
+
+## examples/mods/_tests: every pack there must be refused, naming the file and the reason, and change nothing.
+func _check_test_packs(vanilla: String) -> void:
+	var expected := {
+		"test_script_in_model": "EXT_script",
+		"test_unknown_kind": "not allowed in a pack",
+		"test_missing_file": "not_there.png",
+		"test_interactive_prop": "which is interactive",
+		"test_oversized_texture": "per-file limit",
+		"test_bad_schema": "\"speed\" must be",
+		"test_duplicate_id": "is also defined by",
+		"test_hash_mismatch": "differs from pack.json files",
+	}
+	var folders := DirAccess.get_directories_at("res://examples/mods/_tests")
+	folders.sort()
+	var wanted := expected.keys()
+	wanted.sort()
+	_expect(Array(folders) == wanted, "_tests holds %s but the validator expects %s" % [folders, wanted])
+	for name in expected:
+		var dir := ROOT.path_join("bad_" + name + "/" + name)
+		_copy_tree("res://examples/mods/_tests/" + name, dir)
+		var limits := ContentPacks.LIMITS.duplicate()
+		if name == "test_oversized_texture":
+			limits["file_bytes"] = 64 * 1024   # the real limit is 16 MB; keeps the committed PNG small
+		var report := ContentRegistry.load_packs([dir], limits)
+		var named := Array(report["errors"]).any(func(e): return String(e).contains(String(expected[name])))
+		_expect(not report["ok"] and named, "%s: expected a refusal containing \"%s\", got ok=%s %s" % [name, expected[name],
+			report["ok"], report["errors"]])
+		_expect(_snapshot() == vanilla, "%s: the refused pack changed the game" % name)
 
 
 func _copy_tree(from: String, to: String) -> void:

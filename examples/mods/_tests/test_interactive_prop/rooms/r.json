@@ -1,0 +1,11 @@
+{
+	"schema": "lr.room/1",
+	"id": "test_interactive_prop_r",
+	"items": [
+		{
+			"type": "dinerBooth",
+			"side": 2,
+			"depth": "mid"
+		}
+	]
+}

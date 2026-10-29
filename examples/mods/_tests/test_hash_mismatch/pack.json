@@ -1,0 +1,15 @@
+{
+	"schema": "lr.pack/1",
+	"id": "test_hash_mismatch",
+	"name": "Test Hash Mismatch",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (test)",
+	"description": "Test pack: must be refused.",
+	"files": [
+		{
+			"path": "hunters/h.json",
+			"sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+			"size": 10
+		}
+	]
+}

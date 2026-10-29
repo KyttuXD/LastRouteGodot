@@ -1,0 +1,8 @@
+{
+	"schema": "lr.pack/1",
+	"id": "test_script_in_model",
+	"name": "Test Script In Model",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (test)",
+	"description": "Test pack: must be refused."
+}

@@ -42,6 +42,20 @@ func run(_host: Node) -> int:
 	if example_report["ok"]:
 		_check_generated("record_shop_store")
 	ContentRegistry.unload_packs()
+	# the example packs that add rooms to the mall (examples/mods, docs/modding/examples)
+	var example_rooms := {"neon_arcade": ["neon_arcade_hall"], "library_rooms": ["library_rooms_reading", "library_rooms_archive"]}
+	for pack in example_rooms:
+		if not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path("res://examples/mods/" + pack)):
+			continue
+		var copy := ROOT.path_join(pack)
+		_copy_tree("res://examples/mods/" + pack, copy)
+		var pack_report := ContentRegistry.load_packs([copy])
+		_expect(pack_report["ok"], "%s was refused: %s" % [pack, pack_report["errors"]])
+		if pack_report["ok"]:
+			for room in example_rooms[pack]:
+				_check_generated(room)
+		ContentRegistry.unload_packs()
+		_expect(Parity.region_hash() == vanilla, "unloading %s did not restore the built-in mall" % pack)
 	_expect(not RoomRecipes.has(SHOP), "unloading left the pack's recipe")
 	_expect(Parity.region_hash() == vanilla, "unloading did not restore the built-in mall")
 	_check_refusals()
