@@ -498,6 +498,7 @@ var _chunk_cache_order: Array[Vector3i] = []
 
 
 var _sewer: SewerRouteGenerator
+var _vents: VentNetwork
 var _mezzanine: MezzanineRouteGenerator
 var _stairwell_cache := {}
 
@@ -667,6 +668,13 @@ func mezzanine() -> MezzanineRouteGenerator:
 	if _mezzanine == null:
 		_mezzanine = MezzanineRouteGenerator.new(self)
 	return _mezzanine
+
+
+## The vents (VentNetwork) of the streamed levels: today the maze storey (level 0).
+func vents() -> VentNetwork:
+	if _vents == null:
+		_vents = VentNetwork.new(self, [])
+	return _vents
 
 
 func sewer() -> SewerRouteGenerator:
