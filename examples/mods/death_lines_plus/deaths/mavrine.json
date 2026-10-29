@@ -1,0 +1,9 @@
+{
+	"schema": "lr.deaths/1",
+	"id": "mavrine",
+	"mode": "add",
+	"lines": [
+		"Incident report: guest sat down. Reason pending.",
+		"Please remain calm. The calm is compulsory."
+	]
+}

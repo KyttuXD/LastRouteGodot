@@ -1,0 +1,9 @@
+{
+	"schema": "lr.deaths/1",
+	"id": "haelith",
+	"mode": "add",
+	"lines": [
+		"Look, I fetched you! Good fetch? Good fetch.",
+		"Can I keep this one too? I'll be careful."
+	]
+}

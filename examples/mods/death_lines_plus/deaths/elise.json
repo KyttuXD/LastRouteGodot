@@ -1,0 +1,9 @@
+{
+	"schema": "lr.deaths/1",
+	"id": "elise",
+	"mode": "add",
+	"lines": [
+		"Lap record! Mine, obviously.",
+		"Told you I was faster. Told you twice."
+	]
+}
