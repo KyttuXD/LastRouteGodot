@@ -303,6 +303,10 @@ func run(host: Node) -> int:
 						# Rooms of one apartment share walls: openings that are another room's door
 						# (or declared extra doorways) on this boundary are legitimate.
 						var allowed_openings: Array = expected_doorway_cells.duplicate()
+						# a great hall that declares a wider doorless entrance (the carousel's big top: three wide) owns those cells
+						if room.has("great_hall"):
+							for extra_value in room.get("extra_doorways", []):
+								allowed_openings.append(extra_value)
 						if room.has("suite_id"):
 							for extra_value in room.get("extra_doorways", []):
 								allowed_openings.append(extra_value)
@@ -319,7 +323,7 @@ func run(host: Node) -> int:
 									for sibling_extra in sibling.get("extra_doorways", []):
 										allowed_openings.append(sibling_extra)
 						_expect((open_boundary.size() == expected_doorway_cells.size() \
-								or (room.has("suite_id") and open_boundary.all(func(at):
+								or ((room.has("suite_id") or room.has("great_hall")) and open_boundary.all(func(at):
 									return allowed_openings.has(at)))) \
 							and expected_doorway_cells.all(func(at):
 								return open_boundary.has(at)),
