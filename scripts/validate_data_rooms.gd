@@ -24,6 +24,13 @@ func _expect(condition: bool, message: String) -> void:
 		_failures += 1
 
 
+## A mall region override replaces the whole role list. Example packs append their shops after the built-in roles,
+## including music_store, so loading one does not drop the music wing's mall shop.
+func _mall_keeps_music_store() -> bool:
+	return StreamedRouteGenerator.MALL_ROOMS.has("music_store") \
+		and String(StreamedRouteGenerator.SHOP_NAMES.get("music_store", "")) == "MUSIC & SOUND"
+
+
 func run(_host: Node) -> int:
 	_wipe(ROOT)
 	_check_interpreter()
@@ -40,6 +47,7 @@ func run(_host: Node) -> int:
 	var example_report := ContentRegistry.load_packs([example])
 	_expect(example_report["ok"], "the record_shop example was refused: %s" % [example_report["errors"]])
 	if example_report["ok"]:
+		_expect(_mall_keeps_music_store(), "record_shop mall override dropped music_store")
 		_check_generated("record_shop_store")
 	ContentRegistry.unload_packs()
 	# the example packs that add rooms to the mall (examples/mods, docs/modding/examples)
@@ -52,6 +60,7 @@ func run(_host: Node) -> int:
 		var pack_report := ContentRegistry.load_packs([copy])
 		_expect(pack_report["ok"], "%s was refused: %s" % [pack, pack_report["errors"]])
 		if pack_report["ok"]:
+			_expect(_mall_keeps_music_store(), "%s mall override dropped music_store" % pack)
 			for room in example_rooms[pack]:
 				_check_generated(room)
 		ContentRegistry.unload_packs()

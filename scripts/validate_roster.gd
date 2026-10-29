@@ -153,15 +153,23 @@ func _everyone_has_a_dossier_entry() -> void:
 		_expect(HunterRoster.PROFILES.has(id),
 			"dossier contains unknown hunter '%s'" % id)
 	_expect(missing.is_empty(), "no complete dossier entry for: %s" % ", ".join(missing))
-	# ENTRIES holds the 26 A-Z hunters; the 12 Void hunters read from the Void gimmick chart (checked above through entry()).
+	# ENTRIES is the 26 A-Z texts. Void hunters are in the dossier UI through the gimmick chart
+	# (HunterDossier.entry / category_ids("void")), not by duplicating that copy into ENTRIES.
 	_expect(HunterDossier.ENTRIES.size() == HunterRoster.A_Z_IDS.size(),
 		"dossier ENTRIES covers %d hunters for a %d-hunter A-Z roster" % [
 			HunterDossier.ENTRIES.size(), HunterRoster.A_Z_IDS.size()])
+	_expect(HunterDossier.category_ids("az").size() == HunterRoster.A_Z_IDS.size(),
+		"dossier A-Z section lists %d of %d" % [
+			HunterDossier.category_ids("az").size(), HunterRoster.A_Z_IDS.size()])
+	_expect(HunterDossier.category_ids("void").size() == HunterRoster.VOID_IDS.size(),
+		"dossier Void section lists %d of %d" % [
+			HunterDossier.category_ids("void").size(), HunterRoster.VOID_IDS.size()])
 	for id in HunterRoster.PROFILES:
 		var shown := HunterDossier.entry(id)
 		_expect(not shown.has("ability") and not shown.has("gimmick_title"), "%s dossier shows a role title" % id)
 		_expect(HunterDossier.portrait(id) != null, "%s has no dossier portrait" % id)
-	print("  dossier  %d entries" % HunterDossier.ENTRIES.size())
+	print("  dossier  %d A-Z entries + %d Void chart entries" % [
+		HunterDossier.ENTRIES.size(), HunterDossier.category_ids("void").size()])
 
 
 ## The Blockbench -> glTF export pipeline writes pixel-art materials as MASK,

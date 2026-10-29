@@ -22,11 +22,12 @@ Always run it as a scene, never with `--script` (no autoloads there). `scripts/v
 | --- | --- |
 | layout | `main_menu.tscn BrandLabel overlaps TitleLabel by 210 x 8 px` |
 | layout | `hunter dossier is missing populated DossierCounter` |
-| roster | `dossier covers 26 entries for a 38-hunter roster` |
 | hunters | `holding the beam on Aki counted as 3 flashes; a held torch is one` |
 | props | `props are not using the shared matte per-vertex block style (4/26)` (locker parts) |
 
 A change is a regression only if it adds to this list.
+
+The roster suite does not fail on dossier coverage. `HunterDossier.ENTRIES` is the 26 A-Z texts. The 12 Void hunters are listed in the lobby and pause dossier from `VoidHunterGimmickChart` (`category_ids("void")`), so the UI covers the 38-hunter roster.
 
 ## Multiplayer (real processes, local backend)
 

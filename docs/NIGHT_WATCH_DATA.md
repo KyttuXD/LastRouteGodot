@@ -5,7 +5,7 @@ plan (phases, unlock criteria) is owned by the Night Watch lane; this page is th
 
 ## Rules
 
-- Same pack rules as Last Route content ([DATA_DRIVEN_CONTENT.md](DATA_DRIVEN_CONTENT.md)): data plus assets only (`.json .glb .png .ogg .wav`),
+- Same pack rules as Last Route content ([DATA_DRIVEN_CONTENT.md](DATA_DRIVEN_CONTENT.md)): data plus assets only (`.json .glb .png .ogg`),
   ids `<pack>_` prefixed, overrides listed in `pack.json`, a bad file rejects the whole pack.
 - Behaviour stays code. A mode names one of nine rulesets (`classic mask lure bedroom story dayshift mixed openair descent`) and tunes its
   numbers; there are no expressions or scripts.
@@ -22,7 +22,7 @@ plan (phases, unlock criteria) is owned by the Night Watch lane; this page is th
 | `nw_offices` | `nw.office/1` | room size (height at least 3.2 m), spawn, entrances, stations, up to 400 pieces, lamps, palette, room tone |
 | `nw_buildings` | `nw.building/1` | rooms, graph, cams, hunter paths |
 | `nw_calls` | `nw.calls/1` | per level: the call's lines |
-| `nw_sounds` | `nw.sounds/1` | cue -> synth recipe or a pack `.ogg/.wav` |
+| `nw_sounds` | `nw.sounds/1` | cue -> synth recipe or a pack `.ogg` |
 | `nw_scares` | `nw.scare/1` | per hunter: pose, framing, duration (200–6000 ms), sound |
 
 Unknown keys are errors. `data_night_watch` checks the schemas and prints the Night Watch parity fingerprint

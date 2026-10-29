@@ -23,6 +23,7 @@
 		"barber",
 		"pawn_shop",
 		"stationery",
+		"music_store",
 		"neon_arcade_hall"
 	],
 	"shop_names": {
@@ -39,6 +40,7 @@
 		"barber": "BARBER",
 		"pawn_shop": "PAWN & LOAN",
 		"stationery": "STATIONERY & READING",
+		"music_store": "MUSIC & SOUND",
 		"neon_arcade_hall": "ARCADE"
 	},
 	"room_door": "normalRoomDoor",

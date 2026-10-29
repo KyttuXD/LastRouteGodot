@@ -1,0 +1,15 @@
+{
+	"schema": "lr.prop/1",
+	"family": "wardrobe_mansion",
+	"props": [
+		{
+			"id": "bedroomWardrobeMansion",
+			"hide_capacity": 2,
+			"models": [
+				"res://art/props-3d/props/blocky/bedroomWardrobeMansion_0.glb",
+				"res://art/props-3d/props/blocky/bedroomWardrobeMansion_1.glb",
+				"res://art/props-3d/props/blocky/bedroomWardrobeMansion_2.glb"
+			]
+		}
+	]
+}

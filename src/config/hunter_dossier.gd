@@ -7,7 +7,12 @@ const VOID_GIMMICK_CHART := preload(
 ## Player-facing descriptions of the mechanics which are live in this port.
 ## Keeping these separate from HunterRoster's tuning table makes the dossier a
 ## readable gameplay reference instead of turning simulation data into UI copy.
-## Every roster id must have one entry; the validation scene enforces that.
+##
+## ENTRIES is the 26 A-Z hunters only. The 12 Void hunters belong in the same
+## dossier UI (lobby and pause, category "void"): their text is
+## VoidHunterGimmickChart, and entry() returns that chart. Do not copy Void
+## rows into this table. Every roster id must have one entry(); the roster
+## suite enforces that, including the Void chart.
 const ENTRIES := {
 	"aki": {
 		"behavior": "Flashing Aki with your flashlight triggers three delayed exposure surges. These attacks hit 10, 15, and 20 seconds after the flash, with each surge filling your exposure meter. Stun them only when necessary, and note that additional flashes will not trigger another attack sequence until the active cycle finishes.",

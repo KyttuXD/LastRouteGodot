@@ -271,7 +271,8 @@ func _check_route(host: Node) -> void:
 
 
 func _check_capacity_rules() -> void:
-	_expect(PropModelCatalog.hide_capacity("bedroomWardrobe") == 2 and PropModelCatalog.hide_capacity("gothicWardrobe") == 2,
+	_expect(PropModelCatalog.hide_capacity("bedroomWardrobe") == 2 and PropModelCatalog.hide_capacity("gothicWardrobe") == 2
+		and PropModelCatalog.hide_capacity("bedroomWardrobeMansion") == 2,
 		"wardrobes do not hold two (data/props hide_capacity)")
 	for type in ["singleBed", "doubleBed", "gothicDoubleBed", "officeDesk"]:
 		_expect(PropModelCatalog.hide_capacity(type) == 1, "%s holds %d, not 1" % [type, PropModelCatalog.hide_capacity(type)])

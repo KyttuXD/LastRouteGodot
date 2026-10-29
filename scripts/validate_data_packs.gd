@@ -225,11 +225,19 @@ func _check_example_packs(vanilla: String) -> void:
 	_expect(_snapshot() == vanilla, "swapping examples left the game changed")
 
 
+## A mall region override replaces the whole role list. Example packs append their shops after the built-in roles,
+## including music_store, so loading one does not drop the music wing's mall shop.
+func _mall_keeps_music_store() -> bool:
+	return StreamedRouteGenerator.MALL_ROOMS.has("music_store") \
+		and String(StreamedRouteGenerator.SHOP_NAMES.get("music_store", "")) == "MUSIC & SOUND"
+
+
 func _check_example_content(id: String) -> void:
 	match id:
 		"neon_arcade":
 			_expect(RoomRecipes.has("neon_arcade_hall") and StreamedRouteGenerator.SHOP_NAMES.get("neon_arcade_hall") == "ARCADE",
 				"the arcade room or its sign is missing")
+			_expect(_mall_keeps_music_store(), "neon_arcade mall override dropped music_store")
 			_expect(_surface_pixel("floor", "terrazzo0") != _surface_pixel("floor", "terrazzo1"), "arcade floors not painted")
 		"rainy_night":
 			for bed in ["maze", "sewer"]:
@@ -244,6 +252,7 @@ func _check_example_content(id: String) -> void:
 		"library_rooms":
 			_expect(RoomRecipes.has("library_rooms_reading") and RoomRecipes.has("library_rooms_archive"), "a library recipe is missing")
 			_expect(PropModelCatalog.MODEL_PATHS.has("library_rooms_ladder"), "the ladder prop is missing")
+			_expect(_mall_keeps_music_store(), "library_rooms mall override dropped music_store")
 		"gentle_grabs":
 			_expect(not GrabStyles.pool_for("kathy").has("neck_lift") and GrabStyles.pool_for("glyra").has("wrap"), "grab pools not softened")
 		"death_lines_plus":

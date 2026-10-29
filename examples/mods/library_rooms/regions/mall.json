@@ -23,6 +23,7 @@
 		"barber",
 		"pawn_shop",
 		"stationery",
+		"music_store",
 		"library_rooms_reading",
 		"library_rooms_archive"
 	],
@@ -40,6 +41,7 @@
 		"barber": "BARBER",
 		"pawn_shop": "PAWN & LOAN",
 		"stationery": "STATIONERY & READING",
+		"music_store": "MUSIC & SOUND",
 		"library_rooms_reading": "READING ROOM",
 		"library_rooms_archive": "ARCHIVE"
 	},

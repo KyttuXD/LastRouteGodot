@@ -364,6 +364,9 @@ const _CODE_MODEL_PATHS := {
 	"guitarWallHanger": ContentRegistry.DATA,
 	"instrumentCases": ContentRegistry.DATA,
 	"onAirSign": ContentRegistry.DATA,
+	## Mansion finish of bedroomWardrobe (BlockyPropModels "bedroomWardrobeMansion"). Same hide_capacity as the
+	## other wardrobes; the GLBs already exist, this row only publishes them as prop data.
+	"bedroomWardrobeMansion": ContentRegistry.DATA,
 }
 
 ## Highest local point of ceiling-hung models. Their exported origins stay in
