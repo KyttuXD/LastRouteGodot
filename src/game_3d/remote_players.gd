@@ -106,7 +106,7 @@ var guard := GuestGuard.new()
 ## Emitted on the host when a guest's sample was corrected (and when it was kicked).
 signal guest_violation(peer_id: int, reason: String, strikes: int, kicked: bool)
 ## Host events that move the guest a long way; the guard lets the next jump through (GuestGuard.allow_jump).
-const HOST_MOVES := ["revive", "revive_at", "axe_rescue", "hide_found"]
+const HOST_MOVES := ["revive", "revive_at", "axe_rescue", "hide_found", "hide_full"]
 const INTERACTION_RATE_WINDOW_MS := 1000
 ## Per guest, all kinds together. 8 was reachable in normal play (mashing a door, sweeping up a pile of pickups) and
 ## dropped requests without a word; this only stops a flood.
@@ -486,6 +486,7 @@ func _local_state() -> Dictionary:
 		"hidden": controller.hidden,
 		"hiding_spot": controller.hidden_spot,
 		"hiding_style": controller.hiding_style(),
+		"hide_slot": controller.hidden_slot,
 		"asleep": controller.asleep,
 		# the seat this runner sits on (SeatOccupancy, docs/SEATING.md): peers do not offer it
 		"seat_at": SeatOccupancy.plan_of(controller.resting_furniture) \
@@ -1262,6 +1263,16 @@ func remote_admin_peer_allowed(peer_id: int, permission: String = "") -> bool:
 ## fallback so a gimmick which explicitly reacts to them still receives a
 ## coherent target when everyone is concealed.
 ## Plan positions of the seats the remote runners sit on (SeatOccupancy).
+## Hidden remote runners (HideOccupancy): {"cell", "peer", "slot"} from their replicated hiding_spot and hide_slot.
+func hidden_occupants() -> Array:
+	var out := []
+	for id in _states:
+		var state: Dictionary = _states[id]
+		if bool(state.get("hidden", false)) and state.get("hiding_spot") is Vector2i:
+			out.append({"cell": state["hiding_spot"], "peer": int(id), "slot": int(state.get("hide_slot", 0))})
+	return out
+
+
 func occupied_seats() -> Array:
 	var out := []
 	for id in _states:
@@ -1860,7 +1871,7 @@ func _submit_hunter_event(event: Dictionary) -> void:
 	# A taser packet is only an intent. Position, facing, target, cooldown and
 	# line of sight all come from host-owned state in main_3d.
 	if what == "taser":
-		hunter_event.emit({"what": "taser", "peer_id": sender})
+		hunter_event.emit({"what": "taser", "peer_id": sender, "slot": clampi(int(event.get("slot", -1)), -1, 63)})
 		return
 	if not ["escaped", "caught", "capture_blocked"].has(what):
 		return

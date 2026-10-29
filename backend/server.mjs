@@ -7,6 +7,7 @@ import { createAccountService } from "./account_service.mjs";
 import { CITY_MAP_TICKET_HEADER, createCityMaps } from "./city_maps.mjs";
 import { SKIN_ACCOUNT_PATH, SKIN_ARMS_HEADER, SKIN_MAX_BYTES, SKIN_TOKEN_HEADER, createSkins } from "./skins.mjs";
 import { SAVE_MAX_BYTES, SAVE_PATH, createGameSaves } from "./game_saves.mjs";
+import { createGuestNames } from "./guest_names.mjs";
 import { createEnetRelay } from "./enet_relay.mjs";
 import { createWsRelay, WS_PATH } from "./ws_relay.mjs";
 import { createRoomService } from "./room_service.mjs";
@@ -34,6 +35,7 @@ const DEFAULT_ADMIN_TICKET_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const DEFAULT_DEV_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const ACCOUNT_RATE_LIMIT_PATHS = new Set([
+  "/api/guest/name",
   "/api/account/register",
   "/api/account/login",
   "/api/account/session",
@@ -291,6 +293,7 @@ export function createLastRouteServer({
   roomTtlMs = 300_000,
   playerTtlMs = 120_000,
   accountStorePath = null,
+  guestNameOptions = {},
   moderationStorePath = null,
   moderationSalt = "",
   publicDirectory = null,
@@ -348,6 +351,8 @@ export function createLastRouteServer({
   const publicCodes = new Set(Object.values(PUBLIC_CODES));
   const publicRouteReady = Promise.all(Object.values(publicRoutes).map((route) => route.load()));
   const accountService = createAccountService({ storePath: accountStorePath, now, logger });
+  const guestNames = createGuestNames({ storePath: accountStorePath ? join(dirname(accountStorePath), "guest_names.json") : null,
+    now, logger, ...guestNameOptions });
   const cityMaps = createCityMaps({ ...cityMapOptions, accountService, now, logger,
     roomExists: (code) => enetRooms.has(normalizeEnetCode(code)) });
   const moderation = createModeration({ storePath: moderationStorePath, salt: moderationSalt, now, logger,
@@ -1022,6 +1027,7 @@ export function createLastRouteServer({
     else if (url.pathname === "/api/city-maps/list") result = cityMaps.list(body);
     else if (url.pathname === "/api/city-maps/ticket") result = cityMaps.ticket(body);
     else if (url.pathname === "/api/rooms/leave") result = roomService.leaveRoom(body);
+    else if (url.pathname === "/api/guest/name") result = guestNames.issue(body);
     else if (url.pathname === "/api/account/register") {
       result = await accountService.register(body, { allowDeveloperNames: developerRequest(body) });
       if (result[1]?.ok && result[1].adminOwner) result[1].devToken = issueDevToken();

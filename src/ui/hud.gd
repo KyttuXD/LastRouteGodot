@@ -348,10 +348,15 @@ func update_infinite_status(relays_collected: int, loaded_chunks: int,
 		fill.bg_color = color
 
 
+## Per-slot cooldowns from the last update_inventory (PlayerController3D.slot_cooldowns); empty = the shared taser value.
+var _slot_cooldowns: Array = []
+
+
 func update_inventory(selected_item: String, taser_cooldown: float,
 		durability: Dictionary = {}, owned: Dictionary = {}, order: Array = [],
 		maximums: Dictionary = {}, selected_slot: int = -1,
-		slot_durability: Array = []) -> void:
+		slot_durability: Array = [], slot_cooldowns: Array = []) -> void:
+	_slot_cooldowns = slot_cooldowns
 	var resolved_order := order if order.size() >= PlayerController3D.HOTBAR_SIZE \
 		else ["flashlight", "", "", "", ""]
 	_selected_inventory_slot = clampi(selected_slot, 0,
@@ -394,6 +399,8 @@ func _apply_inventory_slot(slot: PanelContainer, bar: ProgressBar, index: int,
 		and PlayerController3D.STACK_MAX.has(item_id) else 0)
 	bar.visible = has_item and (item_id == "taser" or maximums.has(item_id))
 	if item_id == "taser":
+		if index < _slot_cooldowns.size():
+			taser_cooldown = float(_slot_cooldowns[index])
 		bar.value = clampf(1.0 - taser_cooldown / GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown"),
 			0.0, 1.0) * 100.0
 	else:

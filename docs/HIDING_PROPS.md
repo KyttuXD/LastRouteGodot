@@ -28,6 +28,18 @@ A prop that does not fit is skipped, never squeezed in. Kitchen pots, as surface
 
 ![new props](room_props_catalog.png)
 
+## How many fit (capacity)
+
+KT: "only one player or bot should occupy a hiding spot, unless its a larger one like a wardrobe, then allow 2". Each
+hiding prop holds `hide_capacity` runners (lr.prop/1 field, so mods can set it; 1 when absent, at most 2). Lockers, beds,
+vents and tables hold 1. `bedroomWardrobe` and `gothicWardrobe` hold 2. `HideOccupancy` holds the rules:
+- A full spot shows **SPOT TAKEN** and refuses E, for runners and bots alike. Bots pass a full spot for the next one.
+- Each occupant takes a slot, replicated as `hide_slot`. Slot 0 is to one side and nearer the door; slot 1 is to the
+  other side and deeper. Their bodies and cameras never overlap.
+- The host settles two runners who got in on the same frame. Past capacity, or when two hold one slot, the higher peer
+  gets a `hide_full` event and is put back out.
+- A hunter's check pulls the front occupant out first (`grab_order`). Locker inspection with two inside finds neither.
+
 ## Hiding in beds and wardrobes
 
 Every bed and wardrobe that a room recipe places becomes an ordinary `hiding_spot` fixture. This applies to `singleBed`,

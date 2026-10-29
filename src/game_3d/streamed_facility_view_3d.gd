@@ -4045,6 +4045,7 @@ func _spawn_fixture(parent: Node3D, data: Dictionary, fixture: Dictionary) -> vo
 		var local: Vector2 = fixture.get("local_position", Vector2(cell) + Vector2(.5, .5))
 		spot.hide_style = style
 		spot.hide_size = fixture.get("blocker_size", Vector3.ONE)
+		spot.hide_capacity = HideOccupancy.clamp_capacity(int(fixture.get("capacity", 1)))
 		spot.prompt_text = "HIDE UNDER BED" if style == "bed" else "HIDE IN WARDROBE"
 		spot.position = Vector3(local.x, .0, local.y)
 	spot.rotation.y = float(fixture.get("yaw", 0.0))

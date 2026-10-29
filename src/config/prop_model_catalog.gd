@@ -466,6 +466,11 @@ static func rebuild_from_registry() -> void:
 	VARIANT_THEMES = ContentRegistry.resolve(_CODE_VARIANT_THEMES, "props", "themes")
 
 
+## How many runners hide in this prop at once (HideOccupancy, docs/HIDING_PROPS.md): its lr.prop/1 `hide_capacity`, else 1.
+static func hide_capacity(type: String) -> int:
+	return HideOccupancy.clamp_capacity(int(ContentRegistry.get_def("props", type).get("hide_capacity", 1)))
+
+
 static func has_model(type: String) -> bool:
 	return MODEL_PATHS.has(type) and not (MODEL_PATHS[type] as Array).is_empty()
 

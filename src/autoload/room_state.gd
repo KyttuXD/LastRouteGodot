@@ -81,7 +81,7 @@ const DIFFICULTY_IDS := {
 	Difficulty.HARD: "hard", Difficulty.NIGHTMARE: "nightmare",
 }
 
-## Anonymous room guests use a two-word signal callsign. Keeping the words as
+## (Old pools, no longer used for new guests: GuestNames' "R-4821" style replaced them.) Anonymous room guests used a two-word callsign. Keeping the words as
 ## named pools makes FIRST/LAST coverage explicit and gives enough variety for
 ## a full 16-player room without the roster looking repeated.
 const GUEST_FIRST_NAMES := [
@@ -192,6 +192,9 @@ func _ready() -> void:
 	_relay.relay_ready.connect(_on_relay_ready)
 	_relay.relay_failed.connect(_on_relay_failed)
 	_relay.host_left.connect(_on_relay_host_left)
+	Backend.guest_name_changed.connect(func(_name: String) -> void:
+		if not Backend.signed_in():
+			_on_account_changed(false, "", false, ""))
 	add_child(_relay)
 	PackDownloads.install(self)
 	# A room always exists, so nothing has to null-check it. Landing straight
@@ -1422,6 +1425,9 @@ static func _make_callsign() -> String:
 	return _random_guest_callsign()
 
 
+## A guest's name: one letter, a dash and four digits ("R-4821", GuestNames), kept per device. The server makes it unique
+## (Backend.request_guest_name); until it answers, and offline, the local one stands.
 static func _random_guest_callsign() -> String:
-	return "%s-%s-%d" % [GUEST_FIRST_NAMES[randi() % GUEST_FIRST_NAMES.size()],
-		GUEST_LAST_NAMES[randi() % GUEST_LAST_NAMES.size()], 100 + randi() % 900]
+	if not GuestNames.valid(Settings.guest_name):
+		Settings.set_guest_name(GuestNames.random_name(), "")
+	return Settings.guest_name

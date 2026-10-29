@@ -13,6 +13,8 @@ signal reserved_room_hostable(code: String, settings: Dictionary)
 signal reserved_room_access_needed(code: String, message: String)
 signal reserved_commands_received(commands: Array)
 signal health_checked(ok: bool, message: String)
+## The server confirmed (or replaced) this device's guest name.
+signal guest_name_changed(name: String)
 signal account_changed(signed_in: bool, username: String, admin: bool, message: String)
 signal account_progress_changed(available: bool, progress: Dictionary,
 	saved_at: int, message: String)
@@ -138,6 +140,7 @@ func _ready() -> void:
 	add_child(_admin_ticket_request)
 	_admin_ticket_request.request_completed.connect(_on_admin_ticket_response)
 	_load_account_session()
+	request_guest_name.call_deferred()
 	if not account_session_token.is_empty() and accounts_available():
 		_send_account("session", "/api/account/session", {
 			"sessionToken": account_session_token,
@@ -247,6 +250,7 @@ const OFFLINE_JOIN_MESSAGE := "OFFLINE MODE // GO ONLINE TO JOIN ROOMS"
 func go_online() -> void:
 	offline_mode = false
 	offline_for_run = false
+	request_guest_name()
 	check_health()
 	if not account_session_token.is_empty() and accounts_available() and not account_busy:
 		_send_account("session", "/api/account/session", {
@@ -1012,6 +1016,38 @@ func wait_for_room_close(timeout: float = 1.5) -> void:
 	while _unregister_in_flight > 0 and waited < timeout and is_inside_tree():
 		await get_tree().create_timer(0.05, true, false, true).timeout
 		waited += 0.05
+
+
+## A unique guest name from the server (POST /api/guest/name), keeping ours when we still hold it (the lease token). Offline or with
+## requests off, the local GuestNames one stands.
+func request_guest_name() -> void:
+	if not configured() or signed_in():
+		return
+	var request := HTTPRequest.new()
+	request.timeout = 8.0
+	add_child(request)
+	request.request_completed.connect(func(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+		request.queue_free()
+		if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+			return
+		var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
+		if parsed is Dictionary:
+			apply_guest_name(String(parsed.get("name", "")), String(parsed.get("token", ""))))
+	if request.request(_url("/api/guest/name"), PackedStringArray(["content-type: application/json"]), HTTPClient.METHOD_POST,
+			JSON.stringify({"previous": Settings.guest_name, "token": Settings.guest_name_token})) != OK:
+		request.queue_free()
+
+
+## The server's answer: store it, and tell the room when the name changed.
+func apply_guest_name(name: String, token: String) -> bool:
+	var clean := name.to_upper()
+	if not GuestNames.valid(clean):
+		return false
+	var changed := clean != Settings.guest_name
+	Settings.set_guest_name(clean, token)
+	if changed:
+		guest_name_changed.emit(clean)
+	return true
 
 
 func unregister_room() -> void:

@@ -10,8 +10,7 @@ extends Node
 
 const ID_BASE := 2_000_000_000   # above any id ENet hands out in practice; RemotePlayers.is_npc()
 const MAX_COUNT := 16
-const NAMES := ["ROOK", "WREN", "MOSS", "PIKE", "FINCH", "SLATE", "BIRCH", "COBALT", "EMBER", "FLINT", "HAZEL", "IVY",
-	"JUNO", "LARK", "ONYX", "SAGE"]
+## NPC names follow the guest style ("R-4821", GuestNames), seeded by the room so every peer agrees; the player list adds the NPC tag.
 const SLOT_RADIUS := 2.4
 const FOLLOW_RADIUS := 5.0       # m from the runner before the NPC walks to its slot again
 const THREAT_RANGE := 14.0
@@ -33,7 +32,7 @@ func setup(p_scene: Node, count: int) -> void:
 	var spawn: Vector3 = (scene.get("player") as Node3D).global_position
 	for i in clampi(count, 0, MAX_COUNT):
 		var angle := float(i + 1) * 2.39996
-		npcs.append({"id": ID_BASE + i, "name": NAMES[i], "at": spawn + Vector3(cos(angle), 0.0, sin(angle)) * SLOT_RADIUS,
+		npcs.append({"id": ID_BASE + i, "name": GuestNames.from_seed(RoomState.run_seed() + i), "at": spawn + Vector3(cos(angle), 0.0, sin(angle)) * SLOT_RADIUS,
 			"level": _level_of(spawn.y), "facing": 0.0, "path": [], "path_age": 99.0, "clip": "idle", "down": false,
 			"out": false, "grace": 0.0, "away": 0.0, "slot": i + 1})
 
