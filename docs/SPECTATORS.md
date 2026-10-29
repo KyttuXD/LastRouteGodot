@@ -6,6 +6,7 @@ A caught runner stops playing but never ends the session for anyone else.
 - **Host caught while a guest lives**: the host spectates too. It stays the authority: hunters keep being simulated and broadcast, and the room stays open. Host disconnect still uses the existing host-migration / room-close path.
 - **Everyone down** (host already spectating and the last living guest falls, or the last guest leaves): the host sees the RUN OVER report. Restarting the run revives every spectating guest at the checkpoint (`revive` player event).
 - **Public route**: caught players spectate for a few seconds and rejoin on their own (grace period). The authority can spectate without dropping the route.
+- **Revive Kit** (private rooms): a caught runner can be revived where they went down for 90 s by a teammate with a kit; solo a kit is a one-time second wind on a catch. See [REVIVE.md](REVIVE.md).
 - **Solo**: unchanged, normal game over.
 
 Spectators are published with `spectating: true` and `game_over: true`, so hunters never target them, door/objective logic ignores them, and their body is hidden (`visible: false`).

@@ -638,6 +638,83 @@ def make_rescue_axe():
     return objects, (1.2, -2.2, 1.35), (0, 0, .50)
 
 
+def make_revive_kit():
+    """Revive Kit (docs/REVIVE.md): a charcoal hard case with a hi-vis lid, defib paddles clipped on top, a white
+    pulse-line emblem (deliberately no cross) and a green charge lamp."""
+    colors = ["#1D2126", "#30363D", "#D9692B", "#F08A44", "#E6E2D6", "#5EE08C",
+              "#8E989E", "#121416"]
+    image = make_pixel_atlas("revive_kit_pixel_atlas", colors)
+    mat = make_material("Revive kit pixel paint", image, roughness=.62,
+                        metallic=.08)
+    count = len(colors)
+    objects = []
+    box("CaseBody", (0, 0, .11), (.50, .30, .18), mat, 1, count, objects,
+        bevel=.012)
+    box("CaseLid", (0, 0, .225), (.52, .32, .07), mat, 2, count, objects,
+        bevel=.012)
+    box("CaseFoot", (0, 0, .015), (.48, .28, .03), mat, 0, count, objects,
+        bevel=.004)
+    for side, x in (("L", -.15), ("R", .15)):
+        box("Latch%s" % side, (x, -.162, .19), (.06, .02, .07), mat, 6,
+            count, objects, bevel=.004)
+        box("HandlePost%s" % side, (x * .7, 0, .285), (.035, .05, .06), mat,
+            7, count, objects, bevel=.004)
+    box("Handle", (0, 0, .315), (.26, .05, .035), mat, 7, count, objects,
+        bevel=.006)
+    box("EmblemPlate", (0, -.152, .105), (.24, .012, .11), mat, 3, count,
+        objects, bevel=.002)
+    for index, (x, z, w, h) in enumerate(((-.085, .105, .05, .016),
+                                          (-.052, .125, .016, .056),
+                                          (-.034, .085, .016, .076),
+                                          (-.016, .115, .016, .046),
+                                          (.035, .105, .085, .016))):
+        box("Pulse%d" % index, (x, -.160, z), (w, .006, h), mat, 4, count,
+            objects)
+    box("ChargeLamp", (.20, -.12, .265), (.04, .04, .025), mat, 5, count,
+        objects, bevel=.003)
+    for side, x in (("L", -.14), ("R", .10)):
+        box("Paddle%s" % side, (x, .075, .275), (.13, .09, .03), mat, 1,
+            count, objects, bevel=.006)
+        box("PaddleFace%s" % side, (x, .075, .262), (.12, .08, .006), mat, 6,
+            count, objects)
+        box("PaddleGrip%s" % side, (x, .075, .305), (.05, .04, .04), mat, 2,
+            count, objects, bevel=.005)
+    box("Cable", (-.02, .135, .262), (.20, .02, .02), mat, 7, count, objects)
+    return objects, (1.05, -1.25, .85), (0, 0, .16)
+
+
+def make_stim_pack():
+    """Stim Pack: a chunky autoinjector, long axis up like the other hand items (plunger at the grip end, safety cap
+    on top), ribbed grip, white label and a cyan dose window."""
+    colors = ["#202428", "#353B42", "#E2B526", "#F4D35E", "#3FD3E6", "#A9E6EE",
+              "#8E989E", "#E6E2D6"]
+    image = make_pixel_atlas("stim_pack_pixel_atlas", colors)
+    mat = make_material("Stim pack pixel paint", image, roughness=.50,
+                        metallic=.12)
+    count = len(colors)
+    objects = []
+    box("PlungerButton", (0, 0, .0125), (.05, .05, .025), mat, 3, count,
+        objects, bevel=.004)
+    box("Plunger", (0, 0, .05), (.09, .09, .05), mat, 2, count, objects,
+        bevel=.008)
+    box("Grip", (0, 0, .185), (.11, .11, .22), mat, 1, count, objects,
+        bevel=.01)
+    for index, z in enumerate((.115, .155)):
+        box("GripRib%d" % index, (0, 0, z), (.118, .118, .02), mat, 0,
+            count, objects)
+    box("Label", (0, -.057, .205), (.05, .006, .10), mat, 7, count, objects)
+    box("Fluid", (0, 0, .345), (.096, .096, .10), mat, 4, count, objects)
+    for index, (x, y) in enumerate(((-.05, -.05), (.05, -.05), (-.05, .05),
+                                    (.05, .05))):
+        box("Frame%d" % index, (x, y, .345), (.014, .014, .10), mat, 5, count,
+            objects)
+    box("Collar", (0, 0, .41), (.09, .09, .03), mat, 6, count, objects,
+        bevel=.004)
+    box("SafetyCap", (0, 0, .46), (.08, .08, .07), mat, 2, count, objects,
+        bevel=.008)
+    return objects, (.75, -1.1, .65), (0, 0, .24)
+
+
 def make_flashlight_item():
     colors = ["#121518", "#2D3339", "#4B555D", "#79858C", "#D5C778",
               "#FFF0A5"]
@@ -5439,6 +5516,8 @@ BUILDERS = {
     "music_box": make_music_box,
     "hiding_spot": make_locker,
     "battery": make_battery,
+    "revive_kit": make_revive_kit,
+    "stim_pack": make_stim_pack,
     "relay": make_relay,
     "safe_zone": make_safe_zone,
     "lift": make_lift,
@@ -6259,7 +6338,7 @@ for model_name, builder in BUILDERS.items():
     export_objects, eye, look = builder()
     save_and_export(model_name, export_objects)
     if model_name in {"battery", "flashlight_item", "taser_item", "lockpick_set",
-                      "crowbar", "rescue_axe", "backpack_small",
+                      "crowbar", "rescue_axe", "revive_kit", "stim_pack", "backpack_small",
                       "backpack_medium", "backpack_large"}:
         render_inventory_icon(model_name, eye, look)
     render_preview(model_name, export_objects, eye, look)

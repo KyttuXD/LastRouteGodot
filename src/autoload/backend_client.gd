@@ -175,6 +175,48 @@ func accounts_available() -> bool:
 	)
 
 
+## True when offline mode was chosen for ONE run (Create Room -> Offline). Leaving to a menu clears it (end_run_offline); a boot
+## fallback or --offline stays until GO ONLINE.
+var offline_for_run := false
+
+
+## Create Room -> "Offline (solo, no server)": offline for this run only.
+func enter_run_offline() -> void:
+	if offline_mode and not offline_for_run:
+		return   # already offline for the session (boot fallback / --offline): leave that to GO ONLINE
+	offline_for_run = true
+	enable_offline_mode()
+	UpdateManager.enable_offline_mode()
+
+
+## A menu is showing again: a run-scoped offline mode ends here. Returns true when it cleared (the caller re-runs the online checks).
+func end_run_offline() -> bool:
+	if not offline_for_run:
+		return false
+	offline_for_run = false
+	if "--offline" in OS.get_cmdline_user_args():
+		return false
+	go_online()
+	UpdateManager.go_online()
+	return true
+
+
+const OFFLINE_NOTE := "OFFLINE MODE IS ON // THE SERVER IS NOT BEING CONTACTED. GO ONLINE TO PLAY WITH FRIENDS."
+const OFFLINE_JOIN_MESSAGE := "OFFLINE MODE // GO ONLINE TO JOIN ROOMS"
+
+
+## Leaves offline mode without a restart (the menu's GO ONLINE): clears the flag, re-runs the health check and, when a login is
+## stored, the account session check. The caller re-runs UpdateManager.check() and whatever lookup it was waiting on.
+func go_online() -> void:
+	offline_mode = false
+	offline_for_run = false
+	check_health()
+	if not account_session_token.is_empty() and accounts_available() and not account_busy:
+		_send_account("session", "/api/account/session", {
+			"sessionToken": account_session_token,
+		})
+
+
 func enable_offline_mode() -> void:
 	offline_mode = true
 	_heartbeat.stop()
@@ -911,6 +953,22 @@ func host_endpoint() -> Dictionary:
 	return _host_endpoint.duplicate()
 
 
+## Room closes (explicit "host left") still on their way to the server; quitting waits briefly for them.
+var _unregister_in_flight := 0
+
+
+func room_close_pending() -> bool:
+	return _unregister_in_flight > 0
+
+
+## Quit path: give the explicit room close a moment to leave the machine (up to `timeout` seconds) before the process ends.
+func wait_for_room_close(timeout: float = 1.5) -> void:
+	var waited := 0.0
+	while _unregister_in_flight > 0 and waited < timeout and is_inside_tree():
+		await get_tree().create_timer(0.05, true, false, true).timeout
+		waited += 0.05
+
+
 func unregister_room() -> void:
 	_heartbeat.stop()
 	if not _host_operation.is_empty():
@@ -922,8 +980,10 @@ func unregister_room() -> void:
 	# A one-shot request means leaving never waits on an in-flight heartbeat.
 	var request := HTTPRequest.new()
 	add_child(request)
+	_unregister_in_flight += 1
 	request.request_completed.connect(func(_result: int, _code: int,
 			_headers: PackedStringArray, _body: PackedByteArray) -> void:
+		_unregister_in_flight = maxi(0, _unregister_in_flight - 1)
 		request.queue_free())
 	request.request(_url("/api/enet/rooms/unregister"), _headers(),
 		HTTPClient.METHOD_POST, JSON.stringify({
@@ -935,6 +995,9 @@ func unregister_room() -> void:
 
 func resolve_room(code: String) -> void:
 	var clean := code.strip_edges().to_upper()
+	if offline_mode:
+		room_resolved.emit(clean, {}, OFFLINE_JOIN_MESSAGE)
+		return
 	if not configured():
 		room_resolved.emit(clean, {}, "ROOM DIRECTORY IS NOT CONFIGURED")
 		return

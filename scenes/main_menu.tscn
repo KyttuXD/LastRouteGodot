@@ -202,12 +202,6 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "JOIN ROOM"
 
-[node name="OfflineButton" type="Button" parent="ButtonPanel/ButtonBox"]
-theme_override_font_sizes/font_size = 6
-unique_name_in_owner = true
-layout_mode = 2
-text = "PLAY OFFLINE"
-
 [node name="SettingsButton" type="Button" parent="ButtonPanel/ButtonBox"]
 theme_override_font_sizes/font_size = 6
 unique_name_in_owner = true

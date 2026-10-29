@@ -21,10 +21,11 @@ func _bounds(root: Node3D) -> AABB:
 
 ## Real-world length of each tool in the runner's hand (metres, in the old 1.60 m body; times PlayerModels.SCALE / 0.9 for the
 ## 1.9 m runner): flashlight ~0.2, taser ~0.17, lock-pick set ~0.15, a crowbar ~0.5 (shortened for the blocky body), the rescue axe
-## ~0.6, a battery ~0.15.
+## ~0.6, a battery ~0.15, a stim ~0.2, the revive kit case ~0.27.
 const LENGTH_RANGE := {
 	"flashlight": Vector2(0.16, 0.30), "taser": Vector2(0.13, 0.25), "lockpick": Vector2(0.10, 0.20),
 	"crowbar": Vector2(0.42, 0.64), "rescue_axe": Vector2(0.50, 0.74), "battery": Vector2(0.12, 0.26),
+	"stim_pack": Vector2(0.14, 0.26), "revive_kit": Vector2(0.20, 0.34),
 }
 
 

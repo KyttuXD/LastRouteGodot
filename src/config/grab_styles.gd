@@ -80,6 +80,10 @@ static var _pools := {}
 static var _looks := {}
 static var _errors := PackedStringArray()
 static var _loaded := false
+## The res://data/grabs pools and looks, kept so unloading content packs restores them (rebuild_from_registry).
+static var _builtin_pools := {}
+static var _builtin_looks := {}
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
 
 
 static func ensure_loaded() -> void:
@@ -95,8 +99,21 @@ static func ensure_loaded() -> void:
 			if not parsed["def"].is_empty():
 				_pools[String(parsed["def"]["id"])] = parsed["def"]["pool"]
 				_looks[String(parsed["def"]["id"])] = parsed["def"]["look"]
+	_builtin_pools = _pools.duplicate(true)
+	_builtin_looks = _looks.duplicate(true)
 	for message in _errors:
 		push_error("GrabStyles: " + message)
+	# packs loaded before this class was first used
+	apply_defs(ContentRegistry.pack_defs("grabs"))
+
+
+## Content packs changed (ContentRegistry.load_packs / unload_packs): the built-in pools, then the packs' grabs/<id>.json.
+static func rebuild_from_registry() -> void:
+	if not _loaded:
+		return
+	_pools = _builtin_pools.duplicate(true)
+	_looks = _builtin_looks.duplicate(true)
+	apply_defs(ContentRegistry.pack_defs("grabs"))
 
 
 static func errors() -> PackedStringArray:
