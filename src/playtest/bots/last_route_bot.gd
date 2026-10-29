@@ -32,6 +32,12 @@ const LEVEL_SPAN := 3
 const LINK_SEARCH_CHUNKS := 3
 const REVIVE_RANGE := 40.0      # m: a downed teammate this close, with a Revive Kit in the hotbar, is the goal
 const REVIVE_GIVE_UP := 10.0    # s holding at the spot before the bot leaves it
+## Ladders (KT 2026-10-28): standing within LADDER_TRIGGER of a ladder's cell starts a climb, so a path through it is a climb.
+## A smart bot routes around ladder cells (LADDER_AVOID) unless it means to climb; a less smart one sometimes walks onto one
+## and climbs back off. smartness 0..100 (--smart, bots.sh), each bot varied by up to +-SMART_SPREAD.
+const LADDER_TRIGGER := .45
+const LADDER_AVOID := 1.6
+const SMART_SPREAD := 15
 
 var _scan_cache: Array = []
 var _scan_frame := -1000
@@ -81,6 +87,13 @@ var _level_due := -1.0           # _clock when the bot next looks for a link (se
 var _link_hold := {}             # a link being taken: {"landing": Vector3, "to": int, "until": float, "id": String}
 var _regions := {}               # "level:region" -> first _clock seen
 var _revive_time := 0.0
+var smartness := 70              # 0..100: set_smartness() adds this bot's own variation
+var _climb_level := 999          # the storey a climb started from (999: not climbing)
+var _climb_time := 0.0
+var _ladder_walk := 0.0          # s spent stepping onto a ladder it means to climb
+## Shared by the other bots through the room chat (BotChat): places to keep away from and relays someone else took.
+var _avoid: Array = []           # {"at": Vector2, "until": float}
+var _claimed: Dictionary = {}    # "x,y" relay cell -> until
 
 
 func available() -> bool:
@@ -462,6 +475,9 @@ func _reset() -> void:
 	_link_hold = {}
 	_regions.clear()
 	_revive_time = 0.0
+	_climb_level = 999
+	_avoid.clear()
+	_claimed.clear()
 
 
 func _route_ready(scene: Node) -> bool:
@@ -627,6 +643,11 @@ func _decide_inner(obs: Dictionary, delta: float) -> Dictionary:
 			_hide_clear_time = 0.0
 		return act
 	_hide_clear_time = 0.0
+	if player.is_climbing():
+		_climbing(player, act, delta)
+		return act
+	if _climb_level != 999:
+		_climb_done(int(obs.get("world", {}).get("level", 0)))
 	if not _link_hold.is_empty():
 		_hold_link(scene, player, delta)
 		return act
@@ -664,6 +685,13 @@ func _decide_inner(obs: Dictionary, delta: float) -> Dictionary:
 	if _last_goal_kind != "revive":
 		_revive_time = 0.0
 	if _last_goal_kind == "level" and distance <= 1.4:
+		# a smart bot climbs a ladder itself (steps onto it: the game starts the climb); else, or after 6 s, the hop
+		if String((goal["link"] as Dictionary).get("kind", "")) == "ladder" and smartness >= 60 and _ladder_walk < 6.0:
+			_ladder_walk += delta
+			var foot := LadderTraffic.ladder_point(goal["link"], int(goal["from"]))
+			_steer_to(player, Vector2(p.x, p.z), foot, act, delta, .5)
+			return act
+		_ladder_walk = 0.0
 		_take_link(scene, player, goal)
 		return act
 	if _last_goal_kind == "use" and distance <= INTERACT_RANGE + .6:
@@ -719,6 +747,9 @@ func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, 
 	if not revive.is_empty():
 		return revive
 	for entry in world["relays"]:
+		var claim_key := "%d,%d" % [int(entry["x"]), int(entry["y"])]
+		if float(_claimed.get(claim_key, -1.0)) > _clock or _avoided(Vector2(float(entry["x"]), float(entry["y"]))):
+			continue
 		if float(entry["dist"]) < 90.0 and not _blacklisted("relay:%s" % entry["id"]) and _relay_mine(String(entry["id"]), entry):
 			return {"kind": "relay", "key": "relay:%s" % entry["id"], "id": String(entry["id"]), "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
 	var player_lamp: float = float(obs["player"].get("lamp", 100.0))
@@ -733,6 +764,35 @@ func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, 
 	if not level.is_empty():
 		return level
 	return _explore_goal(obs, nav, cell)
+
+
+## Base smartness 0..100 plus this bot's own seeded variation (+-SMART_SPREAD).
+func set_smartness(base: int) -> void:
+	smartness = clampi(base + rng.randi_range(-SMART_SPREAD, SMART_SPREAD), 0, 100)
+	stats["smartness"] = smartness
+
+
+## Another runner called out a hunter at `at`: keep goals away from there for `seconds`.
+func avoid(at: Vector2, seconds: float = 45.0) -> void:
+	_avoid.append({"at": at, "until": _clock + seconds})
+	stats["callouts_heard"] = int(stats.get("callouts_heard", 0)) + 1
+
+
+## Another runner said it takes the relay at `cell`: leave that one to them.
+func relay_claimed(cell: Vector2i, seconds: float = 60.0) -> void:
+	_claimed["%d,%d" % [cell.x, cell.y]] = _clock + seconds
+
+
+func _avoided(at: Vector2) -> bool:
+	for zone in _avoid:
+		if float(zone["until"]) > _clock and (zone["at"] as Vector2).distance_to(at) < 12.0:
+			return true
+	return false
+
+
+## The relay goal this bot is walking to, for BotChat's "I'll take it" ({} when none).
+func current_relay() -> Dictionary:
+	return _goal if String(_goal.get("kind", "")) == "relay" else {}
 
 
 ## A downed teammate on this storey within REVIVE_RANGE, while a Revive Kit is in the hotbar (docs/REVIVE.md).
@@ -819,6 +879,80 @@ func _level_goal(obs: Dictionary, nav: StreamedHunterNavigation) -> Dictionary:
 		return {"kind": "level", "key": "level:%s" % link["id"], "cell": stand, "link": link, "from": here, "to": step}
 	_level_due = _clock + 30.0   # no link near: look again after walking on a while
 	return {}
+
+
+## On a ladder. Meant to (a level goal through a ladder): climb on towards the other storey. Not meant to (walked onto it):
+## back off the way it came. Logged either way.
+func _climbing(player: PlayerController3D, act: Dictionary, delta: float) -> void:
+	var level := int(_last_obs.get("world", {}).get("level", 0))
+	var meant := String(_goal.get("kind", "")) == "level"
+	if _climb_level == 999:
+		_climb_level = level
+		_climb_time = 0.0
+		var key := "ladder_climbs" if meant else "ladder_slips"
+		stats[key] = int(stats.get(key, 0)) + 1
+		add_event("ladder", {"meant": meant, "level": level, "t": snappedf(_clock, .1), "smartness": smartness})
+	_climb_time += delta
+	# forward climbs up. Sewer ladders run from the sewer (below) up to the street storey: got on at the top -> a slip climbs
+	# back up, got on at the bottom -> back down
+	var got_on_top := _climb_level > StreamedRouteGenerator.SEWER_LEVEL
+	var up := (int(_goal.get("to", level)) > _climb_level) if meant else got_on_top
+	act["move"] = [0.0, 1.0 if up else -1.0]
+	if _climb_time > 12.0:
+		act["pulse"].append("jump")   # still on it: let go near the bottom
+
+
+## Off a ladder: a meant climb that reached the other storey is a level trip; either way the climb is over.
+func _climb_done(level: int) -> void:
+	if String(_goal.get("kind", "")) == "level":
+		var ok := level != _climb_level
+		stats["level_trips" if ok else "level_trip_failed"] = int(stats["level_trips" if ok else "level_trip_failed"]) + 1
+		add_event("level_trip", {"from": _climb_level, "to": level, "by": "ladder", "ok": ok, "t": snappedf(_clock, .1)})
+		_goal = {}
+		_level_due = _clock + rng.randf_range(LEVEL_STAY_MIN, LEVEL_STAY_MAX)
+	_climb_level = 999
+	_ladder_walk = 0.0
+
+
+## A path through a ladder's trigger area is a climb: walk round it instead (a cell beside the ladder, then on to the goal).
+func _around_ladders(nav: StreamedHunterNavigation, path: Array, level: int) -> Array:
+	var facility: StreamedFacilityView3D = tree.current_scene.get("facility")
+	if facility == null or path.size() < 2:
+		return path
+	var mid: Vector2 = _cell_centre(path[path.size() / 2])
+	var link := LadderTraffic.nearest_ladder(facility.generator, level, mid, ["ladder"])
+	if link.is_empty():
+		return path
+	var ladder := LadderTraffic.ladder_point(link, level)
+	var hit := -1
+	for i in path.size():
+		if _cell_centre(path[i]).distance_to(ladder) < LADDER_AVOID:
+			hit = i
+			break
+	if hit < 0:
+		return path
+	# step out sideways from the ladder (both sides tried) and plan there and on to the goal
+	var before: Vector2 = _cell_centre(path[maxi(hit - 1, 0)])
+	var along := (ladder - before).normalized() if (ladder - before).length() > .1 else Vector2.RIGHT
+	for side in [1.0, -1.0]:
+		var aside: Vector2 = ladder + Vector2(-along.y, along.x) * side * (LADDER_AVOID + 1.2)
+		var stop := _open_cell_near(nav, aside)
+		if stop == Vector2i(-99999, -99999) or _cell_centre(stop).distance_to(ladder) < LADDER_AVOID:
+			continue
+		var first: Array = nav.find_path(path[0], stop)
+		var second: Array = nav.find_path(stop, path[-1])
+		if first.is_empty() or second.is_empty():
+			continue
+		var joined: Array = first + second.slice(1)
+		var clear := true
+		for c in joined:
+			if _cell_centre(c).distance_to(ladder) < LADDER_AVOID:
+				clear = false
+				break
+		if clear:
+			stats["ladder_detours"] = int(stats.get("ladder_detours", 0)) + 1
+			return joined
+	return path
 
 
 ## At the link's foot: go through it to its far end (stairs and ladders are walked or climbed by players; the bot is put at the
@@ -1082,6 +1216,8 @@ func _explore_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2
 			var visits := int(_visited.get("%d,%d,%d" % [coord.x, int(chunk[1]), coord.y], 0))
 			var centre := Vector2(coord.x * CHUNK + CHUNK * .5, coord.y * CHUNK + CHUNK * .5)
 			var score := -visits * 40.0 - Vector2(cell).distance_to(centre) * .35 + rng.randf() * 6.0
+			if _avoided(centre):
+				score -= 80.0   # a teammate called a hunter out there
 			if _goal.get("key", "") == key:
 				score += 12.0   # keep going where we were going
 			if score > best_score:
@@ -1150,6 +1286,8 @@ func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerControlle
 			_goal = {}
 			_path = []
 			return
+		if String(goal.get("kind", "")) != "level" and rng.randi_range(0, 99) < smartness:
+			found = _around_ladders(nav, found, int(_last_obs.get("world", {}).get("level", 0)))
 		_path = found
 		_path_index = 0
 	# advance along the path, aim two cells ahead for smooth corners

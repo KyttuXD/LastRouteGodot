@@ -946,6 +946,9 @@ static func coop_check(bridge: PlaytestBridge, adapter: BotAdapter, opts: Dictio
 	# the host roams between storeys on its own (stairwells, ladders); guests keep with the host, so its storey is theirs
 	if "roam_levels" in adapter:
 		adapter.set("roam_levels", role == "host")
+	# --smart=0..100: how well the bot handles ladders (routes round them, climbs them on purpose); each bot varies a little
+	if adapter.has_method("set_smartness"):
+		adapter.call("set_smartness", clampi(int(opts.get("smart", 70)), 0, 100))
 	var chat := BotChat.new(String(opts.get("chat", "quiet")), int(opts["bot_seed"]) * 7919 + me)
 	var next_shot := 30.0
 	var host_catch := String(opts.get("host_catch", "true")) != "false"

@@ -77,6 +77,29 @@ func run(host: Node) -> int:
 		var c := chatty._cooldown()
 		_expect(c >= 20.0 and c <= 48.0, "chatty bots wait 20-40 s plus up to 8 s of jitter (got %.1f)" % c)
 	_expect(quiet._next_ok >= 8.0, "no bot speaks in its first seconds")
+	# bots talk to each other: a filled line stays inside 80 characters; a callout makes the hearer avoid the spot, a claim
+	# leaves the relay, a reply is never answered
+	var obs := {"world": {"region": "research_lab_with_a_very_long_region_name"}, "player": {"pos": [0.0, 0.0, 0.0]}}
+	for kind in ["hunter", "caught", "claim"]:
+		for line in BotChat.LINES[kind]:
+			quiet._target = Vector2(10, 0)
+			_expect(not quiet._fill(String(line), obs).contains("{"), "a bot line kept a placeholder: %s" % line)
+	quiet._target = Vector2(10, 0)
+	_expect(quiet._fill("{dir}", obs) == "east", "+x should read east")
+	quiet._target = Vector2(0, -10)
+	_expect(quiet._fill("{dir}", obs) == "north", "-z should read north")
+	var heard := {"avoid": null, "claim": null}
+	var brain := PlaytestAdapters.create("last_route", host.get_tree()) as LastRouteBot
+	quiet._adapter = brain
+	quiet._on_message(9001, "BOT", {"preset": "bot_hunter", "target": Vector2(40, 40), "text": "Hunter near the lab!"})
+	_expect(brain._avoided(Vector2(42, 40)) and not brain._avoided(Vector2(80, 40)), "a hunter callout did not make the bot avoid that spot")
+	quiet._on_message(9001, "BOT", {"preset": "bot_relay", "target": Vector2(12.5, 7.5), "text": "I'll take the east relay."})
+	_expect(float(brain._claimed.get("12,7", -1.0)) > brain._clock, "a relay claim was not left to its speaker")
+	quiet._pending_reply = ""
+	quiet._on_message(9001, "BOT", {"preset": "bot_reply", "text": "Got it, staying away."})
+	_expect(quiet._pending_reply.is_empty(), "a bot answered a reply (chains)")
+	brain.set_smartness(70)
+	_expect(brain.smartness >= 70 - LastRouteBot.SMART_SPREAD and brain.smartness <= 70 + LastRouteBot.SMART_SPREAD, "smartness spread out of range")
 
 	# 1. off by default; no cost when off
 	_expect(not Playtest.enabled, "the playtest bridge must be disabled without --playtest")
