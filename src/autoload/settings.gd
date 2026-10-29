@@ -147,6 +147,9 @@ var skin_hash := ""
 ## A skin applied on this device that the account does not hold yet (offline or signed out when it was picked). While set, the next
 ## sign-in uploads it instead of adopting the account's skin from the server.
 var skin_pending_upload := false
+## This device's guest name ("R-4821", GuestNames) and the server lease token that keeps it ours; empty until first needed.
+var guest_name := ""
+var guest_name_token := ""
 ## Whether other players may COPY your skin in co-op (SKIN tab). Honoured by their game; the skin itself is visible either way.
 var skin_copyable := true
 ## Living runners see caught teammates' ghosts, faintly (docs/SPECTATORS.md); ghosts always see each other.
@@ -448,6 +451,12 @@ func set_skin_copyable(value: bool) -> void:
 	_save()
 
 
+func set_guest_name(name: String, token: String) -> void:
+	guest_name = name.to_upper()
+	guest_name_token = token
+	_save()
+
+
 func set_skin_pending_upload(value: bool) -> void:
 	if skin_pending_upload != value:
 		skin_pending_upload = value
@@ -662,6 +671,8 @@ func _load() -> void:
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	skin_hash = String(config.get_value("player", "skin_hash", ""))
 	skin_pending_upload = bool(config.get_value("player", "skin_pending_upload", false))
+	guest_name = String(config.get_value("player", "guest_name", ""))
+	guest_name_token = String(config.get_value("player", "guest_name_token", ""))
 	skin_copyable = bool(config.get_value("player", "skin_copyable", true))
 	show_ghosts = bool(config.get_value("player", "show_ghosts", true))
 	ads_mode = String(config.get_value("gameplay", "ads_mode", "off"))
@@ -793,6 +804,8 @@ func _save() -> void:
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("player", "skin_hash", skin_hash)
 	config.set_value("player", "skin_pending_upload", skin_pending_upload)
+	config.set_value("player", "guest_name", guest_name)
+	config.set_value("player", "guest_name_token", guest_name_token)
 	config.set_value("player", "skin_copyable", skin_copyable)
 	config.set_value("player", "show_ghosts", show_ghosts)
 	config.set_value("gameplay", "ads_mode", ads_mode)
