@@ -16,6 +16,7 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func run(host: Node) -> int:
+	_check_colours()
 	_check_marks()
 	await _check_layout(host)
 	await _check_hud(host)
@@ -205,3 +206,35 @@ func _check_waypoints(host: Node) -> void:
 	hud.set_death_flow(false)
 	hud.queue_free()
 	await host.get_tree().process_frame
+
+
+## One colour-blind-friendly colour per player slot, the same on every screen: at least 12 clearly different colours, a peer's colour is its rank in
+## the room (host first, identical on every client) and the arrows carry no initials or names.
+func _check_colours() -> void:
+	var palette := PlayerColors.PALETTE
+	_expect(palette.size() >= 12, "the player palette needs at least 12 colours, has %d" % palette.size())
+	var closest := 9.0
+	for i in palette.size():
+		for j in range(i + 1, palette.size()):
+			var a: Color = palette[i]
+			var b: Color = palette[j]
+			closest = minf(closest, sqrt(pow(a.r - b.r, 2) + pow(a.g - b.g, 2) + pow(a.b - b.b, 2)))
+	_expect(closest > 0.2, "two player colours are too close to tell apart (%.2f)" % closest)
+	var peers := [1, 48213, 9, 770123]
+	_expect(PlayerColors.slot_of(1, peers) == 0 and PlayerColors.slot_of(9, peers) == 1 and PlayerColors.slot_of(48213, peers) == 2 and PlayerColors.slot_of(770123, peers) == 3,
+		"a peer's slot should be its rank among the room's peers, host first")
+	var shuffled := [770123, 9, 1, 48213]
+	for id in peers:
+		_expect(PlayerColors.for_peer(id, peers) == PlayerColors.for_peer(id, shuffled), "peer %d has a different colour on another client" % id)
+	var seen := {}
+	for id in peers:
+		seen[PlayerColors.for_peer(id, peers).to_html()] = true
+	_expect(seen.size() == peers.size(), "players in one room share a colour")
+	# the waypoints, the player list and the map marks all use it
+	var rows: Array = RoomPlayerList.build([{"id": 1, "name": "A", "host": true, "you": false}], {}, {}, {}, {}, false, Time.get_ticks_usec())
+	var row: Dictionary = rows[0]
+	_expect(Color(String(row["colour"])).to_html(false) == RemotePlayers.peer_colour(1).to_html(false), "the player list does not use the player's colour")
+	var map_source := FileAccess.get_file_as_string("res://src/ui/facility_map.gd")
+	_expect(not map_source.contains("draw_string_outline(font, tag_at, label") and not map_source.contains("draw_circle(shown, radius + .4, dim)"),
+		"teammate map markers still draw letters or dots")
+	_expect(map_source.contains("RemotePlayers.local_colour()"), "your own map arrow is not in your player colour")
