@@ -42,6 +42,7 @@ func run(_host: Node) -> int:
 		var rooms := {}
 		var doors := {}
 		var region_at := {}
+		var warren_cells := {}   # a warren's corridors wind side by side on purpose (KT: twists and turns)
 		for cz in range(window["from"].y, window["to"].y + 1):
 			for cx in range(window["from"].x, window["to"].x + 1):
 				var coord := Vector3i(cx, 0, cz)
@@ -67,8 +68,11 @@ func run(_host: Node) -> int:
 					if prop.get("room_door", false):
 						for cell in prop.get("doorway_cells", []):
 							doors[origin + (cell as Vector2i)] = true
+				var warren := not (data.get("warren", {}) as Dictionary).is_empty()
 				for z in size:
 					for x in size:
+						if warren:
+							warren_cells[origin + Vector2i(x, z)] = true
 						if int(grid[z][x]) == 0:
 							open[origin + Vector2i(x, z)] = true
 							region_at[origin + Vector2i(x, z)] = String(data["region"])
@@ -99,7 +103,7 @@ func run(_host: Node) -> int:
 					gap += 1
 					cursor += step
 				# gap cells 1..5 then a hall cell; the cell right beside it (gap 0) is the same hall
-				if gap >= 1 and gap <= 3 and hall.has(cursor) and _hall_pair_is_parallel(hall, cell, cursor, step):
+				if gap >= 1 and gap <= 3 and hall.has(cursor) and not warren_cells.has(cell) and _hall_pair_is_parallel(hall, cell, cursor, step):
 					doubled_total += 1
 					var region_d := String(region_at.get(cell, "?"))
 					doubled_districts[region_d] = int(doubled_districts.get(region_d, 0)) + 1
