@@ -72,16 +72,24 @@ const NW_DATA_SCRIPTS := ["res://src/night_watch/night_watch_data.gd", "res://sr
 	"res://src/night_watch/descent/descent_data.gd", "res://src/night_watch/lure/lure_data.gd", "res://src/night_watch/mask/mask_data.gd",
 	"res://src/night_watch/mixed/mixed_data.gd", "res://src/night_watch/openair/openair_data.gd", "res://src/night_watch/story/story_data.gd"]
 
+## Tables that moved from a const to a static var read from res://data/night_watch (file -> names).
+const NW_DATA_TABLES := {"night_watch_calls_data.gd": ["CALLS"]}
+
 
 static func nw_hash() -> String:
 	var parts := []
 	for path in NW_DATA_SCRIPTS:
-		var constants := (load(path) as Script).get_script_constant_map()
-		var names := constants.keys()
+		var script := load(path) as Script
+		var constants := script.get_script_constant_map()
+		var names := Array(constants.keys()).map(func(n): return String(n))   # StringName keys sort by pointer, not by name
+		for name in NW_DATA_TABLES.get(path.get_file(), []):   # a table that moved to data is a static var: hashed in the same place
+			if not names.has(name):
+				names.append(name)
 		names.sort()
 		for name in names:
-			if typeof(constants[name]) != TYPE_OBJECT:
-				parts.append([path.get_file(), name, constants[name]])
+			var value = constants[name] if constants.has(name) else script.get(name)
+			if typeof(value) != TYPE_OBJECT:
+				parts.append([path.get_file(), name, value])
 	var modes := NightWatchOfficeRegistry.OFFICES.keys()
 	modes.sort()
 	for mode_id in modes:

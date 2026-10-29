@@ -36,7 +36,7 @@ const FIELDS := {
 		"palette": [TYPE_DICTIONARY, false], "tone_cue": [TYPE_STRING, false]},
 	"nw_buildings": {"id": [TYPE_STRING, true], "rooms": [TYPE_DICTIONARY, true], "graph": [TYPE_DICTIONARY, true], "cams": [TYPE_ARRAY, false],
 		"paths": [TYPE_DICTIONARY, false]},
-	"nw_calls": {"id": [TYPE_STRING, true], "levels": [TYPE_ARRAY, true]},
+	"nw_calls": {"id": [TYPE_STRING, true], "order": [TYPE_FLOAT, false], "levels": [TYPE_ARRAY, true]},
 	"nw_sounds": {"id": [TYPE_STRING, true], "cues": [TYPE_DICTIONARY, true]},
 	"nw_scares": {"id": [TYPE_STRING, true], "scares": [TYPE_DICTIONARY, true]},
 }
