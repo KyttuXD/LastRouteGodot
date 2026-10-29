@@ -3,13 +3,14 @@ extends Node
 ## Renders a short listening clip per level of the level layer (docs/AMBIENCE.md, "Level layer"): the level's district
 ## bed and level bed at their in-game gains, the runner's steps where they show the level's reverb, and a walk past the
 ## level's positional sources (a waterfall in the sewers, lava in the Inferno) with the in-game distance falloff. The Level
-## bus reverb is approximated offline (AmbienceSynth's reverb sized from LevelAmbience.REVERB plus its pre-delay echo);
-## every clip gets the same make-up gain, so their loudness compares.
+## bus reverb is approximated offline (AmbienceSynth's reverb sized from LevelAmbience.REVERB plus its pre-delay echo).
+## Each clip is normalised to PEAK: a waterfall up close is some 30 dB over the beds, so one shared make-up gain either
+## clips the sewer or leaves the maze inaudible. Balance within a clip is the game's; loudness across clips is not.
 ##   godot --headless --path . res://tools/audio/render_level_clips.tscn -- <out dir>
 
 const RATE := AmbienceSynth.RATE
 const SECONDS := 16.0
-const MAKEUP_DB := 34.0
+const PEAK := .89   # -1 dBFS
 ## level bed -> [district bed under it ("" none), step surface ("" none), positional kind ("" none), nearest metres]
 const CLIPS := {
 	"level:maze": ["maze", "concrete", "", 0.0],
@@ -55,7 +56,12 @@ func _ready() -> void:
 		for i in frames:
 			left[i] += wet_left[i]
 			right[i] += wet_right[i]
-		var gain := db_to_linear(MAKEUP_DB)
+		AmbienceSynth._high_pass(left)
+		AmbienceSynth._high_pass(right)
+		var peak := 1e-9
+		for i in frames:
+			peak = maxf(peak, maxf(absf(left[i]), absf(right[i])))
+		var gain := PEAK / peak
 		for i in frames:
 			left[i] = clampf(left[i] * gain, -.98, .98)
 			right[i] = clampf(right[i] * gain, -.98, .98)
@@ -72,12 +78,18 @@ func _add_loop(left: PackedFloat32Array, right: PackedFloat32Array, stream: Audi
 	var step := float(stream.mix_rate) / RATE
 	var data := stream.data
 	for i in left.size():
-		var src := int(i * step) % loop
 		var a := float(amount.call(float(i) / RATE)) * gain
-		var l := data.decode_s16(src * frame) / 32767.0
-		var r := data.decode_s16(src * frame + 2) / 32767.0 if stream.stereo else l
-		left[i] += l * a
-		right[i] += r * a
+		# a 44.1 kHz source averages the frames it skips (no aliasing from plain decimation)
+		var taps := maxi(1, int(step))
+		var l := 0.0
+		var r := 0.0
+		for k in taps:
+			var src := (int(i * step) + k) % loop
+			var lv := data.decode_s16(src * frame) / 32767.0
+			l += lv
+			r += data.decode_s16(src * frame + 2) / 32767.0 if stream.stereo else lv
+		left[i] += l / taps * a
+		right[i] += r / taps * a
 
 
 func _add_once(left: PackedFloat32Array, right: PackedFloat32Array, stream: AudioStreamWAV, at: float, db: float) -> void:
