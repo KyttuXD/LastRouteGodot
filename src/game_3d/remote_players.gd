@@ -1860,7 +1860,7 @@ func _submit_hunter_event(event: Dictionary) -> void:
 	# A taser packet is only an intent. Position, facing, target, cooldown and
 	# line of sight all come from host-owned state in main_3d.
 	if what == "taser":
-		hunter_event.emit({"what": "taser", "peer_id": sender})
+		hunter_event.emit({"what": "taser", "peer_id": sender, "slot": clampi(int(event.get("slot", -1)), -1, 63)})
 		return
 	if not ["escaped", "caught", "capture_blocked"].has(what):
 		return
