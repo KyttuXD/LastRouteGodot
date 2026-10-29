@@ -256,7 +256,7 @@ test("pack folders come from the game: ContentRegistry.PACK_KINDS plus data/kind
     assert.equal(readPackKindsFromRepo(root), null, "not a checkout");
     mkdirSync(join(root, "src", "config"), { recursive: true });
     writeFileSync(join(root, "src", "config", "content_registry.gd"),
-      'const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms",\n\t"deaths"]\n');
+      'const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms",\n\t"deaths", "emotes"]\n');
     mkdirSync(join(root, "data", "kinds"), { recursive: true });
     writeFileSync(join(root, "data", "kinds", "night_watch.json"), JSON.stringify({ nw_offices: {}, nw_calls: {}, props: {}, "Bad-Kind": {} }));
     writeFileSync(join(root, "data", "kinds", "broken.json"), "{ not json");

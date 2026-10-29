@@ -21,7 +21,7 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 // What the game accepts (ContentRegistry.pack_kinds(): built-in kinds + other lanes' data/kinds extensions), from
 // pack_kinds.json written at deploy, the repo when run from a checkout, or this fallback (pack_kinds.mjs).
 export const FALLBACK_PACK_KINDS = ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls",
-  "ceilings", "rooms", "deaths"];
+  "ceilings", "rooms", "deaths", "emotes"];
 export const MOD_PACK_KINDS = loadPackKinds(FALLBACK_PACK_KINDS);
 const KIND_GROUP = MOD_PACK_KINDS.join("|");
 const SEGMENT = "[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}";
