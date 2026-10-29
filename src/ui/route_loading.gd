@@ -48,6 +48,7 @@ func _ready() -> void:
 ## The pre-route loading scene is freed by the scene change into the route (it is never dismissed): the world fades in from here.
 func _exit_tree() -> void:
 	WorldAudioGate.release("route_loading_%d" % get_instance_id())
+	MouseLock.claim("route_loading_%d" % get_instance_id(), false)
 
 
 func _process(delta: float) -> void:
@@ -113,10 +114,6 @@ func show_sync_stuck() -> void:
 
 func _claim_cursor() -> void:
 	MouseLock.claim("route_loading_%d" % get_instance_id(), is_visible_in_tree())
-
-
-func _exit_tree() -> void:
-	MouseLock.claim("route_loading_%d" % get_instance_id(), false)
 
 
 func dismiss() -> void:
