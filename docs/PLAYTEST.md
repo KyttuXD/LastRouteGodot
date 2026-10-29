@@ -97,3 +97,23 @@ of closed doors and presses interact, and detects stuck spots and soft-locks.
 ## Checks
 `scripts/validate_runner.gd` suite `playtest` (fast): off by default and release-safe, protocol answers, input round trip, adapters, thresholds, hashes.
 `scripts/playtest_check.sh` (on a test machine): a 60 s bot run without stuck/soft-lock that finds a relay, the menu tour, and the determinism hash.
+
+## Headless bots on one machine (load tests)
+
+`bots.sh --local N` (or the Bot Tests menu's "Headless extras") adds N `--headless` bot guests on each picked mac/linux device,
+besides its windowed bot. Headless runs take no screenshots. Measured on KT-Mini4-2 (M4, 10 cores, 16 GB) on 2026-10-28:
+one headless host and N-1 guests in a TEST-service room, 4 minutes each. The machine was also running other lanes'
+validators, so treat the CPU figures as upper bounds.
+
+| bots | RSS per bot (avg / max) | CPU per bot | load avg (1 min) | fps avg / min | runs passed |
+|-----:|------------------------:|------------:|-----------------:|--------------:|------------:|
+| 2 | 692 / 730 MB | 44 % | 2.6 | 137 / 15 | 2 / 2 |
+| 4 | 689 / 785 MB | 40 % | 3.3 | 140 / 16 | 3 / 4 (one soft lock) |
+| 6 | 684 / 730 MB | 63 % | 6.1 | 136 / 1 | 6 / 6 |
+| 8 | 694 / 833 MB | 68 % | 8.0 | 130 / 1 | 7 / 8 (one bot: 63 unreachable goals) |
+
+- A 1-bot run is not a test: the host waits for a guest.
+- Frame rates are uncapped.
+- About 700 MB per bot means 8 bots use about 5.6 GB.
+- From 6 bots up, short stalls drop a frame to 1 fps.
+- So 6 is a comfortable count for a 10-core, 16 GB machine.
