@@ -52,7 +52,7 @@ func _snapshot() -> String:
 		var_to_str(StreamedRouteGenerator.REGION_PROP_SETS), var_to_str(StreamedRouteGenerator.SHOP_NAMES),
 		var_to_str(StreamedRouteGenerator.MALL_ROOMS), var_to_str(_grabs()),
 		var_to_str([Sound._cue_overrides.keys(), Sound._ambience_overrides.keys()]),
-		var_to_str(RefTextures._pack_images), _surface_pixel("floor", "terrazzo0"), _surface_pixel("wall", "panel0"),
+		var_to_str(RefTextures._pack_images), var_to_str(DeathLines.data()), _surface_pixel("floor", "terrazzo0"), _surface_pixel("wall", "panel0"),
 		_surface_pixel("ceiling", "vault"),
 		ContentRegistry.pack_hash(),
 		Parity.props_hash(), Parity.hunters_hash(), Parity.region_hash()])
@@ -110,6 +110,11 @@ func _check_loaded(dir: String) -> void:
 	_expect(ContentRegistry.pack_scene("user://elsewhere/x.glb") == null, "loaded a model outside every pack")
 	_expect(HunterDossier.portrait("testpack_ember") != null, "pack portrait did not load")
 	_expect(Sound._cue_overrides.has("alert") and Sound._ambience_overrides.has("mall"), "pack sounds not loaded")
+	var ember_line := DeathLines.pick({"hunter_id": "testpack_ember"}, "S", 3)
+	_expect(ember_line["text"] == "Ember found you on depth 3." and ember_line["source"] == "hunter",
+		"pack hunter's death line not used: %s" % [ember_line])
+	var aki_lines: Array = DeathLines.data()["hunters"]["aki"]["lines"]
+	_expect(aki_lines.has("Aki, in a pack, says hello.") and aki_lines.size() > 1, "mode add did not append to Aki")
 	_expect(Sound._ambience_overrides.has("room:" + _room_bed()), "a room bed (id with a colon) was not replaced")
 	var floor := _surface_pixel("floor", "terrazzo0")
 	_expect(floor == "(32, 32) %d %s true" % [Image.FORMAT_RGBA8, Color.DEEP_PINK.to_html()],
@@ -225,6 +230,10 @@ func _check_rejections(vanilla: String) -> void:
 		"schema": "lr.surface/1", "surfaces": [{"id": "lava_floor", "image": "assets/ember.png"}]})})], "does not have"])
 	cases.append(["undeclared wall", [_good_pack("sneaky", {"walls/x.json": JSON.stringify({"schema": "lr.surface/1",
 		"surfaces": [{"id": "brick0", "image": "assets/ember.png"}]})})], "replace built-in ones"])
+	cases.append(["death lines for no hunter", [_good_pack("ghostline", {"deaths/x.json": JSON.stringify({
+		"schema": "lr.deaths/1", "id": "ghostline_nobody", "lines": ["boo"]})})], "not a hunter"])
+	cases.append(["empty death lines", [_good_pack("mute", {"deaths/x.json": JSON.stringify({"schema": "lr.deaths/1",
+		"id": "mute_ember", "lines": []})})], "non-empty list"])
 	cases.append(["bad ogg", [_good_pack("badogg", {"assets/sound.ogg": "not ogg"})], "sound.ogg"])
 	cases.append(["glTF extension", [_good_pack("gltfext", {"assets/body.glb": _glb({"asset": {"version": "2.0"},
 		"extensionsUsed": ["OMI_physics_body"], "scenes": [{"nodes": []}], "scene": 0})})], "OMI_physics_body"])
@@ -261,7 +270,8 @@ func _check_rejections(vanilla: String) -> void:
 func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], replace: Dictionary = {}) -> String:
 	var dir := ROOT.path_join(id)
 	var all_overrides := ["hunters/aki", "props/officePrinter", "regions/mall", "grabs/aki", "sounds/alert",
-		"ambience/mall", "ambience/room:%s" % _room_bed(), "floors/terrazzo0", "walls/panel0", "ceilings/vault"] if overrides.is_empty() \
+		"ambience/mall", "ambience/room:%s" % _room_bed(), "floors/terrazzo0", "walls/panel0", "ceilings/vault",
+		"deaths/aki"] if overrides.is_empty() \
 		else overrides
 	var files := {
 		"pack.json": JSON.stringify({"schema": "lr.pack/1", "id": id, "name": "Test " + id, "version": "1.0.0",
@@ -290,6 +300,10 @@ func _good_pack(id: String, extra: Dictionary = {}, overrides: Array = [], repla
 			"image": "assets/floor.png"}]})
 		files["walls/walls.json"] = JSON.stringify({"schema": "lr.surface/1", "surfaces": [{"id": "panel0",
 			"image": "assets/wall.png"}]})
+		files["deaths/ember.json"] = JSON.stringify({"schema": "lr.deaths/1", "id": "%s_ember" % id,
+			"lines": ["Ember found you on depth {depth}."]})
+		files["deaths/aki.json"] = JSON.stringify({"schema": "lr.deaths/1", "id": "aki", "mode": "add",
+			"lines": ["Aki, in a pack, says hello."]})
 		files["ceilings/ceilings.json"] = JSON.stringify({"schema": "lr.surface/1", "surfaces": [{"id": "vault",
 			"image": "assets/floor.png"}]})
 		files["props/ember.json"] = JSON.stringify({"schema": "lr.prop/1", "family": "ember", "props": [

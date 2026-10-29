@@ -15,6 +15,7 @@ Packs are played in **private rooms only**. Public routes are always the unmodde
 | **Regions** | yes: floors, doors, shop names, room roles, dressing | loads and validates, but no level places a new region yet |
 | **Grabs** (how a hunter takes hold of a caught runner) | yes: any hunter's pool of grab styles | yes: give your own hunters a pool |
 | **Sounds** (cues and ambience beds) | yes: replace a sound effect or a region's background bed with your own recordings | no: only built-in sounds are played |
+| **Death lines** (the text when a hunter catches you) | yes: replace or add to any hunter's lines | yes: lines for your own hunters |
 | **Rooms** (furniture recipes) | built-in data recipes only | yes: a new room type, furnished by your recipe, wherever a region lists it (e.g. a new mall shop) |
 | **Surfaces** (floor, wall and ceiling textures) | yes: replace any floor, wall or ceiling pattern with your own image | no: regions name the built-in kinds |
 

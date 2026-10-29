@@ -19,7 +19,9 @@ const ROOT := "res://data"
 const KINDS := ["props", "regions", "hunters"]
 ## What packs may ship: the built-in kinds plus kinds whose built-in data has its own reader (grabs: GrabStyles, which
 ## reads res://data/grabs itself and takes pack definitions through pack_defs()).
-const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms"]
+const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms",
+	"deaths"]
+const DEATHS_SCRIPT := "res://src/config/death_lines.gd"
 const ROOMS_SCRIPT := "res://src/game/room_recipes.gd"
 ## Surface replacements (pack-only kinds): a floor, wall or ceiling kind RefTextures paints, replaced by a pack PNG. Only
 ## the picture changes: roughness, metal and the glow of glass/vault ceilings come from the kind (RefTextures.params).
@@ -355,6 +357,10 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 				if kind == "hunters":
 					hunters[def["id"]] = true
 	for pack in packs:
+		for def in pack["defs"]["deaths"]:
+			if not hunters.has(def["id"]) and not _is_builtin_id("hunters", String(def["id"])):
+				errors.append("%s: death lines for \"%s\", which is not a hunter" % [pack["dir"], def["id"]])
+	for pack in packs:
 		# a grab pool belongs to a hunter: one the game has, or one these packs add
 		for def in pack["defs"]["grabs"]:
 			if not hunters.has(def["id"]) and not _is_builtin_id("hunters", String(def["id"])):
@@ -397,6 +403,8 @@ static func _is_builtin_id(kind: String, id: String) -> bool:
 		return not load(AMBIENCE_SCRIPT).layers(id).is_empty()
 	if SURFACE_KINDS.has(kind):
 		return load(SURFACE_SCRIPT).get_script_constant_map()[SURFACE_KINDS[kind]].has(id)
+	if kind == "deaths":
+		return _is_builtin_id("hunters", id)
 	if kind == "rooms":
 		# only data recipes can be overridden; code recipes stay code
 		return load(ROOMS_SCRIPT).builtin_has(id)
@@ -518,6 +526,9 @@ static func _without_meta(def: Dictionary) -> Dictionary:
 static func parse_file(path: String, kind: String) -> Dictionary:
 	if _extensions.has(kind):
 		return _parse_extension(path, kind)
+	if kind == "deaths":
+		var death: Dictionary = load(DEATHS_SCRIPT).parse_pack_file(path)
+		return {"defs": [] if death["def"].is_empty() else [death["def"]], "errors": death["errors"]}
 	if kind == "grabs" or kind == "rooms":
 		var parsed: Dictionary = load(GRAB_SCRIPT if kind == "grabs" else ROOMS_SCRIPT).parse_file(path)
 		return {"defs": [] if parsed["def"].is_empty() else [parsed["def"]], "errors": parsed["errors"]}
