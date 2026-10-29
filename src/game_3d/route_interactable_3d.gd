@@ -665,6 +665,13 @@ func _collect_mesh_bounds(node: Node, boxes: Array[AABB]) -> void:
 		_collect_mesh_bounds(child, boxes)
 
 
+## A breakable pipe, outflow or seal is a secret (KT: "remove the break prompt ... like a 'secret'"): no prompt and no aim
+## cue, but the interact key still swings the axe at it when the runner aims at it; the hit, crack and burst are the only
+## feedback. A locked one keeps its PICK LOCK prompt.
+func is_secret() -> bool:
+	return kind == Kind.BREAKABLE and not opened and not completed and not disabled and not bool(breakable_spec.get("locked", false))
+
+
 func get_prompt() -> String:
 	if kind == Kind.ROOM_DOOR:
 		if room_door_broken:
@@ -681,7 +688,7 @@ func get_prompt() -> String:
 	if kind == Kind.BOARDED_PATH and not opened:
 		return "BREACH BOARDS // CROWBAR OR AXE"
 	if kind == Kind.BREAKABLE:
-		if opened:
+		if opened or is_secret():
 			return ""
 		var names := []
 		for tool in breakable_spec.get("tools", []):
@@ -974,6 +981,8 @@ func activate_with_tool(player: PlayerController3D, item_id: String,
 		if opened:
 			return _fail("Already broken open.")
 		if not Breach.accepts(breakable_spec, item_id):
+			if is_secret():
+				return ""      # a secret: the wrong tool (or bare hands) does nothing at all, no message
 			return _fail("WRONG TOOL // NEEDS %s" % " OR ".join((breakable_spec.get("tools", []) as Array).map(
 				func(tool: String) -> String: return String(PlayerController3D.INVENTORY_LABELS.get(tool, tool)).to_upper())))
 		if not already_consumed and not player.consume_item_durability(item_id, Breach.swing_cost(item_id)):

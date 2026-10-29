@@ -65,8 +65,12 @@ const RAMP_FLOOR_KIND := "concrete1"
 const RAMP_PRESTREAM_CELLS := 6.0
 ## The falls: rough stone on the drop's cliffs, and how far the roar carries.
 const CLIFF_WALL_KIND := "stone1"
-## How far past the lip the sheet hangs.
-const FALLS_SPOUT := .12
+## How far past the lip the water is thrown before it drops (KT: "waterfall doesnt connect to sewage hall"): a sheet hanging
+## straight down under the lip hid behind the lip itself from everywhere on the first sewer, so the spur seemed to run into
+## a wall. The arc carries it out where the hall sees it, and it still lands well inside the cistern's pool.
+const FALLS_THROW := .9
+## How far the arc drops while it travels out, before the sheet falls straight.
+const FALLS_CURL_DROP := .7
 const SEWER_FALLS_SHADER := preload("res://src/look/sewer_falls.gdshader")
 
 const SEWER_WATER_SHADER := preload("res://src/look/sewer_water.gdshader")
@@ -1752,10 +1756,13 @@ func _build_structure_cell(build: Dictionary, index: int) -> void:
 			if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
 					or _sewer_code(build, n.x, n.y) == SewerRouteGenerator.FALL:
 				continue
-			# the shaft is lined in the sewer's own brick, so it reads as part of the network, not a rock box
+			# the shaft is lined in the sewer's own brick, so it reads as part of the network, not a rock box. Only
+			# through the slab, down to the collector's ceiling: below that the cistern chamber is open floor whose own
+			# walls and lintels close the shaft, and a full-storey lining stood in it as brick with no collider (KT:
+			# "waterfalls have these walls that can be walked through")
 			var shaft_kind := _ref_wall_kind(build, n.x, n.y, x, z)
 			surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", shaft_kind),
-				RefTextures.params("wall", shaft_kind), 0.0, -LEVEL_HEIGHT, LEVEL_HEIGHT)
+				RefTextures.params("wall", shaft_kind), 0.0, -(LEVEL_HEIGHT - SewerRouteGenerator.CEILING_HEIGHT), LEVEL_HEIGHT)
 	else:
 		# every level below the maze keeps its wall colliders inside its own storey
 		grid.set_cell_item(Vector3i(x, 0, z), _col_sewer_wall_item \
@@ -2292,16 +2299,13 @@ func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
 	if level == StreamedRouteGenerator.SEWER_LEVEL:
 		var sheet := MeshInstance3D.new()
 		sheet.name = "Waterfall"
-		var quad := QuadMesh.new()
-		quad.size = Vector2(3.0, LEVEL_HEIGHT)
-		sheet.mesh = quad
+		sheet.mesh = _falls_sheet_mesh(bool(falls["north"]))
 		var material := ShaderMaterial.new()
 		material.shader = SEWER_FALLS_SHADER
 		sheet.material_override = material
 		sheet.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		# just past the lip, from the channel's surface down to the pool's
-		sheet.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE - LEVEL_HEIGHT * .5,
-			lip.z + (-FALLS_SPOUT if bool(falls["north"]) else FALLS_SPOUT))
+		# from the channel's surface at the lip, out over the drop and down to the pool's
+		sheet.position = Vector3(lip.x, 0.0, lip.z)
 		root.add_child(sheet)
 		_add_falls_spillway(root, lip, bool(falls["north"]))
 		_add_falls_sound(root, Vector3(lip.x, 0.0, lip.z))
@@ -2330,10 +2334,43 @@ func _spawn_falls(root: Node3D, data: Dictionary, level: int) -> void:
 		puff_material.albedo_color = Color(.78, .84, .8, .16)
 		puff.material = puff_material
 		mist.draw_pass_1 = puff
-		mist.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE + .1, lip.z + (-FALLS_SPOUT - .65 if bool(falls["north"]) else FALLS_SPOUT + .65))
+		mist.position = Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE + .1, lip.z + (-FALLS_THROW - .5 if bool(falls["north"]) else FALLS_THROW + .5))
 		root.add_child(mist)
-		_add_falls_impact(root, Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE, lip.z + (-FALLS_SPOUT - .75 if bool(falls["north"]) else FALLS_SPOUT + .75)))
+		_add_falls_impact(root, Vector3(lip.x, SewerRouteGenerator.WATER_SURFACE, lip.z + (-FALLS_THROW - .3 if bool(falls["north"]) else FALLS_THROW + .3)))
 		_add_falls_sound(root, mist.position)
+
+
+## The falling water, local to the lip's centre: a 3 m wide strip that leaves the channel's surface, arcs FALLS_THROW out
+## over the drop while it sinks FALLS_CURL_DROP, then falls straight to the cistern's water a storey down. UV.y runs top to
+## bottom, so the shader's froth gathers where it lands.
+func _falls_sheet_mesh(north: bool) -> ArrayMesh:
+	var out := -1.0 if north else 1.0
+	var top := SewerRouteGenerator.WATER_SURFACE
+	var bottom := top - LEVEL_HEIGHT
+	var rail := []
+	for i in 7:
+		var k := float(i) / 6.0
+		rail.append(Vector2(FALLS_THROW * sqrt(k), top - FALLS_CURL_DROP * k))       # a ballistic curl: fast out, then down
+	rail.append(Vector2(FALLS_THROW, bottom))
+	var length := 0.0
+	var lengths := [0.0]
+	for i in range(1, rail.size()):
+		length += (rail[i] as Vector2).distance_to(rail[i - 1])
+		lengths.append(length)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(1, rail.size()):
+		var a: Vector2 = rail[i - 1]
+		var b: Vector2 = rail[i]
+		var va := float(lengths[i - 1]) / length
+		var vb := float(lengths[i]) / length
+		var quad := [[Vector3(-1.5, a.y, a.x * out), Vector2(0, va)], [Vector3(1.5, a.y, a.x * out), Vector2(1, va)],
+			[Vector3(1.5, b.y, b.x * out), Vector2(1, vb)], [Vector3(-1.5, b.y, b.x * out), Vector2(0, vb)]]
+		for index in [0, 1, 2, 0, 2, 3]:
+			st.set_uv(quad[index][1])
+			st.add_vertex(quad[index][0])
+	st.generate_normals()
+	return st.commit()
 
 
 ## The top of a fall (level -1): the spur channel's water runs on over the lip with a crest of foam, and a cool light on
@@ -2496,6 +2533,10 @@ func _add_channel_trench(build: Dictionary, cell: Vector2i) -> void:
 		var step: Vector2i = step_value
 		var n := cell + step
 		if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size or _is_channel(_sewer_code(build, n.x, n.y)):
+			continue
+		# the falls' lip: the water pours straight over it (the drop's own lining faces the cistern). A face here stood
+		# above the water across the spur's end and hid the whole fall from the first sewer (KT: "doesnt connect").
+		if _sewer_code(build, n.x, n.y) == SewerRouteGenerator.FALL:
 			continue
 		var kind := RefLook.wall_kind("sewer", "", coord.x * size + n.x, coord.z * size + n.y)
 		surface.add_wall(n.x, n.y, -step, RefTextures.layer("wall", kind),

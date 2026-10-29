@@ -35,6 +35,12 @@ quadrant no ramp uses:
 * The water pours over the lip as a waterfall sheet (`sewer_falls.gdshader`) into an 11 x 12 cistern on -2. The
   cistern has a deep pool under the drop, mist where the falls land, and a walkway ring joined to the collector's
   tunnel. The cistern is open overhead to the drop.
+* The spur's trench has no end face at the lip, so the water runs straight over it. The sheet curls about 0.9 m out
+  over the drop before it falls (`FALLS_THROW`), so it shows from the hall, the spur deck and the overlook. A sheet
+  hanging flush under the lip was hidden by the lip from everywhere on -1. `falls_jump` checks that the spur meets the
+  hall's channel, that spur water reaches the lip, that pool water lies under the sheet, and that the sheet's foot meets
+  the cistern's water within 0.15 m with the foam and mist on the pool. `tools/sewers/capture_falls.tscn` captures
+  each site from -1 and -2.
 * A looping positional roar (`Sound` cue `waterfall`) carries about 28 m on both levels. Within about 7-13 m of a lip
   it masks a runner's noise for the hunters (`InfiniteRouteTest._falls_noise_mask`).
 * In a falls chunk the other sewer level stays loaded, so you can see across the drop.
