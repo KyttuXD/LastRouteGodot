@@ -12,3 +12,6 @@ To try it, copy `ember/` to `user://mods/ember/` (on macOS
 `~/Library/Application Support/Godot/app_userdata/<project>/mods/ember/`), enable it under Settings -> MODS, and start
 a private room. Packs hold data and png/ogg/glb assets only; this folder has a `.gdignore` so Godot never imports it
 as game content.
+
+More examples (`neon_arcade`, `rainy_night`, `frostbite_aki`, `library_rooms`, `gentle_grabs`, `death_lines_plus`) and the
+refused `_tests/` packs are described in `docs/modding/examples/`.

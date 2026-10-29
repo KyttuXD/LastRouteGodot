@@ -1,0 +1,69 @@
+{
+	"schema": "lr.room/1",
+	"id": "neon_arcade_hall",
+	"items": [
+		{
+			"type": "checkoutCounter",
+			"side": -4,
+			"depth": "front-1",
+			"facing": "open"
+		},
+		{
+			"type": "displayCase",
+			"side": 4,
+			"depth": "front-1",
+			"facing": "open",
+			"when": {
+				"min_side": 9
+			}
+		},
+		{
+			"type": "vendingMachine",
+			"side": "half-2",
+			"depth": "front-1",
+			"facing": "open",
+			"when": {
+				"min_side": 9
+			}
+		},
+		{
+			"type": [
+				"arcadeCabinet",
+				"arcadeCabinetCyanMagenta"
+			],
+			"side": [
+				"-half+1",
+				"half",
+				2
+			],
+			"depth": "back",
+			"wall_backed": true,
+			"facing": "open"
+		},
+		{
+			"type": [
+				"arcadeCabinetCyanMagenta",
+				"arcadeCabinet"
+			],
+			"side": [
+				"-half+2",
+				"half-1",
+				2
+			],
+			"depth": "mid",
+			"facing": "back",
+			"when": {
+				"min_depth": 9
+			}
+		},
+		{
+			"type": "arcadeCarpetCircle",
+			"side": 0,
+			"depth": "mid",
+			"solid": false,
+			"when": {
+				"min_side": 11
+			}
+		}
+	]
+}

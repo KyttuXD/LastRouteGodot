@@ -1,0 +1,60 @@
+{
+	"schema": "lr.room/1",
+	"id": "library_rooms_reading",
+	"items": [
+		{
+			"type": "readingTable",
+			"side": -3,
+			"depth": "mid",
+			"facing": "center"
+		},
+		{
+			"type": "readingTable",
+			"side": 3,
+			"depth": "mid",
+			"facing": "center",
+			"when": {
+				"min_side": 11
+			}
+		},
+		{
+			"type": [
+				"normalBookcase",
+				"mansionBookshelf"
+			],
+			"side": [
+				"-half+1",
+				"half",
+				2
+			],
+			"depth": "back",
+			"wall_backed": true,
+			"facing": "open"
+		},
+		{
+			"type": "floorLamp",
+			"side": "-half+1",
+			"depth": "front-2",
+			"wall_backed": true,
+			"solid": false
+		},
+		{
+			"type": "libraryGlobe",
+			"side": "half-1",
+			"depth": "front-2",
+			"facing": "center",
+			"when": {
+				"min_side": 9
+			}
+		},
+		{
+			"type": "@rug",
+			"side": 0,
+			"depth": "mid",
+			"solid": false,
+			"when": {
+				"min_side": 9
+			}
+		}
+	]
+}

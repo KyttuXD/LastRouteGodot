@@ -1,0 +1,12 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "test_bad_schema_h",
+	"name": "Tester",
+	"tier": "easy",
+	"speed": "fast",
+	"chase": 3.5,
+	"prog": 0.18,
+	"sight": 8.0,
+	"hearing": 1.0,
+	"spawn": 12
+}

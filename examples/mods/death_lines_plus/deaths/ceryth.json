@@ -1,0 +1,9 @@
+{
+	"schema": "lr.deaths/1",
+	"id": "ceryth",
+	"mode": "add",
+	"lines": [
+		"Entry logged. Exit logged. They're the same line.",
+		"Your story had holes, so I filled one."
+	]
+}

@@ -1,0 +1,11 @@
+{
+	"schema": "lr.pack/1",
+	"id": "test_oversized_texture",
+	"name": "Test Oversized Texture",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (test)",
+	"description": "Test pack: must be refused.",
+	"overrides": [
+		"floors/stone0"
+	]
+}

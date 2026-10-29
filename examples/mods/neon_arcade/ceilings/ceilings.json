@@ -1,0 +1,9 @@
+{
+	"schema": "lr.surface/1",
+	"surfaces": [
+		{
+			"id": "ceil1",
+			"image": "assets/arcade_ceiling.png"
+		}
+	]
+}

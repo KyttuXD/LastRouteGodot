@@ -1,0 +1,9 @@
+{
+	"schema": "lr.deaths/1",
+	"id": "dovelle",
+	"mode": "add",
+	"lines": [
+		"Cut again? I'll deal slowly this time.",
+		"Fair play, you nearly drew the winning card."
+	]
+}

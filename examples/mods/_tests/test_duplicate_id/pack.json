@@ -1,0 +1,8 @@
+{
+	"schema": "lr.pack/1",
+	"id": "test_duplicate_id",
+	"name": "Test Duplicate Id",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (test)",
+	"description": "Test pack: must be refused."
+}

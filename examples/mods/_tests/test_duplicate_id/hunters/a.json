@@ -1,0 +1,12 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "test_duplicate_id_h",
+	"name": "Tester",
+	"tier": "easy",
+	"speed": 0.8,
+	"chase": 3.5,
+	"prog": 0.18,
+	"sight": 8.0,
+	"hearing": 1.0,
+	"spawn": 12
+}

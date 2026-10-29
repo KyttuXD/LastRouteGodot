@@ -39,6 +39,7 @@ as `[mods] enabled=["mypack"]` in `settings.cfg`, next to the `mods` folder.)
 - [Pack format](pack-format.md): folder layout, `pack.json`, ids, overrides, the pack hash
 - [Content types](content-types.md): every field of props, hunters and regions
 - [Walkthrough: the Ember pack](ember-walkthrough.md)
+- [Example packs](examples/README.md): six more complete packs, and the packs that must be refused
 - [Validate and pack](tools.md): the starter kit
 - [Publishing](publishing.md): how packs reach other players
 - [Rules and limits](rules.md)

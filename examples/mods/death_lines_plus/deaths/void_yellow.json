@@ -1,0 +1,8 @@
+{
+	"schema": "lr.deaths/1",
+	"id": "void_yellow",
+	"mode": "add",
+	"lines": [
+		"Every time you checked the map, it checked you."
+	]
+}

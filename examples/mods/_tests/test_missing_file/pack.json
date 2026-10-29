@@ -1,0 +1,8 @@
+{
+	"schema": "lr.pack/1",
+	"id": "test_missing_file",
+	"name": "Test Missing File",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (test)",
+	"description": "Test pack: must be refused."
+}
