@@ -68,7 +68,7 @@ func run(_host: Node) -> int:
 		for cz in range(window["from"].y, window["to"].y + 1):
 			for cx in range(window["from"].x, window["to"].x + 1):
 				var coord := Vector3i(cx, 0, cz)
-				if not generator.is_chunk_allowed(coord):
+				if not generator.is_chunk_allowed(coord) or generator.is_void_column(coord):
 					continue
 				checked += 1
 				var data: Dictionary = generator.chunk(coord)

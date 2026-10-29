@@ -95,7 +95,10 @@ const ROOMS := {
 	# research lab (Kyttu's Lab)
 	"clean_room": ["epoxy0"], "containment": ["epoxy1", "hazard"], "server_hall": ["grate", "epoxy0"],
 	"control_room": ["carpet_tile1", "epoxy0"], "decon": ["grate", "epoxy1"], "chem_lab": ["epoxy0", "epoxy1"],
-	"bio_lab": ["epoxy0"], "pod_room": ["epoxy0"], "cold_storage": ["metal1", "epoxy0"], "lab_office": ["carpet_tile0", "carpet_tile1"],
+	"bio_lab": ["epoxy0"], "pod_room": ["epoxy0"],
+	# the music wing (docs/MUSIC_WING.md): a wooden stage and store, padded practice rooms, a carpeted booth
+	"music_stage": ["parquet0", "parquet1"], "practice_room": ["carpet_tile0", "carpet_tile1"], "instrument_storage": ["concrete1"],
+	"recording_booth": ["carpet_tile1"], "music_store": ["parquet1", "parquet0"], "carnival_stage": ["parquet0", "parquet1"], "cold_storage": ["metal1", "epoxy0"], "lab_office": ["carpet_tile0", "carpet_tile1"],
 	# greenhouse
 	"glasshouse": ["terracotta0", "terracotta1"], "palm_house": ["terracotta1", "stone2"], "cactus_room": ["stone2"],
 	"potting_shed": ["parquet1", "terracotta1"], "irrigation_room": ["grate", "terracotta0"],

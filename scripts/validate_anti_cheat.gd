@@ -55,8 +55,11 @@ func run(host: Node) -> int:
 	guard.check(9, _state(Vector3.ZERO, {"lamp_charge": 20.0, "inventory_order": ["flashlight", "battery"]}), 0.0)
 	_expect(guard.check(9, _state(Vector3.ZERO, {"lamp_charge": 100.0, "inventory_order": ["flashlight", ""]}),
 		.05).is_empty(), "using a battery was flagged")
-	_expect(_run(guard, 10, Vector3.ZERO, Vector3(sprint, 0, 0), 20, 0.0, {"spectating": true}).is_empty() \
-		and guard.check(10, _state(Vector3(300, 0, 0), {"spectating": true}), 2.0).is_empty(), "a spectator was flagged")
+	# a ghost (spectating) walks like a runner (KT: no noclip spectators): its sprint passes, a teleport does not
+	_expect(_run(guard, 10, Vector3.ZERO, Vector3(sprint, 0, 0), 20, 0.0, {"spectating": true, "game_over": true}).is_empty(),
+		"a ghost's sprint was flagged")
+	_expect(not guard.check(10, _state(Vector3(300, 0, 0), {"spectating": true, "game_over": true}), 2.0).is_empty(),
+		"a ghost teleported 300 m unflagged")
 
 	# Cheats.
 	var cheats := {

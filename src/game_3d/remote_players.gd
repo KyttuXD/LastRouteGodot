@@ -528,7 +528,7 @@ func _local_state() -> Dictionary:
 		"capture_immune": GameState.is_capture_immune(),
 		"game_over": GameState.game_over or controller.spectator_mode,
 		"spectating": controller.spectator_mode,
-		"visible": not controller.hidden and not controller.spectator_mode,
+		"visible": not controller.hidden,   # a ghost (spectating) is drawn as one: _apply_ghost
 		# Read-only meter values let host-side targeting rules use the same inputs.
 		# The host diffs any hunter mutation against these values and returns the
 		# delta through a targeted reliable player event.
@@ -710,17 +710,38 @@ func receive_state(id: int, state: Dictionary) -> void:
 				clip = "crouch"
 	elif body.has_meta("hide_started_usec"):
 		body.remove_meta("hide_started_usec")
-	body.visible = shown
+	var ghost := bool(state.get("spectating", false))
+	body.visible = shown and _ghost_shown(ghost)
 	_sync_remote_equipment(id, body, state)
 	_sync_sleep_tag(body, bool(state.get("asleep", false)))
 	body.set_meta("movement_clip", clip)
-	body.set_meta("fade_target", 0.55 if clip == "crouch" else 0.0)
+	body.set_meta("fade_target", _ghost_fade() if ghost else (0.55 if clip == "crouch" else 0.0))
+	if ghost != bool(body.get_meta("ghost", false)):
+		body.set_meta("ghost", ghost)
+		PlayerController3D._ghost_overlay(body, PlayerController3D.GHOST_OVERLAY if ghost else null)
 	if not _grab_packet(state).is_empty() and not body.has_meta("grab_shown"):
 		_blend_clips(body, true)   # caught: their arms swing from the run into the grab clip, not in one frame
 	ModelSlot.play_if_available(_players.get(id), "idle" if clip == "crouch" else clip)
 
 
 ## A sleeping teammate shows "z Z" over their head (docs/REST_AND_SLEEP.md).
+
+## A caught teammate's ghost (docs/SPECTATORS.md): another ghost always sees it; a living runner sees it faintly, unless
+## Settings.show_ghosts is off.
+func _ghost_shown(ghost: bool) -> bool:
+	if not ghost:
+		return true
+	return _local_is_ghost() or Settings.show_ghosts
+
+
+func _ghost_fade() -> float:
+	return PlayerController3D.GHOST_FADE if _local_is_ghost() else .8
+
+
+func _local_is_ghost() -> bool:
+	var own := local_player as PlayerController3D
+	return own != null and own.spectator_mode
+
 
 ## The guest's copy of runner `id`: the mannequin at PlayerModels.SCALE (the same size as the runner's own body), skinned and tagged.
 func _make_body(id: int, state: Dictionary, at: Vector3) -> Node3D:
@@ -892,13 +913,16 @@ static func _grab_lift(state: Dictionary) -> float:
 
 
 const NAME_TAG_HEIGHT := 1.92
-## One colour per teammate, stable for a peer id, shared by the 3D nametag and the minimap / full-map markers.
-const PEER_COLOURS := [Color("4fd1ff"), Color("ff8a3d"), Color("7ee26b"), Color("ff5fb4"), Color("ffd84a"), Color("a98bff"),
-	Color("3fe0c0"), Color("ff6b6b")]
-
-
+## One colour per player, from PlayerColors by the peer's rank in the room (the same on every client), shared by the 3D nametag, the maps,
+## the HUD waypoints, the player list and the chat.
 static func peer_colour(peer_id: int) -> Color:
-	return PEER_COLOURS[posmod(peer_id * 7 + 3, PEER_COLOURS.size())]
+	return PlayerColors.for_peer(peer_id, RoomState.peers.keys() if RoomState.online else [])
+
+
+## This player's own colour (their arrow on the map).
+static func local_colour() -> Color:
+	var id := RoomState.multiplayer.get_unique_id() if RoomState.online else 1
+	return peer_colour(id)
 
 
 func _add_name_tag(body: Node3D, display_name: String) -> void:
@@ -1518,7 +1542,7 @@ func _canonical_world_event(event: Dictionary) -> Dictionary:
 const GUEST_INTERACTIONS := ["music_box", "ceryth_answer", "guardian_ping", "vent_used", "zellia_trade", "admin_auth",
 	"admin_custom_map", "admin_world", "stream_pickup", "stream_safe_repair", "stream_checkpoint", "stream_drop",
 	"stream_sabotage", "stream_waypoint", "stream_axe_rescue", "ravelle_disarm", "stream_room_light", "stream_booth",
-	"stream_carousel", "stream_breach_request", "stream_door", "signal_route_result", "stream_revive"]
+	"stream_carousel", "stream_valve", "stream_breach_request", "stream_door", "signal_route_result", "stream_revive"]
 
 
 ## Guest-owned input which needs host-owned hunter state. The request names an

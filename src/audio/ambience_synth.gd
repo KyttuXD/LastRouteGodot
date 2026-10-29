@@ -10,6 +10,13 @@ extends RefCounted
 ##   "pulse"  sparse one-shot details at jittered intervals: short ones become resonant ticks (drips, clanks, relays),
 ##            long ones soft swelled notes (the carnival and mall chimes), never bare beeps
 ##   "chirp"  scattered soft triangle trills (birds, rats), quiet and randomly placed
+## Level beds (LevelAmbience) add:
+##   "wind"    band-passed noise in slow gusts; a high `q` makes it hollow (the void shaft)
+##   "thump"   distant low thuds at jittered intervals, sometimes a double (something heavy, far off)
+##   "creak"   metal creaks: a stick-slip pulse train ringing two resonances, gliding in pitch (catwalks, cages)
+##   "groan"   pipe groans: a slow gliding buzz under a low-pass, swelling in and out
+##   "water"   running water: a dense spray of tiny rising bubbles over a band of noise
+##   "crackle" ember cracks: sparse clicks and small bursts of them
 ## Then a small room reverb sized per space, a DC-blocking high-pass, a crossfade of the tail into the head (seamless
 ## loop) and loudness normalisation to TARGET_RMS_DB so every district sits at the same level under the footsteps.
 
@@ -22,7 +29,7 @@ const MAX_TONE_HZ := 1600.0
 const DC_CUTOFF_HZ := 30.0
 ## Reverb by space: [wet, feedback]. Unlisted keys are "medium".
 const SPACES := {
-	"small": [0.10, 0.55], "medium": [0.18, 0.68], "large": [0.30, 0.80],
+	"small": [0.10, 0.55], "medium": [0.18, 0.68], "large": [0.30, 0.80], "huge": [0.40, 0.86],
 }
 const SPACE_OF := {
 	"apartment": "small", "hotel": "small", "prison": "medium", "hospital": "small", "lab": "small",
@@ -30,6 +37,8 @@ const SPACE_OF := {
 	"greenhouse": "medium", "sewer": "large", "mall": "large", "inferno": "large",
 	"room:archive": "medium", "room:chapel": "large", "room:kitchen": "small", "room:big_top": "large",
 	"room:office_reception": "small", "room:cubicle_room": "small",
+	"level:maze": "small", "level:mezzanine": "medium", "level:sewer": "large", "level:inferno": "medium",
+	"level:void": "huge",
 }
 
 
@@ -52,6 +61,18 @@ static func render(key: String, layers: Array) -> AudioStreamWAV:
 				_details(left, right, layer, rng)
 			"chirp":
 				_chirps(left, right, layer, rng)
+			"wind":
+				_wind(left, right, layer, rng)
+			"thump":
+				_thumps(left, right, layer, rng)
+			"creak":
+				_creaks(left, right, layer, rng)
+			"groan":
+				_groans(left, right, layer, rng)
+			"water":
+				_water(left, right, layer, rng)
+			"crackle":
+				_crackle(left, right, layer, rng)
 	var space: Array = SPACES[String(SPACE_OF.get(key, "medium"))]
 	_reverb(left, float(space[0]), float(space[1]), 0)
 	_reverb(right, float(space[0]), float(space[1]), 7)
@@ -146,6 +167,217 @@ static func _chirps(left: PackedFloat32Array, right: PackedFloat32Array, layer: 
 		var pan := rng.randf_range(-.8, .8)
 		for k in rng.randi_range(2, 4):
 			_soft_note(left, right, at + k * .09, hz * rng.randf_range(.92, 1.12), .07, vol, pan)
+
+
+## Gusting wind: decorrelated noise through a state-variable band-pass at `hz` (Q `q`), its level and centre riding a
+## smooth random gust curve with a new target about every `gust` seconds.
+static func _wind(left: PackedFloat32Array, right: PackedFloat32Array, layer: Dictionary, rng: RandomNumberGenerator) -> void:
+	var hz := clampf(float(layer.get("hz", 400.0)), 60.0, MAX_TONE_HZ)
+	var vol := float(layer.get("vol", .01)) * 5.0
+	var q := clampf(float(layer.get("q", 1.2)), .5, 8.0)
+	var gust := maxf(1.0, float(layer.get("gust", 6.0)))
+	var curve := _smooth_curve(left.size(), gust * .5, rng)
+	var damp := 1.0 / q
+	var states := [[0.0, 0.0], [0.0, 0.0]]
+	for i in left.size():
+		var g := curve[i]
+		var f := 2.0 * sin(PI * hz * (.8 + .4 * g) / RATE)
+		var env := (.35 + .65 * g) * vol
+		for channel in 2:
+			var st: Array = states[channel]
+			var low: float = st[0] + f * st[1]
+			var high: float = rng.randf_range(-1.0, 1.0) - low - damp * float(st[1])
+			var band: float = st[1] + f * high
+			st[0] = low
+			st[1] = band
+			if channel == 0:
+				left[i] += band * env
+			else:
+				right[i] += band * env
+
+
+## A smooth random 0..1 curve over `frames` samples: cosine-eased between random points `step` seconds apart.
+static func _smooth_curve(frames: int, step: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var curve := PackedFloat32Array()
+	curve.resize(frames)
+	var span := maxi(1, int(step * RATE))
+	var a := rng.randf()
+	var b := rng.randf()
+	for i in frames:
+		var k := i % span
+		if k == 0 and i > 0:
+			a = b
+			b = rng.randf()
+		var p := float(k) / span
+		curve[i] = lerpf(a, b, .5 - .5 * cos(PI * p))
+	return curve
+
+
+## Distant thuds: a sine falling from 1.6x to `hz` with a fast decay plus a muffled noise knock, low-passed, sometimes
+## followed by a softer second one.
+static func _thumps(left: PackedFloat32Array, right: PackedFloat32Array, layer: Dictionary, rng: RandomNumberGenerator) -> void:
+	var hz := clampf(float(layer.get("hz", 50.0)), 25.0, 200.0)
+	var vol := float(layer.get("vol", .02))
+	var every := maxf(.8, float(layer.get("every", 4.0)))
+	var t := rng.randf_range(.2, every)
+	var end := float(left.size()) / RATE - .8
+	while t < end:
+		var pan := rng.randf_range(-.7, .7)
+		var gain := vol * rng.randf_range(.5, 1.0)
+		_thud(left, right, t, hz * rng.randf_range(.85, 1.15), gain, pan, rng)
+		if rng.randf() < .3:
+			_thud(left, right, t + rng.randf_range(.18, .4), hz * rng.randf_range(.9, 1.1), gain * .55, pan, rng)
+		t += every * rng.randf_range(.5, 1.6)
+
+
+static func _thud(left: PackedFloat32Array, right: PackedFloat32Array, at: float, hz: float, gain: float, pan: float,
+		rng: RandomNumberGenerator) -> void:
+	var start := int(at * RATE)
+	var count := int(.6 * RATE)
+	var lg := cos((pan + 1.0) * PI * .25)
+	var rg := sin((pan + 1.0) * PI * .25)
+	var a := 1.0 - exp(-TAU * 180.0 / RATE)
+	var lp := 0.0
+	var phase := 0.0
+	for k in count:
+		var i := start + k
+		if i >= left.size():
+			break
+		var tt := float(k) / RATE
+		var f := hz * (1.0 + .6 * exp(-tt * 18.0))
+		phase += f / RATE
+		var body := sin(TAU * phase) * exp(-tt * 7.0)
+		var knock := rng.randf_range(-1.0, 1.0) * exp(-tt * 40.0) * .6
+		lp += (body + knock - lp) * a
+		left[i] += lp * gain * lg
+		right[i] += lp * gain * rg
+
+
+## Metal creaks: a stick-slip pulse train (rate 25-70 Hz, jittered) ringing resonances at `hz` and 2.31x, its pitch
+## gliding, under a slow swell.
+static func _creaks(left: PackedFloat32Array, right: PackedFloat32Array, layer: Dictionary, rng: RandomNumberGenerator) -> void:
+	var hz := clampf(float(layer.get("hz", 420.0)), 120.0, MAX_TONE_HZ)
+	var vol := float(layer.get("vol", .008))
+	var every := maxf(1.0, float(layer.get("every", 3.5)))
+	var t := rng.randf_range(.3, every)
+	var end := float(left.size()) / RATE - 1.6
+	while t < end:
+		var length := rng.randf_range(.45, 1.3)
+		var pan := rng.randf_range(-.8, .8)
+		var lg := cos((pan + 1.0) * PI * .25)
+		var rg := sin((pan + 1.0) * PI * .25)
+		var gain := vol * rng.randf_range(.5, 1.0) * 3.0
+		var glide := rng.randf_range(-.18, .18)
+		var rate := rng.randf_range(25.0, 70.0)
+		var start := int(t * RATE)
+		var count := int(length * RATE)
+		var res := [[0.0, 0.0], [0.0, 0.0]]
+		var next_pulse := 0.0
+		for k in count:
+			var i := start + k
+			if i >= left.size():
+				break
+			var p := float(k) / count
+			var x := 0.0
+			if float(k) >= next_pulse:
+				x = rng.randf_range(.5, 1.0)
+				next_pulse = float(k) + RATE / (rate * (1.0 + .5 * sin(PI * p)) * rng.randf_range(.8, 1.2))
+			var y := 0.0
+			for m in 2:
+				var f0 := hz * (2.31 if m == 1 else 1.0) * (1.0 + glide * p)
+				var r := .992
+				var c := 2.0 * r * cos(TAU * f0 / RATE)
+				var st: Array = res[m]
+				var v: float = x * (1.0 - r) * 10.0 + c * float(st[0]) - r * r * float(st[1])
+				st[1] = st[0]
+				st[0] = v
+				y += v * (.6 if m == 1 else 1.0)
+			var env := sin(PI * p)
+			left[i] += y * gain * env * lg
+			right[i] += y * gain * env * rg
+		t += every * rng.randf_range(.6, 1.6)
+
+
+## Pipe groans: a sawtooth gliding around `hz` with a slow vibrato, low-passed at a few times its pitch, swelling in and out.
+static func _groans(left: PackedFloat32Array, right: PackedFloat32Array, layer: Dictionary, rng: RandomNumberGenerator) -> void:
+	var hz := clampf(float(layer.get("hz", 90.0)), 40.0, 400.0)
+	var vol := float(layer.get("vol", .008))
+	var every := maxf(2.0, float(layer.get("every", 6.0)))
+	var t := rng.randf_range(.5, every)
+	var end := float(left.size()) / RATE - 2.8
+	while t < end:
+		var length := rng.randf_range(1.1, 2.5)
+		var pan := rng.randf_range(-.6, .6)
+		var lg := cos((pan + 1.0) * PI * .25)
+		var rg := sin((pan + 1.0) * PI * .25)
+		var gain := vol * rng.randf_range(.6, 1.0)
+		var f_start := hz * rng.randf_range(.85, 1.15)
+		var f_end := f_start * rng.randf_range(.8, 1.25)
+		var a := 1.0 - exp(-TAU * minf(hz * 4.0, 900.0) / RATE)
+		var lp1 := 0.0
+		var lp2 := 0.0
+		var phase := 0.0
+		var start := int(t * RATE)
+		var count := int(length * RATE)
+		for k in count:
+			var i := start + k
+			if i >= left.size():
+				break
+			var p := float(k) / count
+			var f := lerpf(f_start, f_end, p) * (1.0 + .012 * sin(TAU * 5.5 * k / RATE))
+			phase = fmod(phase + f / RATE, 1.0)
+			lp1 += (phase * 2.0 - 1.0 - lp1) * a
+			lp2 += (lp1 - lp2) * a
+			var env := pow(sin(PI * p), 1.5)
+			left[i] += lp2 * gain * env * lg
+			right[i] += lp2 * gain * env * rg
+		t += every * rng.randf_range(.6, 1.5)
+
+
+## Running water: `density` tiny bubbles a second (a sine whose pitch rises as it decays, 300 Hz..`hz`) over a band of
+## noise. Writes `left`/`right` only (shared with EmitterLoops).
+static func _water(left: PackedFloat32Array, right: PackedFloat32Array, layer: Dictionary, rng: RandomNumberGenerator) -> void:
+	var hz := clampf(float(layer.get("hz", 1400.0)), 300.0, 3000.0)
+	var vol := float(layer.get("vol", .01))
+	var density := clampf(float(layer.get("density", 40.0)), 2.0, 200.0)
+	var low := float(layer.get("low", 300.0))
+	_room_tone(left, right, {"hz": minf(hz * .5, MAX_TONE_HZ), "vol": vol * .35, "swell": float(layer.get("swell", 0.0))}, rng)
+	var seconds := float(left.size()) / RATE
+	for _n in int(seconds * density):
+		var at := rng.randf_range(0.0, seconds - .06)
+		var f0 := exp(rng.randf_range(log(low), log(hz)))
+		var decay := rng.randf_range(.012, .04) * (600.0 / f0)
+		var gain := vol * rng.randf_range(.2, 1.0) * 2.0
+		var pan := rng.randf_range(-.7, .7)
+		var lg := cos((pan + 1.0) * PI * .25)
+		var rg := sin((pan + 1.0) * PI * .25)
+		var start := int(at * RATE)
+		var count := mini(int(decay * 5.0 * RATE), int(.08 * RATE))
+		var phase := 0.0
+		for k in count:
+			var i := start + k
+			if i >= left.size():
+				break
+			var tt := float(k) / RATE
+			phase += f0 * (1.0 + tt / decay * .25) / RATE
+			var v := sin(TAU * phase) * exp(-tt / decay) * gain
+			left[i] += v * lg
+			right[i] += v * rg
+
+
+## Ember cracks: `rate` events a second, each a 1-3 ms click ringing at `hz`, now and then a small burst of them.
+static func _crackle(left: PackedFloat32Array, right: PackedFloat32Array, layer: Dictionary, rng: RandomNumberGenerator) -> void:
+	var hz := clampf(float(layer.get("hz", 2200.0)), 400.0, 3200.0)
+	var vol := float(layer.get("vol", .006))
+	var rate := clampf(float(layer.get("rate", 3.0)), .2, 40.0)
+	var seconds := float(left.size()) / RATE
+	for _n in int(seconds * rate):
+		var at := rng.randf_range(0.0, seconds - .3)
+		var pan := rng.randf_range(-.8, .8)
+		var clicks := 1 if rng.randf() < .7 else rng.randi_range(3, 6)
+		for c in clicks:
+			_tick(left, right, at + c * rng.randf_range(.008, .03), hz * rng.randf_range(.7, 1.3), .02,
+				vol * pow(rng.randf(), 2.0) * 3.0, pan, rng)
 
 
 static func _tick(left: PackedFloat32Array, right: PackedFloat32Array, at: float, hz: float, length: float, gain: float,

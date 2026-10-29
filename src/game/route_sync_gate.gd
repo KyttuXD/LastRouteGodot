@@ -10,6 +10,9 @@ const STEPS: Array[String] = ["ROUTE SIGNAL", "HOST WORLD STATE", "NEARBY FACILI
 const TIMEOUT_SECONDS := 30.0
 ## The spawn step waits for the runner to stand on built floor, or this long once everything else is ready.
 const SETTLE_SECONDS := 1.0
+## A host on an older build never tags its state with PlayerStateWire's version and may never send what the gate
+## waits for: past this long without that tag, the guest enters the old way (KTMXN, 2026-10-28, hung forever).
+const OLD_HOST_SECONDS := 8.0
 
 var elapsed := 0.0
 var settle := 0.0
@@ -28,6 +31,11 @@ func first_unmet(checks: Array, on_floor: bool, delta: float) -> int:
 
 func tick(delta: float) -> void:
 	elapsed += delta
+
+
+## True once the gate should stop waiting for a host that does not speak the sync protocol.
+func old_host(host_speaks_sync: bool) -> bool:
+	return not host_speaks_sync and elapsed >= OLD_HOST_SECONDS
 
 
 func timed_out() -> bool:
