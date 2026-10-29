@@ -450,6 +450,7 @@ func _process(delta: float) -> void:
 		_refresh_hunter_stream()
 	if not _remotes.simulates():
 		_pump_guest_hunters()
+		_present_guest_hunters()
 	if _remotes.simulates():
 		_hunter_simulation_accumulator = minf(
 			_hunter_simulation_accumulator + delta,
@@ -5156,6 +5157,7 @@ func _sync_stream_progress() -> void:
 
 func _collect_hunter_report() -> void:
 	_hunter_report.clear()
+	var sent_ms := Time.get_ticks_msec()   # the host's clock: guests interpolate hunters on it (RemoteMotion)
 	var ids := _hunter_views.keys()
 	ids.sort()
 	for entity_id_value in ids:
@@ -5165,6 +5167,7 @@ func _collect_hunter_report() -> void:
 			continue
 		var state := world_state.hunter_state(entity_id)
 		state["entity_id"] = entity_id
+		state["sent_ms"] = sent_ms
 		state["target_peer_id"] = view.target_peer_id
 		state["look_target"] = view.look_target_position if view.has_look_target else null
 		state["on_stairs"] = false
@@ -5218,6 +5221,31 @@ func _apply_hunter_report(data: Array) -> void:
 			_guest_hunter_queue.erase(entity_id_value)
 
 
+var _guest_hunter_motion := {}
+
+
+## Puts a guest's hunter where its interpolation buffer says it is now (position and facing).
+func _present_guest_hunter(view: HunterView3D, motion: RemoteMotion, now_ms: float) -> void:
+	var pose := motion.sample(now_ms)
+	if pose.is_empty():
+		return
+	var at: Vector3 = pose["at"]
+	view.brain.position = Vector2(at.x, at.z)
+	view.brain.facing = Vector2.from_angle(float(pose["facing"]))
+
+
+## Every frame on a guest: each hunter view follows its buffer between reports.
+func _present_guest_hunters() -> void:
+	var now_ms := float(Time.get_ticks_msec())
+	for entity_id_value in _guest_hunter_motion.keys():
+		var view := _hunter_views.get(entity_id_value) as HunterView3D
+		if view == null or not is_instance_valid(view) or view.brain == null:
+			_guest_hunter_motion.erase(entity_id_value)
+			continue
+		_present_guest_hunter(view, _guest_hunter_motion[entity_id_value], now_ms)
+		view.sync_from_brain()
+
+
 ## Guest hunter views: built within GUEST_HUNTER_RADIUS chunks and one storey of this runner, dropped past
 ## GUEST_HUNTER_DROP_RADIUS or two storeys (hysteresis, so a hunter on the edge is not rebuilt every packet).
 const GUEST_HUNTER_RADIUS := 2
@@ -5258,6 +5286,19 @@ func _apply_guest_hunter_state(entity_id: String, state: Dictionary) -> void:
 	if view == null or view.brain == null:
 		return
 	world_state.restore_hunter(view.brain, state)
+	# Interpolated like the runners (RemoteMotion): the body is drawn 100 ms behind the newest report, between the two
+	# reports that bracket that moment. Setting the brain to each 20 Hz report made a hunter jump to it within one physics
+	# frame and stand still until the next, so every late or bunched packet showed as a stall and a lurch.
+	var motion := _guest_hunter_motion.get(entity_id) as RemoteMotion
+	if motion == null:
+		motion = RemoteMotion.new()
+		_guest_hunter_motion[entity_id] = motion
+	var now_ms := float(Time.get_ticks_msec())
+	var sent_ms = state.get("sent_ms")   # an older host sends none: the arrival time stands in
+	var reported: Vector2 = view.brain.position
+	motion.push(float(sent_ms) if sent_ms is int or sent_ms is float else now_ms, now_ms,
+		Vector3(reported.x, 0.0, reported.y), view.brain.facing.angle())
+	_present_guest_hunter(view, motion, now_ms)
 	var level := int(state.get("level", 0))
 	_hunter_levels[entity_id] = level
 	view.surface_height_provider = facility.streamed_surface_height.bind(level)
