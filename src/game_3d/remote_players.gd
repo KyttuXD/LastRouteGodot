@@ -526,6 +526,8 @@ func _local_state() -> Dictionary:
 		"skin_copy": Settings.skin_copyable,
 		"skin_slim": Settings.effective_slim(),
 		"in_vent": controller.in_vent,
+		# crawling a physical duct (VentCrawl): GuestGuard holds it to crawl speed, Verrine hunts it in the ducts
+		"duct": controller.vent_crawl != null and controller.vent_crawl.inside(),
 		"grab": controller.grab_state,
 		"vent_time_in": controller.vent_time_in,
 		"pesticide_active": controller.pesticide_timer > 0.0,

@@ -20,6 +20,7 @@ Branch `ref-look` (Godot 4.7, Compatibility renderer). Everything below is curre
 | [Z_FIGHTING.md](Z_FIGHTING.md) | Coplanar-face detector, camera depth range, findings |
 | [SPECTATORS.md](SPECTATORS.md) | Dead/caught runners spectate; party wipe; revive |
 | [REVIVE.md](REVIVE.md) | Revive Kit (co-op revive, solo second wind), Stim Pack, stackable items |
+| [VENTS.md](VENTS.md) | Physical vents: crawling the ducts, hunter duct routes, Verrine in the vents |
 | [ADMIN_TOOLS.md](ADMIN_TOOLS.md) | In-game admin overlay (key 0) |
 | [../PUBLIC_ROUTE.md](../PUBLIC_ROUTE.md) | The always-open PUBLIC route and multiplayer testing |
 

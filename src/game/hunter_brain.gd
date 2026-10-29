@@ -127,6 +127,13 @@ var direct_chase_visible := false
 var _ability_direct_sight := false
 
 var _path: Array = []
+## Physical vents (VentNav, docs/VENTS.md): set by the scene on a storey with ducts. On Hard / Nightmare a chasing or
+## investigating hunter takes a duct when it is much shorter: walk to the entry grate, climb in, crawl, climb out.
+## Verrine's own gimmick moves her through the ducts, so she never uses this.
+var vent_nav: VentNav = null
+var vent_crawl: VentCrawl = null
+var _vent_route: Dictionary = {}
+var _vent_path: Array = []
 var _path_timer := 0.0
 var _has_path_target := false
 var _path_target_cell := Vector2i.ZERO
@@ -694,7 +701,74 @@ func _current_speed(depth: int, relays_collected: int) -> float:
 	return speed * float(difficulty_profile["hunter_speed"])
 
 
+## True while a vent route is moving her (climbing or crawling); otherwise `move_target` may be swapped for the entry
+## grate (returned) while she walks there.
+func _vent_step(move_target: Vector2, delta: float, generator) -> Variant:
+	if vent_crawl != null and vent_crawl.inside():
+		var steer := Vector2.ZERO
+		if vent_crawl.phase == VentCrawl.Phase.DUCT:
+			while not _vent_path.is_empty() and vent_crawl.position.distance_to(_vent_path[0]) < .15:
+				_vent_path.pop_front()
+			var exit: Dictionary = _vent_route.get("exit", {})
+			if _vent_path.is_empty() and not exit.is_empty() \
+					and vent_crawl.position.distance_to(VentCrawl.grate_centre(exit)) <= .2:
+				vent_crawl.exit_at(exit, VentCrawl.grate_centre(exit))
+			elif not _vent_path.is_empty():
+				steer = (Vector2(_vent_path[0]) - vent_crawl.position).normalized()
+		var stepped := vent_crawl.step(delta, steer)
+		position = vent_crawl.position
+		if steer != Vector2.ZERO:
+			facing = steer
+		if bool(stepped["thump"]):
+			world_events.append({"what": "vent_thump", "at": position, "noise": VentCrawl.THUMP_NOISE})
+		if bool(stepped["done"]):
+			_vent_route = {}
+			_has_path_target = false
+		return true
+	if not (state == State.CHASE or state == State.INVESTIGATE):
+		_vent_route = {}
+		return null
+	if _vent_route.is_empty() and _path_timer <= 0.0:
+		var floor_path: Array = generator.find_path(_cell_of(position), _cell_of(move_target))
+		var floor_length := float(floor_path.size()) if not floor_path.is_empty() else INF
+		_vent_route = vent_nav.route(position, move_target, 0, floor_length, hunter_id, difficulty_id)
+	if _vent_route.is_empty():
+		return null
+	var entry: Dictionary = _vent_route["entry"]
+	if position.distance_to(VentCrawl.grate_centre(entry)) <= VentCrawl.CLIMB_REACH * .5:
+		if vent_crawl == null or vent_crawl.network != vent_nav.network:
+			vent_crawl = VentCrawl.new(vent_nav.network)
+		if vent_crawl.enter(entry, position):
+			_vent_path = (_vent_route["path"] as Array).duplicate()
+			world_events.append({"what": "vent_hatch", "at": position})
+			return true
+	return VentCrawl.grate_centre(entry)
+
+
+## A guest's copy: the host's report says she is in the ducts (the crawl itself runs on the host).
+var remote_in_vents := false
+
+
+func in_vents() -> bool:
+	return remote_in_vents or active_crawl() != null
+
+
+## The crawl moving her through the ducts right now (a VentNav route, or Verrine's own), else null.
+func active_crawl() -> VentCrawl:
+	if vent_crawl != null and vent_crawl.inside():
+		return vent_crawl
+	if gimmick is VerrineGimmick and (gimmick as VerrineGimmick).crawl != null and (gimmick as VerrineGimmick).crawl.inside():
+		return (gimmick as VerrineGimmick).crawl
+	return null
+
+
 func _pursue(move_target: Vector2, speed: float, delta: float, generator) -> void:
+	if vent_nav != null and not (gimmick is VerrineGimmick):
+		var vented: Variant = _vent_step(move_target, delta, generator)
+		if vented is bool:
+			return
+		if vented is Vector2:
+			move_target = vented
 	var target_cell := _cell_of(move_target)
 	_path_timer -= delta
 	# A visible runner needs no route search: follow the fresh 30 Hz target

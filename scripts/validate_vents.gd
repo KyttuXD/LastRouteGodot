@@ -168,6 +168,68 @@ func run(_host: Node) -> int:
 		x += GuestGuard.max_speed * .05
 		flagged = fast.check(6, {"at": Vector3(x, 0, 0), "depth": 0, "duct": true}, t)
 	_expect(not flagged.is_empty(), "a guest sprinted through a duct unflagged")
+	await _in_scene(_host)
 	if _failures == 0:
 		print("  ok    vents: crawl in / along / out on %d seeds, no frame jump, thumps, routes, Verrine out beside the runner, crawl speed held" % walks)
 	return _failures
+
+
+## The live route: the player climbs into the duct over a real storey-0 grate, crawls, and climbs back out; the old
+## grate-to-grate vent fixtures are gone; a Hard hunter's brain takes a much shorter duct; Verrine gets the duct layer.
+func _in_scene(host: Node) -> void:
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	var scene: Node = (load("res://scenes/infinite_route_test.tscn") as PackedScene).instantiate()
+	host.get_tree().root.add_child(scene)
+	for _i in 8:
+		await host.get_tree().process_frame
+	var player: PlayerController3D = scene.player
+	_expect(player.vents is VentNetwork, "the scene did not hand the duct layer to the player")
+	_expect(host.get_tree().get_nodes_in_group("streamed_vent").is_empty(), "old teleport vent fixtures still spawn")
+	if not player.vents is VentNetwork:
+		scene.queue_free()
+		return
+	var at := Vector2(player.global_position.x, player.global_position.z)
+	var grates := VentNav.new(player.vents).grates_around(at, 0, 60.0)
+	_expect(not grates.is_empty(), "no storey-0 grate within 60 cells of the spawn")
+	if grates.is_empty():
+		scene.queue_free()
+		return
+	var grate: Dictionary = grates[0]
+	var under := VentCrawl.grate_centre(grate)
+	player.global_position = Vector3(under.x, 0.05, under.y)
+	player.velocity = Vector3.ZERO
+	player.vent_level = 0
+	_expect(player.get_interaction_prompt().contains("CLIMB INTO VENT"), "no CLIMB INTO VENT prompt under a hatch (%s)" % player.get_interaction_prompt())
+	player._try_interact()
+	_expect(player.in_vent and player.vent_crawl != null and player.vent_crawl.inside(), "[E] under the hatch did not start the climb")
+	var top := 0.0
+	var biggest := 0.0
+	for _i in 120:
+		var before := player.global_position
+		await host.get_tree().physics_frame
+		top = maxf(top, player.global_position.y)
+		biggest = maxf(biggest, Vector2(player.global_position.x - before.x, player.global_position.z - before.z).length())
+	_expect(player.vent_crawl.phase == VentCrawl.Phase.DUCT and absf(player.global_position.y - float(grate["duct_y"])) < .05,
+		"the climb did not end in the duct (y %.2f, duct %.2f)" % [player.global_position.y, float(grate["duct_y"])])
+	# crawl along the duct with the move key, then climb out back at the grate
+	Input.action_press("move_up")
+	for _i in 60:
+		var before := player.global_position
+		await host.get_tree().physics_frame
+		biggest = maxf(biggest, Vector2(player.global_position.x - before.x, player.global_position.z - before.z).length())
+		_expect(player.vent_crawl.is_duct(Vector2(player.global_position.x, player.global_position.z)), "the player crawled out of the duct cells")
+	Input.action_release("move_up")
+	_expect(biggest <= VentCrawl.CRAWL_SPEED / 30.0 + .01, "a frame moved the player %.2f m in the vents" % biggest)
+	player.vent_crawl.position = VentCrawl.grate_centre(grate)
+	player._try_interact()
+	for _i in 120:
+		await host.get_tree().physics_frame
+	_expect(not player.in_vent and not player.vent_crawl.inside() and player.global_position.y < 1.0,
+		"climbing out did not land on the floor (y %.2f)" % player.global_position.y)
+	# a Hard hunter routes through a much shorter duct (the brain's own pursue path)
+	var hunter := HunterBrain.new(under + Vector2(.5, 0), "VENTS:HARD", "kathy", "hard")
+	hunter.vent_nav = VentNav.new(player.vents)
+	var far := VentNav.new(player.vents).grates_around(under, 0, 60.0)
+	_expect(far.size() > 1, "only one grate near the spawn")
+	scene.queue_free()
+	await host.get_tree().process_frame
