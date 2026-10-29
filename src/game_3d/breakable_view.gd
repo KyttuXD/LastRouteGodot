@@ -55,8 +55,12 @@ static func build(spec: Dictionary) -> Dictionary:
 		root.add_child(aim)
 		return {"root": root, "pieces": pieces, "body": null, "width": width}
 	match variant:
-		"chainedGate":
+		"chainedGate", "sluiceGate":
 			_chained_gate(root, pieces, width)
+		"brickedUpWall":
+			_cracked_wall(root, pieces, width, true)
+		"lockedMaintenanceDoor":
+			_furnace_door(root, pieces, width, true)
 		"crackedFurnaceWall":
 			_cracked_wall(root, pieces, width)
 		"lockedFurnaceDoor":
@@ -127,9 +131,9 @@ static func _chained_gate(root: Node3D, pieces: Array, width: float) -> void:
 
 
 ## A slab of basalt blocks with ember light in the cracks between them.
-static func _cracked_wall(root: Node3D, pieces: Array, width: float) -> void:
-	var rock := _mat("wall_rock", Color(.2, .16, .17))
-	var dark := _mat("wall_rock_dark", Color(.12, .09, .1))
+static func _cracked_wall(root: Node3D, pieces: Array, width: float, brick: bool = false) -> void:
+	var rock := _mat("wall_brick", Color(.3, .19, .15)) if brick else _mat("wall_rock", Color(.2, .16, .17))
+	var dark := _mat("wall_brick_dark", Color(.2, .12, .1)) if brick else _mat("wall_rock_dark", Color(.12, .09, .1))
 	var glow := _mat("wall_glow", Color(.9, .3, .08), Color(1.0, .35, .06))
 	var rows := 5
 	var cols := maxi(3, int(width / .9))
@@ -139,6 +143,8 @@ static func _cracked_wall(root: Node3D, pieces: Array, width: float) -> void:
 			var x := -width * .5 + (c + .5) * width / cols
 			var y := (r + .5) * HEIGHT / rows
 			_box(root, pieces, size, Vector3(x, y, 0), rock if (r + c) % 2 == 0 else dark)
+	if brick:
+		return
 	# glowing seams
 	for i in 6:
 		var x := -width * .5 + (i + .7) * width / 6.5
@@ -146,7 +152,7 @@ static func _cracked_wall(root: Node3D, pieces: Array, width: float) -> void:
 
 
 ## Two iron leaves with a big lock bar across them.
-static func _furnace_door(root: Node3D, pieces: Array, width: float) -> void:
+static func _furnace_door(root: Node3D, pieces: Array, width: float, sewer: bool = false) -> void:
 	var iron := _mat("door_iron", Color(.16, .14, .14))
 	var plate := _mat("door_plate", Color(.24, .2, .18))
 	var glow := _mat("door_glow", Color(.9, .3, .08), Color(1.0, .35, .06))
@@ -156,7 +162,8 @@ static func _furnace_door(root: Node3D, pieces: Array, width: float) -> void:
 			_box(root, pieces, Vector3(width * .5 - .15, .1, .26), Vector3(side * width * .25, .6 + k * .9, 0), iron, false)
 	_box(root, pieces, Vector3(width * .8, .18, .3), Vector3(0, 1.4, .2), iron)
 	_box(root, pieces, Vector3(.3, .5, .34), Vector3(0, 1.4, .3), _mat("door_lock", Color(.55, .4, .15)))
-	_box(root, pieces, Vector3(width * .8, .03, .02), Vector3(0, 2.4, .12), glow, false)
+	if not sewer:
+		_box(root, pieces, Vector3(width * .8, .03, .02), Vector3(0, 2.4, .12), glow, false)
 
 
 ## A pipe lying across the gate, with a dent and rust.
