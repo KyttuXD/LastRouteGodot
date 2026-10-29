@@ -142,6 +142,8 @@ var player_hue_degrees := DEFAULT_PLAYER_HUE_DEGREES
 var skin_hash := ""
 ## Whether other players may COPY your skin in co-op (SKIN tab). Honoured by their game; the skin itself is visible either way.
 var skin_copyable := true
+## Living runners see caught teammates' ghosts, faintly (docs/SPECTATORS.md); ghosts always see each other.
+var show_ghosts := true
 ## In-world ads (flavour, TrollAds): "off" (default), "gentle" or "annoying". Troll mode overrides it for cheaters.
 var ads_mode := "off"
 ## The arm style of the skin: skin_slim is what the skin's own pixels said when it was picked (Alex = transparent 4th arm column, or the
@@ -418,6 +420,11 @@ func set_ads_mode(value: String) -> void:
 	_save()
 
 
+func set_show_ghosts(value: bool) -> void:
+	show_ghosts = value
+	_save()
+
+
 func set_skin_copyable(value: bool) -> void:
 	skin_copyable = value
 	_save()
@@ -631,6 +638,7 @@ func _load() -> void:
 		"hue_degrees", DEFAULT_PLAYER_HUE_DEGREES), 0.0, 360.0)
 	skin_hash = String(config.get_value("player", "skin_hash", ""))
 	skin_copyable = bool(config.get_value("player", "skin_copyable", true))
+	show_ghosts = bool(config.get_value("player", "show_ghosts", true))
 	ads_mode = String(config.get_value("gameplay", "ads_mode", "off"))
 	if ads_mode not in TrollAds.MODES:
 		ads_mode = "off"
@@ -758,6 +766,7 @@ func _save() -> void:
 	config.set_value("player", "hue_degrees", player_hue_degrees)
 	config.set_value("player", "skin_hash", skin_hash)
 	config.set_value("player", "skin_copyable", skin_copyable)
+	config.set_value("player", "show_ghosts", show_ghosts)
 	config.set_value("gameplay", "ads_mode", ads_mode)
 	config.set_value("player", "skin_slim", skin_slim)
 	config.set_value("player", "skin_arms", skin_arms)

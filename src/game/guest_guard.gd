@@ -5,7 +5,7 @@ extends RefCounted
 ## meters; this sanity-checks each replicated sample before the host trusts it for targeting, pickups and relays.
 ## - speed: horizontal distance per sample against the fastest legit move (sprint, on the easiest difficulty) with lag
 ##   tolerance; upward speed against climb/jump; falling and plunges are never capped;
-## - teleports: a jump beyond TELEPORT_DISTANCE needs a floor change, an authorised admin, a spectator, or a host-known
+## - teleports: a jump beyond TELEPORT_DISTANCE needs a floor change, an authorised admin, or a host-known
 ##   legit spot (spawn / checkpoint, through `legit_spot`);
 ## - no-clip: a capsule sweep along the reported path through static world geometry (doors are ignored, they lag);
 ## - meters: stamina is not replicated, so an unbroken sprint longer than a full tank (plus slack) counts; lamp charge
@@ -112,8 +112,9 @@ func check(peer_id: int, state: Dictionary, now: float, space: PhysicsDirectSpac
 	_note_gap(peer, dt, now)
 	var good: Vector3 = peer["good"]
 	var depth := int(state.get("depth", 0))
+	# a ghost (spectating) walks like a runner, so it is checked like one; only the death screen itself is let off
 	var free_pass: bool = (exempt.is_valid() and bool(exempt.call(peer_id))) \
-		or bool(state.get("spectating", false)) or bool(state.get("game_over", false))
+		or (bool(state.get("game_over", false)) and not bool(state.get("spectating", false)))
 	var reason := ""
 	peer["now"] = now
 	_note_stim(peer, state, now)
