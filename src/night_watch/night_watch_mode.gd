@@ -96,3 +96,10 @@ func back_to_board() -> void:
 	MouseLock.release_all()
 	NightWatchSession.menu_screen = "board"
 	get_tree().change_scene_to_file(BOARD_SCENE)
+
+
+## Night Watch is locked for players (GameRegistry): a mode scene reached by any path but the menu (a deep link, a stale scene path) goes
+## back to the hub at once; testers (admin, KYTTU_DEV, validation) play it as before.
+func _enter_tree() -> void:
+	if not NightWatchSession.is_open():
+		get_tree().change_scene_to_file.call_deferred(GameRegistry.HUB_SCENE)
