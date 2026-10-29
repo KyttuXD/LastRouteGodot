@@ -894,6 +894,10 @@ func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
 		_draw_down_marker(at, cell, mark)
 		return
 	var radius := maxf(3.4 if interactive else 3.0, cell * .5)
+	# outside the map's range: a smaller arrow on the border pointing toward them; another floor: a tiny up/down mark
+	var border_view := not Rect2(Vector2.ZERO, size).grow(-maxf(TEAMMATE_EDGE_MARGIN, radius + 2.0)).has_point(at)
+	if border_view:
+		radius *= 0.65
 	var colour: Color = mark.get("colour", COOP_PLAYER_BLUE)
 	if bool(mark.get("stale", false)):
 		colour = Color(colour, .45)   # no news for a while: last known spot, dimmed
@@ -906,7 +910,7 @@ func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
 	if layout["kind"] == "updown":
 		# another floor: a bold up / down arrow in their colour
 		var dir := -1.0 if layout["up"] else 1.0
-		var reach := radius * 1.6
+		var reach := radius * (1.0 if not interactive else 1.6)   # the minimap keeps it tiny
 		var tri := PackedVector2Array([shown + Vector2(0, dir * reach), shown + Vector2(-reach * .8, -dir * reach * .6),
 			shown + Vector2(reach * .8, -dir * reach * .6)])
 		var tri_outline := PackedVector2Array()
@@ -920,7 +924,7 @@ func _draw_remote_player(at: Vector2, cell: float, mark: Dictionary) -> void:
 		facing = Vector2.UP
 	facing = facing.normalized()
 	var side := Vector2(-facing.y, facing.x)
-	var length := radius * (1.7 if off_view else 1.55)
+	var length := radius * 1.55
 	var arrow := PackedVector2Array([shown + facing * length,
 		shown - facing * length * .7 + side * radius * 1.05,
 		shown - facing * length * .25,
