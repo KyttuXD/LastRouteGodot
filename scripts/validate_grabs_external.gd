@@ -409,13 +409,8 @@ func _expect_case(route: Node, player: PlayerController3D, grab: HunterGrab, sty
 			last_runner = points
 			last_hunter = hunter
 			last_basis = basis
-			# her body square to what she holds (not when the runner is over her shoulder, nor right on top of her)
-			var held := Vector3.ZERO
-			var holds := HunterGrab.contacts(copy.global_position, basis, pose["arms"])
-			for entry in holds:
-				held += (entry[1] as Vector3) / holds.size()
-			if holds.is_empty():
-				held = points.get("Pelvis", copy.global_position)
+			# her body square to the runner, at their chest (not when the runner is over her shoulder, nor right on top of her)
+			var held: Vector3 = points.get("Chest", copy.global_position)
 			var to_runner := held - (hunter.get("Pelvis", guest_model.global_position) as Vector3)   # from her model, where it is
 			to_runner.y = 0.0
 			if style != GrabStyles.SHOULDER_CARRY and to_runner.length() > .35:

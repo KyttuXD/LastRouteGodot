@@ -113,7 +113,7 @@ const ARENA := preload("res://scripts/grab_arena.gd")
 ## on screen and not huge where they hold something; every grip within 3 cm.
 const CAMERA_CLEARANCE := .06
 const MAX_TURN_RATE := 3.0
-const MAX_MOVE_RATE := 6.0
+const MAX_MOVE_RATE := 6.0 * HunterGrab.RUNNER   # 6 m/s on the 1.60 m runner; a taller body moves its eyes as much further
 const FACE_MIN := .45
 const CONTACT := .03
 
@@ -217,6 +217,9 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 	var max_gap := 0.0
 	var away_seen := false
 	var pushes_seen := 0
+	var was_pushed := false
+	var last_eye := Vector3.INF
+	var last_push_at := -1.0
 	var eye_frames := 0
 	var drift_frames := 0
 	while waited < t_end:
@@ -226,6 +229,9 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 		var delta := maxf(route.get_process_delta_time(), 1.0 / 60.0)
 		waited += route.get_process_delta_time()
 		var camera := player.first_person_camera.global_transform
+		var own_eye := player.first_person_body().eye()
+		if last_eye == Vector3.INF:
+			last_eye = own_eye
 		var blocked := HunterGrab.camera_blocked(space, camera.origin, [player.get_rid()], player.collision_mask, [view],
 			CAMERA_CLEARANCE)
 		# a part of her at the lens may only be there if it is not drawn for this camera (culled for the frame)
@@ -253,7 +259,9 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 			# at the body's own eyes, unless her arm or body is right there (then it is nudged clear, as the rules ask)
 			var eye_clear := HunterGrab.camera_blocked(space, own.eye(), [player.get_rid()], player.collision_mask, [view],
 				HunterGrab.CLEARANCE + .03, true).is_empty()
-			if eye_clear and grab.pushes == pushes_seen:
+			if grab.pushes != pushes_seen:
+				last_push_at = waited
+			if eye_clear and grab.pushes == pushes_seen and waited - last_push_at > .12:   # (coming back from a push takes a frame or two)
 				eye_frames += 1
 				if camera.origin.distance_to(own.eye()) >= .03:   # at the head's front face plus at most 2 cm (and rounding)
 					drift_frames += 1
@@ -268,11 +276,14 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 			_expect(upright and absf(roll) <= HunterGrab.MAX_ROLL + .02, "%s: the view rolls %.0f deg at %.2f s" % [label, rad_to_deg(roll), waited])
 		var turn := previous.basis.orthonormalized().get_rotation_quaternion().angle_to(camera.basis.orthonormalized().get_rotation_quaternion())
 		_expect(turn / delta <= MAX_TURN_RATE or grab.pushes > pushes_seen, "%s: the view snaps %.0f deg in one frame at %.2f s (%.1f deg/s)" % [label, rad_to_deg(turn), waited, rad_to_deg(turn / delta)])
-		var pushed := grab.pushes > pushes_seen   # she moved into the camera: the push may be quick, never skipped
+		# she moved into the camera: the push may be quick, never skipped; and the frame after one, when the camera comes
+		# back to the eyes as fast (HunterGrab limits both to MAX_PUSH a frame over the eyes' own motion)
+		var pushed := grab.pushes > pushes_seen or was_pushed
+		was_pushed = grab.pushes > pushes_seen
 		pushes_seen = grab.pushes
 		# she moved into the camera: it is pushed clear at once, but still never jumps
 		# a push out of her arm may be one quick step (at most 20 cm), never a jump across the room
-		_expect((pushed and previous.origin.distance_to(camera.origin) <= HunterGrab.MAX_PUSH + .05) or previous.origin.distance_to(camera.origin) / delta <= MAX_MOVE_RATE, "%s: the camera jumps %.2f m in one frame at %.2f s s" % [label, previous.origin.distance_to(camera.origin), waited])
+		_expect((pushed and previous.origin.distance_to(camera.origin) <= HunterGrab.MAX_PUSH + .05) or previous.origin.distance_to(camera.origin) / delta <= MAX_MOVE_RATE, "%s: the camera jumps %.2f m in one frame at %.2f s (pushes %d, eye moved %.2f m)" % [label, previous.origin.distance_to(camera.origin), waited, grab.pushes, own_eye.distance_to(last_eye)])
 		# the view may only widen, at most 10 degrees and eased, and only in the hold
 		var widened := player.first_person_camera.fov - fov
 		_expect(widened > -.01 and widened <= HunterGrab.fov_widen + .01, "%s: the FOV moved %.1f deg" % [label, widened])
@@ -284,6 +295,7 @@ func _expect_style(route: Node, player: PlayerController3D, grab: HunterGrab, st
 			_expect((camera.origin - own.eye()).dot(ahead) > -.03, "%s: the camera is %.2f m behind the runner's eyes at %.2f s" % [label,
 				-(camera.origin - own.eye()).dot(ahead), waited])
 		previous = camera
+		last_eye = own_eye
 		if waited > GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS and not (grab.current["arms"] as Array).is_empty():
 			max_gap = maxf(max_gap, grab.contact_gap)
 		if float(GrabStyles.look_for(id)["delay"]) > 0.0 and waited > GrabStyles.REACH_SECONDS and waited < GrabStyles.REACH_SECONDS + GrabStyles.ACT_SECONDS:

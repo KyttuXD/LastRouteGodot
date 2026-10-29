@@ -504,11 +504,11 @@ func grabbing() -> bool:
 	return Time.get_ticks_msec() < grab_until_msec
 
 
-## Once a grab (on this peer or drawn for another) lets go of her, her model, arms and stretch ease back over about a
-## third of a second from where the grab last posed them to where she is and what her clip does: nothing pops, on any
+## Once a grab (on this peer or drawn for another) lets go of her, her model, arms and stretch ease back over
+## GRAB_EASE_SECONDS from where the grab last posed them to where she is and what her clip does: nothing pops, on any
 ## machine. Checked after everything else this frame (deferred: a guest's copy of the grab poses her deferred too), so a
 ## frame she is still held is never eased.
-const GRAB_EASE_RATE := 12.0
+const GRAB_EASE_SECONDS := .45
 var _grab_ease := 0.0
 var _grab_ease_from := {}
 var _grab_ease_delta := 0.0
@@ -538,7 +538,8 @@ func ease_out_grab() -> void:
 		if not _model.has_meta("grab_rest"):
 			return
 		# let go: ease from the last held pose (her stretch is taken off now; the bones' blend carries it)
-		_grab_ease_from = {"model": _model.transform, "bones": get_meta("grab_bones", {}), "target": {}, "written": {}}
+		_grab_ease_from = {"model": _model.transform, "bones": get_meta("grab_bones", {}), "target": {}, "written": {},
+			"stretch": _arm_stretch_now()}
 		_grab_ease = 1.0
 		remove_meta("grab_anchor")
 		remove_meta("grab_along")
@@ -551,7 +552,9 @@ func ease_out_grab() -> void:
 				var crouched: bool = bone.has_meta("bend_written") and node.transform.is_equal_approx(bone.get_meta("bend_written"))
 				_grab_ease_from["target"][bone] = bone.get_meta("bend_base") if crouched else node.transform
 		HunterGrab.unbend(_model)
-	_grab_ease *= exp(-GRAB_EASE_RATE * _grab_ease_delta)
+	# smoothstep over GRAB_EASE_SECONDS, so it starts and ends slowly (an exponential ease moves fastest the moment she lets go)
+	_grab_ease_from["t"] = float(_grab_ease_from.get("t", 0.0)) + _grab_ease_delta
+	_grab_ease = 1.0 - GrabStyles.smooth(float(_grab_ease_from["t"]) / GRAB_EASE_SECONDS)
 	var rest: Transform3D = _model.get_meta("grab_rest")
 	var bones: Dictionary = _grab_ease_from["bones"]
 	var target: Dictionary = _grab_ease_from["target"]
@@ -564,8 +567,18 @@ func ease_out_grab() -> void:
 			# rewritten since (a clip keys it): that is where it goes back to now, at the size it has without the grab
 			var scale := (target[bone] as Transform3D).basis.get_scale()
 			target[bone] = Transform3D(Basis(node.transform.basis.get_rotation_quaternion()).scaled(scale), node.transform.origin)
-		node.transform = (target[bone] as Transform3D).interpolate_with(bones[bone], _grab_ease if _grab_ease >= .01 else 0.0)
-		written[bone] = node.transform
+		var w := _grab_ease if _grab_ease >= .01 else 0.0
+		if HunterGrab.ARM_BONES.has(String(node.name)):
+			# an arm turns back only: its length (the grab's stretch, set on each bone in world space) eases off below
+			var from_q := (target[bone] as Transform3D).basis.get_rotation_quaternion()
+			node.quaternion = from_q.slerp((bones[bone] as Transform3D).basis.get_rotation_quaternion(), w)
+		else:
+			node.transform = (target[bone] as Transform3D).interpolate_with(bones[bone], w)
+	var stretch := 1.0 + (float(_grab_ease_from["stretch"]) - 1.0) * (_grab_ease if _grab_ease >= .01 else 0.0)
+	HunterGrab.stretch_arms(self, stretch)
+	for bone in bones:
+		if is_instance_valid(bone):
+			written[bone] = (bone as Node3D).transform
 	if _head_node != null:
 		_head_written_q = _head_node.quaternion   # her own head look goes on from the rest pose next frame, as it does after hers
 	if _grab_ease < .01:
@@ -575,6 +588,16 @@ func ease_out_grab() -> void:
 		_grab_ease_from = {}
 		return
 	_model.transform = rest.interpolate_with(_grab_ease_from["model"], _grab_ease)
+
+
+## How far a grab has her upper arm stretched right now (1 when it has not).
+func _arm_stretch_now() -> float:
+	var arm := _model.find_child("R-Arm", true, false) as Node3D
+	if arm == null or not arm.has_meta("grab_scale"):
+		return 1.0
+	var parent := arm.get_parent() as Node3D
+	var rest := (arm.get_meta("grab_scale") as Vector3).y * (parent.global_basis.get_scale().y if parent != null else 1.0)
+	return arm.global_basis.y.length() / maxf(rest, 1e-6)
 
 
 func _update_beam_visual(delta: float) -> void:

@@ -688,7 +688,7 @@ static func _grab_packet(state: Dictionary) -> Array:
 	out[1] = clampf(float(out[1]), 0.0, GrabStyles.MAX_SECONDS)
 	out[2] = clampf(float(out[2]), 0.0, 3.2)   # over a hunter's shoulder the runner's feet are up to about 2.5 m off the floor
 	out[3] = clampf(float(out[3]), -PI, PI)
-	out[4] = clampf(float(out[4]), -1.5, GrabStyles.CARRY_METRES + 1.0)   # she may walk off with the runner (shoulder carry)
+	out[4] = clampf(float(out[4]), -3.0, GrabStyles.CARRY_METRES + 1.0)   # she backs off up to about 2 m dragging a runner by the collar   # she may walk off with the runner (shoulder carry)
 	for i in range(5, 7):
 		out[i] = clampf(float(out[i]), -1.5, 1.5)
 	return out

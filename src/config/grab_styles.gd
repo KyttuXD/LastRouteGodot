@@ -64,7 +64,7 @@ const BODY_POINTS := {
 	"neck": Vector3(0, 1.483, -0.233),
 	"l_shoulder": Vector3(-0.412, 1.744, -0.041),
 	"r_shoulder": Vector3(0.412, 1.744, -0.041),
-	"l_wrist": Vector3(-0.412, 1.703, -0.508),
+	"l_wrist": Vector3(-0.48, 1.52, -0.58),   # held out low and to the side, not up in front of the runner's own face
 	"back_l": Vector3(-0.33, 1.442, 0.11),
 	"back_r": Vector3(0.33, 1.442, 0.11),
 	"r_ankle": Vector3(0.137, 0.343, 0.137),   # the lower calf just above the ankle: her big hand closes round it clear of the floor
@@ -392,7 +392,8 @@ static func pose(style: String, t: float, ctx: Dictionary) -> Dictionary:
 			out["hands"] = "claw"
 			out["k"] = a
 			out["arms"] = [["R", "neck", r]]
-			out["hunter"] = [lerpf(0.0, -.9, a) - .4 * pull, .3 * a, .35 * a]
+			# backed off as far again as the runner is tall: dragged face down, their face stays where she can look at it
+			out["hunter"] = [(lerpf(0.0, -.9, a) - .4 * pull) * PlayerModels.SCALE / .9, .3 * a, .35 * a]
 			out["clip"] = "fall"
 		WALL_PIN:
 			# shoved back against the wall behind the runner and held there by the throat at arm's length, feet off the floor

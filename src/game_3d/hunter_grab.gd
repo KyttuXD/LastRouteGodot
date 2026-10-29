@@ -33,6 +33,7 @@ var _last_camera := Transform3D.IDENTITY
 var _base_fov := 78.0
 var _catch_camera := Transform3D.IDENTITY
 var _last_wanted := Vector3.INF
+var _view_roll := 0.0
 var _player: PlayerController3D
 var _view: Node3D
 var _origin := Vector3.ZERO
@@ -469,7 +470,7 @@ static func pose_arms_on(view: Node3D, along: Vector3, points: Array, wide: bool
 ## A hand holding nothing comes to rest on her knee as she crouches `drop` metres (hanging free from a deep crouch, it went
 ## through the floor).
 static func rest_free_hands(view: Node3D, along: Vector3, points: Array, drop: float) -> void:
-	var amount := clampf(drop / .35, 0.0, 1.0)
+	var amount := GrabStyles.smooth(drop / .7)
 	if amount <= 0.0:
 		return
 	var holding := {}
@@ -485,6 +486,11 @@ static func rest_free_hands(view: Node3D, along: Vector3, points: Array, drop: f
 ## Where a held runner's own hands go (`body` is their mannequin; the local first-person body or another player's copy):
 ## onto her forearm when held up by it, against her chest when pushing her off, the held wrist out to her grip, clawing at
 ## the floor ahead when dragged; the clip's own arms otherwise (pinned, dangling).
+## The runner's own measures below were taken on the 1.60 m mannequin; the runner is now taller (PlayerModels.SCALE).
+const RUNNER := PlayerModels.SCALE / .9
+const ARM_BONES := ["R-Arm", "R-Forearm", "R-Hand", "L-Arm", "L-Forearm", "L-Hand"]
+
+
 static func runner_hand_targets(body: Node3D, view: Node3D, pose: Dictionary, along: Vector3, t: float) -> Array:
 	var hands := String(pose.get("hands", ""))
 	var basis := body.global_basis.orthonormalized()
@@ -502,29 +508,29 @@ static func runner_hand_targets(body: Node3D, view: Node3D, pose: Dictionary, al
 			var chest := view.find_child("Chest", true, false) as Node3D
 			var target := chest.global_position if chest != null else view.global_position + Vector3.UP
 			for side in [["L", -1.0], ["R", 1.0]]:
-				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0)
+				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0) * RUNNER
 				var toward := (target - shoulder).normalized()
-				out.append([side[0], shoulder + toward * .36 + Vector3.DOWN * .08])
+				out.append([side[0], shoulder + (toward * .36 + Vector3.DOWN * .08) * RUNNER])
 		"held":
 			for entry in pose.get("runner_arms", []):
 				out.append([String(entry[0]), body.global_position + basis * (GrabStyles.BODY_POINTS[String(entry[1])] as Vector3)])
 		"dangle":
 			# hanging head down: the arms hang towards the floor, out to the sides, clear of the face
 			for side in [["L", -1.0], ["R", 1.0]]:
-				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0)
-				out.append([side[0], shoulder + Vector3.DOWN * .38 + right * (.25 * float(side[1]))])
+				var shoulder := body.global_position + basis * Vector3(.3 * float(side[1]), 1.08, 0.0) * RUNNER
+				out.append([side[0], shoulder + (Vector3.DOWN * .38 + right * (.25 * float(side[1]))) * RUNNER])
 		"claw":
 			# reaching ahead along the floor in turn, as if digging in: ahead of the head, flat along the floor (the body's
 			# front is the floor itself once it lies face down)
-			var ahead := body.global_position + basis * Vector3(0.0, 1.3, -.2)
+			var ahead := body.global_position + basis * Vector3(0.0, 1.3, -.2) * RUNNER
 			ahead.y = body.global_position.y + .1   # the hand on the floor, not through it
 			var along_floor := Vector3(basis.y.x, 0.0, basis.y.z)
 			if along_floor.length_squared() < .09:
 				along_floor = Vector3(-basis.z.x, 0.0, -basis.z.z)
 			along_floor = along_floor.normalized()
 			for side in [["L", -1.0], ["R", 1.0]]:
-				var reach := .25 + .2 * sin(t * 5.0 + (0.0 if side[1] < 0.0 else PI))
-				out.append([side[0], ahead + right * (.18 * float(side[1])) + along_floor * reach])
+				var reach := RUNNER * .25 + RUNNER * .2 * sin(t * 5.0 + (0.0 if side[1] < 0.0 else PI))
+				out.append([side[0], ahead + right * (.18 * RUNNER * float(side[1])) + along_floor * reach])
 	return out
 
 
@@ -918,7 +924,8 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	# Only her collider or a wall can move it (up or to the side, never back); any part of her model at the lens is not
 	# drawn for this camera that frame instead (_cull_near)
 	var at := _clear(wanted, CLEARANCE)
-	if at.distance_to(wanted) > .001:
+	var pushed := at.distance_to(wanted) > .001
+	if pushed:
 		pushes += 1
 	var previous := _last_camera
 	# the first CATCH_EASE seconds ease from the runner's own view when caught to the grabbed body's face (a body turned round
@@ -929,8 +936,10 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	# never a jump: a push (or coming back from one) moves at most MAX_PUSH a frame more than the eyes themselves moved
 	var eyes_moved := wanted.distance_to(_last_wanted) if _last_wanted != Vector3.INF else 0.0
 	_last_wanted = wanted
-	if step.length() > eyes_moved + MAX_PUSH:
-		at = previous.origin + step.limit_length(eyes_moved + MAX_PUSH)
+	# and back to the eyes once she has moved off it, at 40% of that: quick out of her way, never a jump back
+	var most := eyes_moved + (MAX_PUSH if pushed else MAX_PUSH * .4)
+	if step.length() > most:
+		at = previous.origin + step.limit_length(most)
 	_cull_near(at)
 	var to := look - at
 	var flat_to := Vector2(to.x, to.z).length()
@@ -950,7 +959,16 @@ func _solve_camera(head_world: Vector3, roll: float, delta: float) -> Transform3
 	var gap := from.angle_to(to_q)
 	if gap * weight > MAX_TURN * delta:
 		weight = MAX_TURN * delta / gap
-	return Transform3D(Basis(from.slerp(to_q, weight)), at)
+	# heading, tilt and roll each eased on their own: one slerp between two steep views far apart in heading (swinging
+	# round to look down her back) rolls the view on the way
+	var ahead := -previous.basis.orthonormalized().z
+	var was_pitch := asin(clampf(ahead.y, -1.0, 1.0))
+	var was_yaw := atan2(-ahead.x, -ahead.z) if Vector2(ahead.x, ahead.z).length() > .02 else yaw
+	var eased_yaw := was_yaw + wrapf(yaw - was_yaw, -PI, PI) * weight
+	var eased_pitch := lerpf(was_pitch, pitch, weight)
+	_view_roll = lerp_angle(_view_roll, roll, weight)
+	var eased := Basis.from_euler(Vector3(eased_pitch, eased_yaw, 0.0))
+	return Transform3D(Basis(eased.z.normalized(), -_view_roll) * eased, at)
 
 
 ## During the hold only, the view widens (eased, at most fov_widen degrees) as far as her face is closer than
@@ -1015,6 +1033,7 @@ func _apply(t: float, delta: float, begin: bool = true) -> void:
 		_last_camera = _player.first_person_camera.global_transform
 		_catch_camera = _last_camera
 		_last_wanted = Vector3.INF
+		_view_roll = 0.0
 	current = GrabStyles.pose(style, t, _ctx)
 	var at: Vector3 = current["at"]
 	var r := GrabStyles.smooth(t / GrabStyles.REACH_SECONDS)
