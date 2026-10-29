@@ -274,7 +274,7 @@ test("a reserved room admits only guests with a valid join ticket", async () => 
   const { createWsRelay } = await import("./ws_relay.mjs");
   const room = { code: "KATHY", token: "host-token", transport: "ws", admitGuest: (ticket) => ticket === "good-ticket" };
   const relay = createWsRelay({ roomByCode: (code) => (code === "KATHY" ? room : null) });
-  const server = createServer((request, response) => { response.writeHead(404); response.end(); });
+  const server = http.createServer((request, response) => { response.writeHead(404); response.end(); });
   server.on("upgrade", (request, socket, head) => { if (!relay.handleUpgrade(request, socket, head)) socket.destroy(); });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
