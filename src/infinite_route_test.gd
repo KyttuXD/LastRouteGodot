@@ -228,6 +228,7 @@ func _ready() -> void:
 	facility.booth_requester = _request_booth
 	facility.booth_reporter = _report_booth
 	facility.carousel_requester = _request_carousel
+	facility.valve_requester = _request_valve
 	if not pending_payload.is_empty():
 		_loaded_from_save = _adopt_route_save_before_stream(pending_payload)
 	facility.begin(str(RoomState.run_seed()), player, world_state)
@@ -1302,6 +1303,13 @@ func _remember_discovered_chunk(coord: Vector3i, data: Dictionary) -> void:
 			return
 		for x in side:
 			walls[z * side + x] = 1 if int(row[x]) != 0 else 0
+	# an open sewer sluice gate is a crossing on the map too
+	for gate_value in data.get("gates", []):
+		if world_state.valve_count(String((gate_value as Dictionary)["valve"])) % 2 == 1:
+			for cell_value in (gate_value as Dictionary)["cells"]:
+				var gate_cell: Vector2i = cell_value
+				if gate_cell.y < side and gate_cell.x < side:
+					walls[gate_cell.y * side + gate_cell.x] = 0
 	var visible_pickups := []
 	for value in data.get("pickups", []):
 		var pickup: Dictionary = value
@@ -3961,6 +3969,78 @@ func _tick_carousels(delta: float) -> void:
 				_accept_carousel(0, {"carousel_id": ride_id})
 
 
+## Sewer valve wheels (docs/SEWERS.md): turning one (a 2 s hold) is loud (the turner's noise) and, host-authoritative like
+## the merry-go-round, does its valve_effect on every machine. "flood": shuts every running flood of that chunk's burst
+## pipes (SewerFloods drains it fast), or with none running turns the chunk's pipe drips off and on. "gate": raises or
+## lowers its sluice gate (a channel crossing for runners and hunters). Any other effect just counts the turn.
+const VALVE_REACH := 3.0
+
+
+func _request_valve(requesting_player: PlayerController3D, valve_id: String) -> String:
+	if requesting_player != null:
+		requesting_player.emit_noise_burst(StreamedFacilityView3D.VALVE_NOISE, StreamedFacilityView3D.VALVE_TURN_SECONDS)
+	var event := {"what": "stream_valve", "valve_id": valve_id}
+	if RoomState.online and not RoomState.is_host:
+		_remotes.request_interaction(event)
+	else:
+		_accept_valve(_local_peer_id(), event)
+	return ""
+
+
+## {coord, at (Vector2 world cell centre), effect, gate} of a real generated valve wheel, else {}.
+func _valve_info(valve_id: String) -> Dictionary:
+	var parts := valve_id.split(":")
+	if valve_id.length() > 80 or parts.size() != 6 or parts[0] != "SEWER" or parts[4] != "PROP" \
+			or not parts[1].is_valid_int() or not parts[2].is_valid_int() or not parts[3].is_valid_int():
+		return {}
+	var coord := Vector3i(int(parts[1]), int(parts[2]), int(parts[3]))
+	if not facility.generator.is_chunk_allowed(coord):
+		return {}
+	for value in facility.generator.chunk(coord).get("region_props", []):
+		var prop: Dictionary = value
+		if String(prop.get("id", "")) == valve_id and String(prop.get("type", "")) == "sewerValveWheel":
+			var cell: Vector2i = prop["cell"]
+			var size := StreamedRouteGenerator.CHUNK_SIZE
+			return {"coord": coord, "at": Vector2(coord.x * size + cell.x + .5, coord.z * size + cell.y + .5),
+				"effect": String(prop.get("valve_effect", "flood")), "gate": String(prop.get("gate", ""))}
+	return {}
+
+
+func _accept_valve(peer_id: int, event: Dictionary) -> void:
+	var valve_id := String(event.get("valve_id", ""))
+	var info := _valve_info(valve_id)
+	if info.is_empty():
+		return
+	var target := _target_state_for_peer(peer_id)
+	var position = target.get("position")
+	if target.is_empty() or not position is Vector2 or -int(target.get("depth", 999999)) != (info["coord"] as Vector3i).y \
+			or (position as Vector2).distance_to(info["at"]) > VALVE_REACH:
+		return
+	var coord: Vector3i = info["coord"]
+	var effect := String(info["effect"])
+	var shut := effect == "flood" and _floods_running(coord)
+	var turns := world_state.valve_count(valve_id) + (0 if shut else 1)
+	_publish_stream_event({"what": "stream_valve", "valve_id": valve_id, "chunk": coord, "effect": effect, "shut": shut,
+		"turns": turns, "gate": info["gate"]})
+
+
+## Whether a burst pipe's flood in the chunk is still unshut (what a flood valve then stops).
+func _floods_running(coord: Vector3i) -> bool:
+	var prefix := "BRK:%d:%d:%d:" % [coord.x, coord.y, coord.z]
+	for id in world_state.floods:
+		if String(id).begins_with(prefix) and world_state.flood_shut_at(String(id)) < 0.0:
+			return true
+	return false
+
+
+func _apply_valve_event(event: Dictionary) -> void:
+	if bool(event.get("shut", false)):
+		world_state.shut_floods(event.get("chunk", Vector3i.ZERO) as Vector3i)
+	else:
+		world_state.set_valve_turns(String(event.get("valve_id", "")), int(event.get("turns", 0)))
+	facility.apply_valve(String(event.get("valve_id", "")), event)
+
+
 ## Breakables (Breach, docs/BREACH.md): a tool swing at a seal, board or pipe. Host-authoritative like doors: the host takes
 ## the hit points off and publishes "stream_breach" (the new hp, so replays are harmless); a guest asks.
 func _request_breach(id: String, tool: String) -> void:
@@ -4097,6 +4177,8 @@ func _on_remote_interaction_request(peer_id: int, event: Dictionary) -> void:
 			_accept_booth(peer_id, event)
 		"stream_carousel":
 			_accept_carousel(peer_id, event)
+		"stream_valve":
+			_accept_valve(peer_id, event)
 		"stream_breach_request":
 			_accept_breach_request(peer_id, event)
 		"stream_room_light":
@@ -4523,6 +4605,8 @@ func _apply_stream_world_event(event: Dictionary) -> void:
 			_apply_booth_event(event)
 		"stream_carousel":
 			_apply_carousel_event(event)
+		"stream_valve":
+			_apply_valve_event(event)
 		"stream_breach":
 			_apply_breach_event(event)
 		"stream_room_light":

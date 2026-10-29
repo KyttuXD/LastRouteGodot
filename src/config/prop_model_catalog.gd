@@ -245,6 +245,7 @@ const _CODE_MODEL_PATHS := {
 	"sewerPump": ContentRegistry.DATA,
 	"sewerPipeRun": ContentRegistry.DATA,
 	"sewerOutflowPipe": ContentRegistry.DATA,
+	"sewerSluiceGate": ContentRegistry.DATA,
 	"sewerOverflowGrate": ContentRegistry.DATA,
 	"sewerLamp": ContentRegistry.DATA,
 	"sewerBridge": ContentRegistry.DATA,
@@ -507,9 +508,10 @@ const WALL_MOUNTED_TYPES := EMPTY_FRAME_TYPES + [
 const DECK_TYPES := ["sewerBridge", "sewerGrateDeck"]
 
 
-## Pieces authored standing on the floor at their own height, the lowest point well above it: the sewer's outflow
-## main hangs at the crawl clearance on its vault straps (seating it on its underside dropped it to the floor).
-const AUTHORED_HEIGHT_TYPES := ["sewerOutflowPipe"]
+## Pieces authored at their own height, not seated on their lowest point: the sewer's outflow main hangs at the crawl
+## clearance on its vault straps (seating it on its underside dropped it to the floor), and the sluice gate's leaf lies
+## flush with the walkway with its ribs below it.
+const AUTHORED_HEIGHT_TYPES := ["sewerOutflowPipe", "sewerSluiceGate"]
 
 
 static func keeps_authored_pivot(type: String) -> bool:

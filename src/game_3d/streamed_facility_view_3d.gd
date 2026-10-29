@@ -126,6 +126,10 @@ var booth_reporter: Callable
 var _booth_nodes := {}
 ## the merry-go-round lever: requester(player, ride_id) -> String asks the host to start or stop the ride
 var carousel_requester: Callable
+## Sewer valve wheels: requester(player, valve_id) -> String asks the host to turn one (a turned valve shuts its chunk's
+## floods, SewerFloods); _valve_nodes: valve id -> the wheel's pivot (Rim/Spoke/Hub of the authored model).
+var valve_requester: Callable
+var _valve_nodes := {}
 var _carousel_nodes := {}
 var door_requester: Callable
 
@@ -251,6 +255,8 @@ func _exit_tree() -> void:
 func clear() -> void:
 	_walked_link_cache.clear()
 	_pipe_nodes.clear()
+	_valve_nodes.clear()
+	_gate_nodes.clear()
 	if _floods != null:
 		_floods.forget_all()
 	if _gen_task != -1:
@@ -1412,7 +1418,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 				_spawn_mezzanine_rails(root, data)
 				_spawn_shop_signs(root, data)
 				if not (build["sewer_grid"] as Array).is_empty():
-					_spawn_sewer_water(root, build["sewer_grid"], _jump_cell(data))
+					_spawn_sewer_water(root, build["sewer_grid"], _jump_cell(data), _gate_gaps(data))
 				_spawn_ramps(root, data, (build["coord"] as Vector3i).y)
 				_spawn_falls(root, data, (build["coord"] as Vector3i).y)
 				InfernoPitView.build(root, data)
@@ -1499,6 +1505,7 @@ func _advance_chunk_build(build: Dictionary, immediate: bool) -> bool:
 					_set_lights_recursive(root, false)
 				StoreyLayers.apply(root, coord.y)
 				_floods.chunk_built(coord, root, data)
+				_apply_drips(root, data)
 				_loaded[coord] = root
 				_chunk_data[coord] = data
 				chunk_builds += 1
@@ -2400,7 +2407,7 @@ func _add_shaft_lining(build: Dictionary, cell: Vector2i) -> void:
 ## One mesh of flowing water over every channel cell of a sewer chunk. The
 ## vertex colour's red/blue channels carry the flow direction for the shader:
 ## the east-west channel flows along x, the north-south one along z.
-func _spawn_sewer_water(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1)) -> void:
+func _spawn_sewer_water(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1), gaps: Dictionary = {}) -> void:
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var y := SewerRouteGenerator.WATER_SURFACE
@@ -2428,7 +2435,7 @@ func _spawn_sewer_water(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2
 	material.shader = SEWER_WATER_SHADER
 	water.material_override = material
 	root.add_child(water)
-	_spawn_channel_railings(root, sewer_grid, gap)
+	_spawn_channel_railings(root, sewer_grid, gap, gaps)
 
 
 ## The falls' jump cell of a chunk, or (-1, -1): the railing gap and the open collider sit on it.
@@ -2441,7 +2448,7 @@ static func _jump_cell(data: Dictionary) -> Vector2i:
 ## Iron railings along every edge where a walkway, room floor or deck meets open
 ## water: a post at each metre and a top and mid rail, as two MultiMeshes per
 ## chunk. They are the visible reason the channel collider stops you.
-func _spawn_channel_railings(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1)) -> void:
+func _spawn_channel_railings(root: Node3D, sewer_grid: Array, gap: Vector2i = Vector2i(-1, -1), gaps: Dictionary = {}) -> void:
 	var segments: Array[Transform3D] = []
 	var size := sewer_grid.size()
 	for z in size:
@@ -2454,8 +2461,8 @@ func _spawn_channel_railings(root: Node3D, sewer_grid: Array, gap: Vector2i = Ve
 				if n.x < 0 or n.y < 0 or n.x >= size or n.y >= size \
 						or not int(sewer_grid[n.y][n.x]) in [SewerRouteGenerator.WATER, SewerRouteGenerator.FALL]:
 					continue
-				if n == gap:
-					continue            # the deliberate jump: no rail where the ledge meets the open drop cell
+				if n == gap or gaps.has(n):
+					continue            # the deliberate jump, a sluice gate's ends: no rail where the ledge meets them
 				# on the walkway side of the edge, running along it
 				var mid := Vector3(x + .5 + step.x * (.5 - RAIL_INSET), 0.0, z + .5 + step.y * (.5 - RAIL_INSET))
 				var basis := Basis(Vector3.UP, PI / 2.0) if step.x != 0 else Basis.IDENTITY
@@ -2999,7 +3006,171 @@ func _spawn_region_prop(parent: Node3D, coord: Vector3i, prop: Dictionary, finis
 		for index in range(before, parent.get_child_count()):
 			(entry["nodes"] as Array).append(parent.get_child(index))
 		return
+	if type == "sewerValveWheel" or type == "sewerSluiceGate":
+		var first := parent.get_child_count()
+		_spawn_region_prop_now(parent, coord, prop, finish)
+		if type == "sewerValveWheel":
+			_rig_valve(parent, prop, first)
+		else:
+			_rig_gate(parent, prop, first)
+		return
 	_spawn_region_prop_now(parent, coord, prop, finish)
+
+
+const VALVE_TURN_SECONDS := 1.6
+const VALVE_HOLD_SECONDS := 2.0
+const VALVE_NOISE := 9.0
+const GATE_SWING_SECONDS := 2.4
+## gate id -> {"pivot": Node3D (the leaf's hinge), "cells": Array, "grid": GridMap, "open": bool}
+var _gate_nodes := {}
+
+
+## The channel cells under a chunk's sluice gates: the railings leave their ends open.
+static func _gate_gaps(data: Dictionary) -> Dictionary:
+	var gaps := {}
+	for gate in data.get("gates", []):
+		for cell in (gate as Dictionary)["cells"]:
+			gaps[cell] = true
+	return gaps
+
+
+## A sluice gate: its leaf on a pivot at the hinge pin, raised (shut) or lowered (a crossing) as the world state says.
+func _rig_gate(parent: Node3D, prop: Dictionary, first: int) -> void:
+	var visual: Node3D = null
+	for index in range(first, parent.get_child_count()):
+		var child := parent.get_child(index)
+		if child is Node3D and String(child.get_meta("streamed_prop_type", "")) == "sewerSluiceGate":
+			visual = child
+	if visual == null:
+		return
+	var leaf := visual.find_child("Leaf", true, false) as Node3D
+	var pin := visual.find_child("HingePin", true, false) as Node3D
+	if leaf == null or pin == null:
+		return
+	var holder := leaf.get_parent() as Node3D
+	var pivot := Node3D.new()
+	pivot.name = "GateHinge"
+	holder.add_child(pivot)
+	pivot.transform = Transform3D(Basis.IDENTITY, pin.transform.origin)
+	var keep := leaf.transform
+	holder.remove_child(leaf)
+	pivot.add_child(leaf)
+	leaf.transform = pivot.transform.affine_inverse() * keep
+	var gate_id := String(prop.get("gate", ""))
+	_gate_nodes[gate_id] = {"pivot": pivot, "cells": prop.get("gate_cells", []), "grid": parent.get_node_or_null("Structure"),
+		"open": false}
+	apply_gate(gate_id, _gate_open(parent, gate_id), false)
+
+
+## Whether a gate is open: its valve turned an odd number of times.
+func _gate_open(root: Node, gate_id: String) -> bool:
+	if world_state == null:
+		return false
+	var data: Dictionary = _chunk_data.get(_root_coord(root), {})
+	if data.is_empty():
+		data = generator.chunk(_root_coord(root))
+	for gate in data.get("gates", []):
+		if (gate as Dictionary)["id"] == gate_id:
+			return world_state.valve_count(String(gate["valve"])) % 2 == 1
+	return false
+
+
+static func _root_coord(root: Node) -> Vector3i:
+	var parts := String(root.name).split("_")
+	return Vector3i(int(parts[1]), int(parts[2]), int(parts[3])) if parts.size() == 4 else Vector3i.ZERO
+
+
+## Lowers (open) or raises (shut) a gate's leaf, and swaps the channel collider under it for floor, or back.
+func apply_gate(gate_id: String, open: bool, animate: bool = true) -> void:
+	var entry: Dictionary = _gate_nodes.get(gate_id, {})
+	var pivot: Variant = entry.get("pivot")
+	if not is_instance_valid(pivot):
+		_gate_nodes.erase(gate_id)
+		return
+	entry["open"] = open
+	var angle := 0.0 if open else -PI / 2.0
+	if animate:
+		var swing := (pivot as Node3D).create_tween()
+		swing.tween_property(pivot, "rotation:x", angle, GATE_SWING_SECONDS).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	else:
+		(pivot as Node3D).rotation.x = angle
+	var grid: Variant = entry.get("grid")
+	if is_instance_valid(grid):
+		for cell_value in entry.get("cells", []):
+			var cell: Vector2i = cell_value
+			(grid as GridMap).set_cell_item(Vector3i(cell.x, 0, cell.y), _col_floor_item if open else _col_channel_item)
+
+
+## A flood valve with nothing to shut turns its chunk's pipe drips off and on (off after odd turns of any of them).
+func _apply_drips(root: Node, data: Dictionary) -> void:
+	if world_state == null or root == null:
+		return
+	var off := false
+	for prop_value in data.get("region_props", []):
+		var prop: Dictionary = prop_value
+		if String(prop.get("type", "")) == "sewerValveWheel" and String(prop.get("valve_effect", "flood")) == "flood":
+			off = off or world_state.valve_count(String(prop["id"])) % 2 == 1
+	for drips in root.find_children("PipeDrips", "GPUParticles3D", true, false):
+		(drips as GPUParticles3D).emitting = not off
+
+
+## A valve wheel you can turn: its rim, spokes and hub on one pivot at the hub (they spin), and an interactable at it.
+func _rig_valve(parent: Node3D, prop: Dictionary, first: int) -> void:
+	var visual: Node3D = null
+	for index in range(first, parent.get_child_count()):
+		var child := parent.get_child(index)
+		if child is Node3D and String(child.get_meta("streamed_prop_type", "")) == "sewerValveWheel":
+			visual = child
+	if visual == null:
+		return
+	var hub := visual.find_child("Hub", true, false) as Node3D
+	if hub == null:
+		return
+	var pivot := Node3D.new()
+	pivot.name = "ValvePivot"
+	var holder := hub.get_parent() as Node3D
+	holder.add_child(pivot)
+	pivot.transform = Transform3D(Basis.IDENTITY, hub.transform.origin)
+	for part in holder.get_children():
+		var name_text := String(part.name)
+		if part is Node3D and part != pivot and (name_text.begins_with("Rim") or name_text.begins_with("Spoke") or name_text == "Hub"):
+			var keep := (part as Node3D).transform
+			holder.remove_child(part)
+			pivot.add_child(part)
+			(part as Node3D).transform = pivot.transform.affine_inverse() * keep
+	var valve_id := String(prop.get("id", ""))
+	_valve_nodes[valve_id] = pivot
+	var turn := RouteInteractable3D.new()
+	turn.name = "ValveTurn"
+	turn.kind = RouteInteractable3D.Kind.FURNITURE
+	turn.configure_furniture("play")
+	turn.position = pivot.global_position - parent.global_position if pivot.is_inside_tree() else visual.position + Vector3(0, .3, 0)
+	turn.prompt_resolver = func() -> String: return "TURN VALVE"
+	turn.set_meta("hold_seconds", VALVE_HOLD_SECONDS)
+	if valve_requester.is_valid():
+		turn.activation_override = valve_requester.bind(valve_id)
+	parent.add_child(turn)
+
+
+## The host's "stream_valve" on every machine: the wheel spins round twice with a clank (its floods shut in the state).
+func apply_valve(valve_id: String, event: Dictionary = {}) -> void:
+	var coord: Vector3i = event.get("chunk", Vector3i(999999, 0, 0))
+	var root := _loaded.get(coord) as Node
+	if root != null:
+		match String(event.get("effect", "")):
+			"flood":
+				_apply_drips(root, _chunk_data.get(coord, {}))
+			"gate":
+				apply_gate(String(event.get("gate", "")), int(event.get("turns", 0)) % 2 == 1)
+	var pivot: Variant = _valve_nodes.get(valve_id)
+	if not is_instance_valid(pivot):
+		_valve_nodes.erase(valve_id)
+		return
+	var spin := (pivot as Node3D).create_tween()
+	spin.tween_property(pivot, "rotation:z", (pivot as Node3D).rotation.z - TAU * 2.0, VALVE_TURN_SECONDS) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	if DisplayServer.get_name() != "headless":
+		Sound.door_breach()
 
 
 ## The torn end an outflow main leaves at its wall once the Axe breaks it (authored with the main, no collider: it is all

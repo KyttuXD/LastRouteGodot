@@ -279,12 +279,61 @@ func _run() -> void:
 			Breach.dispatch("breached", {"id": pipe_id, "kind": spec["kind"], "chunk": main_coord, "opened": true})
 			_view.world_state.floods[pipe_id] = Time.get_unix_time_from_system() - SewerFloods.RISE * .5
 			await _shot("outflow_burst", at + back * 6.0 + Vector3(0, 1.6, 0), at + Vector3(0, .6, 0))
-			_view.world_state.floods[pipe_id] = Time.get_unix_time_from_system() - SewerFloods.RISE - 3.0
-			for mode in [DebugView.Mode.OFF, DebugView.Mode.FULLBRIGHT]:
-				DebugView.set_mode(mode, get_viewport())
-				await _shot("outflow_flooded" + ("" if mode == DebugView.Mode.OFF else "_fullbright"),
-					at + back * 5.0 + Vector3(0, 1.6, 0), at + Vector3(0, .2, 0))
+			# unresolved it worsens: just settled, half way, at its worst (deeper and spread further along the walkway)
+			for stage in [["settled", 3.0], ["worsening", SewerFloods.CREEP * .5], ["worst", SewerFloods.CREEP + 30.0]]:
+				_view.world_state.floods[pipe_id] = Time.get_unix_time_from_system() - SewerFloods.RISE - float(stage[1])
+				for mode in [DebugView.Mode.OFF, DebugView.Mode.FULLBRIGHT]:
+					DebugView.set_mode(mode, get_viewport())
+					await _shot("outflow_flood_%s%s" % [stage[0], "" if mode == DebugView.Mode.OFF else "_fullbright"],
+						at + back * 7.0 + Vector3(0, 1.8, 0), at - back * 2.0 + Vector3(0, .2, 0))
 			DebugView.set_mode(DebugView.Mode.OFF, get_viewport())
+			# the chunk's flood valve turned: the gush stops and the water drains
+			_view.world_state.shut_floods(main_coord)
+			_view.world_state.flood_shut[pipe_id] = Time.get_unix_time_from_system() - SewerFloods.SHUT_DRAIN * .6
+			await _shot("outflow_flood_draining", at + back * 7.0 + Vector3(0, 1.8, 0), at - back * 2.0 + Vector3(0, .2, 0))
+	# 6g: a valve wheel close up, then a moment into a turn (its rim and spokes spin on the hub)
+	for valve_key in _view._valve_nodes:
+		var held: Variant = _view._valve_nodes[valve_key]     # a valve of a chunk since unloaded is freed: never cast it
+		if not is_instance_valid(held) or not (held as Node3D).is_visible_in_tree():
+			continue
+		var pivot := held as Node3D
+		var hub := pivot.global_position
+		# out from the wall the wheel is fixed to, toward the walkway (the hub's local -z faces into the room)
+		var facing := (-pivot.global_transform.basis.z).normalized()
+		await _shot("valve_wheel", hub + facing * 1.3 + Vector3(.35, .25, 0), hub)
+		_view.apply_valve(String(valve_key))
+		for _frame in 25:
+			await get_tree().process_frame
+		await _shot("valve_turning", hub + facing * 1.3 + Vector3(.35, .25, 0), hub)
+		break
+	# 6h: a sluice gate across a channel: raised (shut), then its valve turned and the leaf down as a crossing
+	var gate := {}
+	var gate_coord := Vector3i.ZERO
+	for cz in range(-3, 4):
+		for cx in range(-3, 4):
+			for gate_value in _view.generator.chunk(Vector3i(cx, SewerRouteGenerator.LEVEL, cz)).get("gates", []):
+				if gate.is_empty():
+					gate = gate_value
+					gate_coord = Vector3i(cx, SewerRouteGenerator.LEVEL, cz)
+	if not gate.is_empty():
+		var size := StreamedRouteGenerator.CHUNK_SIZE
+		var corner := Vector3(gate_coord.x * size, level_y, gate_coord.z * size)
+		var cells: Array = gate["cells"]
+		var middle := corner + Vector3((cells[1] as Vector2i).x + .5, 0, (cells[1] as Vector2i).y + .5)
+		var span := Vector3((cells[2] as Vector2i).x - (cells[0] as Vector2i).x, 0, (cells[2] as Vector2i).y - (cells[0] as Vector2i).y).normalized()
+		var side := Vector3(span.z, 0, -span.x)
+		_player.global_position = middle + side * 5.0 + span * 2.0 + Vector3(0, .04, 0)
+		_view.refresh_at_tracked_player()
+		await _settle()
+		var eye := middle + side * 5.5 + span * 2.5 + Vector3(0, 1.7, 0)
+		await _shot("sluice_gate_shut", eye, middle + Vector3(0, .8, 0))
+		_view.world_state.set_valve_turns(String(gate["valve"]), 1)
+		_view.apply_valve(String(gate["valve"]), {"chunk": gate_coord, "effect": "gate", "turns": 1, "gate": gate["id"]})
+		await get_tree().create_timer(StreamedFacilityView3D.GATE_SWING_SECONDS * .5).timeout
+		await _shot("sluice_gate_lowering", eye, middle + Vector3(0, .8, 0))
+		await get_tree().create_timer(StreamedFacilityView3D.GATE_SWING_SECONDS * .7).timeout
+		await _shot("sluice_gate_open", eye, middle + Vector3(0, .4, 0))
+		await _shot("sluice_gate_crossing", middle + span * 3.2 + Vector3(0, 1.6, 0), middle - span * 2.0 + Vector3(0, .5, 0))
 	# 7: the Inferno, the deepest level, along its central hall
 	var inferno_y := float(StreamedRouteGenerator.INFERNO_LEVEL) * StreamedFacilityView3D.LEVEL_HEIGHT
 	_player.global_position = Vector3(c + 4.5, inferno_y + .04, c + .5)

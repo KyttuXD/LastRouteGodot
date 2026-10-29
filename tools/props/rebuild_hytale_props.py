@@ -6148,6 +6148,45 @@ def make_sewer_outflow_pipe_broken():
     return objects, (2.2, -1.6, 2.6), (0.0, 1.0, 1.8)
 
 
+def make_sewer_sluice_gate():
+    """A lifting sluice leaf across the 3 m channel: two iron posts with a counterweight beam on the hinge side
+    (Blender +Y, the walkway edge at y = 1.5), two seat bollards on the far side, and the riveted leaf "Leaf" authored
+    LOWERED (flat, its walking surface at z = 0, spanning the channel). The view hinges it up to stand upright while the
+    sluice is shut. Origin: the middle channel cell at walkway floor level."""
+    iron, rust, concrete, _, count = sewer_materials("sewer_sluice_gate")
+    objects = []
+    half = 0.68
+    # the leaf: one joined object so it hinges as a piece (frame, plate, cross ribs, kick plates)
+    leaf_parts = []
+    box("LeafPlate", (0.0, 0.0, -0.04), (half * 2.0, 3.0, 0.08), rust, 4, count, leaf_parts, bevel=0.006)
+    for index, y in enumerate((-1.1, -0.35, 0.35, 1.1)):
+        box("LeafRib%d" % index, (0.0, y, -0.12), (half * 2.0, 0.06, 0.08), iron, 2, count, leaf_parts)
+    for side, x in (("L", -half), ("R", half)):
+        box("LeafKick%s" % side, (x, 0.0, 0.06), (0.05, 3.0, 0.12), iron, 1, count, leaf_parts)
+        for j, y in enumerate((-1.2, -0.4, 0.4, 1.2)):
+            box("LeafRivet%s%d" % (side, j), (x * 0.9, y, 0.005), (0.04, 0.04, 0.02), rust, 6, count, leaf_parts)
+    bpy.ops.object.select_all(action="DESELECT")
+    for part in leaf_parts:
+        part.select_set(True)
+    bpy.context.view_layer.objects.active = leaf_parts[0]
+    bpy.ops.object.join()
+    leaf = bpy.context.view_layer.objects.active
+    leaf.name = "Leaf"
+    objects.append(leaf)
+    # hinge side: posts, the hinge pin and a counterweight beam overhead
+    for side, x in (("L", -half - 0.14), ("R", half + 0.14)):
+        box("Post%s" % side, (x, 1.62, 1.3), (0.14, 0.14, 2.6), iron, 2, count, objects, bevel=0.008)
+        box("PostFoot%s" % side, (x, 1.62, 0.03), (0.3, 0.3, 0.06), concrete, 3, count, objects)
+    cylinder("HingePin", (0.0, 1.5, 0.0), 0.06, half * 2.0 + 0.4, 10, iron, 1, count, objects,
+             rotation=(0.0, math.pi / 2.0, 0.0))
+    box("Header", (0.0, 1.62, 2.66), (half * 2.0 + 0.5, 0.18, 0.14), iron, 2, count, objects, bevel=0.008)
+    box("Counterweight", (0.0, 1.62, 2.4), (0.7, 0.3, 0.38), concrete, 4, count, objects, bevel=0.01)
+    # far side: the leaf's seat
+    for side, x in (("L", -half + 0.1), ("R", half - 0.1)):
+        box("Seat%s" % side, (x, -1.58, -0.1), (0.16, 0.16, 0.2), iron, 2, count, objects)
+    return objects, (3.6, -2.6, 2.6), (0.0, 0.0, 0.8)
+
+
 def make_sewer_overflow_grate():
     """Barred weir across the overflow chamber's basin: a low iron screen standing in the water."""
     iron, rust, concrete, _, count = sewer_materials("sewer_overflow_grate")
@@ -6246,6 +6285,7 @@ SEWER_BUILDERS = {
     "sewer_pipe_run": make_sewer_pipe_run,
     "sewer_outflow_pipe": make_sewer_outflow_pipe,
     "sewer_outflow_pipe_broken": make_sewer_outflow_pipe_broken,
+    "sewer_sluice_gate": make_sewer_sluice_gate,
     "sewer_overflow_grate": make_sewer_overflow_grate,
     "sewer_lamp": make_sewer_lamp,
 }

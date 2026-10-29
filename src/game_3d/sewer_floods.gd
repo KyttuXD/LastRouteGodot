@@ -1,46 +1,87 @@
 class_name SewerFloods
 extends Node3D
 
-## Floods from sewer pipes broken with the Axe (KT: "a broken pipe floods the area"). A burst pipe (Breach "breached",
-## KIND_PIPE, on every machine) sprays and gushes, and its walkway cells (the spec's extras.flood_cells, a bounded
-## patch) fill to shin depth over RISE seconds, stay HOLD seconds and drain over DRAIN seconds. One flat water plane per
-## flood, built once; only its height moves (no per-frame mesh work). The burst time lives in
-## StreamedWorldState.floods, so every machine's water follows the same clock and a reloaded run carries on mid-flood.
-## While the local runner stands in it they are slowed, their steps splash (loud to hunters) and they get soaked;
-## hunters wade through at their normal pace.
+## Floods from sewer pipes broken with the Axe (KT: "a broken pipe floods the area", and an unresolved one gets worse).
+## A burst pipe (Breach "breached", KIND_PIPE, on every machine) gushes out of its break, and the water fills its
+## walkway to ankle-shin depth over RISE seconds. Until somebody turns a flood valve in that chunk it keeps getting
+## worse: over CREEP seconds the depth climbs to knee height (DEEP_DEPTH) and the water spreads step by step along the
+## connected walkway (the spec's extras.flood_cells/flood_steps, capped by the generator), with the spray and the gush
+## growing. A valve (StreamedWorldState.flood_shut) stops it: the spread freezes and the water drains in SHUT_DRAIN.
+##
+## One water mesh per spread step, built once at the burst; the height of their shared holder and which steps show are
+## all that change (no per-frame mesh work). The burst and shut times live in the world state, so every machine's water
+## follows the same clock and a reloaded run carries on mid-flood. The local runner wading in it is slowed, splashes
+## loudly (hunters hear it), stays soaked and, at the deepest, tires; hunters wade at their normal pace.
 
 const RISE := 8.0
-const HOLD := 25.0
-const DRAIN := 90.0
-const DURATION := RISE + HOLD + DRAIN
-## Ankle to shin: deep enough to slow and splash, never enough to swim or muffle.
+## Ankle to shin, where a fresh flood settles.
 const MAX_DEPTH := .35
+## Knee-high, where an unresolved one ends up after CREEP seconds.
+const DEEP_DEPTH := .9
+const CREEP := 360.0
+## The spread: steps from the pipe when it settles, and when it is at its worst.
+const START_REACH := 4
+const FULL_REACH := 12
 ## Below this the water is a film: not drawn, no slowing.
 const MIN_DEPTH := .03
 const GUSH_RANGE := 22.0
+## A flood valve turned in the pipe's chunk stops the gush and drains the water this fast.
+const SHUT_DRAIN := 15.0
 
 var view: StreamedFacilityView3D
-## flood id -> {"water": MeshInstance3D, "spray": GPUParticles3D, "gush": AudioStreamPlayer3D, "chunk": Vector3i, "cells": Array (world)}
+## flood id -> {"holder": Node3D (one MeshInstance3D per spread step), "rings": Array, "spray": GPUParticles3D,
+## "gush": AudioStreamPlayer3D, "chunk": Vector3i, "cells": Array (world)}
 var _active := {}
-## world cell -> flood ids covering it
+## world cell -> [[flood id, spread step]]
 var _cells := {}
 
 
-## Water depth `age` seconds after the burst: a smooth rise, a hold, a linear drain.
+## How far a creeping flood is to its worst, 0..1, `age` seconds after the burst.
+static func worsening(age: float) -> float:
+	if age <= RISE:
+		return 0.0
+	var k := clampf((age - RISE) / CREEP, 0.0, 1.0)
+	return k * k * (3.0 - 2.0 * k)
+
+
+## Water depth `age` seconds after the burst while nobody has shut it: a smooth rise, then the slow creep upward.
 static func depth_at(age: float) -> float:
-	if age < 0.0 or age >= DURATION:
+	if age <= 0.0:
 		return 0.0
 	if age < RISE:
 		var k := age / RISE
 		return MAX_DEPTH * k * k * (3.0 - 2.0 * k)
-	if age < RISE + HOLD:
-		return MAX_DEPTH
-	return MAX_DEPTH * (1.0 - (age - RISE - HOLD) / DRAIN)
+	return lerpf(MAX_DEPTH, DEEP_DEPTH, worsening(age))
 
 
-## Whether the pipe is still spraying (rise and hold).
-static func gushing(age: float) -> bool:
-	return age >= 0.0 and age < RISE + HOLD
+## Spread steps the water reaches `age` seconds after the burst.
+static func reach_at(age: float) -> int:
+	if age <= 0.0:
+		return 0
+	if age < RISE:
+		return ceili(START_REACH * age / RISE)
+	return START_REACH + floori((FULL_REACH - START_REACH) * worsening(age))
+
+
+## Depth when a valve shut the pipe `shut` seconds after the burst (-1: never): from then it drains in SHUT_DRAIN.
+static func depth_shut(age: float, shut: float) -> float:
+	if shut < 0.0 or age < shut:
+		return depth_at(age)
+	return depth_at(shut) * maxf(0.0, 1.0 - (age - shut) / SHUT_DRAIN)
+
+
+## The spread a shut flood keeps (frozen at the turn).
+static func reach_shut(age: float, shut: float) -> int:
+	return reach_at(age) if shut < 0.0 or age < shut else reach_at(shut)
+
+
+## Whether a flood is over: shut and drained.
+static func spent(age: float, shut: float) -> bool:
+	return shut >= 0.0 and age >= shut + SHUT_DRAIN
+
+
+func _state(id: String) -> Vector2:
+	return Vector2(view.world_state.flood_age(id), view.world_state.flood_shut_at(id))
 
 
 ## A chunk was built: bring back any flood of its pipes that is still running.
@@ -50,8 +91,8 @@ func chunk_built(coord: Vector3i, root: Node3D, data: Dictionary) -> void:
 		var id := String(spec["id"])
 		if String(spec.get("kind", "")) != Breach.KIND_PIPE or _active.has(id):
 			continue
-		var age := view.world_state.flood_age(id)
-		if age >= 0.0 and age < DURATION:
+		var state := _state(id)
+		if state.x >= 0.0 and not spent(state.x, state.y):
 			_spawn(id, spec, coord, root)
 
 
@@ -80,14 +121,20 @@ func on_pipe_breached(event: Dictionary) -> void:
 
 func _spawn(id: String, spec: Dictionary, coord: Vector3i, root: Node3D) -> void:
 	var extras: Dictionary = spec.get("extras", {})
-	var size := StreamedRouteGenerator.CHUNK_SIZE
-	var base := Vector2i(coord.x, coord.z) * size
-	var tool := SurfaceTool.new()
-	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	tool.set_normal(Vector3.UP)
+	var base := Vector2i(coord.x, coord.z) * StreamedRouteGenerator.CHUNK_SIZE
+	var cells: Array = extras.get("flood_cells", [])
+	var steps: Array = extras.get("flood_steps", [])
+	var tools := []
+	for _step in FULL_REACH + 1:
+		var tool := SurfaceTool.new()
+		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+		tool.set_normal(Vector3.UP)
+		tools.append(tool)
 	var world_cells := []
-	for cell_value in extras.get("flood_cells", []):
-		var cell: Vector2i = cell_value
+	for index in cells.size():
+		var cell: Vector2i = cells[index]
+		var step := clampi(int(steps[index]) if index < steps.size() else 0, 0, FULL_REACH)
+		var tool: SurfaceTool = tools[step]
 		for corner in [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 0), Vector2(1, 1), Vector2(0, 1)]:
 			var c: Vector2 = corner
 			tool.set_uv(Vector2(cell.x + c.x, cell.y + c.y) * .5)
@@ -95,14 +142,20 @@ func _spawn(id: String, spec: Dictionary, coord: Vector3i, root: Node3D) -> void
 		world_cells.append(base + cell)
 		if not _cells.has(base + cell):
 			_cells[base + cell] = []
-		(_cells[base + cell] as Array).append(id)
-	var water := MeshInstance3D.new()
-	water.name = "Flood_%s" % id.replace(":", "_")
-	water.mesh = tool.commit()
-	water.material_override = _water_material()
-	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	water.visible = false
-	root.add_child(water)
+		(_cells[base + cell] as Array).append([id, step])
+	var holder := Node3D.new()
+	holder.name = "Flood_%s" % id.replace(":", "_")
+	root.add_child(holder)
+	var rings := []
+	for step in tools.size():
+		var ring := MeshInstance3D.new()
+		ring.name = "Step%d" % step
+		ring.mesh = (tools[step] as SurfaceTool).commit()
+		ring.material_override = _water_material()
+		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		ring.visible = false
+		holder.add_child(ring)
+		rings.append(ring)
 	var centre: Vector2 = extras.get("centre", Vector2(spec["cell"]) + Vector2(.5, .5))
 	var wall: Vector2 = extras.get("wall", Vector2.ZERO)
 	# an outflow main gushes out of its torn stub at the wall, along the old run; a crawl pipe sprays up where it split
@@ -123,20 +176,22 @@ func _spawn(id: String, spec: Dictionary, coord: Vector3i, root: Node3D) -> void
 		gush.position = spray.position
 		root.add_child(gush)
 		gush.play()
-	_active[id] = {"water": water, "spray": spray, "gush": gush, "chunk": coord, "cells": world_cells}
+	_active[id] = {"holder": holder, "rings": rings, "spray": spray, "gush": gush, "chunk": coord, "cells": world_cells}
 
 
 func _forget(id: String) -> void:
 	var entry: Dictionary = _active.get(id, {})
-	for key in ["water", "spray", "gush"]:
+	for key in ["holder", "spray", "gush"]:
 		# the chunk root may have taken them with it already (an unloaded chunk): never cast a freed node
 		var node: Variant = entry.get(key)
 		if is_instance_valid(node):
 			(node as Node).queue_free()
 	for cell in entry.get("cells", []):
-		var ids: Array = _cells.get(cell, [])
-		ids.erase(id)
-		if ids.is_empty():
+		var marks: Array = _cells.get(cell, [])
+		for mark in marks.duplicate():
+			if String((mark as Array)[0]) == id:
+				marks.erase(mark)
+		if marks.is_empty():
 			_cells.erase(cell)
 	_active.erase(id)
 
@@ -146,33 +201,51 @@ func _process(_delta: float) -> void:
 		return
 	for id in _active.keys():
 		var entry: Dictionary = _active[id]
-		var age := view.world_state.flood_age(String(id))
-		if age < 0.0 or age >= DURATION or not is_instance_valid(entry["water"]) or not is_instance_valid(entry["spray"]):
+		var state := _state(String(id))
+		if state.x < 0.0 or spent(state.x, state.y) or not is_instance_valid(entry["holder"]) or not is_instance_valid(entry["spray"]):
 			_forget(String(id))
 			continue
-		var depth := depth_at(age)
-		var water := entry["water"] as MeshInstance3D
-		water.position.y = depth
-		water.visible = depth > MIN_DEPTH
-		(entry["spray"] as GPUParticles3D).emitting = gushing(age)
-		var gush := entry["gush"] as AudioStreamPlayer3D
-		if gush != null:
-			gush.volume_db = linear_to_db(maxf(.02, depth / MAX_DEPTH)) if gushing(age) else -60.0
+		var depth := depth_shut(state.x, state.y)
+		var reach := reach_shut(state.x, state.y)
+		var running := state.y < 0.0
+		(entry["holder"] as Node3D).position.y = depth
+		var rings: Array = entry["rings"]
+		for step in rings.size():
+			(rings[step] as MeshInstance3D).visible = depth > MIN_DEPTH and step <= reach
+		# the break gushes harder as the flood worsens
+		var harder := worsening(state.x) if running else 0.0
+		var spray := entry["spray"] as GPUParticles3D
+		spray.emitting = running
+		spray.amount_ratio = lerpf(.45, 1.0, harder)
+		spray.speed_scale = lerpf(1.0, 1.5, harder)
+		var gush: Variant = entry["gush"]
+		if is_instance_valid(gush):
+			(gush as AudioStreamPlayer3D).volume_db = lerpf(-4.0, 4.0, harder) if running else -60.0
+			(gush as AudioStreamPlayer3D).pitch_scale = lerpf(1.35, 1.1, harder)
 	var player := view.tracked_player
 	if player != null and is_instance_valid(player):
 		player.wading_depth = depth_under(player.global_position)
 
 
-## Water depth over the floor at a world position on the tracked level (0 outside every flood).
+## Water depth over the floor at a world position on its level (0 outside every flood and beyond its spread).
 func depth_under(at: Vector3) -> float:
 	var cell := Vector2i(floori(at.x), floori(at.z))
 	var deepest := 0.0
-	for id in _cells.get(cell, []):
-		var entry: Dictionary = _active.get(id, {})
+	for mark_value in _cells.get(cell, []):
+		var mark: Array = mark_value
+		var entry: Dictionary = _active.get(mark[0], {})
 		if entry.is_empty() or int((entry["chunk"] as Vector3i).y) != StreamedFacilityView3D.snapped_level_for_world_y(at.y):
 			continue
-		deepest = maxf(deepest, depth_at(view.world_state.flood_age(String(id))))
+		var state := _state(String(mark[0]))
+		if int(mark[1]) <= reach_shut(state.x, state.y):
+			deepest = maxf(deepest, depth_shut(state.x, state.y))
 	return deepest if deepest > MIN_DEPTH else 0.0
+
+
+## Running (unshut) floods of a chunk's pipes: their ids.
+func running_in(coord: Vector3i) -> Array:
+	return _active.keys().filter(func(id: String) -> bool:
+		return (_active[id] as Dictionary)["chunk"] == coord and view.world_state.flood_shut_at(id) < 0.0)
 
 
 func forget_all() -> void:
@@ -198,7 +271,7 @@ static func _water_material() -> StandardMaterial3D:
 	return _material
 
 
-## White water bursting out of the break while it gushes: a short, wide fan falling to the walkway.
+## White water out of the break while it runs: a fan (up from a split crawl pipe, along the run from a torn main).
 static func _spray(at: Vector3, direction: Vector3, spread: float) -> GPUParticles3D:
 	var spray := GPUParticles3D.new()
 	spray.name = "FloodSpray"

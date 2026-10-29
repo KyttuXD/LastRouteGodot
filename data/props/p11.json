@@ -69,6 +69,12 @@
 			]
 		},
 		{
+			"id": "sewerSluiceGate",
+			"models": [
+				"res://art/props-3d/props/sewer/sewer_sluice_gate.glb"
+			]
+		},
+		{
 			"id": "sewerOverflowGrate",
 			"models": [
 				"res://art/props-3d/props/sewer/sewer_overflow_grate.glb"
