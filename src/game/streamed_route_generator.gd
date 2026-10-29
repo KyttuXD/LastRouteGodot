@@ -96,7 +96,7 @@ const REGION_REPEAT_TEMPLATES := ["operating_theatre", "icu", "morgue", "pharmac
 ## Great halls (docs/ROOM_SIZES.md): a side of a dense chunk can merge its two middle banks and the east-west hall between
 ## them into ONE 21x21 room for the districts' big gathering rooms (restaurant, mess hall, dining hall). The room opens on
 ## the vertical hall; both chunks at that seam give up the seam row and trim the hall stub so no dead-end hall remains.
-const LARGE_ROOM_CHANCE := {"maze": .35, "prison": .30, "hotel": .25, "mansion": .30,
+const LARGE_ROOM_CHANCE := {"prison": .30, "hotel": .25, "mansion": .30,
 	"hospital": .25, "lab": .30, "greenhouse": .45, "carnival": .35}
 const LARGE_ROOM_TYPES := {"maze": ["restaurant_dining"], "prison": ["prison_cafeteria"],
 	"hotel": ["restaurant_dining"], "mansion": ["dining_room"],
@@ -997,6 +997,7 @@ func _build_chunk(coord: Vector3i) -> Dictionary:
 		"biome": region,   # deprecated alias of "region" for branches written before the rename; nothing here reads it
 		"region": region,
 		"rooms": layout["rooms"],
+		"warren": layout.get("warren", {}),
 		"corridors": layout["corridors"],
 		"suites": layout.get("suites", []),
 		"difficulty": difficulty_for_level(coord.y),
@@ -1250,7 +1251,7 @@ func _base_large_plan(coord: Vector3i) -> Dictionary:
 		return _base_large_cache[key]
 	var plan := {"W": "", "E": ""}
 	var region := region_for(coord) if is_chunk_allowed(coord) else ""
-	if LARGE_ROOM_CHANCE.has(region) and not is_safe_room(coord):
+	if LARGE_ROOM_CHANCE.has(region) and not is_safe_room(coord) and not is_warren_chunk(coord):
 		var rng := SeededRandom.new("%s:LARGE:%s" % [world_seed, key])
 		var types: Array = LARGE_ROOM_TYPES[region]
 		for side in ["W", "E"]:
@@ -1270,7 +1271,8 @@ func _base_large_plan(coord: Vector3i) -> Dictionary:
 
 ## The raw roll for a music wing at this chunk: a hotel chunk, its own roll (so the other plans are unchanged).
 func _wing_roll(coord: Vector3i) -> bool:
-	if not is_chunk_allowed(coord) or not MUSIC_WING_REGIONS.has(region_for(coord)) or is_safe_room(coord):
+	if not is_chunk_allowed(coord) or not MUSIC_WING_REGIONS.has(region_for(coord)) or is_safe_room(coord) \
+			or is_warren_chunk(coord):
 		return false
 	return SeededRandom.new("%s:MUSICWING:%s" % [world_seed, chunk_id(coord)]).next_float() < MUSIC_WING_CHANCE
 
@@ -1619,6 +1621,8 @@ func _region_layout(coord: Vector3i, region: String, grid: Array,
 	# A region is the multi-chunk visual/gameplay identity. Rooms are the small
 	# bounded spaces inside one chunk; corridors serve many rooms and stairs
 	# bridge the same circulation network vertically.
+	if stairs.is_empty() and is_warren_chunk(coord):
+		return _maze_warren_layout(coord, grid, region)
 	if DENSE_DISTRICTS.has(region) and stairs.is_empty():
 		return _dense_linear_layout(coord, region, grid)
 	if region in ["hotel", "prison"]:
@@ -1721,6 +1725,217 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 ## Dense districts (hotel, prison): three east-west halls (rows 9-11, 21-23 and 33-35) and the central north-south hall,
 ## with 11x9 rooms (9x7 inside) in tight banks that share walls and open straight onto a hall (no connector, no dead block between
 ## rooms). Per chunk: four rows of four rooms. The centre hall is the one the chunk seams meet.
+## Share of maze chunks that are warrens (_maze_warren_layout) rather than room banks.
+const WARREN_SHARE := .55
+## The dense regions whose chunks can be warrens (KT: "the other regions need this change too"). The rest keep their banks;
+## each region's special rooms (carousel big top, music wing, maze office suite) live in its bank chunks.
+const WARREN_REGIONS := ["maze", "hospital"]
+## Room types whose recipes are tuned to bank shapes (rows of beds): they stay in the bank chunks.
+const WARREN_ROOM_EXCLUDE := ["ward"]
+## Warren macro cells: each quadrant beside the spine is 3 x 3 cells of WARREN_CELL x WARREN_CELL.
+const WARREN_CELL := 6
+
+
+## KT: "re-do the maze hallway styles, with twists and turns, scattered rooms". A maze chunk is either the bank layout or,
+## WARREN_SHARE of the time, a warren. Never the spawn chunk; deterministic per seed.
+func is_warren_chunk(coord: Vector3i) -> bool:
+	if coord.y != 0 or not WARREN_REGIONS.has(region_for(coord)) or is_safe_room(coord):
+		return false
+	return SeededRandom.new("%s:WARREN:%s" % [world_seed, chunk_id(coord)]).next_float() < WARREN_SHARE
+
+
+## A warren: the five-wide spine cross (rows/columns 20-24) runs straight across the chunk (the long calm sightlines,
+## unbroken: the maze has no great halls), and each quadrant beside it is a 3 x 3 grid of macro cells joined by
+## three-wide corridors along a seeded spanning tree with the odd extra loop: turns, dead ends and loops. A quadrant may
+## give a 2 x 2 corner of its macro cells to one 12 x 12 room (any maze room type, door onto a corridor through a short
+## stub) or open its centre into a plaza. The corridors reach the spine and the E/W seam rows 10 and 34. The office
+## suite lives in the bank chunks.
+func _maze_warren_layout(coord: Vector3i, grid: Array, region: String = "maze") -> Dictionary:
+	var rooms := []
+	var corridors := []
+	var suites := []
+	var circulation := {}
+	var metrics := {"corridor_cells": 0, "turns": 0, "dead_ends": 0, "nodes": 0, "loops": 0}
+	var rng := SeededRandom.new("%s:WARRENLAYOUT:%s" % [world_seed, chunk_id(coord)])
+	var spine := [Rect2i(1, 20, CHUNK_SIZE - 2, 5), Rect2i(20, 1, 5, CHUNK_SIZE - 2)]
+	for index in spine.size():
+		var hall: Rect2i = spine[index]
+		_carve_rect(grid, hall)
+		_mark_rect_cells(circulation, hall)
+		corridors.append({"id": "%s:HALL:%d" % [chunk_id(coord), 1 if index == 0 else 3], "rect": hall, "width": CORRIDOR_WIDTH,
+			"axis": "east_west" if index == 0 else "north_south", "serves_many_rooms": true})
+	# the region's own rooms that fit a 12 x 12 corner (RoomSizeProfiles)
+	var room_types := []
+	for type_name in _room_type_choices(region):
+		if RoomSizeProfiles.within(String(type_name), Vector2i(WARREN_CELL * 2, WARREN_CELL * 2)) and not room_types.has(type_name) \
+				and not WARREN_ROOM_EXCLUDE.has(type_name):
+			room_types.append(type_name)
+	if room_types.is_empty():
+		room_types = ["storage"]
+	for quadrant in 4:
+		var east := quadrant % 2 == 1
+		var south := quadrant >= 2
+		var origin := Vector2i(25 if east else 1, 25 if south else 1)
+		# the macro cell on the seam row (row 10 or 34) at the chunk's outer side keeps its corridor
+		var seam_node := Vector2i(2 if east else 0, 1)
+		var spine_x := 0 if east else 2
+		var spine_z := 0 if south else 2
+		var room_corner := Vector2i(-1, -1)
+		if rng.next_float() < .65:
+			var options: Array[Vector2i] = []
+			for cx in 2:
+				for cz in 2:
+					var corner := Vector2i(cx, cz)
+					var covers_seam := Rect2i(corner, Vector2i(2, 2)).has_point(seam_node)
+					if not covers_seam:
+						options.append(corner)
+			if not options.is_empty():
+				room_corner = options[rng.next_index(options.size())]
+		var nodes := {}
+		for i in 3:
+			for j in 3:
+				if room_corner.x >= 0 and Rect2i(room_corner, Vector2i(2, 2)).has_point(Vector2i(i, j)):
+					continue
+				nodes[Vector2i(i, j)] = true
+		# spanning tree (randomised depth-first), then a loop or two
+		var tree := {}
+		var start: Vector2i = seam_node
+		var seen := {start: true}
+		var stack: Array[Vector2i] = [start]
+		while not stack.is_empty():
+			var at: Vector2i = stack.back()
+			var options: Array[Vector2i] = []
+			for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var next: Vector2i = at + step
+				if nodes.has(next) and not seen.has(next):
+					options.append(next)
+			if options.is_empty():
+				stack.pop_back()
+				continue
+			var chosen: Vector2i = options[rng.next_index(options.size())]
+			seen[chosen] = true
+			tree[_edge_key(at, chosen)] = [at, chosen]
+			stack.append(chosen)
+		var extra: Array = []
+		for node_value in nodes:
+			var node: Vector2i = node_value
+			for step in [Vector2i(1, 0), Vector2i(0, 1)]:
+				var next: Vector2i = node + step
+				if nodes.has(next) and not tree.has(_edge_key(node, next)):
+					extra.append([node, next])
+		for _loop in (1 if rng.next_float() < .6 else 0) + (1 if rng.next_float() < .25 else 0):
+			if extra.is_empty():
+				break
+			var pick: Array = extra.pop_at(rng.next_index(extra.size()))
+			tree[_edge_key(pick[0], pick[1])] = pick
+			metrics["loops"] = int(metrics["loops"]) + 1
+		var centre_of := func(node: Vector2i) -> Vector2i:
+			return origin + node * WARREN_CELL + Vector2i(3, 3)
+		var degree := {}
+		var dirs := {}
+		for key in tree:
+			var pair: Array = tree[key]
+			var a: Vector2i = pair[0]
+			var b: Vector2i = pair[1]
+			_carve_warren_lane(grid, circulation, centre_of.call(a), centre_of.call(b))
+			degree[a] = int(degree.get(a, 0)) + 1
+			degree[b] = int(degree.get(b, 0)) + 1
+			(dirs.get_or_add(a, []) as Array).append(b - a)
+			(dirs.get_or_add(b, []) as Array).append(a - b)
+		for node_value in nodes:
+			var node: Vector2i = node_value
+			var c: Vector2i = centre_of.call(node)
+			_carve_warren_lane(grid, circulation, c, c)
+		# joins to the spine: the nodes on the spine side, one always, a second sometimes
+		var spine_nodes: Array[Vector2i] = []
+		for node_value in nodes:
+			var node: Vector2i = node_value
+			if node.x == spine_x or node.y == spine_z:
+				spine_nodes.append(node)
+		spine_nodes.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.x * 7 + a.y < b.x * 7 + b.y)
+		var joins := 1 + (1 if rng.next_float() < .5 else 0)
+		for join in mini(joins, spine_nodes.size()):
+			var node: Vector2i = spine_nodes.pop_at(rng.next_index(spine_nodes.size()))
+			var c: Vector2i = centre_of.call(node)
+			var toward := Vector2i(22, c.y) if node.x == spine_x and (node.y != spine_z or rng.next_float() < .5) else Vector2i(c.x, 22)
+			_carve_warren_lane(grid, circulation, c, toward)
+			corridors.append({"id": "%s:WARREN-JOIN:%d:%d" % [chunk_id(coord), quadrant, join], "axis": "east_west" if toward.y == c.y else "north_south",
+				"width": CORRIDOR_WIDTH, "length": absi(toward.x - c.x) + absi(toward.y - c.y), "branch": true, "from_main_hall": true,
+				"serves_many_rooms": true})
+			degree[node] = int(degree.get(node, 0)) + 1
+			(dirs.get_or_add(node, []) as Array).append((toward - c).sign())
+		# the seam row out to the chunk border (rows 10 / 34): the neighbour's hall comes through there
+		var seam_c: Vector2i = centre_of.call(seam_node)
+		_carve_warren_lane(grid, circulation, seam_c, Vector2i(CHUNK_SIZE - 2 if east else 1, seam_c.y))
+		degree[seam_node] = int(degree.get(seam_node, 0)) + 1
+		(dirs.get_or_add(seam_node, []) as Array).append(Vector2i(1 if east else -1, 0))
+		# a plaza in a quadrant with no room
+		if room_corner.x < 0 and rng.next_float() < .5 and nodes.has(Vector2i(1, 1)):
+			var plaza := Rect2i(origin + Vector2i(WARREN_CELL + 1, WARREN_CELL + 1), Vector2i(WARREN_CELL - 1, WARREN_CELL - 1))
+			_carve_rect(grid, plaza)
+			_mark_rect_cells(circulation, plaza)
+			corridors.append({"id": "%s:PLAZA:%d" % [chunk_id(coord), quadrant], "rect": plaza, "width": CORRIDOR_WIDTH,
+				"axis": "east_west", "serves_many_rooms": true})
+		# the room: a 12 x 12 corner, its door through a stub onto the nearest corridor beside it
+		if room_corner.x >= 0:
+			var rect := Rect2i(origin + room_corner * WARREN_CELL, Vector2i(WARREN_CELL * 2, WARREN_CELL * 2))
+			_carve_rect(grid, rect)
+			var door_options := []
+			for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				for along in 2:
+					var inside := room_corner + Vector2i(along if step.x == 0 else (1 if step.x > 0 else 0), along if step.y == 0 else (1 if step.y > 0 else 0))
+					var outside: Vector2i = inside + step
+					if nodes.has(outside):
+						door_options.append([inside, outside])
+			if door_options.is_empty():
+				door_options.append([room_corner, room_corner])
+			var pick: Array = door_options[rng.next_index(door_options.size())]
+			var target: Vector2i = centre_of.call(pick[1])
+			var inner: Vector2i = centre_of.call(pick[0])
+			# the door sits mid-side (a door by a corner leaves a one-cell wall stub), the stub bends to the corridor
+			var middle := rect.position + rect.size / 2
+			var doorway := Vector2i(rect.position.x if target.x < inner.x else rect.end.x - 1, middle.y) if target.x != inner.x \
+				else Vector2i(middle.x, rect.position.y if target.y < inner.y else rect.end.y - 1)
+			_seal_room_perimeter_except(grid, rect, doorway)
+			_carve_warren_lane(grid, circulation, doorway + (target - inner).sign(), target)
+			_mark_corridor_cell(circulation, doorway, 1)
+			corridors.append({"id": "%s:ROOM-BRANCH:%d" % [chunk_id(coord), rooms.size()], "axis": "north_south",
+				"width": CORRIDOR_WIDTH, "length": 1, "branch": true, "from_main_hall": false, "serves_many_rooms": false,
+				"doorway": doorway})
+			var entry := _room_entry(coord, rooms.size(), region, rect, String(room_types[rng.next_index(room_types.size())]))
+			entry["doorway"] = doorway
+			rooms.append(entry)
+		for node_value in nodes:
+			var node: Vector2i = node_value
+			metrics["nodes"] = int(metrics["nodes"]) + 1
+			var node_dirs: Array = dirs.get(node, [])
+			if int(degree.get(node, 0)) == 1:
+				metrics["dead_ends"] = int(metrics["dead_ends"]) + 1
+			elif node_dirs.size() == 2 and (node_dirs[0] as Vector2i) != -(node_dirs[1] as Vector2i):
+				metrics["turns"] = int(metrics["turns"]) + 1
+	for z in CHUNK_SIZE:
+		for x in CHUNK_SIZE:
+			if circulation.has(Vector2i(x, z)) and not (x >= 20 and x <= 24) and not (z >= 20 and z <= 24):
+				metrics["corridor_cells"] = int(metrics["corridor_cells"]) + 1
+	return {"rooms": rooms, "corridors": corridors, "suites": suites, "circulation": circulation, "warren": metrics}
+
+
+static func _edge_key(a: Vector2i, b: Vector2i) -> String:
+	return "%s-%s" % [a, b] if a.x * 99 + a.y < b.x * 99 + b.y else "%s-%s" % [b, a]
+
+
+## A three-wide straight lane between two cells on a row or a column (an L when they differ in both).
+static func _carve_warren_lane(grid: Array, circulation: Dictionary, from: Vector2i, to: Vector2i) -> void:
+	var corner := Vector2i(to.x, from.y)
+	for leg in [[from, corner], [corner, to]]:
+		var a: Vector2i = leg[0]
+		var b: Vector2i = leg[1]
+		var rect := Rect2i(mini(a.x, b.x) - 1, mini(a.y, b.y) - 1, absi(a.x - b.x) + 3, absi(a.y - b.y) + 3)
+		rect = rect.intersection(Rect2i(1, 1, CHUNK_SIZE - 2, CHUNK_SIZE - 2))
+		_carve_rect(grid, rect)
+		_mark_rect_cells(circulation, rect)
+
+
 func _dense_linear_layout(coord: Vector3i, region: String, grid: Array) -> Dictionary:
 	var rooms := []
 	var corridors := []

@@ -763,6 +763,15 @@ static func camera_blocked(space: PhysicsDirectSpaceState3D, point: Vector3, exc
 	return ""
 
 
+## Move `mesh_node` to NEAR_CULL_LAYER, saving its real layers. The view's lens cull (HunterView3D) shares the layer bit and
+## may have hidden it this frame already: save the layers it saved, and take the part over so the lens cull does not put
+## it back mid-grab.
+static func take_near_cull(mesh_node: MeshInstance3D) -> void:
+	mesh_node.set_meta("grab_layers", int(mesh_node.get_meta("lens_layers", mesh_node.layers)))
+	mesh_node.remove_meta("lens_layers")
+	mesh_node.layers = NEAR_CULL_LAYER
+
+
 ## Any box of her model within the near plane of the camera at `at` is drawn on a layer the first-person camera skips, for
 ## this frame only, so the lens never shows the inside of a mesh; everything else is put back.
 func _cull_near(at: Vector3) -> void:
@@ -789,8 +798,7 @@ func _cull_near(at: Vector3) -> void:
 		var local := mesh_node.global_transform.affine_inverse() * at
 		var scale := mesh_node.global_transform.basis.get_scale()
 		if mesh_node.mesh.get_aabb().grow(HARD_CLEARANCE / maxf(minf(scale.x, minf(scale.y, scale.z)), .001)).has_point(local):
-			mesh_node.set_meta("grab_layers", mesh_node.layers)
-			mesh_node.layers = NEAR_CULL_LAYER
+			take_near_cull(mesh_node)
 			culled.append(mesh_node)
 
 

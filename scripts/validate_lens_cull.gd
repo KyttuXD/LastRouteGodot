@@ -65,6 +65,14 @@ func run(host: Node) -> int:
 		camera.near = near
 		camera.global_position = centre
 		view._update_lens_cull()
+		# a grab starting this frame takes the lens-hidden chest over: it keeps the real layers, not the hidden one
+		var real_layers := int(chest.get_meta("lens_layers", -1))
+		HunterGrab.take_near_cull(chest)
+		_expect(int(chest.get_meta("grab_layers", -1)) == real_layers and real_layers & HunterView3D.LENS_LAYER == 0,
+			"%s: a grab starting on a lens-culled part saved layers %d, not its real %d" % [id, chest.get_meta("grab_layers", -1), real_layers])
+		chest.layers = int(chest.get_meta("grab_layers"))
+		chest.remove_meta("grab_layers")
+		view._update_lens_cull()
 		view.get_parent().remove_child(view)
 		_expect(view._lens_culled.is_empty() and chest.layers & HunterView3D.LENS_LAYER == 0,
 			"%s: culled parts were not restored when the view left the tree" % id)
