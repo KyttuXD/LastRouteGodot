@@ -19,7 +19,8 @@ enum Phase { OUT, CLIMB_IN, DUCT, CLIMB_OUT }
 
 ## Crawl speed in cells (metres) per second: under a crouch walk, for runners and hunters alike.
 const CRAWL_SPEED := 1.4
-const CLIMB_SECONDS := .9
+## A climb is mostly vertical: the storey floor up to the duct floor (VentNetwork.DUCT_FLOOR, 2.7 m) through the hatch.
+const CLIMB_SECONDS := 1.4
 ## A grate is in reach while the crawler is this close to its duct cell centre.
 const GRATE_REACH := .7
 ## The crawler's half-width against the duct walls (a 1-cell duct leaves a little play).

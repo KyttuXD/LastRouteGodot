@@ -219,7 +219,6 @@ func _ready() -> void:
 	player.revive_hold_done.connect(func(peer: int) -> void: _request_revive(peer, "finish"))
 	player.plunge_finished.connect(_on_player_plunge_finished)
 	player.interaction_veto = _stream_guardian_blocking
-	player.vent_resolver = _use_streamed_vent
 	hud.inventory_reorder_requested.connect(player.move_inventory_slot)
 	hud.inventory_open_changed.connect(_on_inventory_open_changed)
 	hud.map_open_changed.connect(_on_map_open_changed)
@@ -569,6 +568,10 @@ func _update_hud(update_map: bool = true) -> void:
 	hud.update_stamina(player.stamina, player.exhausted)
 	var thermal := _temperature_hunter_proximity()
 	hud.update_meters(player.meters, thermal.x, thermal.y)
+	# physical vents: the duct layer for the runner's crawl (VentCrawl); the old grate teleport resolver is retired
+	if player.vents == null and facility.generator != null and facility.generator.has_method("vents"):
+		player.vents = facility.generator.vents()
+	player.vent_level = facility.current_level()
 	hud.update_inventory(player.selected_inventory_item(), player.taser_cooldown,
 		player.inventory_durability_snapshot(), player.inventory_owned_snapshot(),
 		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot(),
@@ -2822,12 +2825,18 @@ func _load_hunter(entity_id: String, state: Dictionary) -> void:
 	var level := int(state.get("level", facility.current_level()))
 	var view := HunterView3D.new()
 	view.name = "StreamedHunter_%s" % entity_id.replace(":", "_")
+	var vent_layer = facility.generator.vents() if facility.generator != null and facility.generator.has_method("vents") else null
 	view.brain = HunterBrain.new(spawn_position,
 		"%s:%s" % [facility.generator.world_seed, entity_id], hunter_id,
 		RoomState.difficulty_id())
 	_configure_day_vision(view.brain)
 	if view.brain.gimmick is GlyraGimmick:
 		(view.brain.gimmick as GlyraGimmick).boxes = _music_boxes
+	if view.brain.gimmick is VerrineGimmick and vent_layer != null and level == 0:
+		# she lives in the storey-0 ducts and crawls them (VerrineGimmick._physical_tick); upper storeys come with their ducts
+		(view.brain.gimmick as VerrineGimmick).vents = vent_layer
+		(view.brain.gimmick as VerrineGimmick).level = level
+	view.brain.vent_nav = VentNav.new(vent_layer) if vent_layer != null and level == 0 else null
 	view.brain.near_link = _hunter_near_link.bind(level)
 	world_state.restore_hunter(view.brain, state)
 	_lock_gray_on(entity_id, view.brain)
@@ -3517,6 +3526,17 @@ func _apply_gimmick_signal(event: Dictionary, source: HunterView3D, target: Dict
 
 func _apply_streamed_hunter_world_event(event: Dictionary, level: int,
 		navigation: StreamedHunterNavigation) -> void:
+	if String(event.get("what", "")) in ["vent_thump", "vent_hatch", "vent_burst"]:
+		# a hunter in the ducts: sheet-metal thumps overhead, a hatch banging open as she climbs in or bursts out
+		var at: Vector2 = event.get("at", Vector2.INF)
+		var distance := Vector2(player.global_position.x, player.global_position.z).distance_to(at) \
+			if at != Vector2.INF and level == facility.current_level() else INF
+		if distance < 24.0:
+			if String(event["what"]) == "vent_thump":
+				Sound.hunter_footstep(0.0, clampf(1.2 - distance / 24.0, .2, 1.2) * .06, "metal")
+			else:
+				Sound.door(true)
+		return
 	if String(event.get("what", "")) == "room_door":
 		var door_id := String(event.get("door_id", ""))
 		var door_data := _stream_room_door_data(door_id)
@@ -3617,28 +3637,6 @@ func _wind_streamed_music_box(box_id: String) -> String:
 	return "Music box wound. The tune starts again."
 
 
-func _use_streamed_vent(vent_id: String) -> String:
-	var level := facility.current_level()
-	var navigation := _navigations.get(level) as StreamedHunterNavigation
-	if navigation == null:
-		navigation = _navigation
-	if navigation == null:
-		return "The grate won't budge."
-	for entity_id_value in _hunter_views:
-		if int(_hunter_levels.get(entity_id_value, 999999)) != level:
-			continue
-		var view := _hunter_views[entity_id_value] as HunterView3D
-		if view != null and view.brain.gimmick is VerrineGimmick:
-			var was_inside := player.in_vent
-			var message := String((view.brain.gimmick as VerrineGimmick).use_vent(
-				vent_id, view.brain, player, navigation))
-			if RoomState.online and not RoomState.is_host:
-				_remotes.request_interaction({"what": "vent_used", "vent_id": vent_id,
-					"entered": not was_inside and player.in_vent})
-			return message
-	return "The grate won't budge."
-
-
 func _accept_stream_vent(peer_id: int, event: Dictionary) -> void:
 	if not bool(event.get("entered", false)):
 		return
@@ -3678,6 +3676,7 @@ func _hunter_target(in_safe_room: bool) -> Dictionary:
 		"peer_id": multiplayer.get_unique_id() if RoomState.online else 1,
 		"at": player.global_position,
 		"position": player.grid_position(),
+		"duct": player.vent_crawl != null and player.vent_crawl.inside(),
 		"depth": -facility.current_level(),
 		"hidden": player.hidden,
 		"hiding_spot": player.hidden_spot,
@@ -5444,6 +5443,7 @@ func _collect_hunter_report() -> void:
 		state["gimmick"] = view.brain.gimmick.network_state() \
 			if view.brain.gimmick != null else {}
 		state["hard"] = view.brain.hard.network_state() if view.brain.hard != null else {}
+		state["in_vents"] = view.brain.in_vents()   # guests draw the crawl pose (height rides presentation_y)
 		_hunter_report.append(state)
 
 
@@ -5610,6 +5610,7 @@ func _apply_guest_hunter_state(entity_id: String, state: Dictionary) -> void:
 		view.brain.gimmick.apply_network_state(gimmick_state)
 	if view.brain.hard != null and state.get("hard") is Dictionary:
 		view.brain.hard.apply_network_state(state["hard"])
+	view.brain.remote_in_vents = bool(state.get("in_vents", false))
 	view.sync_from_brain()
 
 

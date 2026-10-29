@@ -991,6 +991,11 @@ func sync_from_brain() -> void:
 		and (brain.gimmick as XivvyGimmick).flying
 	_update_flight(xivvy_flying, surface_y)
 	surface_y += _flight.altitude
+	# in the vents: lifted from the floor to the duct floor by the crawl's climb (VentCrawl.height)
+	var crawl := brain.active_crawl()
+	if crawl != null:
+		var duct_y := float(crawl.grate.get("duct_y", surface_y + VentNetwork.DUCT_FLOOR))
+		surface_y = lerpf(surface_y, duct_y, crawl.height)
 	_desired_xz = brain.position
 	_surface_target_y = surface_y
 	if _streamed_height_override_active:
@@ -1114,7 +1119,10 @@ func _sync_peek_pose() -> void:
 	if brain == null:
 		return
 	var wanted := ""
-	if brain.peeking_out() and brain.stun_timer <= 0.0:
+	if brain.in_vents():
+		# the Night Watch vent crawl (Verrine's own where she has one), on all fours inside the 1.2 m duct
+		wanted = NightWatchPoses.pose_for_state("vent", brain.hunter_id)
+	elif brain.peeking_out() and brain.stun_timer <= 0.0:
 		wanted = "corner_peek_left" if brain.peek_side > 0 else "corner_peek_right"
 	elif brain.inspecting_close() and brain.stun_timer <= 0.0:
 		wanted = "locker_lean"   # bent in at the slats (HunterInspect); blends in over the shot's 1.6 s bow

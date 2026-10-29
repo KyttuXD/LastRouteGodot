@@ -442,6 +442,14 @@ var vent_resolver: Callable
 var in_vent := false
 var vent_entry_id := ""
 var vent_time_in := 0.0
+## Physical vents (docs/VENTS.md): the scene hands over the duct layer (REGIONS' VentNetwork) and the storey the runner
+## is on. [E] under a grate hatch climbs up into that storey's duct (VentCrawl), the move keys crawl it, [E] at a grate
+## climbs back down. Ducts exist on storey 0 for now (VENT_STOREYS). in_vent mirrors "inside a duct".
+const VENT_STOREYS := [0]
+var vents = null
+var vent_level := 0
+var vent_crawl: VentCrawl
+var _vent_floor_y := 0.0
 
 ## Zellia's shop -- the same indirection as vent_resolver/music_box_resolver.
 ## `shop_resolver.call("open")` opens or re-toasts the menu (the gimmick
@@ -1763,6 +1771,9 @@ func _physics_process(delta: float) -> void:
 			ModelSlot.play_if_available(_animation_player, _clip)
 		else:
 			_update_admin_noclip(delta)
+		return
+	if vent_crawl != null and vent_crawl.inside():
+		_update_vent_crawl(delta)
 		return
 	if not ladder_climb.is_empty():
 		_update_ladder_climb(delta)
@@ -3576,6 +3587,11 @@ func get_interaction_prompt() -> String:
 		if hiding_lock_timer > 0.0:
 			return "LOCKED IN // %ds" % ceili(hiding_lock_timer)
 		return InputGlyphs.prompt("interact", "LEAVE")
+	if vent_crawl != null and vent_crawl.inside():
+		return InputGlyphs.prompt("interact", "CLIMB OUT") if not vent_crawl.grate_near().is_empty() \
+			and vent_crawl.phase == VentCrawl.Phase.DUCT else "IN THE VENTS // CRAWL"
+	if not vent_grate_here().is_empty():
+		return InputGlyphs.prompt("interact", "CLIMB INTO VENT")
 	if is_climbing():
 		return InputGlyphs.climb_prompt(float(ladder_climb.get("height", 0.0)) <= LADDER_LET_GO_HEIGHT)
 	var percent := resecure_percent()
@@ -3639,9 +3655,71 @@ func xr_poke(target: RouteInteractable3D) -> void:
 	_activate_interactable(target)
 
 
+## The grate whose hatch is right above (or beside) the runner on this storey, else {}.
+func vent_grate_here() -> Dictionary:
+	if vents == null or not VENT_STOREYS.has(vent_level) or (vent_crawl != null and vent_crawl.inside()) \
+			or hidden or input_frozen or is_climbing():
+		return {}
+	var at := Vector2(global_position.x, global_position.z)
+	for link in VentNav.new(vents).grates_around(at, vent_level, 1.0):
+		return link
+	return {}
+
+
+## [E]: climb into the vent overhead, or out at the grate under you. True when it handled the press.
+func _try_vent() -> bool:
+	if vent_crawl != null and vent_crawl.inside():
+		if vent_crawl.phase == VentCrawl.Phase.DUCT:
+			var link := vent_crawl.grate_near()
+			if not link.is_empty() and vent_crawl.exit_at(link, VentCrawl.grate_centre(link)):
+				Sound.door(false)   # the hatch
+		return true
+	var grate := vent_grate_here()
+	if grate.is_empty():
+		return false
+	if vent_crawl == null or vent_crawl.network != vents:
+		vent_crawl = VentCrawl.new(vents)
+	if vent_crawl.enter(grate, Vector2(global_position.x, global_position.z)):
+		_vent_floor_y = global_position.y
+		in_vent = true
+		vent_entry_id = String(grate["id"])
+		vent_time_in = 0.0
+		Sound.door(true)   # the hatch
+	return true
+
+
+## Inside the vents: climbing at a hatch, or crawling (crouched, the move keys along the duct). The body is placed
+## directly (the duct walls are VentCrawl's duct cells); gravity and the normal movement are off until the climb out lands.
+func _update_vent_crawl(delta: float) -> void:
+	var input := Vector2.ZERO
+	if not input_frozen and stun_timer <= 0.0:
+		var wish := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+		var dir := global_transform.basis * Vector3(wish.x, 0.0, wish.y)
+		input = Vector2(dir.x, dir.z)
+	if Input.is_action_just_pressed("interact"):
+		_try_vent()
+	var stepped := vent_crawl.step(delta, input)
+	var duct_y := float(vent_crawl.grate.get("duct_y", float(vent_level) * 4.0 + VentNetwork.DUCT_FLOOR))
+	var floor_y := _vent_floor_y if vent_crawl.phase != VentCrawl.Phase.CLIMB_OUT else float(vent_level) * 4.0
+	global_position = Vector3(vent_crawl.position.x, lerpf(floor_y, duct_y, vent_crawl.height), vent_crawl.position.y)
+	velocity = Vector3.ZERO
+	_update_crouch_hitbox(true)
+	movement_mode = "crouch"
+	noise = 0.0
+	if bool(stepped["thump"]):
+		emit_noise_burst(VentCrawl.THUMP_NOISE, .3)
+		Sound.footstep("crouch", "metal")   # sheet metal underhand
+	_update_camera_pose(delta, float(stepped["moved"]) > 0.0, false, true)
+	if bool(stepped["done"]):
+		in_vent = false
+		vent_entry_id = ""
+
+
 func _try_interact() -> void:
 	if spectator_mode:
 		return   # a ghost triggers nothing
+	if _try_vent():
+		return
 	var target := _nearest_interactable()
 	if target == null:
 		if shop_resolver.is_valid():

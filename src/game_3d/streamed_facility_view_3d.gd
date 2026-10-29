@@ -4145,7 +4145,8 @@ func _spawn_fixtures(parent: Node3D, data: Dictionary) -> void:
 
 func _spawn_fixture(parent: Node3D, data: Dictionary, fixture: Dictionary) -> void:
 	var fixture_kind := String(fixture.get("kind", ""))
-	if fixture_kind not in ["hiding_spot", "vent"]:
+	# the old wall-grate "vent" fixtures teleported between grates; physical ducts (VentNetwork + VentCrawl) replace them
+	if fixture_kind != "hiding_spot":
 		return
 	var entity_id := String(fixture.get("id", ""))
 	if fixture_kind == "hiding_spot" and not entity_id.is_empty() \
