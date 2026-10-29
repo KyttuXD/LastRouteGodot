@@ -953,6 +953,22 @@ func host_endpoint() -> Dictionary:
 	return _host_endpoint.duplicate()
 
 
+## Room closes (explicit "host left") still on their way to the server; quitting waits briefly for them.
+var _unregister_in_flight := 0
+
+
+func room_close_pending() -> bool:
+	return _unregister_in_flight > 0
+
+
+## Quit path: give the explicit room close a moment to leave the machine (up to `timeout` seconds) before the process ends.
+func wait_for_room_close(timeout: float = 1.5) -> void:
+	var waited := 0.0
+	while _unregister_in_flight > 0 and waited < timeout and is_inside_tree():
+		await get_tree().create_timer(0.05, true, false, true).timeout
+		waited += 0.05
+
+
 func unregister_room() -> void:
 	_heartbeat.stop()
 	if not _host_operation.is_empty():
@@ -964,8 +980,10 @@ func unregister_room() -> void:
 	# A one-shot request means leaving never waits on an in-flight heartbeat.
 	var request := HTTPRequest.new()
 	add_child(request)
+	_unregister_in_flight += 1
 	request.request_completed.connect(func(_result: int, _code: int,
 			_headers: PackedStringArray, _body: PackedByteArray) -> void:
+		_unregister_in_flight = maxi(0, _unregister_in_flight - 1)
 		request.queue_free())
 	request.request(_url("/api/enet/rooms/unregister"), _headers(),
 		HTTPClient.METHOD_POST, JSON.stringify({

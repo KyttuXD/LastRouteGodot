@@ -348,7 +348,13 @@ func _actions() -> Control:
 	Palette.style_button(leave, false)
 	leave.pressed.connect(func() -> void:
 		var menu_scene := RoomState.menu_scene_path()
-		RoomState.leave_network()
+		# the host leaving staging closes the room; a guest leaves it. Both end up at the menu with the room state cleared.
+		if RoomState.online and RoomState.is_host:
+			RoomState.close_room()
+		elif RoomState.online:
+			RoomState.reset_after_leaving("YOU LEFT THE ROOM")
+		else:
+			RoomState.leave_network()
 		XRFade.change_scene(get_tree(), menu_scene))
 	row.add_child(leave)
 

@@ -164,7 +164,55 @@ func _check_offline_mode(host: Node) -> void:
 	UpdateManager.offline_mode = update_offline_before
 
 
+## The host leaving or quitting closes the room: guests are sent to the main menu, the host's state is cleared, quitting waits for the
+## server to hear it. (Ending a run only returns to staging and keeps the room.)
+func _check_host_closes_room(host: Node) -> void:
+	RoomState.skip_scene_changes_for_test = true
+	var error := RoomState.host_room(TEST_PORT)
+	_expect(error.is_empty() and RoomState.online and RoomState.is_host, "could not open a room to close (%s)" % error)
+	var room_code := RoomState.code
+	RoomState.close_room()
+	_expect(not RoomState.online and RoomState.is_host and RoomState.code != room_code and RoomState.peers.size() <= 1,
+		"the host's room state was not cleared by closing the room")
+	_expect(RoomState._peer == null and Backend.registered_code.is_empty(), "closing the room left ENet or the directory registration behind")
+	# a guest told the room closed goes to the main menu (menu notice HOST LEFT), room cleared
+	RoomState.is_host = false
+	RoomState.code = "ZZZZZ"
+	RoomState.peers = {1: "HOST", 2: "ME"}
+	RoomState._receive_room_closed(RoomState.HOST_LEFT_NOTICE)
+	_expect(RoomState.menu_notice == RoomState.HOST_LEFT_NOTICE and RoomState.code != "ZZZZZ" and RoomState.is_host,
+		"a guest told the room closed did not leave to the main menu with HOST LEFT")
+	RoomState.consume_menu_notice()
+	# a host ignores a close message (it cannot close itself)
+	RoomState.is_host = true
+	RoomState.code = "YYYYY"
+	RoomState._receive_room_closed("X")
+	_expect(RoomState.code == "YYYYY", "a host reacted to a close notice")
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	# quitting waits (up to a timeout) for an in-flight close, and not at all when none is pending
+	var started := Time.get_ticks_msec()
+	await Backend.wait_for_room_close(1.0)
+	_expect(Time.get_ticks_msec() - started < 200, "quit waited with no room close in flight")
+	Backend._unregister_in_flight = 1
+	started = Time.get_ticks_msec()
+	await Backend.wait_for_room_close(0.2)
+	var waited := Time.get_ticks_msec() - started
+	_expect(waited >= 100 and waited < 800, "quit did not wait for a pending room close (%d ms)" % waited)
+	Backend._unregister_in_flight = 0
+	# every way out of a hosted room goes through the close (source checks: the scene changes themselves are not driven here)
+	var lobby_source := FileAccess.get_file_as_string("res://src/ui/room_lobby.gd")
+	var profile_source := FileAccess.get_file_as_string("res://src/autoload/platform_profile.gd")
+	var update_source := FileAccess.get_file_as_string("res://src/autoload/update_manager.gd")
+	var state_source := FileAccess.get_file_as_string("res://src/autoload/room_state.gd")
+	_expect(lobby_source.contains("RoomState.close_room()"), "leaving staging as host does not close the room")
+	_expect(profile_source.contains("RoomState.close_room_for_quit()"), "quitting from the menu does not close a hosted room")
+	_expect(update_source.contains("Backend.wait_for_room_close()") and state_source.contains("NOTIFICATION_WM_CLOSE_REQUEST"),
+		"closing the window does not close a hosted room first")
+	RoomState.skip_scene_changes_for_test = false
+
+
 func run(host: Node) -> int:
+	await _check_host_closes_room(host)
 	await _check_offline_mode(host)
 	await _check_guest_leaves_to_menu(host)
 	_expect(Backend.PRIMARY_BASE_URL == "http://lastroute.kyttuslab.org:8105",

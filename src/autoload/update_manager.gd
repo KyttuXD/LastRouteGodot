@@ -634,6 +634,7 @@ var _force_stage_now := false
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		await apply_on_exit()
+		await Backend.wait_for_room_close()   # a hosted room's close notice must reach the server first
 		get_tree().quit()
 
 

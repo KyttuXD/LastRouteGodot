@@ -1093,15 +1093,47 @@ func _receive_end(reason: String) -> void:
 	call_deferred("_return_to_staging")
 
 
+## Validators set this so a leave can be checked without swapping out the validation scene.
+var skip_scene_changes_for_test := false
 const HOST_LEFT_NOTICE := "HOST LEFT THE ROOM // BACK AT THE MAIN MENU"
 ## One-shot line the main menu shows after a guest left a room (their own exit, or the host going away).
 var menu_notice := ""
+
+
+## The host leaving or quitting CLOSES the room (ending a run only returns to staging): guests are told, the server is told to drop
+## it (leave_network -> Backend.unregister_room, sent before ENet closes), and the host's own room state is replaced by a fresh local one.
+func close_room() -> void:
+	if online and is_host and _peer != null:
+		_receive_room_closed.rpc(HOST_LEFT_NOTICE)
+		_peer.poll()
+	reset_after_leaving("")
+
+
+@rpc("authority", "call_remote", "reliable")
+func _receive_room_closed(reason: String) -> void:
+	if is_host:
+		return
+	leave_room_to_menu(reason if not reason.is_empty() else HOST_LEFT_NOTICE)
+
+
+## Quitting while hosting: the same close, then a short wait so the server really receives it before the process ends.
+func close_room_for_quit() -> void:
+	if online and is_host:
+		close_room()
+		await Backend.wait_for_room_close()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and online and is_host:
+		close_room()
 
 
 ## A guest's way out of a co-op room: unregister from the host, close ENet/relay, unload the room's packs, replace the joined room
 ## with a fresh local one (no stale code, seed or roster) and land on the main menu with `notice`. The host keeps the staging flow.
 func leave_room_to_menu(notice: String = "") -> void:
 	reset_after_leaving(notice)
+	if skip_scene_changes_for_test:
+		return
 	var tree := get_tree()
 	if tree == null:
 		return
