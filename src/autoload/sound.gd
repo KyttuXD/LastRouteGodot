@@ -576,7 +576,7 @@ func _play_stream(stream: AudioStream, bus: StringName, volume_db: float = 0.0) 
 		chosen = _players[_next_player]
 		chosen.stop()
 	_next_player = (_players.find(chosen) + 1) % _players.size()
-	chosen.bus = bus
+	chosen.bus = WorldAudioGate.route(bus)   # silent while a loading screen is up
 	chosen.stream = stream
 	chosen.volume_db = volume_db
 	chosen.play()
