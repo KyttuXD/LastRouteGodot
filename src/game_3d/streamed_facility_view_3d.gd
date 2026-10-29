@@ -168,6 +168,9 @@ var _ready_set := {}
 var _wanted_now := {}
 var _pending_prebuild: Array[Vector3i] = []
 var _pending_data: Array[Vector3i] = []
+## Chunks a storey up or down in the runner's 3x3 whose prop scenes load in the background once their data exists, so a
+## level change finds its props in memory (the first hop onto a storey used to sit idle while its GLBs loaded).
+var _warm_props := {}
 var _ready_dirty := false
 var _ready_recheck := 0.0
 var _chunk_data := {}
@@ -282,6 +285,7 @@ func clear() -> void:
 	_dormant_data.clear()
 	_pending_prebuild.clear()
 	_pending_data.clear()
+	_warm_props.clear()
 	_ready_set = {}
 	_chunk_data.clear()
 	_pickup_nodes.clear()
@@ -558,6 +562,7 @@ func _refresh_stream(force: bool) -> void:
 	_pending_unloads.clear()
 	_wanted_now = wanted
 	_pending_data.clear()
+	_warm_props.clear()
 	_ready_set = _vertical_ready_set(center)
 	if not _active_build.is_empty():
 		# a chunk still wanted or still to pre-build keeps building (restarting it on every level change wasted the work)
@@ -577,12 +582,14 @@ func _refresh_stream(force: bool) -> void:
 		var coord: Vector3i = coord_value
 		if not wanted.has(coord):
 			_pending_unloads.append(coord)
-	# Nearest first; ties go to the chunk ahead of the runner's travel direction.
+	# The runner's own storey first (the walls round them), then the linked storeys; nearest first, ties go to the chunk
+	# ahead of the runner's travel direction. Counting a storey as one step of distance interleaved a Mezzanine well's
+	# other levels with the runner's own neighbours, so the storey they stand on finished last.
 	var heading := Vector2(center.x - previous.x, center.z - previous.z) if previous.x != 999999 else Vector2.ZERO
 	_pending_loads.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
-		var da := _chunk_distance(a, center) * 4 - int(heading.dot(Vector2(a.x - center.x, a.z - center.z)))
-		var db := _chunk_distance(b, center) * 4 - int(heading.dot(Vector2(b.x - center.x, b.z - center.z)))
-		return da < db)
+		return _load_order(a, center, heading) < _load_order(b, center, heading))
+	if jump:
+		_hop_until_usec = Time.get_ticks_usec() + int(HOP_BURST_SECONDS * 1e6)
 	_pending_unloads.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 		return _chunk_distance(a, center) > _chunk_distance(b, center))
 	_stream_queue_center = center
@@ -831,6 +838,9 @@ func _settle_dormant(center: Vector3i, wanted: Dictionary) -> void:
 				var coord := Vector3i(x, level, z)
 				if generator.is_chunk_allowed(coord) and not generator.has_chunk_cached(coord) and not _pending_data.has(coord):
 					_pending_data.append(coord)
+				if absi(level - center.y) == 1 and generator.is_chunk_allowed(coord) and not _loaded.has(coord) \
+						and not _dormant.has(coord):
+					_warm_props[coord] = true
 
 
 ## Links (ladder, ramp, stairwell ...) in the runner's 3x3. Generators with vertical_links(coord) (every level) are asked
@@ -1086,12 +1096,20 @@ func _queue_generation() -> void:
 	for coord in _pending_data:
 		if not generator.has_chunk_cached(coord) and not coords.has(coord):
 			coords.append(coord)
-	_pending_data.clear()
 	for coord in _extra_generation.keys():
 		if _chunk_generated(coord):
 			_extra_generation.erase(coord)
 	if coords.is_empty():
 		return
+	# Small batches, most urgent first (the queue's own order: the runner's chunk and its seam neighbours, then the rest
+	# of the window, pre-builds, and data-only storeys last). A task's results are only taken when it completes, so one
+	# task for everything (50+ chunks after a teleport) kept the runner's own chunk waiting for all of it: seconds on an
+	# old laptop, with nothing building.
+	if coords.size() > GEN_BATCH:
+		coords = coords.slice(0, GEN_BATCH)
+	# data-only chunks leave their list once a batch takes them (or once something else generated them)
+	_pending_data.assign(_pending_data.filter(func(coord: Vector3i) -> bool:
+		return not coords.has(coord) and not generator.has_chunk_cached(coord)))
 	_gen_task_coords = coords
 	var worker := _gen_worker
 	var results := {}
@@ -1099,6 +1117,27 @@ func _queue_generation() -> void:
 	_gen_task = WorkerThreadPool.add_task(func() -> void:
 		for coord in coords:
 			results[coord] = worker.chunk(coord), true, "chunk generation")
+
+
+const WARM_MAX_IN_FLIGHT := 4
+## Chunks per generation task: one chunk and its four seam neighbours, so the first build can start after one batch.
+const GEN_BATCH := 5
+## Prefetch the props of warm chunks whose data is ready, only while the stream queue is idle (called from
+## _drain_stream_queue) and with few loads in flight, so nothing the window needs waits behind it.
+func _warm_generated_props() -> void:
+	if _prefetching.size() >= WARM_MAX_IN_FLIGHT:
+		return   # the loader threads are busy: what the window needs now must not queue behind a warm-up
+	var started := 0
+	for coord_value in _warm_props.keys():
+		var coord: Vector3i = coord_value
+		if started >= 3:
+			return
+		# only chunks whose data is already cached: _prefetch_chunk reads generator.chunk(), which would otherwise generate
+		# it here on the main thread (generators without a worker copy, the sewer's, took a 373 ms frame)
+		if generator.has_chunk_cached(coord):
+			_warm_props.erase(coord)
+			_prefetch_chunk(coord)
+			started += 1
 
 
 func _poll_prefetch() -> void:
@@ -1142,10 +1181,17 @@ func _drain_stream_queue() -> void:
 		_queue_generation()
 	if _pending_loads.is_empty() and _pending_unloads.is_empty() \
 			and _active_build.is_empty() and _pending_prebuild.is_empty():
+		if not _warm_props.is_empty():
+			_warm_generated_props()
 		return
 	# A long queue (after a teleport) gets a little more time per frame so the window fills in seconds, not tens.
 	var budget := minf(PlatformProfile.stream_budget_ms + STREAM_BUDGET_PER_QUEUED_MS * _pending_loads.size(),
 		PlatformProfile.stream_budget_max_ms)
+	if _hop_until_usec != 0:
+		if Time.get_ticks_usec() < _hop_until_usec and _own_storey_pending():
+			budget = maxf(budget, PlatformProfile.stream_budget_burst_ms)
+		else:
+			_hop_until_usec = 0
 	_stream_deadline_usec = Time.get_ticks_usec() + int(budget * 1000.0)
 	while true:
 		# Never register new collision and retire an old physics island in the same
@@ -1207,6 +1253,26 @@ func _prof(label: String, t0: int) -> void:
 		frame_stream_label = label
 	if profile_stream and ms > 4.0:
 		print("PROF %s %.1f ms" % [label, ms])
+
+
+static func _load_order(coord: Vector3i, center: Vector3i, heading: Vector2) -> int:
+	return (0 if coord.y == center.y else 1000) + _chunk_distance(coord, center) * 4 \
+		- int(heading.dot(Vector2(coord.x - center.x, coord.z - center.z)))
+
+
+## After a level change or teleport the runner's own storey streams with the tier's burst budget
+## (PlatformProfile.stream_budget_burst_ms) until it is complete, for at most this long. An old laptop needs several
+## seconds for a storey (1.5 s ended the burst long before an Air had built one).
+const HOP_BURST_SECONDS := 6.0
+var _hop_until_usec := 0
+
+
+## Still building or queued on the runner's own storey (the queue holds it first, see _load_order).
+func _own_storey_pending() -> bool:
+	var level := _last_player_chunk.y
+	if not _active_build.is_empty() and (_active_build.get("coord", Vector3i.ZERO) as Vector3i).y == level:
+		return true
+	return not _pending_loads.is_empty() and _pending_loads[0].y == level
 
 
 static func _chunk_distance(a: Vector3i, b: Vector3i) -> int:
@@ -2690,7 +2756,8 @@ func _seam_height(build: Dictionary, nx: int, nz: int) -> float:
 
 
 func _ref_floor_kind(build: Dictionary, x: int, z: int) -> String:
-	var region := String(build.get("region", generator.region_for(build["coord"])))
+	# build["region"] is always set: a get() default is evaluated on every call (region_for once per floor cell)
+	var region := String(build["region"]) if build.has("region") else generator.region_for(build["coord"])
 	return ref_floor_kind(build["data"], region, build["room_map"], build["room_anchor"], x, z)
 
 
@@ -2796,7 +2863,9 @@ func _ref_wall_kind(build: Dictionary, x: int, z: int, nx: int, nz: int) -> Stri
 	var coord: Vector3i = build["coord"]
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var room_type: String = (build["room_map"] as Dictionary).get(Vector2i(nx, nz), "")
-	var region := String(build.get("region", generator.region_for(coord) if generator != null else "maze"))
+	# a get() default would be evaluated on every call: region_for ran once per wall face
+	var region := String(build["region"]) if build.has("region") \
+		else (generator.region_for(coord) if generator != null else "maze")
 	return RefLook.wall_kind(region, room_type, coord.x * size + x, coord.z * size + z)
 
 

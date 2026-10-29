@@ -32,6 +32,9 @@ var default_pixel_effect_percent := -1.0
 ## frame log (PerfLog, user://perf). Mobile GPUs share the frame with a slower CPU: smaller build slices.
 var stream_budget_ms := 4.0
 var stream_budget_max_ms := 9.0
+## Right after a level change or teleport, while the runner's own storey is still streaming in (StreamedFacilityView3D).
+## Slow machines get the most: a few slower frames at a hop beat seconds of missing walls (an Air built ~5 ms a frame).
+var stream_budget_burst_ms := 14.0
 var perf_log := false
 ## Device quality tier (QualityTier): detected from the hardware at boot, or forced by Settings GRAPHICS. In AUTO the
 ## QualityGovernor gives up notches live when the frame target is missed and takes them back with a margin.
@@ -120,6 +123,7 @@ func apply_budgets() -> void:
 	var budgets := QualityGovernor.degrade(QualityTier.budgets(tier, tier_specs), notch)
 	stream_budget_ms = budgets["stream_budget_ms"]
 	stream_budget_max_ms = budgets["stream_budget_max_ms"]
+	stream_budget_burst_ms = float(budgets.get("stream_budget_burst_ms", stream_budget_max_ms))
 	prebuild_linked_levels = bool(budgets["prebuild_linked_levels"]) and not low_memory
 	lamp_pool = budgets["lamp_pool"]
 	shadows = budgets["shadows"]
