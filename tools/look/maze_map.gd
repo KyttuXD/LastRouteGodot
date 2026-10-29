@@ -8,8 +8,18 @@ func _ready() -> void:
 	var tag := args[1] if args.size() > 1 else "now"
 	var seed_text := args[2] if args.size() > 2 else "MAZE-LOOK"
 	var radius := int(args[3]) if args.size() > 3 else 2
+	var focus_region := args[4] if args.size() > 4 else ""
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(out))
 	var generator := StreamedRouteGenerator.new(seed_text)
+	# centre the map on the region's first chunk near the spawn (its region cell is 4 x 4 chunks)
+	var centre := Vector2i.ZERO
+	if focus_region != "":
+		var best := 999
+		for z in range(-12, 13):
+			for x in range(-12, 13):
+				if generator.region_for(Vector3i(x, 0, z)) == focus_region and maxi(absi(x), absi(z)) < best:
+					best = maxi(absi(x), absi(z))
+					centre = Vector2i(x, z)
 	var size := StreamedRouteGenerator.CHUNK_SIZE
 	var px := 4
 	var side := (radius * 2 + 1) * size
@@ -17,7 +27,7 @@ func _ready() -> void:
 	image.fill(Color(.08, .08, .1))
 	for dz in range(-radius, radius + 1):
 		for dx in range(-radius, radius + 1):
-			var coord := Vector3i(dx, 0, dz)
+			var coord := Vector3i(centre.x + dx, 0, centre.y + dz)
 			if not generator.is_chunk_allowed(coord):
 				continue
 			var data := generator.chunk(coord)
@@ -29,7 +39,7 @@ func _ready() -> void:
 					for x in range(rect.position.x, rect.end.x):
 						room_cells[Vector2i(x, z)] = true
 			var region := generator.region_for(coord)
-			var tint := Color(.55, .75, .95) if region == "maze" else Color(.75, .7, .6)
+			var tint := Color(.55, .75, .95) if region == (focus_region if focus_region != "" else "maze") else Color(.75, .7, .6)
 			for z in size:
 				for x in size:
 					var colour := Color(.12, .12, .15)
@@ -42,7 +52,7 @@ func _ready() -> void:
 				if door is Vector2i:
 					var at := Vector2i(((dx + radius) * size + door.x) * px, ((dz + radius) * size + door.y) * px)
 					image.fill_rect(Rect2i(at, Vector2i(px, px)), Color(1, .8, .1))
-	var path := "%s/maze_%s_%s.png" % [ProjectSettings.globalize_path(out), seed_text, tag]
+	var path := "%s/%s_%s_%s.png" % [ProjectSettings.globalize_path(out), focus_region if focus_region != "" else "maze", seed_text, tag]
 	image.save_png(path)
 	print("MAZEMAP %s" % path)
 	get_tree().quit()

@@ -1243,7 +1243,7 @@ func _base_large_plan(coord: Vector3i) -> Dictionary:
 		return _base_large_cache[key]
 	var plan := {"W": "", "E": ""}
 	var region := region_for(coord) if is_chunk_allowed(coord) else ""
-	if LARGE_ROOM_CHANCE.has(region) and not is_safe_room(coord):
+	if LARGE_ROOM_CHANCE.has(region) and not is_safe_room(coord) and not is_warren_chunk(coord):
 		var rng := SeededRandom.new("%s:LARGE:%s" % [world_seed, key])
 		var types: Array = LARGE_ROOM_TYPES[region]
 		for side in ["W", "E"]:
@@ -1263,7 +1263,8 @@ func _base_large_plan(coord: Vector3i) -> Dictionary:
 
 ## The raw roll for a music wing at this chunk: a hotel chunk, its own roll (so the other plans are unchanged).
 func _wing_roll(coord: Vector3i) -> bool:
-	if not is_chunk_allowed(coord) or not MUSIC_WING_REGIONS.has(region_for(coord)) or is_safe_room(coord):
+	if not is_chunk_allowed(coord) or not MUSIC_WING_REGIONS.has(region_for(coord)) or is_safe_room(coord) \
+			or is_warren_chunk(coord):
 		return false
 	return SeededRandom.new("%s:MUSICWING:%s" % [world_seed, chunk_id(coord)]).next_float() < MUSIC_WING_CHANCE
 
@@ -1612,8 +1613,8 @@ func _region_layout(coord: Vector3i, region: String, grid: Array,
 	# A region is the multi-chunk visual/gameplay identity. Rooms are the small
 	# bounded spaces inside one chunk; corridors serve many rooms and stairs
 	# bridge the same circulation network vertically.
-	if region == "maze" and stairs.is_empty() and is_warren_chunk(coord):
-		return _maze_warren_layout(coord, grid)
+	if stairs.is_empty() and is_warren_chunk(coord):
+		return _maze_warren_layout(coord, grid, region)
 	if DENSE_DISTRICTS.has(region) and stairs.is_empty():
 		return _dense_linear_layout(coord, region, grid)
 	if region in ["hotel", "prison"]:
@@ -1718,6 +1719,11 @@ func _linear_room_layout(coord: Vector3i, region: String, grid: Array,
 ## rooms). Per chunk: four rows of four rooms. The centre hall is the one the chunk seams meet.
 ## Share of maze chunks that are warrens (_maze_warren_layout) rather than room banks.
 const WARREN_SHARE := .55
+## The dense regions whose chunks can be warrens (KT: "the other regions need this change too"). The rest keep their banks;
+## each region's special rooms (carousel big top, music wing, maze office suite) live in its bank chunks.
+const WARREN_REGIONS := ["maze", "hospital"]
+## Room types whose recipes are tuned to bank shapes (rows of beds): they stay in the bank chunks.
+const WARREN_ROOM_EXCLUDE := ["ward"]
 ## Warren macro cells: each quadrant beside the spine is 3 x 3 cells of WARREN_CELL x WARREN_CELL.
 const WARREN_CELL := 6
 
@@ -1725,7 +1731,7 @@ const WARREN_CELL := 6
 ## KT: "re-do the maze hallway styles, with twists and turns, scattered rooms". A maze chunk is either the bank layout or,
 ## WARREN_SHARE of the time, a warren. Never the spawn chunk; deterministic per seed.
 func is_warren_chunk(coord: Vector3i) -> bool:
-	if coord.y != 0 or region_for(coord) != "maze" or is_safe_room(coord):
+	if coord.y != 0 or not WARREN_REGIONS.has(region_for(coord)) or is_safe_room(coord):
 		return false
 	return SeededRandom.new("%s:WARREN:%s" % [world_seed, chunk_id(coord)]).next_float() < WARREN_SHARE
 
@@ -1736,7 +1742,7 @@ func is_warren_chunk(coord: Vector3i) -> bool:
 ## give a 2 x 2 corner of its macro cells to one 12 x 12 room (any maze room type, door onto a corridor through a short
 ## stub) or open its centre into a plaza. The corridors reach the spine and the E/W seam rows 10 and 34. The office
 ## suite lives in the bank chunks.
-func _maze_warren_layout(coord: Vector3i, grid: Array) -> Dictionary:
+func _maze_warren_layout(coord: Vector3i, grid: Array, region: String = "maze") -> Dictionary:
 	var rooms := []
 	var corridors := []
 	var suites := []
@@ -1750,7 +1756,14 @@ func _maze_warren_layout(coord: Vector3i, grid: Array) -> Dictionary:
 		_mark_rect_cells(circulation, hall)
 		corridors.append({"id": "%s:HALL:%d" % [chunk_id(coord), 1 if index == 0 else 3], "rect": hall, "width": CORRIDOR_WIDTH,
 			"axis": "east_west" if index == 0 else "north_south", "serves_many_rooms": true})
-	var room_types := ["restaurant_dining", "arcade_room", "public_restroom", "storage"]
+	# the region's own rooms that fit a 12 x 12 corner (RoomSizeProfiles)
+	var room_types := []
+	for type_name in _room_type_choices(region):
+		if RoomSizeProfiles.within(String(type_name), Vector2i(WARREN_CELL * 2, WARREN_CELL * 2)) and not room_types.has(type_name) \
+				and not WARREN_ROOM_EXCLUDE.has(type_name):
+			room_types.append(type_name)
+	if room_types.is_empty():
+		room_types = ["storage"]
 	for quadrant in 4:
 		var east := quadrant % 2 == 1
 		var south := quadrant >= 2
@@ -1881,7 +1894,7 @@ func _maze_warren_layout(coord: Vector3i, grid: Array) -> Dictionary:
 			corridors.append({"id": "%s:ROOM-BRANCH:%d" % [chunk_id(coord), rooms.size()], "axis": "north_south",
 				"width": CORRIDOR_WIDTH, "length": 1, "branch": true, "from_main_hall": false, "serves_many_rooms": false,
 				"doorway": doorway})
-			var entry := _room_entry(coord, rooms.size(), "maze", rect, String(room_types[rng.next_index(room_types.size())]))
+			var entry := _room_entry(coord, rooms.size(), region, rect, String(room_types[rng.next_index(room_types.size())]))
 			entry["doorway"] = doorway
 			rooms.append(entry)
 		for node_value in nodes:

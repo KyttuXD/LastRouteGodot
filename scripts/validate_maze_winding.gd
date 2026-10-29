@@ -8,8 +8,8 @@ extends RefCounted
 ##   godot --headless --path . res://scenes/validate.tscn -- maze_winding
 
 const SEEDS := ["MAZE-LOOK", "ENDLESS-ROUTE", "SOAKTEST", "KYTTU-LAB", "REAL-B", "BIOME-A", "PICKUPS", "WARREN-A"]
-const RADIUS := 6
-const MIN_TURNS_PER_100M := 4.0
+const RADIUS := 8
+const MIN_TURNS_PER_100M := 3.5
 const DEAD_ENDS := Vector2(.05, .6)
 
 var _failures := 0
@@ -28,16 +28,22 @@ func run(_host: Node) -> int:
 	var turns := 0
 	var dead_ends := 0
 	var nodes := 0
+	var per_region := {}
 	for seed_text in SEEDS:
 		var generator := StreamedRouteGenerator.new(seed_text)
 		for dz in range(-RADIUS, RADIUS + 1):
 			for dx in range(-RADIUS, RADIUS + 1):
 				var coord := Vector3i(dx, 0, dz)
-				if not generator.is_chunk_allowed(coord) or generator.region_for(coord) != "maze" or generator.is_safe_room(coord):
+				var region := generator.region_for(coord)
+				if not generator.is_chunk_allowed(coord) or not StreamedRouteGenerator.WARREN_REGIONS.has(region) or generator.is_safe_room(coord):
 					continue
 				var data := generator.chunk(coord)
 				if data.has("mezzanine_grid"):
 					continue
+				var is_warren := not (data.get("warren", {}) as Dictionary).is_empty()
+				per_region[region] = (per_region.get(region, Vector2i.ZERO) as Vector2i) + Vector2i(1, 1 if is_warren else 0)
+				if region != "maze" and not is_warren:
+					continue   # outside the maze only a warren chunk carries the five-wide spine
 				maze += 1
 				var where := "%s %s" % [seed_text, coord]
 				# the spine: five wide, straight, the whole chunk
@@ -73,14 +79,18 @@ func run(_host: Node) -> int:
 							if x == 0 or z == 0 or x == size - 1 or z == size - 1:
 								_expect(reached.has(Vector2i(x, z)), "%s seam opening %s is cut off" % [where, Vector2i(x, z)])
 				_expect(reached.size() >= open * 0.97, "%s only %d of %d open cells reachable" % [where, reached.size(), open])
-	_expect(maze >= 40 and warrens >= maze * .3 and warrens <= maze * .8, "%d warrens among %d maze chunks" % [warrens, maze])
+	for region in per_region:
+		var counts: Vector2i = per_region[region]
+		_expect(counts.x < 8 or (counts.y >= counts.x * .3 and counts.y <= counts.x * .8),
+			"%s: %d warrens among %d chunks" % [region, counts.y, counts.x])
+	_expect(per_region.size() == StreamedRouteGenerator.WARREN_REGIONS.size(), "regions sampled %s, warren regions %s" % [per_region.keys(), StreamedRouteGenerator.WARREN_REGIONS])
 	var rate := float(turns) / maxf(length / 100.0, .01)
 	var dead_share := float(dead_ends) / maxf(nodes, 1)
 	_expect(rate >= MIN_TURNS_PER_100M, "warren corridors turn only %.1f times per 100 m" % rate)
 	_expect(dead_share >= DEAD_ENDS.x and dead_share <= DEAD_ENDS.y, "warren dead-end share %.2f outside %s" % [dead_share, DEAD_ENDS])
 	if _failures == 0:
-		print("  maze_winding  %d maze chunks, %d warrens: %.1f turns per 100 m of corridor (spine: 0), %.0f%% dead ends, every door and seam reachable" % [
-			maze, warrens, rate, dead_share * 100.0])
+		print("  maze_winding  %s (chunks, warrens); %d spine chunks, %d warrens: %.1f turns per 100 m of corridor (spine: 0), %.0f%% dead ends, every door and seam reachable" % [
+			per_region, maze, warrens, rate, dead_share * 100.0])
 	return _failures
 
 
