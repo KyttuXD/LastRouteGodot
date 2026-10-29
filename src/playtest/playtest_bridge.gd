@@ -260,6 +260,8 @@ func admin(name: String, cmd: Dictionary) -> Dictionary:
 
 
 func screenshot(path: String) -> Dictionary:
+	if DisplayServer.get_name() == "headless":   # the dummy renderer has no frame (reading it is an engine error per call)
+		return {"ok": false, "error": "no rendered image (headless run: use a windowed run on the test machine)"}
 	var image := get_viewport().get_texture().get_image() if get_viewport().get_texture() != null else null
 	if image == null or image.is_empty():
 		return {"ok": false, "error": "no rendered image (headless run: use a windowed run on the test machine)"}
