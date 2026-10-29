@@ -481,6 +481,9 @@ const STREAMED_HUNTER_IDS := [
 var world_seed := "ENDLESS-ROUTE"
 ## PUBLIC route: safe rooms are spread through the map (see is_safe_room).
 var public_route := false
+## Co-op room (several runners): Revive Kits spawn at GameConfig.REVIVE_KIT_CHANCE_COOP, else at the solo chance. Every
+## peer in a room agrees (RoomState.online), so the world stays the same for all of them.
+var coop := false
 var _chunk_cache := {}
 var _chunk_cache_order: Array[Vector3i] = []
 
@@ -501,6 +504,7 @@ func make_worker_copy() -> StreamedRouteGenerator:
 		return null
 	var copy := StreamedRouteGenerator.new(world_seed)
 	copy.public_route = public_route
+	copy.coop = coop
 	return copy
 
 
@@ -4865,6 +4869,24 @@ func _pickups(coord: Vector3i, grid: Array, stairs: Array, safe: bool,
 			"kind": kind,
 			"item": item,
 		})
+	# Stim Packs and Revive Kits (docs/REVIVE.md) roll from their own seeded stream after everything above, on the cells
+	# left over, so adding them moved no older pickup.
+	var extra_rng := SeededRandom.new("%s:PICKUPS-AID:%s" % [world_seed, chunk_id(coord)])
+	var aid := []
+	if extra_rng.next_float() < GameConfig.STIM_PACK_CHANCE:
+		aid.append("stim_pack")
+	if extra_rng.next_float() < (GameConfig.REVIVE_KIT_CHANCE_COOP if coop else GameConfig.REVIVE_KIT_CHANCE_SOLO):
+		aid.append("revive_kit")
+	for item_value in aid:
+		var pool: Array = candidates if not candidates.is_empty() else sealed_candidates
+		if pool.is_empty():
+			break
+		var pick_index := extra_rng.next_index(pool.size())
+		var cell: Vector2i = pool[pick_index]
+		pool.remove_at(pick_index)
+		var index := int(kind_indices.get("tool", 0))
+		kind_indices["tool"] = index + 1
+		result.append({"id": pickup_id(coord, index, "tool"), "cell": cell, "kind": "tool", "item": String(item_value)})
 	return result
 
 

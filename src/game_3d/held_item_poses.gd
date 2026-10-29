@@ -14,6 +14,8 @@ const GRIP := {
 	"crowbar": Vector3(0.0, 0.34, 0.0),
 	"rescue_axe": Vector3(0.0, 0.14, 0.0),
 	"battery": Vector3(0.0, 0.23, 0.0),
+	"stim_pack": Vector3(0.0, 0.18, 0.0),
+	"revive_kit": Vector3(0.0, 0.31, 0.0),
 }
 
 ## First person. "view" is where the hand is in camera space, "scale" the model scale, "yaw" turns the blade/claw toward the target, "pitch"
@@ -25,12 +27,15 @@ const FIRST_PERSON := {
 	"crowbar": {"view": Vector3(0.24, -0.28, -0.54), "scale": 0.37, "yaw": 70.0, "pitch": -60.0},
 	"rescue_axe": {"view": Vector3(0.24, -0.28, -0.54), "scale": 0.37, "yaw": 90.0, "pitch": -60.0},
 	"battery": {"view": Vector3(0.25, -0.26, -0.52), "scale": 0.62, "yaw": 25.0, "pitch": -20.0},
+	"stim_pack": {"view": Vector3(0.25, -0.25, -0.50), "scale": 0.55, "yaw": 15.0, "pitch": -64.0},
+	"revive_kit": {"view": Vector3(0.24, -0.40, -0.56), "scale": 0.55, "yaw": 20.0, "pitch": 0.0},
 }
 
 ## How far in front of the camera each held model reaches at rest (metres, with a margin); the viewmodel slides back by whatever a nearby wall
 ## leaves less than this. rescue_axe_validator keeps it >= the real extent of the model.
 const REACH := {
 	"flashlight": 0.90, "taser": 0.85, "lockpick": 0.80, "crowbar": 0.95, "rescue_axe": 0.95, "battery": 0.75,
+	"stim_pack": 0.80, "revive_kit": 0.85,
 }
 
 ## Third person: tilt (degrees, negative = head tipped forward) from the avatar's up axis for the upright tools (handle along the
@@ -40,6 +45,8 @@ const THIRD_PERSON := {
 	"taser": {"upright": false},
 	"lockpick": {"upright": false},
 	"battery": {"upright": false},
+	"stim_pack": {"upright": false},
+	"revive_kit": {"upright": false},
 	"crowbar": {"upright": true, "tilt": -52.0, "grip": 0.17},
 	"rescue_axe": {"upright": true, "tilt": -55.0, "grip": 0.08},
 }

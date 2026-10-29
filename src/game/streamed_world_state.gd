@@ -15,6 +15,8 @@ var hunters := {}
 ## deterministic spawn candidate is admitted again on the next stream refresh.
 var removed_hunters := {}
 var dropped_items := {}
+## Open co-op revive windows (ReviveDowns, docs/REVIVE.md).
+var downs := ReviveDowns.new()
 var next_drop_sequence := 1
 var sabotaged_relays := {}
 ## Stable generated door id -> {open, broken}. Closed/unbroken is the
@@ -143,6 +145,8 @@ func create_drop(item_id: String, durability: int, position: Vector3,
 		return {}
 	var drop_id := "DROP:%d:%d" % [source_peer_id, next_drop_sequence]
 	next_drop_sequence += 1
+	if PlayerController3D.STACK_MAX.has(item_id):
+		durability = clampi(durability, 1, PlayerController3D.stack_max(item_id))   # a stack's count
 	var record := {"id": drop_id, "item": item_id,
 		"durability": maxi(0, durability), "position": position,
 		"level": level, "source_peer_id": source_peer_id,
@@ -419,6 +423,7 @@ func snapshot() -> Dictionary:
 		"breaches": breaches.duplicate(true),
 		"booth_ready_at": booth_ready_at.duplicate(true),
 		"carousels": _carousel_snapshot(Time.get_unix_time_from_system()),
+		"downs": downs.snapshot(),
 	}
 
 
@@ -434,6 +439,7 @@ func adopt(snapshot_data: Dictionary) -> bool:
 	var schema := int(snapshot_data.get("schema", -1))
 	if schema not in [1, 2, 3, 4, 5, SCHEMA]:
 		return false
+	downs.adopt(snapshot_data.get("downs", {}))   # optional: older snapshots have no revive windows
 	var pickups = snapshot_data.get("claimed_pickups", {})
 	var rooms = snapshot_data.get("safe_rooms", {})
 	var hunter_data = snapshot_data.get("hunters", {})
