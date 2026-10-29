@@ -619,25 +619,47 @@ func run(host: Node) -> int:
 	_expect(RoomState.seed_text.begins_with("ROOM-%s-" % RoomState.code),
 		"route seed %s does not name its own room" % RoomState.seed_text)
 
-	# Nightmare is deliberately reserved until its multi-hunter rules exist.
 	# Hard is a complete, selectable midpoint profile rather than a relabelled
-	# Standard button.
+	# Standard button; Nightmare (KT 2026-10-28) is selectable above it.
 	_expect(RoomState.DIFFICULTY_LABELS.has(RoomState.Difficulty.HARD),
 		"Hard is missing from the selectable difficulty row")
 	_expect(RoomState.DIFFICULTY_LABELS.has(RoomState.Difficulty.NIGHTMARE),
 		"Nightmare is not visible as a planned difficulty")
-	_expect(not RoomState.difficulty_available(RoomState.Difficulty.NIGHTMARE),
-		"Nightmare is selectable before its multi-hunter rules exist")
+	_expect(RoomState.difficulty_available(RoomState.Difficulty.NIGHTMARE),
+		"Nightmare is still greyed out")
 	RoomState.set_difficulty(RoomState.Difficulty.HARD)
 	_expect(RoomState.difficulty == RoomState.Difficulty.HARD,
 		"set_difficulty did not accept Hard")
 	_expect(RoomState.difficulty_id() == "hard", "Hard resolves to the wrong rules id")
 	RoomState.set_difficulty(RoomState.Difficulty.NIGHTMARE)
-	_expect(RoomState.difficulty == RoomState.Difficulty.HARD,
-		"set_difficulty accepted the reserved Nightmare mode")
+	_expect(RoomState.difficulty == RoomState.Difficulty.NIGHTMARE and RoomState.difficulty_id() == "nightmare",
+		"set_difficulty refused Nightmare")
 	_expect(RoomState._selectable_difficulty_or_standard(
-		RoomState.Difficulty.NIGHTMARE) == RoomState.Difficulty.STANDARD,
-		"a stale network Nightmare value is not sanitized to Standard")
+		RoomState.Difficulty.NIGHTMARE) == RoomState.Difficulty.NIGHTMARE,
+		"a guest or save carrying Nightmare is turned into Standard")
+	_expect(RoomState._selectable_difficulty_or_standard(99) == RoomState.Difficulty.STANDARD,
+		"an unknown difficulty is not sanitized to Standard")
+	# Nightmare is a step above Hard on every hunter and player number
+	for field in ["hunter_speed", "hunter_sight", "hunter_hearing", "capture_distance", "lamp_drain", "sprint_drain", "search_time"]:
+		_expect(float(nightmare_profile_value(field)) > float(GameConfig.difficulty_profile("hard")[field]),
+			"Nightmare %s is not above Hard" % field)
+	for field in ["player_speed", "sprint_speed", "taser_stun", "escape_stun", "hide_cooldown"]:
+		_expect(float(nightmare_profile_value(field)) < float(GameConfig.difficulty_profile("hard")[field]),
+			"Nightmare %s is not below Hard" % field)
+	_expect(GameConfig.anti_afk_hunter_seconds("nightmare") < GameConfig.anti_afk_hunter_seconds("hard")
+		and GameConfig.safe_zone_limit_for("nightmare") < GameConfig.safe_zone_limit_for("hard"), "Nightmare timers are not tighter than Hard")
+	_expect(QuenelleGimmick.lock_seconds("nightmare") == 5.0 and QuenelleGimmick.lock_seconds("hard") == 8.0,
+		"Quenelle's Nightmare lock is not 5 s (Hard keeps 8 s)")
+	# the larger lineup: two awake at the start, one more per relay, always more than Hard
+	_expect(GameConfig.streamed_hunter_population("nightmare", 0) == 2 and GameConfig.streamed_hunter_population("nightmare", 3) == 5,
+		"Nightmare's lineup is not 2 + 1 per relay")
+	for relays in [0, 1, 5, 20]:
+		_expect(GameConfig.streamed_hunter_population("nightmare", relays) > GameConfig.streamed_hunter_population("hard", relays),
+			"Nightmare wakes no more hunters than Hard at %d relays" % relays)
+	# a save made on Nightmare loads back on Nightmare
+	var nightmare_save := {"difficulty": RoomState.Difficulty.NIGHTMARE, "difficulty_id": "nightmare"}
+	_expect(RoomState.DIFFICULTY_IDS.get(int(nightmare_save["difficulty"]), "") == nightmare_save["difficulty_id"]
+		and RoomState.difficulty_available(int(nightmare_save["difficulty"])), "a Nightmare checkpoint is refused")
 	var standard := GameConfig.difficulty_profile("standard")
 	var hard := GameConfig.difficulty_profile("hard")
 	var nightmare := GameConfig.difficulty_profile("nightmare")
@@ -781,8 +803,8 @@ func run(host: Node) -> int:
 		if String(button.text) == "DEFAULT":
 			default_mode_button = button
 	_expect(saw_hard, "the staging screen did not render a Hard button")
-	_expect(nightmare_button != null and nightmare_button.disabled,
-		"Nightmare is not visible and greyed out")
+	_expect(nightmare_button != null and not nightmare_button.disabled,
+		"Nightmare is missing or greyed out")
 	_expect(office_button == null,
 		"Office mode still appears as a player-facing staging button")
 	_expect(not saw_hide_seek, "Hide & Seek still appears in staging")
@@ -886,10 +908,14 @@ func run(host: Node) -> int:
 		print("  room      %s seats %d, seed %s"
 			% [RoomState.code, RoomState.seats(), RoomState.seed_text])
 		print("  rules     Hide & Seek and Office buttons hidden; Infinite is player-facing")
-		print("  difficulty Relaxed / Standard / Hard live; Nightmare visible but disabled")
+		print("  difficulty Relaxed / Standard / Hard / Nightmare live")
 		print("  guests    %d FIRST x %d LAST callsign words" % [
 			RoomState.GUEST_FIRST_NAMES.size(), RoomState.GUEST_LAST_NAMES.size()])
 		print("  scales    Infinite primary; Standard hidden as an internal fallback")
 		print("  create    primary server first; registration failure falls back to solo")
 		print("room OK")
 	return _failures
+
+
+func nightmare_profile_value(field: String) -> float:
+	return float(GameConfig.difficulty_profile("nightmare")[field])

@@ -18,8 +18,8 @@ extends RefCounted
 ## their own world units.
 ##
 ## Deferred (see MIGRATION.md): multi-hunter separation, lures, and room-power
-## sight modifiers. Relaxed/Standard/Hard difficulty scaling is applied here;
-## Nightmare and its larger active lineup remain intentionally unavailable.
+## sight modifiers. Relaxed/Standard/Hard/Nightmare difficulty scaling is applied here; Nightmare's larger
+## lineup is GameConfig.STREAMED_HUNTER_BASE plus HunterDirector (teams, scatter, separate).
 
 enum State { IDLE, WANDER, INVESTIGATE, CHASE, SEARCH, PEEK, INSPECT }
 ## INSPECT phases (HunterInspect): stepping up to the slats, turning to them, bending in, lingering, straightening.

@@ -205,7 +205,7 @@ func _ready() -> void:
 			RoomState.seed_text))
 		RoomState.difficulty = clampi(int(pending_payload.get("difficulty",
 			RoomState.Difficulty.STANDARD)), RoomState.Difficulty.RELAXED,
-			RoomState.Difficulty.HARD)
+			RoomState.Difficulty.NIGHTMARE)
 	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
 	player.interaction_message.connect(hud.show_message)
 	player.taser_requested.connect(_on_taser_requested)
@@ -2853,6 +2853,7 @@ func _direct_hunters(delta: float, local_target: Dictionary) -> void:
 			director = HunterDirector.new(RoomState.difficulty_id(), "DIRECTOR-%d" % level)
 			_hunter_directors[level] = director
 		director.tick(delta, by_level[level], navigation)
+		HunterDirector.separate(delta, by_level[level], navigation)
 
 
 func _update_hunters(delta: float, _data: Dictionary) -> void:

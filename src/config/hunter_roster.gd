@@ -166,8 +166,7 @@ static func eye_glow_color(id: String) -> Color:
 	return color
 
 ## NORMAL_ROUTE_HUNTER_WEIGHTS from the original, plus Hard at the exact
-## Standard/Nightmare midpoint. Nightmare's row is retained for its future
-## implementation but cannot currently be selected in RoomState.
+## Standard/Nightmare midpoint.
 const TIER_WEIGHTS_BY_DIFFICULTY := {
 	"relaxed": {"easy": 0.70, "intermediate": 0.25, "difficult": 0.05},
 	"standard": {"easy": 0.35, "intermediate": 0.50, "difficult": 0.15},

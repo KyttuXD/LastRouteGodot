@@ -23,6 +23,10 @@ const PROFILES := {
 const DIRECTED_HOLD := 9.0
 const SCATTER_HOLD := 16.0
 const SCATTER_CLEAR := 12.0   # a hunter this close to a runner is working, not spreading
+## Every frame, every mode: active hunters closer than SEPARATION cells push apart at SEPARATION_SPEED (cells/s) so a
+## pack chasing one runner never stacks into one body. A push into a wall or prop is skipped.
+const SEPARATION := 1.1
+const SEPARATION_SPEED := 2.5
 
 var mode_id := "standard"
 var stats := {"shares": 0, "flanks": 0, "covers": 0, "scatters": 0, "released": 0}
@@ -211,6 +215,35 @@ func tick(delta: float, entries: Array, generator) -> void:
 		if open != null:
 			_send(entry, open, SCATTER_HOLD)
 			stats["scatters"] += 1
+
+
+static func separate(delta: float, entries: Array, generator) -> int:
+	var pushed := 0
+	for i in entries.size():
+		var brain: HunterBrain = entries[i]["brain"]
+		if brain == null or not brain.active:
+			continue
+		var push := Vector2.ZERO
+		for j in entries.size():
+			var other: HunterBrain = entries[j]["brain"]
+			if i == j or other == null or not other.active:
+				continue
+			var offset := brain.position - other.position
+			var gap := offset.length()
+			if gap >= SEPARATION:
+				continue
+			# exactly on top of each other: split by entry order so the two go opposite ways
+			var away := offset / gap if gap > .001 else Vector2.RIGHT.rotated(float(i) * 2.4)
+			push += away * (SEPARATION - gap) / SEPARATION
+		if push == Vector2.ZERO:
+			continue
+		var step := push.limit_length(1.0) * SEPARATION_SPEED * delta
+		var to := brain.position + step
+		if generator != null and generator.has_method("can_occupy") and not generator.can_occupy(to.x, to.y):
+			continue
+		brain.position = to
+		pushed += 1
+	return pushed
 
 
 ## A way out near the runner (a relay / objective point when the level has them), else straight ahead of the sighting.

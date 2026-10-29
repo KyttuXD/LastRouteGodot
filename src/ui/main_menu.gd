@@ -189,7 +189,7 @@ func _on_continue_pressed() -> void:
 	RoomState.map_scale = RoomState.Scale.INFINITE
 	RoomState.difficulty = clampi(int(payload.get("difficulty",
 		RoomState.Difficulty.STANDARD)), RoomState.Difficulty.RELAXED,
-		RoomState.Difficulty.HARD)
+		RoomState.Difficulty.NIGHTMARE)
 	RoomState.status_message = "CONTINUING // %s" % String(result.get("place", "THE ROUTE"))
 	RoomState.enter(get_tree())
 

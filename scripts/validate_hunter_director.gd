@@ -18,6 +18,12 @@ class Field:
 		return [from, to]
 
 
+class Wall:
+	extends Field
+	func can_occupy(_x: float, _y: float, _radius: float = .23, _a = null) -> bool:
+		return false
+
+
 func _expect(condition: bool, message: String) -> void:
 	if not condition:
 		print("  FAIL  %s" % message)
@@ -108,6 +114,22 @@ func run(host: Node) -> int:
 	HunterDirector.new("hard", "STUN").tick(5.0, idle, Field.new())
 	_expect((idle[1]["brain"] as HunterBrain).state == HunterBrain.State.WANDER, "a stunned hunter is not sent anywhere")
 
+	# separation: hunters on top of each other push apart, every mode; a wall stops the push
+	var stack := [_entry("p", "nightmare", Vector2(30, 30), HunterBrain.State.CHASE),
+		_entry("q", "nightmare", Vector2(30, 30), HunterBrain.State.CHASE),
+		_entry("r", "nightmare", Vector2(30.3, 30), HunterBrain.State.CHASE)]
+	for _i in 60:
+		HunterDirector.separate(1.0 / 60.0, stack, Field.new())
+	var closest := INF
+	for i in stack.size():
+		for j in range(i + 1, stack.size()):
+			closest = minf(closest, (stack[i]["brain"] as HunterBrain).position.distance_to((stack[j]["brain"] as HunterBrain).position))
+	_expect(closest > .7, "three stacked hunters did not separate (closest %.2f)" % closest)
+	var walled := [_entry("w", "hard", Vector2(10, 10), HunterBrain.State.CHASE), _entry("v", "hard", Vector2(10.2, 10), HunterBrain.State.CHASE)]
+	_expect(HunterDirector.separate(.1, walled, Wall.new()) == 0
+		and (walled[0]["brain"] as HunterBrain).position == Vector2(10, 10), "separation pushed a hunter into a wall")
+	var apart := [_entry("a", "hard", Vector2(10, 10), HunterBrain.State.CHASE), _entry("b", "hard", Vector2(14, 10), HunterBrain.State.CHASE)]
+	_expect(HunterDirector.separate(.1, apart, Field.new()) == 0, "hunters already apart were pushed")
 	if _failures == 0:
 		print("  ok    hunter_director: sightings shared, teams per mode, flank / cover, scatter, cap per runner, chasers left alone")
 	return _failures

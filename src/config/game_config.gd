@@ -12,13 +12,10 @@ const PLAYER_SPRINT_SPEED := 100.0
 const PLAYER_CROUCH_SPEED := 36.0
 
 ## Difficulty profiles are multipliers over the Standard baseline, matching
-## the original web build's difficulty/core.js contract. Hard is deliberately
-## the exact midpoint between Standard and the reserved Nightmare profile: it
-## is a real step up without quietly inheriting Nightmare's future multi-hunter
-## rules or its hunter-specific instant-kill branches.
-##
-## Nightmare stays defined so its eventual implementation has one canonical
-## target, but RoomState does not expose or accept it as a selectable mode yet.
+## the original web build's difficulty/core.js contract. Hard is the exact
+## midpoint between Standard and Nightmare; Nightmare (selectable since KT
+## 2026-10-28) is the original's top profile. Its hunter-specific instant-kill
+## branches (Zellia's shop roll) are still not ported.
 const DIFFICULTY_PROFILES := {
 	"relaxed": {
 		"player_speed": 1.08, "crouch_speed": 1.06, "sprint_speed": 1.08,
@@ -268,9 +265,9 @@ const NORMAL_HUNTER_EXTREME_SPEED_SCALE := 1.3
 ## the original). Keeping the flashlight on for QUENELLE_FLASHLIGHT_LOCK_SECONDS
 ## straight earns a permanent chase lock; every flashlight on/off flick after
 ## that ramps her chase speed further, capped at QUENELLE_MAX_SPEED_SCALE after
-## QUENELLE_SPEED_RAMP_ACTIVATIONS flicks. Hard deliberately keeps this Standard
-## behaviour; Nightmare's shorter 5s threshold remains reserved with that mode.
+## QUENELLE_SPEED_RAMP_ACTIVATIONS flicks. Hard keeps this Standard behaviour; Nightmare locks on after 5 s.
 const QUENELLE_FLASHLIGHT_LOCK_SECONDS := 8.0
+const QUENELLE_NIGHTMARE_LOCK_SECONDS := 5.0
 const QUENELLE_MAX_SPEED_SCALE := 1.45
 const QUENELLE_SPEED_RAMP_ACTIVATIONS := 10
 
@@ -410,6 +407,8 @@ const HUNTER_ACTIVATION_RELAYS := {
 ## activation threshold, then additional hunters join at a difficulty-specific
 ## relay cadence. The desired population has no fixed ceiling: distant bodies
 ## still stream out, but continued relay recovery can keep adding pursuers.
+## Nightmare's larger active lineup: this many hunters are awake at the activation relay instead of one.
+const STREAMED_HUNTER_BASE := {"nightmare": 2}
 const STREAMED_HUNTER_RELAY_STEP := {
 	"relaxed": 3,
 	"standard": 2,
@@ -603,7 +602,7 @@ static func streamed_hunter_population(id: String, relays_collected: int) -> int
 	if relays_collected < activation:
 		return 0
 	var step := maxi(1, int(STREAMED_HUNTER_RELAY_STEP[difficulty]))
-	return 1 + (relays_collected - activation) / step
+	return int(STREAMED_HUNTER_BASE.get(difficulty, 1)) + (relays_collected - activation) / step
 
 
 static func anti_idle_hunter_seconds(id: String) -> float:

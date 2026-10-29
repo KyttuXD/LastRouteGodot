@@ -33,7 +33,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 
 	if not _tracking:
 		_track_elapsed = _track_elapsed + delta if target_flashlight_on else 0.0
-		if _track_elapsed >= GameConfig.QUENELLE_FLASHLIGHT_LOCK_SECONDS:
+		if _track_elapsed >= lock_seconds(brain.difficulty_id):
 			_tracking = true
 			brain.world_events.append({"what": "message", "sound": "alert", "message": "QUENELLE LOCKED ON"})
 
@@ -50,3 +50,7 @@ func before_perception(brain: HunterBrain, delta: float, target: Dictionary, _ge
 
 func speed_scale(_brain: HunterBrain) -> float:
 	return _speed_scale
+
+
+static func lock_seconds(difficulty_id: String) -> float:
+	return GameConfig.QUENELLE_NIGHTMARE_LOCK_SECONDS if difficulty_id == "nightmare" else GameConfig.QUENELLE_FLASHLIGHT_LOCK_SECONDS

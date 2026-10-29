@@ -34,9 +34,8 @@ enum Mode { DEFAULT }
 ## renaming an existing tier just to free the word felt like a bigger change
 ## than "merge the two biggest" asked for.
 enum Scale { SMALL, STANDARD, LARGE, IMMENSE, INFINITE }
-## Nightmare is intentionally visible but not selectable. Its eventual design
-## includes a larger active hunter lineup, so the disabled label can advertise
-## the plan without exposing an incomplete simulation/co-op ruleset.
+## Nightmare (KT 2026-10-28) is a step above Hard with a larger active lineup:
+## GameConfig.STREAMED_HUNTER_BASE, HunterDirector's Nightmare team and HunterDirector.separate.
 enum Difficulty { RELAXED, STANDARD, HARD, NIGHTMARE }
 
 ## The web build calls a slot a "signal" and seats sixteen of them.
@@ -1009,7 +1008,7 @@ func mode_unavailable_reason(candidate: Mode) -> String:
 
 
 func difficulty_available(candidate: Difficulty) -> bool:
-	return DIFFICULTY_LABELS.has(candidate) and candidate != Difficulty.NIGHTMARE
+	return DIFFICULTY_LABELS.has(candidate)
 
 
 ## What the button that leaves staging should say, in the web build's words.
@@ -1117,8 +1116,6 @@ func map_scale_available(value: int) -> bool:
 func set_difficulty(value: Difficulty) -> void:
 	if online and not is_host:
 		return
-	# NIGHTMARE stays visible but disabled. Rejecting it here also keeps scripts
-	# and stale clients from starting the incomplete multi-hunter ruleset.
 	if not difficulty_available(value) or difficulty == value:
 		return
 	difficulty = value
@@ -1136,7 +1133,7 @@ func difficulty_profile() -> Dictionary:
 
 static func _selectable_difficulty_or_standard(value: int) -> int:
 	return value if value in [Difficulty.RELAXED, Difficulty.STANDARD,
-		Difficulty.HARD] else Difficulty.STANDARD
+		Difficulty.HARD, Difficulty.NIGHTMARE] else Difficulty.STANDARD
 
 
 ## Leave staging and start the run this room describes.

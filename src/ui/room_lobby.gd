@@ -242,7 +242,7 @@ func _continue_saved_run() -> void:
 	RoomState.seed_text = String(payload.get("seed_text", RoomState.seed_text))
 	RoomState.difficulty = clampi(int(payload.get("difficulty",
 		RoomState.Difficulty.STANDARD)), RoomState.Difficulty.RELAXED,
-		RoomState.Difficulty.HARD)
+		RoomState.Difficulty.NIGHTMARE)
 	RoomState.status_message = "CONTINUING // %s" % String(result.get("place", "THE ROUTE"))
 	_close_modal()
 	RoomState.enter(get_tree())
