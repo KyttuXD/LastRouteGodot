@@ -1238,7 +1238,7 @@ func _update_hud() -> void:
 	hud.update_inventory(player.selected_inventory_item(), player.taser_cooldown,
 		player.inventory_durability_snapshot(), player.inventory_owned_snapshot(),
 		player.inventory_order_snapshot(), player.inventory_max_durability_snapshot(),
-		player.selected_inventory_slot, player.inventory_slot_durability_snapshot())
+		player.selected_inventory_slot, player.inventory_slot_durability_snapshot(), player.slot_cooldowns)
 	var thermal := _temperature_hunter_proximity()
 	hud.update_meters(player.meters, thermal.x, thermal.y)
 	hud.set_escape_active(GameState.escape_active)

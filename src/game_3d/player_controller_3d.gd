@@ -96,7 +96,20 @@ var _noise_burst := 0.0
 var _noise_burst_timer := 0.0
 var _swing_busy_until_msec := 0
 var _viewmodel_push := 0.0
-var taser_cooldown := 0.0
+## Per-slot use cooldowns (KT 2026-10-28: "only the used taser/item"): one entry per inventory slot, moved with the item
+## on a swap and cleared when the slot empties, so a second taser stays ready and a stack shares its slot's one timer.
+var slot_cooldowns: Array = []
+## The taser that fired last (the host keys its cooldown by this slot).
+var last_taser_slot := -1
+## Reading gives the selected taser's cooldown (else the readiest taser's); writing sets every taser slot (used to reset).
+var taser_cooldown: float:
+	get:
+		var slot := _taser_slot(false)
+		return slot_cooldown(slot) if slot >= 0 else 0.0
+	set(value):
+		for slot in inventory_order.size():
+			if inventory_order[slot] == "taser":
+				_set_slot_cooldown(slot, value)
 var _flashlight_lens_material: StandardMaterial3D
 var _flashlight_probe: RayCast3D
 ## Exact center-beam hit distance for interaction/effects which need it. It
@@ -1726,7 +1739,7 @@ func _physics_process(delta: float) -> void:
 	_update_stim(delta)
 	_update_viewmodel_push(delta)
 	_update_crawl_hands()
-	taser_cooldown = maxf(0.0, taser_cooldown - delta)
+	_tick_slot_cooldowns(delta)
 	_update_first_person_item_lights()
 	_update_flashlight_occlusion()
 	if spectator_mode and _update_ghost_follow(delta):
@@ -2650,11 +2663,12 @@ func _animate_flashlight_toggle() -> void:
 
 
 func _fire_taser() -> void:
-	if not owns_inventory_item("taser") or taser_cooldown > 0.0 \
-			or input_frozen or stun_timer > 0.0:
+	var slot := _taser_slot(true)
+	if slot < 0 or input_frozen or stun_timer > 0.0:
 		return
-	select_inventory_slot(inventory_order.find("taser"))
-	taser_cooldown = GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown")
+	select_inventory_slot(slot)
+	_set_slot_cooldown(slot, GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown"))
+	last_taser_slot = slot
 	Sound.taser()
 	_animate_taser_fire()
 	taser_requested.emit()
@@ -2711,6 +2725,9 @@ func move_inventory_slot(from_slot: int, to_slot: int) -> void:
 	var from_durability = inventory_slot_durability[from_slot]
 	inventory_slot_durability[from_slot] = inventory_slot_durability[to_slot]
 	inventory_slot_durability[to_slot] = from_durability
+	var from_cooldown := slot_cooldown(from_slot)
+	_set_slot_cooldown(from_slot, slot_cooldown(to_slot))
+	_set_slot_cooldown(to_slot, from_cooldown)
 	if _active_flashlight_slot == from_slot:
 		_active_flashlight_slot = to_slot
 	elif _active_flashlight_slot == to_slot:
@@ -2745,7 +2762,7 @@ func grant_inventory_item(item_id: String, restored_durability: int = -1) -> boo
 			else GameConfig.MAX_LAMP_CHARGE)
 	elif item_id == "taser":
 		inventory_slot_durability[slot] = 0
-		taser_cooldown = 0.0
+		_set_slot_cooldown(slot, 0.0)
 	elif INVENTORY_MAX_DURABILITY.has(item_id):
 		inventory_slot_durability[slot] = clampi(restored_durability, 1,
 			int(INVENTORY_MAX_DURABILITY[item_id])) if restored_durability > 0 \
@@ -2908,8 +2925,7 @@ func remove_inventory_item(item_id: String, preferred_slot: int = -1, count: int
 			_active_flashlight_slot = inventory_order.find("flashlight")
 			lamp_charge = float(_slot_durability(_active_flashlight_slot)) \
 				if _active_flashlight_slot >= 0 else 0.0
-	elif item_id == "taser":
-		taser_cooldown = 0.0
+	_set_slot_cooldown(slot, 0.0)
 	_sync_owned_inventory_items()
 	_refresh_inventory_view()
 	return {"item": item_id, "durability": durability, "slot": slot}
@@ -2954,6 +2970,41 @@ func _update_drop_key(delta: float) -> void:
 	if _drop_hold >= DROP_STACK_HOLD:
 		_drop_hold = -1.0
 		request_drop_selected_item(true)
+
+
+func slot_cooldown(slot: int) -> float:
+	return float(slot_cooldowns[slot]) if slot >= 0 and slot < slot_cooldowns.size() else 0.0
+
+
+func _set_slot_cooldown(slot: int, seconds: float) -> void:
+	if slot < 0:
+		return
+	while slot_cooldowns.size() <= slot:
+		slot_cooldowns.append(0.0)
+	slot_cooldowns[slot] = maxf(0.0, seconds)
+
+
+func _tick_slot_cooldowns(delta: float) -> void:
+	for slot in slot_cooldowns.size():
+		if float(slot_cooldowns[slot]) > 0.0:
+			slot_cooldowns[slot] = maxf(0.0, float(slot_cooldowns[slot]) - delta)
+
+
+## The selected taser if it is one (when `ready`, only if charged), else the first taser that is ready (or the readiest).
+func _taser_slot(ready: bool) -> int:
+	if selected_inventory_slot >= 0 and selected_inventory_slot < inventory_order.size() \
+			and inventory_order[selected_inventory_slot] == "taser" \
+			and (not ready or slot_cooldown(selected_inventory_slot) <= 0.0):
+		return selected_inventory_slot
+	var best := -1
+	for slot in inventory_order.size():
+		if inventory_order[slot] != "taser":
+			continue
+		if best < 0 or slot_cooldown(slot) < slot_cooldown(best):
+			best = slot
+	if ready and best >= 0 and slot_cooldown(best) > 0.0:
+		return -1
+	return best
 
 
 func owns_inventory_item(item_id: String) -> bool:
