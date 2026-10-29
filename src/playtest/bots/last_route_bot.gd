@@ -24,6 +24,14 @@ const STUCK_MIN_MOVE := 0.3
 const GOAL_BLACKLIST_SECONDS := 25.0
 const SCAN_INTERVAL := 30
 const WAIT_IN_SAFE_SECONDS := 25.0
+## Roaming (KT 2026-10-28): after LEVEL_STAY_MIN..MAX seconds on a storey the bot heads for the nearest stairwell or ladder to the
+## neighbouring storey it has spent least time on (within LEVEL_SPAN of the start), and goes through it.
+const LEVEL_STAY_MIN := 150.0
+const LEVEL_STAY_MAX := 300.0
+const LEVEL_SPAN := 3
+const LINK_SEARCH_CHUNKS := 3
+const REVIVE_RANGE := 40.0      # m: a downed teammate this close, with a Revive Kit in the hotbar, is the goal
+const REVIVE_GIVE_UP := 10.0    # s holding at the spot before the bot leaves it
 
 var _scan_cache: Array = []
 var _scan_frame := -1000
@@ -66,6 +74,13 @@ var _safe_wait := 0.0
 var _door_tries := 0
 var _door_walk_time := 0.0
 var _has_last_pos := false
+## false keeps the bot on its storey (a guest following the host: the host's storey is where it goes)
+var roam_levels := true
+var _level_time := {}            # storey -> seconds spent there
+var _level_due := -1.0           # _clock when the bot next looks for a link (set on the first frame)
+var _link_hold := {}             # a link being taken: {"landing": Vector3, "to": int, "until": float, "id": String}
+var _regions := {}               # "level:region" -> first _clock seen
+var _revive_time := 0.0
 
 
 func available() -> bool:
@@ -425,7 +440,8 @@ func _reset() -> void:
 	var pitch_hist: Dictionary = stats.get("pitch_hist", {}) if stats is Dictionary else {}
 	stats = {"frames": 0, "distance_m": 0.0, "stuck_events": 0, "soft_locks": 0, "interact_failures": 0,
 		"unreachable_goals": 0, "chase_frames": 0, "relays": 0, "deaths": 0, "hidden_frames": 0,
-		"chunks_visited": 0, "max_depth": 1, "hunters_seen": {}, "pitch_hist": pitch_hist, "uses": {}, "flashlight_toggles": 0}
+		"chunks_visited": 0, "max_depth": 1, "hunters_seen": {}, "pitch_hist": pitch_hist, "uses": {}, "flashlight_toggles": 0,
+		"levels": {}, "regions": [], "level_trips": 0, "level_trip_failed": 0, "revives_tried": 0}
 	events.clear()
 	_goal = {}
 	_path = []
@@ -441,6 +457,11 @@ func _reset() -> void:
 	_stuck_spots.clear()
 	_unreachable_seen.clear()
 	_scan_frame = -1000
+	_level_time.clear()
+	_level_due = -1.0
+	_link_hold = {}
+	_regions.clear()
+	_revive_time = 0.0
 
 
 func _route_ready(scene: Node) -> bool:
@@ -606,6 +627,9 @@ func _decide_inner(obs: Dictionary, delta: float) -> Dictionary:
 			_hide_clear_time = 0.0
 		return act
 	_hide_clear_time = 0.0
+	if not _link_hold.is_empty():
+		_hold_link(scene, player, delta)
+		return act
 	var goal := _pick_goal(obs, nav, cell, threat)
 	if goal.is_empty():
 		_idle_look(player, act, delta)
@@ -633,6 +657,14 @@ func _decide_inner(obs: Dictionary, delta: float) -> Dictionary:
 		if _interact_cooldown <= 0.0:
 			act["pulse"].append("interact")
 			_interact_cooldown = 0.8
+		return act
+	if _last_goal_kind == "revive" and distance <= INTERACT_RANGE:
+		_revive(player, goal, act, delta)
+		return act
+	if _last_goal_kind != "revive":
+		_revive_time = 0.0
+	if _last_goal_kind == "level" and distance <= 1.4:
+		_take_link(scene, player, goal)
 		return act
 	if _last_goal_kind == "use" and distance <= INTERACT_RANGE + .6:
 		_use(player, p, goal, act, delta)
@@ -663,6 +695,10 @@ func _decide_inner(obs: Dictionary, delta: float) -> Dictionary:
 
 func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, threat: Dictionary) -> Dictionary:
 	var world: Dictionary = obs["world"]
+	if forced_goal != Vector2i(-99999, -99999) and threat.is_empty():
+		var save := _revive_goal(obs, nav)   # a downed teammate comes before keeping up with the host
+		if not save.is_empty():
+			return save
 	if forced_goal != Vector2i(-99999, -99999):
 		return {"kind": forced_kind, "key": "forced:%d,%d" % [forced_goal.x, forced_goal.y], "cell": forced_goal}
 	if not threat.is_empty():
@@ -679,6 +715,9 @@ func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, 
 		var flee_cell := _open_cell_near(nav, Vector2(cell) + away.normalized() * 25.0)
 		if flee_cell != Vector2i(-99999, -99999):
 			return {"kind": "flee", "key": "flee:%d,%d" % [flee_cell.x / 6, flee_cell.y / 6], "cell": flee_cell}
+	var revive := _revive_goal(obs, nav)
+	if not revive.is_empty():
+		return revive
 	for entry in world["relays"]:
 		if float(entry["dist"]) < 90.0 and not _blacklisted("relay:%s" % entry["id"]) and _relay_mine(String(entry["id"]), entry):
 			return {"kind": "relay", "key": "relay:%s" % entry["id"], "id": String(entry["id"]), "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
@@ -690,7 +729,137 @@ func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, 
 	var use := _use_goal(obs, nav)
 	if not use.is_empty():
 		return use
+	var level := _level_goal(obs, nav)
+	if not level.is_empty():
+		return level
 	return _explore_goal(obs, nav, cell)
+
+
+## A downed teammate on this storey within REVIVE_RANGE, while a Revive Kit is in the hotbar (docs/REVIVE.md).
+func _revive_goal(obs: Dictionary, nav: StreamedHunterNavigation) -> Dictionary:
+	var scene := tree.current_scene
+	var player: PlayerController3D = scene.get("player")
+	if not RoomState.online or player.item_count("revive_kit") <= 0 or not scene.has_method("downed_map_marks"):
+		return {}
+	var p := player.global_position
+	for mark in scene.call("downed_map_marks"):
+		var at: Vector3 = mark["at"]
+		if float(mark["left"]) <= 2.0 or absf(at.y - p.y) > 2.5 or Vector2(at.x, at.z).distance_to(Vector2(p.x, p.z)) > REVIVE_RANGE:
+			continue
+		var key := "revive:%d" % int(mark["peer"])
+		if _blacklisted(key):
+			continue
+		var stand := _open_cell_near(nav, Vector2(at.x, at.z))
+		if stand != Vector2i(-99999, -99999):
+			return {"kind": "revive", "key": key, "cell": stand, "at": at, "peer": int(mark["peer"])}
+	return {}
+
+
+## At the downed teammate: face the spot and hold interact (the Revive Kit hold); leave after REVIVE_GIVE_UP.
+func _revive(player: PlayerController3D, goal: Dictionary, act: Dictionary, delta: float) -> void:
+	if _revive_time == 0.0:
+		stats["revives_tried"] = int(stats["revives_tried"]) + 1
+		add_event("revive_try", {"peer": goal["peer"], "t": snappedf(_clock, .1)})
+	_revive_time += delta
+	if _aim_at(player, goal["at"], act, delta):
+		act["hold"]["interact"] = true
+	if _revive_time > REVIVE_GIVE_UP:
+		_blacklist[String(goal["key"])] = _clock + 20.0
+		_goal = {}
+		_revive_time = 0.0
+
+
+## Time to change storey: the nearest stairwell / ladder (within LINK_SEARCH_CHUNKS) to the neighbouring storey with the least time.
+func _level_goal(obs: Dictionary, nav: StreamedHunterNavigation) -> Dictionary:
+	if not roam_levels or forced_goal != Vector2i(-99999, -99999):
+		return {}
+	if _level_due < 0.0:
+		_level_due = _clock + rng.randf_range(LEVEL_STAY_MIN, LEVEL_STAY_MAX)
+	if _clock < _level_due:
+		return {}
+	if _goal.get("kind", "") == "level":
+		return _goal
+	var facility: StreamedFacilityView3D = tree.current_scene.get("facility")
+	var here := facility.current_level()
+	var steps: Array = []
+	for step in [here - 1, here + 1]:
+		if absi(step) <= LEVEL_SPAN:
+			steps.append(step)
+	steps.sort_custom(func(a, b) -> bool: return float(_level_time.get(a, 0.0)) < float(_level_time.get(b, 0.0)))
+	var centre := facility.current_chunk_coord()
+	var p: Vector3 = (tree.current_scene.get("player") as PlayerController3D).global_position
+	for step in steps:
+		var best := {}
+		var best_d := INF
+		for dz in range(-LINK_SEARCH_CHUNKS, LINK_SEARCH_CHUNKS + 1):
+			for dx in range(-LINK_SEARCH_CHUNKS, LINK_SEARCH_CHUNKS + 1):
+				var coord := Vector3i(centre.x + dx, here, centre.z + dz)
+				if not facility.generator.is_chunk_allowed(coord) or not facility.generator.has_method("vertical_links"):
+					continue
+				for link_value in facility.generator.vertical_links(coord):
+					var link: Dictionary = link_value
+					var from := LevelLink.cell_on(link, here)
+					if from == Vector2i(-1, -1) or int(LevelLink.other_end(link, here)["level"]) != step:
+						continue
+					var chunk: Vector3i = link["chunk"]
+					var at := Vector2(float(chunk.x * CHUNK + from.x) + .5, float(chunk.z * CHUNK + from.y) + .5)
+					if _blacklisted("level:%s" % link["id"]):
+						continue
+					var d := at.distance_to(Vector2(p.x, p.z))
+					if d < best_d:
+						best_d = d
+						best = {"link": link, "at": at}
+		if best.is_empty():
+			continue
+		var stand := _open_cell_near(nav, best["at"])
+		if stand == Vector2i(-99999, -99999):
+			continue
+		var link: Dictionary = best["link"]
+		add_event("level_goal", {"from": here, "to": step, "link": link["id"], "dist": snappedf(best_d, .1)})
+		return {"kind": "level", "key": "level:%s" % link["id"], "cell": stand, "link": link, "from": here, "to": step}
+	_level_due = _clock + 30.0   # no link near: look again after walking on a while
+	return {}
+
+
+## At the link's foot: go through it to its far end (stairs and ladders are walked or climbed by players; the bot is put at the
+## far end the way the soak's level hop does, and noclip holds it there until that storey has streamed in).
+func _take_link(scene: Node, player: PlayerController3D, goal: Dictionary) -> void:
+	var link: Dictionary = goal["link"]
+	var from := int(goal["from"])
+	var far: Dictionary = LevelLink.other_end(link, from)
+	var cell: Vector2i = far["cell"]
+	var chunk: Vector3i = link["chunk"]
+	var facility: StreamedFacilityView3D = scene.get("facility")
+	var to := int(far["level"])
+	var landing := facility.global_position + Vector3(float(chunk.x * CHUNK + cell.x) + .5,
+		float(to) * StreamedFacilityView3D.LEVEL_HEIGHT + .1, float(chunk.z * CHUNK + cell.y) + .5)
+	player.set_admin_noclip(true)
+	player.global_position = landing
+	player.velocity = Vector3.ZERO
+	_link_hold = {"landing": landing, "to": to, "from": from, "until": _clock + 8.0, "id": String(link["id"]), "settle": 0.0}
+	_goal = {}
+	_path = []
+
+
+func _hold_link(scene: Node, player: PlayerController3D, delta: float) -> void:
+	var facility: StreamedFacilityView3D = scene.get("facility")
+	var landing: Vector3 = _link_hold["landing"]
+	player.global_position = landing
+	player.velocity = Vector3.ZERO
+	var arrived := facility.current_level() == int(_link_hold["to"]) and scene.get("_navigation") != null \
+			and (scene.get("_navigation") as StreamedHunterNavigation).can_occupy(landing.x, landing.z)
+	if arrived:
+		_link_hold["settle"] = float(_link_hold["settle"]) + delta
+	if (arrived and float(_link_hold["settle"]) > .5) or _clock > float(_link_hold["until"]):
+		player.set_admin_noclip(false)
+		var ok := facility.current_level() == int(_link_hold["to"])
+		stats["level_trips" if ok else "level_trip_failed"] = int(stats["level_trips" if ok else "level_trip_failed"]) + 1
+		add_event("level_trip", {"from": _link_hold["from"], "to": _link_hold["to"], "link": _link_hold["id"], "ok": ok,
+			"t": snappedf(_clock, .1)})
+		if not ok:
+			_blacklist["level:%s" % _link_hold["id"]] = _clock + 120.0
+		_level_due = _clock + rng.randf_range(LEVEL_STAY_MIN, LEVEL_STAY_MAX)
+		_link_hold = {}
 
 
 ## Something to use on the way: a music box (wound, hold interact), a light switch while it is dark, a tool lying about, or a boarded
@@ -910,7 +1079,7 @@ func _explore_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2
 			var key := "explore:%d,%d" % [coord.x, coord.y]
 			if _blacklisted(key):
 				continue
-			var visits := int(_visited.get("%d,%d" % [coord.x, coord.y], 0))
+			var visits := int(_visited.get("%d,%d,%d" % [coord.x, int(chunk[1]), coord.y], 0))
 			var centre := Vector2(coord.x * CHUNK + CHUNK * .5, coord.y * CHUNK + CHUNK * .5)
 			var score := -visits * 40.0 - Vector2(cell).distance_to(centre) * .35 + rng.randf() * 6.0
 			if _goal.get("key", "") == key:
@@ -1164,7 +1333,15 @@ func _interact(obs: Dictionary, scene: Node, player: PlayerController3D, p: Vect
 
 func _track_progress(obs: Dictionary, p: Vector3, delta: float) -> void:
 	var chunk: Array = obs["world"]["chunk"]
-	var key := "%d,%d" % [int(chunk[0]), int(chunk[2])]
+	var key := "%d,%d,%d" % [int(chunk[0]), int(chunk[1]), int(chunk[2])]
+	var level := int(chunk[1])
+	_level_time[level] = float(_level_time.get(level, 0.0)) + delta
+	stats["levels"][str(level)] = snappedf(float(_level_time[level]), 1.0)
+	var region := "%d:%s" % [level, String(obs["world"].get("region", ""))]
+	if not _regions.has(region):
+		_regions[region] = snappedf(_clock, .1)
+		stats["regions"] = _regions.keys()
+		add_event("region", {"region": region, "t": snappedf(_clock, .1)})
 	if not _visited.has(key):
 		_visited[key] = 0
 		stats["chunks_visited"] = _visited.size()
