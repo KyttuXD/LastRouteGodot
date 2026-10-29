@@ -597,8 +597,41 @@ static func _maze_stairwell_fits(grid: Array, layout: Dictionary, circulation: D
 	# a deck patch's only way up (relaxed) may take a second room's worth of floor
 	if dropped > (MAX_FORCED_STAIRWELL_DROPPED_ROOM_CELLS if relaxed else MAX_STAIRWELL_DROPPED_ROOM_CELLS):
 		return false
+	# the well's walls must not pinch a hall or warren lane beside it under three wide
+	var around := reach.grow(3).intersection(Rect2i(0, 0, CHUNK_SIZE, CHUNK_SIZE))
+	if _narrow_open_cells(trial_grid, around, well["box"]) > _narrow_open_cells(grid, around, well["box"]):
+		return false
+	# nor leave a notch: a hall cell beside the box that was three wide must stay so without counting the well
+	for z in range(around.position.y, around.end.y):
+		for x in range(around.position.x, around.end.x):
+			var cell := Rect2i(x, z, 1, 1)
+			if _narrow_open_cells(trial_grid, cell, well["box"], well["box"]) > 0 \
+					and (int(grid[z][x]) != 0 or _narrow_open_cells(grid, cell, Rect2i()) == 0):
+				return false
 	# the seams are carved later, so pockets may exist already: the carve must not add one
 	return _open_components(trial_grid) <= _open_components(grid)
+
+
+## Open cells in `area` (outside `box`) whose straight open run, `wall` counted as wall, is under three along either axis.
+static func _narrow_open_cells(grid: Array, area: Rect2i, box: Rect2i, wall: Rect2i = Rect2i()) -> int:
+	var count := 0
+	for z in range(area.position.y, area.end.y):
+		for x in range(area.position.x, area.end.x):
+			if int(grid[z][x]) != 0 or box.has_point(Vector2i(x, z)):
+				continue
+			var runs := []
+			for step in [Vector2i(1, 0), Vector2i(0, 1)]:
+				var run := 1
+				for sign in [1, -1]:
+					var at: Vector2i = Vector2i(x, z) + step * sign
+					while run < 3 and at.x >= 0 and at.y >= 0 and at.x < CHUNK_SIZE and at.y < CHUNK_SIZE and int(grid[at.y][at.x]) == 0 \
+							and not wall.has_point(at):
+						run += 1
+						at += step * sign
+				runs.append(run)
+			if mini(runs[0], runs[1]) < 3:
+				count += 1
+	return count
 
 
 static func _open_components(grid: Array) -> int:
@@ -1066,6 +1099,9 @@ static func _carve_stairwell(grid: Array, layout: Dictionary, circulation: Dicti
 			if int(grid[row][x]) == 0:
 				open = true
 		if open:
+			# the row it meets is opened all three wide, so no wall cell is left in front of the door
+			_carve_rect(grid, step)
+			_mark_rect_cells(circulation, step)
 			break
 		lane = lane.merge(step)
 		row += outward
