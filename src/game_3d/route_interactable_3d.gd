@@ -672,7 +672,7 @@ func get_prompt() -> String:
 	if kind == Kind.RELAY and locked_cache:
 		return "PICK LOCK // LOCKPICK OR CROWBAR"
 	if kind == Kind.BOARDED_PATH and not opened:
-		return "BREACH BOARDS // CROWBAR OR RESCUE AXE"
+		return "BREACH BOARDS // CROWBAR OR AXE"
 	if kind == Kind.BREAKABLE:
 		if opened:
 			return ""
@@ -972,7 +972,7 @@ func activate_with_tool(player: PlayerController3D, item_id: String,
 		if opened:
 			return _fail("Path already cleared.")
 		if not PlayerController3D.BREACH_TOOLS.has(item_id):
-			return _fail("BOARDED PATH // EQUIP CROWBAR OR RESCUE AXE")
+			return _fail("BOARDED PATH // EQUIP CROWBAR OR AXE")
 		if not already_consumed and not player.consume_item_durability(item_id):
 			return _fail("%s IS BROKEN" % String(PlayerController3D.INVENTORY_LABELS.get(
 				item_id, item_id)).to_upper())

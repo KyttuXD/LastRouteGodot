@@ -438,6 +438,19 @@ func run(host: Node) -> int:
 				await _expect_every_hunter_looks(route, player, grab, place)
 			(place["root"] as Node).queue_free()
 			await host.get_tree().process_frame
+		# a caught co-op runner who goes on to spectate is let go at once: no hold left on their camera or in their state
+		player.global_position = home
+		var spectate_view := _hunter(route, "dovelle", home + Vector3(0, 0, -.8), Vector3.BACK)
+		await host.get_tree().process_frame
+		await grab.play(player, spectate_view, "dovelle", .5, GrabStyles.SHOULDER_GRAB)
+		player.enter_spectator()
+		for _i in 3:
+			await host.get_tree().process_frame
+		_expect(not player.grab_active and player.grab_state.is_empty() and grab.current.is_empty(),
+			"a caught runner who starts spectating is still held")
+		player.leave_spectator()
+		spectate_view.queue_free()
+		await host.get_tree().process_frame
 		player.global_position = home
 	route.queue_free()
 	await host.get_tree().process_frame

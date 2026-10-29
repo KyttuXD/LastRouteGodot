@@ -34,7 +34,7 @@ const CAMERA_HEIGHT := 1.6 * PlayerModels.SCALE
 const CAMERA_HEIGHT_MIN := 1.35 * PlayerModels.SCALE
 const CAMERA_HEIGHT_MAX := 1.78 * PlayerModels.SCALE
 const CONTROLLER_LOOK_RADIANS_PER_SECOND := 2.8
-## Capsule, eye, crouch and step all follow the runner's size (PlayerModels.SCALE); the radius stays as it is.
+## Capsule, eye, crouch and step all follow the runner's size (PlayerModels.SCALE); the radius is 0.28 (0.85x of the hunter's).
 const STANDING_COLLISION_HEIGHT := 1.7 * PlayerModels.SCALE
 const CROUCH_COLLISION_HEIGHT := 1.08 * PlayerModels.SCALE
 const STANDING_COLLISION_CENTER_Y := STANDING_COLLISION_HEIGHT * .5
@@ -141,7 +141,7 @@ const BACKPACK_RANK := {
 const COLLECTIBLE_ITEMS := INVENTORY_ITEMS + BACKPACK_ITEMS
 const INVENTORY_LABELS := {
 	"flashlight": "FLASHLIGHT", "taser": "TASER", "lockpick": "LOCKPICK SET",
-	"crowbar": "CROWBAR", "rescue_axe": "RESCUE AXE",
+	"crowbar": "CROWBAR", "rescue_axe": "AXE",
 	"battery": "FLASHLIGHT BATTERY",
 	"stim_pack": "STIM PACK", "revive_kit": "REVIVE KIT",
 	"backpack_small": "SMALL BACKPACK", "backpack_medium": "MEDIUM BACKPACK",
@@ -302,6 +302,10 @@ var ladder_climb := {}
 var plunge := {}
 var soaked_left := 0.0
 var _drip_left := 0.0
+## Flood water over the floor where the runner stands (SewerFloods sets it every frame; 0 when dry). Wading slows, every
+## step splashes (hunters hear it) and keeps the runner soaked; it never muffles or swims at this depth.
+var wading_depth := 0.0
+var _splash_left := 0.0
 var _climb_hands: Node3D
 ## A hunter's grab (HunterGrab): while it holds this runner the eye follows the head of the grabbed body, the view takes the
 ## grab's tilt and the skinned hands react. `grab_state` is what other players need to draw it (sent with the runner's state).
@@ -327,6 +331,11 @@ const PLUNGE_SWIM_NOISE := .8
 const SOAKED_SECONDS := 30.0
 const SOAKED_NOISE_SCALE := 1.45
 const SOAKED_DRIP_EVERY := Vector2(1.1, 2.4)
+## Wading a sewer flood (SewerFloods.MAX_DEPTH deep): the speed at full depth, the noise of a splashing step (louder than a
+## sprint on stone) and how often a step splashes.
+const WADE_SPEED_SCALE := .6
+const WADE_NOISE := 12.0
+const WADE_SPLASH_EVERY := .42
 const LADDER_CLIMB_SPEED := 1.7
 const LADDER_LET_GO_HEIGHT := 1.3 * PlayerModels.SCALE
 const LADDER_MOUNT_SECONDS := .3
@@ -337,14 +346,14 @@ const MODEL_EYE_NEAR := .02
 var resting_pose := ""
 ## Rest camera (docs/REST_AND_SLEEP.md): the eye moves to a seated height facing out, or to pillow height looking along
 ## the bed, with a clamped look range around the furniture's facing, and eases there and back instead of snapping.
-const SIT_EYE := 1.15
+const SIT_EYE := 1.58   # 1.15 at the old 1.60 m runner, times PlayerModels.SCALE / 0.9
 ## How far short of an aim box a solid may be hit and still count as the box itself (its frame, its wall).
 const AIM_RAY_SLACK := .06
-## The 1.60 m runner's seated eye above the seat pan (eye 1.36 standing, hip 0.81, plus the thigh under her).
-const SIT_EYE_ABOVE_SEAT := .7
+## The 2.2 m runner's seated eye above the seat pan (eye 1.87 standing, hip 1.11, plus the thigh under her).
+const SIT_EYE_ABOVE_SEAT := .96
 ## Seat height the mannequin's "sit" clip is authored for (at PlayerModels.SCALE): peers lift a seated runner by the rest.
-const SIT_CLIP_SEAT := .42
-const LAY_EYE_ABOVE_MATTRESS := .22
+const SIT_CLIP_SEAT := .577
+const LAY_EYE_ABOVE_MATTRESS := .30
 const REST_EASE_SECONDS := 0.35
 const SIT_YAW_LIMIT := deg_to_rad(75.0)
 const LAY_YAW_LIMIT := deg_to_rad(55.0)
@@ -1135,6 +1144,21 @@ func _update_plunge(delta: float) -> void:
 	_clip = "idle"
 
 
+## Splashing through flood water: loud steps (even crouched), a splash every WADE_SPLASH_EVERY, and soaked while in it.
+func _update_wading(delta: float, is_moving: bool) -> void:
+	if wading_depth <= 0.0:
+		_splash_left = 0.0
+		return
+	soaked_left = maxf(soaked_left, SOAKED_SECONDS * .5)
+	if not is_moving:
+		return
+	noise = maxf(noise, WADE_NOISE * clampf(wading_depth / SewerFloods.MAX_DEPTH, .5, 1.0))
+	_splash_left -= delta
+	if _splash_left <= 0.0:
+		_splash_left = WADE_SPLASH_EVERY
+		Sound.water_drip(randf_range(-.3, .3), 1.0)
+
+
 func _update_soaked(delta: float) -> void:
 	if soaked_left <= 0.0:
 		return
@@ -1723,12 +1747,15 @@ func _physics_process(delta: float) -> void:
 		movement_mode = "walk"
 
 	movement_speed *= admin_speed_scale
+	if wading_depth > 0.0:
+		movement_speed *= lerpf(1.0, WADE_SPEED_SCALE, clampf(wading_depth / SewerFloods.MAX_DEPTH, 0.0, 1.0))
 
 	noise = 0.0 if not is_moving else (GameConfig.NOISE_CROUCH if movement_mode == "crouch" else (GameConfig.NOISE_SPRINT if is_sprinting else GameConfig.NOISE_WALK))
 	if _noise_burst_timer > 0.0:
 		noise = maxf(noise, _noise_burst)
 	if soaked_left > 0.0:
 		noise *= SOAKED_NOISE_SCALE
+	_update_wading(delta, is_moving)
 
 	meters.update(delta, {
 		"flashlight_on": flashlight_enabled,

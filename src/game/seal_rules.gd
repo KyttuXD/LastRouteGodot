@@ -52,6 +52,9 @@ const LEVEL_SEALS := {
 	4: {"barricade": "boardedHatch", "locked_door": "", "weak_wall": "weakPlaster", "vent_grate": "ventGrate"},
 	5: {"barricade": "vineChokedDoorway", "locked_door": "", "weak_wall": "", "vent_grate": ""},
 	# the Inferno under the sewers: chained gates, a locked furnace door and cracked furnace walls across the tunnels
+	# the sewers: sluice gates, locked maintenance doors and bricked-up walls across the utility rooms' branches
+	-1: {"barricade": "sluiceGate", "locked_door": "lockedMaintenanceDoor", "weak_wall": "brickedUpWall", "vent_grate": ""},
+	-2: {"barricade": "sluiceGate", "locked_door": "lockedMaintenanceDoor", "weak_wall": "brickedUpWall", "vent_grate": ""},
 	-3: {"barricade": "chainedGate", "locked_door": "lockedFurnaceDoor", "weak_wall": "crackedFurnaceWall", "vent_grate": ""},
 }
 ## Single values a level changes (key -> value), e.g. {5: {"tool_mix": {"axe": 1.0}}} once the Overgrowth exists.
