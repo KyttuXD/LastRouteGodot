@@ -14,7 +14,7 @@ extends RefCounted
 const LAST_ROUTE_TABS := [
 	{"title": "MOVEMENT", "actions": ["move_up", "move_down", "move_left", "move_right", "look_up", "look_down",
 		"look_left", "look_right", "sprint", "crouch", "jump"]},
-	{"title": "ACTIONS", "actions": ["interact", "flashlight", "taser", "tool_use", "inventory", "drop_item", "chat", "toggle_map"]},
+	{"title": "ACTIONS", "actions": ["interact", "flashlight", "taser", "tool_use", "inventory", "drop_item", "chat", "toggle_map", "player_list"]},
 	{"title": "SYSTEM", "actions": ["pause"]},
 ]
 

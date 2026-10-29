@@ -42,6 +42,25 @@ All of them end in the same preview → APPLY → (signed in) upload flow, with 
   from the in-memory peer cache and becomes your own skin (stored as your file, uploaded when signed in). Each player has an
   "OTHERS MAY COPY MY SKIN" box (`Settings.skin_copyable`, published as `"skin_copy"` in the co-op state; honoured by the other client).
 
+## Account skins (the skin lives on the account)
+
+A signed-in player's skin is stored on the server per account, so it follows them to any computer. `user://skin.png` stays only as the
+offline fallback.
+
+- **Backend** (`backend/skins.mjs`): `PUT /api/v1/skins/<ACCOUNT>` takes the raw PNG (64x64, or the old 64x32; PNG only; at most 64 KB)
+  with the owner's `x-session-token` (another account gets 403) and `x-skin-arms: auto|classic|slim`; it returns `{hash, arms,
+  updatedAt}`. `GET /api/v1/skins/<ACCOUNT>` is public (co-op peers) and returns `{hash|"", arms, updatedAt, versions:[hash...]}`; the
+  PNG is fetched from `GET /api/skins/files/<hash>.png`. The last 5 skins of an account are kept as versions (older files are deleted;
+  clearing drops them all). Uploads share the 5-per-10-minutes limit and the moderation check with the old `/api/skins/upload` route,
+  which still works for older clients. Files stay under `<data>/skins/`.
+- **Sign-in** (`SkinSync.pull_account_skin`): the game asks for the account's skin. No skin on the account but one on this device:
+  uploaded (migration). A skin on the account and none here, or an unchanged local one: the account's is downloaded, checked against its
+  hash and validated, then kept as your skin with the account's arm style. A skin picked while offline or signed out
+  (`Settings.skin_pending_upload`) is uploaded instead of replaced.
+- **Changing the skin** uploads it (`SkinSync.sync_own`, PUT; falls back to the old route on a server without `/api/v1/skins`).
+- **Co-op:** a peer's state still carries the skin hash. A signed-in peer whose state has none yet is looked up by account
+  (`SkinSync.account_skin`, cached 30 s) and their PNG fetched by hash. Guests and offline rooms keep the local-only behaviour below.
+
 ## Sharing in co-op
 
 - **Backend** (`backend/skins.mjs`, tests `backend/skins.test.mjs`): one skin per signed-in account, stored by the sha256 of the uploaded

@@ -428,6 +428,41 @@ func _chunk(coord: Vector3i) -> Dictionary:
 	return _chunk_cache[coord]
 
 
+## A capsule rides up a ledge this low (the player has no step-up; its rounded bottom climbs it): a solid prop whose
+## collider is no taller is floor to the runner, so it is floor to the hunters too.
+const WALK_ON_HEIGHT := 0.25
+## can_occupy's default capsule radius: a cell whose centre is this far clear of every collider can be stood on.
+const NAV_RADIUS := 0.23
+
+
+static func blocks_nothing(prop: Dictionary) -> bool:
+	var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+	return size.y <= WALK_ON_HEIGHT and float(prop.get("collider_y0", 0.0)) <= 0.0
+
+
+## The prop's collider boxes on the chunk plan (chunk-local metres), each the axis-aligned bounds of its turned box grown
+## by `grow`: the same boxes the view builds (StreamedFacilityView3D._spawn_authored_prop).
+static func collider_plan_rects(prop: Dictionary, grow: float = 0.0) -> Array:
+	var type := String(prop.get("type", ""))
+	var size: Vector3 = prop.get("collider_size", prop.get("blocker_size", Vector3.ONE))
+	var yaw := float(prop.get("yaw", 0.0))
+	var centre := Vector2(prop.get("cell", Vector2i.ZERO)) + Vector2(.5, .5) \
+		+ (prop.get("placement_offset", Vector2.ZERO) as Vector2) + (prop.get("mount_offset", Vector2.ZERO) as Vector2)
+	var out := []
+	for box in PropColliderBoxes.boxes(type, size):
+		var c: Vector2 = box["c"]
+		var h: Vector2 = box["h"]
+		var rect := Rect2()
+		var first := true
+		for corner in [Vector2(-h.x, -h.y), Vector2(h.x, -h.y), Vector2(-h.x, h.y), Vector2(h.x, h.y)]:
+			var turned := Vector3(c.x + corner.x, 0.0, c.y + corner.y).rotated(Vector3.UP, yaw)
+			var at := centre + Vector2(turned.x, turned.z)
+			rect = Rect2(at, Vector2.ZERO) if first else rect.expand(at)
+			first = false
+		out.append(rect.grow(grow))
+	return out
+
+
 func _cache_solid_prop_cells(coord: Vector3i, data: Dictionary) -> void:
 	var base := Vector2i(coord.x, coord.z) * StreamedRouteGenerator.CHUNK_SIZE
 	for gate_value in data.get("gates", []):
@@ -455,5 +490,13 @@ func _cache_solid_prop_cells(coord: Vector3i, data: Dictionary) -> void:
 		var occupied: Array = prop.get("occupied_cells", [])
 		if occupied.is_empty():
 			occupied = [prop.get("cell", Vector2i.ZERO)]
+		# walkability and navigation agree (docs/NAV_WALKABLE.md): a prop low enough to walk onto is floor, and a reserved
+		# cell is blocked only where the collider (grown by the navigation's capsule radius) covers its centre: the open
+		# corner of an L desk, the gap between two potted palms, the free end of a cart's cell all stay open
+		if blocks_nothing(prop):
+			continue
+		var rects := collider_plan_rects(prop, NAV_RADIUS)
 		for local_value in occupied:
-			_solid_prop_cells[base + (local_value as Vector2i)] = true
+			var centre := Vector2(local_value as Vector2i) + Vector2(.5, .5)
+			if rects.is_empty() or rects.any(func(r: Rect2) -> bool: return r.has_point(centre)):
+				_solid_prop_cells[base + (local_value as Vector2i)] = true

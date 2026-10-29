@@ -73,6 +73,7 @@ void fragment() {
 ## remains usable while the HUD is hidden.
 const GAMEPLAY_HUD_NODE_PATHS := [
 	NodePath("ObjectivePanel"),
+	NodePath("TeammateWaypoints"),
 	NodePath("MetersPanel"),
 	NodePath("HotbarPanel"),
 	NodePath("CompactStaminaBar"),
@@ -92,6 +93,8 @@ const ITEM_TEXTURES := {
 	"crowbar": preload("res://assets/ui/inventory/crowbar.png"),
 	"rescue_axe": preload("res://assets/ui/inventory/rescue_axe.png"),
 	"battery": preload("res://assets/ui/inventory/battery.png"),
+	"stim_pack": preload("res://assets/ui/inventory/stim_pack.png"),
+	"revive_kit": preload("res://assets/ui/inventory/revive_kit.png"),
 }
 
 ## Margin every HUD panel keeps from the window edge, and the gap between neighbouring panels (HUD units).
@@ -113,6 +116,8 @@ func _ready() -> void:
 	_build_zone_panel()
 	TestServerBadge.attach(self)
 	_build_thermal_warning()
+	teammate_waypoints = TeammateWaypoints.new()
+	add_child(teammate_waypoints)
 	_cache_gameplay_hud_surfaces()
 	_prepare_inventory_slots()
 	_build_inventory_overlay()
@@ -182,6 +187,8 @@ var _thermal_material: ShaderMaterial
 var _thermal_time := 0.0
 var _hud_hidden := false
 var _gameplay_hud_surfaces: Array[CanvasItem] = []
+## On-screen teammate markers (TeammateWaypoints); fed once per frame by the route.
+var teammate_waypoints: TeammateWaypoints
 var _gameplay_hud_modulates: Array[Color] = []
 
 
@@ -383,6 +390,8 @@ func _apply_inventory_slot(slot: PanelContainer, bar: ProgressBar, index: int,
 	caption.text = str(index + 1)
 	slot.tooltip_text = String(PlayerController3D.INVENTORY_LABELS.get(
 		item_id, "EMPTY SLOT")).to_upper()
+	_apply_stack_badge(slot, int(slot_durability[index]) if has_item and index < slot_durability.size() \
+		and PlayerController3D.STACK_MAX.has(item_id) else 0)
 	bar.visible = has_item and (item_id == "taser" or maximums.has(item_id))
 	if item_id == "taser":
 		bar.value = clampf(1.0 - taser_cooldown / GameConfig.profile_value(RoomState.difficulty_id(), "taser_cooldown"),
@@ -393,6 +402,26 @@ func _apply_inventory_slot(slot: PanelContainer, bar: ProgressBar, index: int,
 			if index < slot_durability.size() else int(durability.get(item_id, 0))
 		bar.value = clampf(float(remaining) / max_value,
 			0.0, 1.0) * 100.0
+
+
+## "xN" in the slot's bottom-right corner for a stack of two or more (PlayerController3D.STACK_MAX); hidden otherwise.
+func _apply_stack_badge(slot: PanelContainer, count: int) -> void:
+	var badge := slot.get_node_or_null("StackCount") as Label
+	if badge == null:
+		if count < 2:
+			return
+		badge = Label.new()
+		badge.name = "StackCount"
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		badge.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		badge.add_theme_font_size_override("font_size", 9)
+		badge.add_theme_color_override("font_color", Color(1.0, .94, .72))
+		badge.add_theme_color_override("font_outline_color", Color(0, 0, 0, .9))
+		badge.add_theme_constant_override("outline_size", 3)
+		slot.add_child(badge)
+	badge.text = "x%d" % count
+	badge.visible = count >= 2
 
 
 func _prepare_inventory_slots() -> void:
@@ -803,7 +832,25 @@ func set_public_line(text: String) -> void:
 	status_bar.set_segment("public", text, "line")
 
 
+## Admin room-proof status lines (READY / VERIFYING / VERIFIED / REQUESTING) repeat on every ticket renewal and re-verification.
+## Each one shows once per room on this client; rejections and errors are never held back.
+const ADMIN_PROOF_PREFIXES := ["ADMIN ROOM PROOF", "ADMIN // VERIFYING ROOM PROOF", "ADMIN // REQUESTING ROOM PROOF"]
+var _admin_proof_seen := {}
+
+
+static func is_admin_proof_notice(text: String) -> bool:
+	for prefix in ADMIN_PROOF_PREFIXES:
+		if text.begins_with(prefix) and not text.contains("DISABLED") and not text.contains("COULD NOT"):
+			return true
+	return false
+
+
 func show_message(text: String) -> void:
+	if is_admin_proof_notice(text):
+		var key := "%s|%s" % [RoomState.code, text]
+		if _admin_proof_seen.has(key):
+			return
+		_admin_proof_seen[key] = true
 	message_label.remove_theme_color_override("font_color")
 	# toast treatment: letter-spaced amber line with a dark outline
 	message_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, .85))
@@ -913,6 +960,11 @@ func update_minimap(generator: FacilityGenerator, at: Vector2, facing: Vector2,
 		marks: Array, player_marks: Array = [], drop_marks: Array = [],
 		safe_room_marks: Array = []) -> void:
 	minimap.show_state(generator, at, facing, marks, player_marks, drop_marks, safe_room_marks)
+
+
+func update_teammate_waypoints(camera: Camera3D, viewer: Vector3, marks: Array) -> void:
+	if teammate_waypoints != null:
+		teammate_waypoints.update_marks(camera, viewer, marks)
 
 
 func update_streamed_map(chunks: Dictionary, level: int, chunk_size: int,

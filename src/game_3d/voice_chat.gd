@@ -267,11 +267,11 @@ func _relay(sender: int, packet: PackedByteArray) -> void:
 	for peer in listeners_for(sender, peers + [1]):
 		if int(peer) == 1:
 			_play(sender, packet)
-		else:
+		elif NetPeers.is_live(multiplayer, int(peer)):
 			_voice_down.rpc_id(int(peer), sender, packet)
 
 
-@rpc("any_peer", "call_remote", "unreliable")
+@rpc("any_peer", "call_remote", "unreliable", NetChannels.VOICE)
 func _voice_up(packet: PackedByteArray) -> void:
 	if not RoomState.is_host:
 		return
@@ -282,7 +282,7 @@ func _voice_up(packet: PackedByteArray) -> void:
 	_relay(sender, packet)
 
 
-@rpc("authority", "call_remote", "unreliable")
+@rpc("authority", "call_remote", "unreliable", NetChannels.VOICE)
 func _voice_down(sender: int, packet: PackedByteArray) -> void:
 	if multiplayer.get_remote_sender_id() != 1 or sender == _local_id():
 		return
@@ -353,6 +353,19 @@ func _play(sender: int, packet: PackedByteArray) -> bool:
 		node.play()
 	speaking_changed.emit(sender, true)
 	return true
+
+
+## Peers whose voice is playing right now (and this player while their own gate is open): {peer_id: true}. For the player list.
+func talking_peers() -> Dictionary:
+	var out := {}
+	if not Settings.voice_chat_on:
+		return out
+	for id in _players:
+		if bool((_players[id] as Dictionary).get("talking", false)):
+			out[int(id)] = true
+	if speaking:
+		out[_local_id()] = true
+	return out
 
 
 static func gain_db(volume: float, occluded: bool) -> float:

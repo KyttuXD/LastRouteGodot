@@ -69,6 +69,14 @@ var _tabs := {}
 var section := "pause"
 var _statistics_scroll: ScrollContainer
 var _statistics_view: VBoxContainer
+## PLAYERS page: the active room's player list. players_source returns RoomPlayerList rows, players_admin says whether the viewer may
+## pulse players (the host still re-checks). The page refreshes twice a second while it is the open one.
+var players_source: Callable
+var players_admin: Callable
+var player_list: PlayerListPanel
+var _players_view: VBoxContainer
+var _players_elapsed := 0.0
+signal pulse_requested(peer_id: int)
 var _save_status: Label
 var _statistics_grid: GridContainer
 var _share_code: Label
@@ -148,11 +156,11 @@ func _build() -> void:
 	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
 	tabs.add_theme_constant_override("separation", 4)
 	column.add_child(tabs)
-	for entry in [["PAUSE", "pause"], ["STATISTICS", "statistics"]]:
+	for entry in [["PAUSE", "pause"], ["STATISTICS", "statistics"], ["PLAYERS", "players"]]:
 		var tab := Button.new()
 		tab.text = String(entry[0])
 		tab.focus_mode = Control.FOCUS_ALL
-		tab.custom_minimum_size = Vector2(92, 18)
+		tab.custom_minimum_size = Vector2(80, 18)
 		tab.add_theme_font_size_override("font_size", 8)
 		tab.name = "PauseTab_%s" % String(entry[1])
 		Palette.style_button(tab, String(entry[1]) == "pause")
@@ -202,10 +210,29 @@ func _build() -> void:
 	_pause_view.add_child(_abandon_button)
 
 	_build_statistics_view(column)
+	_build_players_view(column)
 
 	_build_confirm()
 	_build_hold_prompt()
 	_set_section("pause")
+
+
+func _build_players_view(parent: VBoxContainer) -> void:
+	_players_view = VBoxContainer.new()
+	_players_view.name = "PausePlayers"
+	_players_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(_players_view)
+	player_list = PlayerListPanel.new()
+	player_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	player_list.pulse_requested.connect(func(id: int) -> void: pulse_requested.emit(id))
+	_players_view.add_child(player_list)
+
+
+func _refresh_players() -> void:
+	if player_list == null:
+		return
+	player_list.admin_enabled = players_admin.is_valid() and bool(players_admin.call())
+	player_list.set_rows(players_source.call() if players_source.is_valid() else [])
 
 
 ## The whole STATISTICS page scrolls (wheel, touch drag, focus): nothing clips at small windows, phones or the XR panel.
@@ -363,6 +390,9 @@ func _set_section(next: String) -> void:
 		Palette.style_button(_tabs[id] as Button, id == section)
 	_pause_view.visible = section == "pause"
 	_statistics_view.visible = section == "statistics"
+	_players_view.visible = section == "players"
+	if section == "players":
+		_refresh_players()
 	if section == "statistics":
 		_refresh_share()
 		_refresh_statistics()
@@ -848,6 +878,11 @@ func _on_abandon() -> void:
 ## behave identically wherever the menu is used.
 func _process(delta: float) -> void:
 	if _open:
+		if section == "players":
+			_players_elapsed += delta
+			if _players_elapsed >= 0.5:
+				_players_elapsed = 0.0
+				_refresh_players()
 		return
 	if tap_to_pause:
 		return
