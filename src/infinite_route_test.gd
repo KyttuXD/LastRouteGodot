@@ -376,6 +376,10 @@ func _apply_verified_admin_request(peer_id: int, event: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	if _remotes != null and not _remotes.simulates():
+		# before any early return (pause, story, death screen): a guest's hunters are built and drawn every frame
+		_pump_guest_hunters()
+		_present_guest_hunters()
 	_tick_sync_gate(delta)
 	_expire_predictions()
 	_update_player_list(delta)
@@ -464,9 +468,6 @@ func _process(delta: float) -> void:
 	if _remotes.simulates() and _authority_refresh_elapsed >= AUTHORITY_REFRESH_SECONDS:
 		_authority_refresh_elapsed = 0.0
 		_refresh_hunter_stream()
-	if not _remotes.simulates():
-		_pump_guest_hunters()
-		_present_guest_hunters()
 	if _remotes.simulates():
 		_hunter_simulation_accumulator = minf(
 			_hunter_simulation_accumulator + delta,
@@ -5374,7 +5375,12 @@ func _apply_hunter_report(data: Array) -> void:
 		# (a hunter view costs ~10-25 ms the first time, up to ~140 ms): FPS tanked when teammates streamed.
 		var near := _guest_hunter_near(_state_chunk(state), own, _hunter_views.has(entity_id))
 		if not _hunter_views.has(entity_id):
-			if near:
+			if near and _guest_hunter_urgent(state, own):
+				# beside this runner or after them: built in this packet, never left waiting in the queue
+				_guest_hunter_queue.erase(entity_id)
+				_load_hunter(entity_id, state)
+				_apply_guest_hunter_state(entity_id, state)
+			elif near:
 				_guest_hunter_queue[entity_id] = true
 			continue
 		if not near:
@@ -5391,6 +5397,7 @@ func _apply_hunter_report(data: Array) -> void:
 
 
 var _guest_hunter_motion := {}
+const HOST_CLOCK_RESET_MS := 2000.0
 var _guest_hunter_stamp := {}   # entity id -> newest report time taken (host clock)
 
 
@@ -5430,6 +5437,14 @@ static func _guest_hunter_near(hunter: Vector3i, own: Vector3i, has_view: bool) 
 	return absi(hunter.y - own.y) <= storeys and maxi(absi(hunter.x - own.x), absi(hunter.z - own.z)) <= reach
 
 
+## A hunter in this runner's chunk or the 8 round it on the same storey, or one targeting this runner, is shown at once.
+func _guest_hunter_urgent(state: Dictionary, own: Vector3i) -> bool:
+	var chunk := _state_chunk(state)
+	if chunk.y == own.y and maxi(absi(chunk.x - own.x), absi(chunk.z - own.z)) <= 1:
+		return true
+	return multiplayer.has_multiplayer_peer() and int(state.get("target_peer_id", 0)) == multiplayer.get_unique_id()
+
+
 ## One queued guest hunter view per frame, the nearest first, built from the latest reported state.
 func _pump_guest_hunters() -> void:
 	if _guest_hunter_queue.is_empty():
@@ -5460,7 +5475,12 @@ func _apply_guest_hunter_state(entity_id: String, state: Dictionary) -> void:
 	# changes nothing
 	var stamp = state.get("sent_ms")
 	if stamp is int or stamp is float:
-		if float(stamp) <= float(_guest_hunter_stamp.get(entity_id, -1.0)):
+		var newest := float(_guest_hunter_stamp.get(entity_id, -1.0))
+		if float(stamp) + HOST_CLOCK_RESET_MS < newest:
+			# far older than anything taken: the host restarted or another took over (a new clock), not a late packet.
+			# Start this hunter's buffer again, or every later report would count as stale and freeze it in place.
+			_guest_hunter_motion.erase(entity_id)
+		elif float(stamp) <= newest:
 			return
 		_guest_hunter_stamp[entity_id] = float(stamp)
 	world_state.restore_hunter(view.brain, state)
