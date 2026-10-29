@@ -14,7 +14,7 @@ extends RefCounted
 
 const ROOT := "user://mods"
 const SCHEMA := "lr.pack/1"
-const KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings"]
+const KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms"]
 ## Kinds that only replace built-in things (a new id would never be used): every entry must be listed in overrides.
 const OVERRIDE_ONLY_KINDS := ["sounds", "ambience", "floors", "walls", "ceilings"]
 const ASSET_EXTENSIONS := ["glb", "png", "ogg"]

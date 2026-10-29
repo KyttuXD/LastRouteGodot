@@ -20,13 +20,13 @@ A prop file holds one family of props:
 | `themes` | no | one label per model, same order (finish sets such as `neutral`/`charcoal`/`teal`). Give it when overriding a themed built-in prop. |
 | `coordinated` | no | built-in finish sets only; pack props never join a built-in coordinated set |
 | `batchable` | no | `false` for anything animated or interactive; the default draws repeated plain props together |
+| `size` | for room recipes | `[x, y, z]` metres at game scale: the footprint a room recipe places your prop with |
 
 Where props show up:
 - An **override** replaces the model of a built-in prop everywhere the game already places it. This is the reliable
   way to change what players see (the Ember pack recolours every office printer).
-- A **new prop** is placed only by a region's `prop_set`, which dresses rooms that have no furniture recipe. Every
-  room type in the current regions has a recipe, so a new prop needs a region override and a room without a recipe
-  to appear. Room recipes are planned as a pack type.
+- A **new prop** appears through a [room recipe](#rooms) (give it a `size`), or a region's `prop_set`, which only
+  dresses rooms that have no recipe.
 
 Models are built for the game's scale: the world is laid out for a 2.67 m hunter, about 1.5x a person. A chair seat
 sits where a hunter sits. `modpack.sh validate` checks every prop against its size category (person-scale range
@@ -147,3 +147,44 @@ with an image:
   Ceiling kinds: `ceil0`, `ceil1`, `glass`, `rockceil`, `vault` (32x32 like floors, `ceilings/` folder).
 - Only the picture changes. How shiny a floor looks, and the glow of the `glass` and `vault` ceilings (the sewer relies
   on it), come from the kind, so they stay whatever image you supply.
+
+## Rooms
+
+A room recipe furnishes one **room type**. A pack adds a new type (id `<pack id>_<name>`) and puts it where a region
+lists it in `room_roles` -- for example a new shop in the mall's cycle (override `regions/mall`, append your type to
+`room_roles`, and give it a sign in `shop_names`). The game's own rooms keep their built-in recipes; packs cannot
+replace those.
+
+```json
+{"schema": "lr.room/1", "id": "record_shop_store", "items": [
+	{"type": "checkoutCounter", "side": -2, "depth": "front-1", "facing": "open"},
+	{"type": ["shopShelf", "displayCase"], "side": ["-half+1", "half", 3], "depth": "back", "wall_backed": true},
+	{"type": "@rug", "side": 0, "depth": "mid", "solid": false, "when": {"min_side": 9}},
+	{"choose": [{"type": "@painting", "weight": 2}, {"type": "@frame", "weight": 1}],
+	 "side": 0, "depth": "back", "wall_mount": true, "solid": false, "when": {"chance": 0.6}}
+]}
+```
+
+**Where things go** (in cells, seen from the entrance):
+- `depth`: `0` / `"back"` is the row along the back wall; `"front"` is the row with the entrance in its middle (kept
+  clear automatically); `"mid"` is halfway. Offsets work: `"front-1"`, `"back+1"`.
+- `side`: `0` is the centre column; `"half"` is the distance to the side wall (`"-half+1"`, `"half-1"`). Rooms are
+  mirrored at random (the same way for everyone); set `"mirror": false` to pin an item's side.
+- `side` may be a range `[from, to, step]` (to excluded) to line items up along a wall.
+
+| item field | meaning |
+|---|---|
+| `type` | a prop id, or a list cycled along a range, or `@frame` / `@painting` / `@rug` (the region's own; skipped where it has none) |
+| `choose` | instead of `type`: `[{type, weight}]`, one picked per placement |
+| `side`, `depth` | positions as above (required) |
+| `facing` | `open` (towards the entrance, default), `back`, `left`, `right`, `center` |
+| `wall_backed` | back flush against the wall behind it |
+| `wall_mount` | hung on the wall (frames, shelves); not solid by default |
+| `solid` | `false` for things you walk over or that hang (rugs, lamps) |
+| `mount_y` | height above the floor in metres (a lamp on a table) |
+| `when` | `min_side`, `max_side`, `min_depth`, `max_depth` (room size in cells), `chance` (0-1) |
+
+Rules: recipes place plain props only -- no hiding spots, lockers, booths or other things you use (the game places
+those). Every prop must be known (built-in or from your pack) and pack props need a `size`. Items that don't fit are
+skipped; the game checks every generated room keeps its entrance clear, all its floor reachable and room for pickups.
+See `examples/mods/record_shop` for a complete pack.

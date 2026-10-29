@@ -19,7 +19,8 @@ const ROOT := "res://data"
 const KINDS := ["props", "regions", "hunters"]
 ## What packs may ship: the built-in kinds plus kinds whose built-in data has its own reader (grabs: GrabStyles, which
 ## reads res://data/grabs itself and takes pack definitions through pack_defs()).
-const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings"]
+const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms"]
+const ROOMS_SCRIPT := "res://src/game/room_recipes.gd"
 ## Surface replacements (pack-only kinds): a floor, wall or ceiling kind RefTextures paints, replaced by a pack PNG. Only
 ## the picture changes: roughness, metal and the glow of glass/vault ceilings come from the kind (RefTextures.params).
 const SURFACE_KINDS := {"floors": "FLOOR_PAINTERS", "walls": "WALL_PAINTERS", "ceilings": "CEILING_PAINTERS"}
@@ -37,7 +38,10 @@ const HUNTER_FIELDS := {"name": "string", "tier": "string", "category": "string?
 	"chase_style": "string?"}
 ## `batchable`: may the view draw repeated placements of this prop in one MultiMesh. Absent = the default in
 ## PropModelCatalog.is_batchable() (pure dressing yes, anything interactive no).
-const PROP_FIELDS := {"models": "strings", "themes": "strings?", "coordinated": "bool?", "batchable": "bool?"}
+## `size`: [x, y, z] metres at hunter scale, the footprint the generator places a pack prop with when the built-in size
+## tables do not know it (room recipes need one).
+const PROP_FIELDS := {"models": "strings", "themes": "strings?", "coordinated": "bool?", "batchable": "bool?",
+	"size": "vec3?"}
 const REGION_FIELDS := {"hall_floor": "strings", "hall_runner": "bool", "room_default_floor": "strings",
 	"room_roles": "strings", "shop_names": "dict_strings?", "room_door": "string?", "double_room_door": "string?",
 	"prop_set": "prop_set"}
@@ -295,6 +299,24 @@ static func _conflicts(packs: Array) -> PackedStringArray:
 		for def in pack["defs"]["grabs"]:
 			if not hunters.has(def["id"]) and not _is_builtin_id("hunters", String(def["id"])):
 				errors.append("%s: grabs for \"%s\", which is not a hunter" % [pack["dir"], def["id"]])
+	# room recipes place plain props the generator can size: known (built-in or from these packs), not interactive
+	var catalog: GDScript = load(_CODE_IDS["props"][0])
+	var pack_sizes := {}
+	for pack in packs:
+		for def in pack["defs"]["props"]:
+			if def.has("size"):
+				pack_sizes[def["id"]] = true
+	for pack in packs:
+		for def in pack["defs"]["rooms"]:
+			for type in load(ROOMS_SCRIPT).types_of(def):
+				if not props.has(type) and not _is_builtin_id("props", type):
+					errors.append("%s: room %s places \"%s\", which is not a known prop" % [pack["dir"], def["id"], type])
+				elif not String(catalog.interaction_for(type)).is_empty():
+					errors.append("%s: room %s places \"%s\", which is interactive (hiding spots, lockers and the like stay "
+						% [pack["dir"], def["id"], type] + "placed by the game)")
+				elif props.has(type) and not pack_sizes.has(type) and not _is_builtin_id("props", type):
+					errors.append("%s: room %s places \"%s\", which needs a \"size\" [x, y, z] in its prop definition"
+						% [pack["dir"], def["id"], type])
 	for pack in packs:
 		for def in pack["defs"]["regions"]:
 			for choice in def["prop_set"]:
@@ -313,6 +335,9 @@ static func _is_builtin_id(kind: String, id: String) -> bool:
 		return not load(AMBIENCE_SCRIPT).layers(id).is_empty()
 	if SURFACE_KINDS.has(kind):
 		return load(SURFACE_SCRIPT).get_script_constant_map()[SURFACE_KINDS[kind]].has(id)
+	if kind == "rooms":
+		# only data recipes can be overridden; code recipes stay code
+		return load(ROOMS_SCRIPT).builtin_has(id)
 	if kind == "grabs":
 		# every built-in hunter (and secret creature) can have its grab pool replaced
 		var grabs: GDScript = load(GRAB_SCRIPT)
@@ -429,8 +454,8 @@ static func _without_meta(def: Dictionary) -> Dictionary:
 
 ## Parse one file of `kind`: {"defs": [runtime dicts], "errors": [messages naming file and field]}.
 static func parse_file(path: String, kind: String) -> Dictionary:
-	if kind == "grabs":
-		var parsed: Dictionary = load(GRAB_SCRIPT).parse_file(path)
+	if kind == "grabs" or kind == "rooms":
+		var parsed: Dictionary = load(GRAB_SCRIPT if kind == "grabs" else ROOMS_SCRIPT).parse_file(path)
 		return {"defs": [] if parsed["def"].is_empty() else [parsed["def"]], "errors": parsed["errors"]}
 	var errors := PackedStringArray()
 	var defs := []

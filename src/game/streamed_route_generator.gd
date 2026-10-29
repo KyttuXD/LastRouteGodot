@@ -2675,6 +2675,9 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	elif region in ["hospital", "lab", "greenhouse", "mall"] and (HOSPITAL_ROOMS + LAB_ROOMS + GREENHOUSE_ROOMS
 			+ MALL_ROOMS + ["dome_atrium", "pod_room"]).has(room_type):
 		template = room_type
+	# a room type with no code recipe may have a data recipe (RoomRecipes: built-in data or a content pack)
+	if template.is_empty() and RoomRecipes.has(room_type):
+		template = room_type
 	if template.is_empty():
 		return []
 	# Great halls (21x21) get the table-grid versions of their gathering-room recipes (docs/ROOM_SIZES.md).
@@ -2698,6 +2701,12 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 	var mirror := -1 if rng.next_float() < .5 else 1
 	var specs := _room_template_specs(template, region, side_span, depth_span,
 		mirror, rng)
+	if specs.is_empty() and RoomRecipes.has(room_type):
+		# data recipes draw from their own stream, so they can never shift a code draw
+		specs = RoomRecipes.specs(room_type, side_span, depth_span,
+			SeededRandom.new("%s:ROOMDATA:%s" % [world_seed, String(room.get("id", ""))]),
+			{"@frame": _frame_type_for_region(region, false), "@painting": _frame_type_for_region(region, true),
+				"@rug": _rug_type_for_region(region)})
 	var result := []
 	for spec_index in _claim_order(specs):
 		var spec: Dictionary = specs[spec_index]
@@ -4307,8 +4316,9 @@ func _template_prop_entry(coord: Vector3i, room: Dictionary,
 		basis: Dictionary, template: String, spec_index: int, spec: Dictionary,
 		grid: Array, reserved: Dictionary) -> Dictionary:
 	var prop_type := String(spec.get("type", ""))
+	var pack_size = ContentRegistry.get_def("props", prop_type).get("size")
 	if not PropModelCatalog.has_model(prop_type) \
-			or not (TEMPLATE_PROP_SIZES.has(prop_type) or PropColliderSizes.SIZES.has(prop_type)):
+			or not (TEMPLATE_PROP_SIZES.has(prop_type) or PropColliderSizes.SIZES.has(prop_type) or pack_size is Vector3):
 		return {}
 	var open_direction: Vector2i = basis["open"]
 	var side_direction: Vector2i = basis["side"]
@@ -4326,7 +4336,8 @@ func _template_prop_entry(coord: Vector3i, room: Dictionary,
 		"right": facing_direction = side_direction
 		"center": facing_direction = _cardinal_toward(cell,
 			room.get("center", cell), open_direction)
-	var blocker_size: Vector3 = TEMPLATE_PROP_SIZES.get(prop_type, PropColliderSizes.SIZES.get(prop_type, Vector3.ONE))
+	var blocker_size: Vector3 = TEMPLATE_PROP_SIZES.get(prop_type, PropColliderSizes.SIZES.get(prop_type,
+		pack_size if pack_size is Vector3 else Vector3.ONE))
 	var placement_offset := Vector2.ZERO
 	var wall_mounted := bool(spec.get("wall_mount", false))
 	if bool(spec.get("wall_backed", false)) and not wall_mounted:
