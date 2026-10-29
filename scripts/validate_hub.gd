@@ -22,11 +22,16 @@ func run(host: Node) -> int:
 			"%s has no loadable theme" % id)
 		if bool(game["locked"]):
 			_expect(not String(game["locked_note"]).is_empty(), "%s is locked without a reason" % id)
-			_expect(not GameRegistry.is_launchable(id), "%s is locked but launchable" % id)
+			_expect(not GameRegistry.is_launchable(id) or GameRegistry.dev_unlocked(id), "%s is locked but launchable for players" % id)
 		else:
 			_expect(ResourceLoader.exists(String(game["scene"])), "%s launches a missing scene" % id)
 	_expect(GameRegistry.is_launchable("last_route"), "Last Route is not launchable from the hub")
-	_expect(GameRegistry.is_launchable("night_watch"), "Night Watch (first playable slice) is not launchable from the hub")
+	# Night Watch is locked for players (KT, until it is data-driven) and opens for testers: headless validation is one
+	_expect(bool(GameRegistry.get_game("night_watch")["locked"]) and GameRegistry.is_launchable("night_watch"), "Night Watch is not locked-with-dev-access")
+	Build.deny_admin_for_test = true
+	_expect(not GameRegistry.is_launchable("night_watch") or OS.has_environment("KYTTU_DEV"), "a player (no admin) can launch the locked Night Watch")
+	_expect(GameRegistry.locked_line(GameRegistry.get_game("night_watch")) == "NIGHT WATCH // COMING BACK SOON", "the locked card does not read NIGHT WATCH // COMING BACK SOON")
+	Build.deny_admin_for_test = false
 	_expect(GameRegistry.get_game(GameRegistry.DEFAULT_ID).size() > 0, "default game is missing")
 
 	var hub: Control = (load("res://scenes/game_hub.tscn") as PackedScene).instantiate()
@@ -37,7 +42,7 @@ func run(host: Node) -> int:
 		var button := hub.find_child("Launch_%s" % id, true, false) as Button
 		_expect(button != null, "no launch button for %s" % id)
 		if button != null:
-			_expect(button.disabled == bool(game["locked"]), "%s launch button state disagrees with the registry" % id)
+			_expect(button.disabled == not GameRegistry.is_launchable(id), "%s launch button state disagrees with the registry" % id)
 	for shared in ["AccountButton", "SettingsButton", "AdminButton"]:
 		_expect(hub.find_child(shared, true, false) != null, "hub is missing the %s entry" % shared)
 	# QUIT lives only on the hub (hidden on web), behind a "QUIT TO DESKTOP?" question

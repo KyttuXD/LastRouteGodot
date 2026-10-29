@@ -541,13 +541,14 @@ func _build_card(game: Dictionary) -> PanelContainer:
 		note.theme_type_variation = &"MutedLabel"
 		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		note.custom_minimum_size = Vector2(CARD_W - 20.0, 0)
-		note.text = "LOCKED // %s" % String(game["locked_note"])
+		note.text = GameRegistry.locked_line(game)
 		box.add_child(note)
 	var button := Button.new()
 	button.name = "Launch_%s" % id
 	button.theme_type_variation = &"PrimaryButton"
-	button.text = "LOCKED" if locked else "PLAY"
-	button.disabled = locked
+	var dev := locked and GameRegistry.dev_unlocked(id)
+	button.text = ("OPEN (DEV)" if dev else "LOCKED") if locked else "PLAY"
+	button.disabled = locked and not dev
 	button.focus_mode = Control.FOCUS_NONE
 	button.pressed.connect(_launch.bind(id))
 	box.add_child(button)

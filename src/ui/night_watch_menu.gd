@@ -48,6 +48,10 @@ var _screen_root: Control
 
 
 func _ready() -> void:
+	if not GameRegistry.is_launchable("night_watch"):
+		# locked for players (GameRegistry): a deep link, a saved scene path or any other route back to here returns to the hub
+		get_tree().change_scene_to_file.call_deferred(GameRegistry.HUB_SCENE)
+		return
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	MouseLock.release_all()   # a menu always has the cursor, whatever held it before
 	theme = NightWatchTheme.get_theme()
