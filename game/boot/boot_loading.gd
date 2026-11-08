@@ -364,7 +364,7 @@ func _build_ui() -> void:
 	panel.add_child(column)
 	column.add_child(_label("LAB SYSTEM // STARTUP", Palette.AMBER, 7,
 		"BootKicker"))
-	var title := _label("KYTTU: LAST ROUTE", Palette.INK, 18, "BootTitle")
+	var title := _label("KYTTU - LAST ROUTE", Palette.INK, 18, "BootTitle")
 	title.add_theme_font_override("font", Palette.title_font())
 	column.add_child(title)
 	column.add_child(_label("GODOT EDITION", Palette.AMBER, 7, "BootEdition"))

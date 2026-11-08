@@ -91,7 +91,7 @@ func _ready() -> void:
 	Palette.style_title(brand, Palette.INK)
 	brand.add_theme_font_size_override("font_size", 22)
 	brand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	brand.text = "KYTTU: LAST ROUTE"
+	brand.text = "KYTTU - LAST ROUTE"
 	column.add_child(brand)
 	var edition := Label.new()
 	edition.name = "HubEdition"

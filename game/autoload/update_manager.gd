@@ -610,7 +610,7 @@ func _install_apk(apk_path: String) -> String:
 			var opened := bool(installer.call("openInstallPermission"))
 			var where := "Quest: Settings > Apps > Unknown sources" if platform_key() == "quest" \
 				else "Settings > Apps > Special access > Install unknown apps"
-			return "ALLOW INSTALLS FROM KYTTU: LAST ROUTE GODOT EDITION (%s), THEN TAP INSTALL%s" % [
+			return "ALLOW INSTALLS FROM KYTTU - LAST ROUTE GODOT EDITION (%s), THEN TAP INSTALL%s" % [
 				where, "" if opened else " // OR INSTALL FROM THE MINI"]
 		"missing":
 			ready_to_install = false

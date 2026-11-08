@@ -1,4 +1,4 @@
-# KYTTU: Last Route Godot Edition
+# KYTTU - Last Route Godot Edition
 
 The Godot 4 edition of **KYTTU: The Last Route**, a first-person co-op horror game.
 

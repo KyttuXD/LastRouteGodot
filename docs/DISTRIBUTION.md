@@ -16,11 +16,11 @@ Co-op and the PUBLIC route need only the Node service in `backend/` (no Godot se
 ## Where builds come from
 Builds come from GitHub Actions artifacts and GitHub Releases. The CI workflow in `.github/workflows/` exports the game per platform; tagged releases attach the exported archives. Exported archives are never committed to this repo.
 
-## App name (KYTTU: Last Route Godot Edition)
+## App name (KYTTU - Last Route Godot Edition)
 
-The application is "KYTTU: Last Route Godot Edition" (`application/config/name`, window title, web page title, export
-`application/name`, Windows product and file description, Android package name). macOS bundles use
-"KYTTU - Last Route Godot Edition", because Godot replaces a colon in the `.app` folder name with `_`. Export artifacts
+The application is "KYTTU - Last Route Godot Edition" (`application/config/name`, window title, web page title, export
+`application/name`, Windows product and file description, Android package name, macOS bundle). It uses a dash, not a
+colon, so the name is also a valid file name: Godot would turn a colon in the macOS `.app` folder name into `_`. Export artifacts
 keep the `KyttusLab-<platform>-...` file names (CI, the staging release, `tools/build/generate_update_manifest.mjs` and
 `backend/updates.example.json` use the same names).
 Kept on purpose: the bundle identifier `org.kyttuslab.lastroute`, all version fields, the backend/service/instance names and repo
