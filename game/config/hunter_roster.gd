@@ -7,7 +7,7 @@ extends RefCounted
 ## All 26 are in PROFILES. That is not a claim that 26 hunters are playable --
 ## IMPLEMENTED_IDS is the pool the game actually draws from, and it is shorter.
 ## The numbers are simply the numbers, transcribed from HUNTER_PROFILES in the
-## original's game-config.js, and a roster that only knows two thirds of its own
+## original's config, and a roster that only knows two thirds of its own
 ## cast cannot weight a draw by tier or name whoever the disguise picked.
 ##
 ## They live here rather than as ~130 constants in GameConfig because nothing

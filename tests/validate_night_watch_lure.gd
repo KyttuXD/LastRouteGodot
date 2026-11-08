@@ -1,8 +1,8 @@
 extends RefCounted
 
-## Dead Air (3D): the rules port reproduces the 2D game (games/night-watch validate-lure, -lure-air, -variety-lure): same tables, same
+## Dead Air (3D): the rules port reproduces the 2D game (its Dead Air, Dead Air air and Dead Air variety validators): same tables, same
 ## timers, same air, the cast by night, and the 2D game's own random draws (tests/data/nw_lure_golden.json, written by
-## tools/nightwatch/gen_lure_golden.mjs from the 2D code: the first draws of mulberry32, eight whole shifts event by event, and QA's
+## recorded from the original 2D game (fixed reference data): the first draws of mulberry32, eight whole shifts event by event, and QA's
 ## bots on the 20/20/20/20 Custom Night). Then the shift scene: the office with sealed vents, the heater and fan, the monitor and its
 ## panel, Xivvy walking the hall, winning, losing, saving per mode and the Custom Night.
 
@@ -135,7 +135,7 @@ func _streams() -> void:
 		_expect(absf(sum / 20000.0 - 1.0) < 0.01, "the average wait is not the listed one at spread %s" % str(spread))
 
 
-# --- validate-lure.mjs -----------------------------------------------------------------------------------------------------
+# --- the original's Dead Air validator -----------------------------------------------------------------------------------------------------
 
 func _rules() -> void:
 	var g := _g(_stub(1, {"level": 0, "phantoms": false}))
@@ -228,7 +228,7 @@ func _rules() -> void:
 	_expect(g.level_of("xivvy") == 7, "the 3 AM step-up is wrong")
 
 
-# --- validate-lure-air.mjs -------------------------------------------------------------------------------------------------
+# --- the original's Dead Air air validator -------------------------------------------------------------------------------------------------
 
 func _air() -> void:
 	var story := {"seal": 1.2, "broken": 3.0, "appliance": 0.9, "decay": 2.0}
@@ -458,7 +458,7 @@ func _climate() -> void:
 	_expect(strain.stress > 5.0, "running the heater cost no air")
 
 
-# --- validate-variety-lure.mjs -------------------------------------------------------------------------------------------
+# --- the original's Dead Air variety validator -------------------------------------------------------------------------------------------
 
 func _variety() -> void:
 	# bounds in play, every night
@@ -601,7 +601,7 @@ func _first_diff(a: String, b: String) -> String:
 	return " (%d vs %d events)" % [x.size(), y.size()]
 
 
-## QA's csim bots (validate-lure-air.mjs): each decides every 50 ms on what it saw LAG ms ago.
+## QA's csim bots (the original's Dead Air air validator): each decides every 50 ms on what it saw LAG ms ago.
 func _qa_bot(seed_number: int, bot: String, ai: Dictionary) -> bool:
 	var g := _g({"night": 5, "rng": NightWatchStream.seeded(seed_number), "custom": true, "level": ai["xivvy"], "phantom_levels": ai, "climate_levels": ai})
 	var lag := (300 if bot == "sharp" or bot == "sharpnl" else 800) / 50

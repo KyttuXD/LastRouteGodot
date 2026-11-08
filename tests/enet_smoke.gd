@@ -8,7 +8,7 @@ extends Node
 ##   godot4 --headless --path . res://tests/scenes/enet_smoke.tscn -- host
 ##   godot4 --headless --path . res://tests/scenes/enet_smoke.tscn -- client
 ## Add `relay http://127.0.0.1:18105` after the role to exercise the complete
-## Pterodactyl-style HTTP directory + UDP relay path against a local backend.
+## HTTP directory + UDP relay path against a local backend.
 
 const PORT := 18421
 const TIMEOUT_SECONDS := 8.0

@@ -1,7 +1,7 @@
 class_name StoryLogic
 extends RefCounted
 
-## The Facility's rules, ported from games/night-watch/src/modes/story/story-logic.js (same numbers, same draws in the same order). Pure.
+## The Facility's rules, ported from the original game's Facility rules (same numbers, same draws in the same order). Pure.
 ##
 ## You walk from room to room and do each task at its room's own station. Moving loudly makes noise; crawling is slow and quiet; every action is a little
 ## noisy. Three hunters answer to different things, and a hunter you are shining the beacon on holds still:

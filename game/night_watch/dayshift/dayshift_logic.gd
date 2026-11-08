@@ -1,7 +1,7 @@
 class_name DayshiftLogic
 extends RefCounted
 
-## Salvage Run's rules: a port of createDayGame (and the shop helpers) in the 2D game's modes/dayshift/dayshift-logic.js, number for number. No scene,
+## Salvage Run's rules: a port of createDayGame (and the shop helpers) in the 2D game, number for number. No scene,
 ## no input: the shift scene feeds step() the doors, lights and the rack (hold on a piece) and draws what happens. Draws from NightWatchMulberry (the 2D
 ## mulberry32), so the same seed gives the same shift as the 2D game, event for event.
 ##

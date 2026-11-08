@@ -1,7 +1,7 @@
 class_name BedroomLogic
 extends RefCounted
 
-## Bedtime rules, ported from games/night-watch/src/modes/bedroom/bedroom-logic.js (same numbers, same draws in the same order). Pure.
+## Bedtime rules, ported from the original game's Bedtime rules (same numbers, same draws in the same order). Pure.
 ##
 ## You are in bed with one free hand. Three things come for you, each from its own side, each turned away a different way:
 ##   Loxelle   breathes behind the closet door (left). Hold the closet door shut until she goes.

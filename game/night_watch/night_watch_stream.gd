@@ -1,8 +1,8 @@
 class_name NightWatchStream
 extends RefCounted
 
-## The 2D game's seeded random streams, ported bit for bit so a 3D shift replays the 2D shift for a seed (core/rng.js mulberry32,
-## core/variety-stream.js, core/jitter.js, core/time.js createPacer). Used by the Dead Air, Bedtime and The Facility logic; Classic keeps its
+## The 2D game's seeded random streams, ported bit for bit so a 3D shift replays the 2D shift for a seed (mulberry32,
+## the variety stream, jitter and the pacer). Used by the Dead Air, Bedtime and The Facility logic; Classic keeps its
 ## own RandomNumberGenerator. A stream is an object whose `next()` gives a float in [0, 1). `stub` streams answer a fixed number (the
 ## rule tests' `() => 0.999`); the NEUTRAL stream answers 0.5, so every jitter is its base value, every chance fails and every pick is the first.
 
@@ -60,7 +60,7 @@ func set_state(v: int) -> void:
 	a = v & MASK
 
 
-## core/variety-stream.js varietyStream: `given` wins, else a stream derived from rng's state (before the night's first draw), else NEUTRAL.
+## The original's varietyStream: `given` wins, else a stream derived from rng's state (before the night's first draw), else NEUTRAL.
 static func variety_of(rng: NightWatchStream, given: NightWatchStream = null) -> NightWatchStream:
 	if given != null:
 		return given
@@ -69,18 +69,18 @@ static func variety_of(rng: NightWatchStream, given: NightWatchStream = null) ->
 	return make_neutral()
 
 
-## base +/- spread (a fraction), one draw (core/jitter.js).
+## base +/- spread (a fraction), one draw (the original's jitter).
 static func jitter(base: float, spread: float, stream: NightWatchStream) -> float:
 	var k := minf(0.9, maxf(0.0, spread))
 	return base * (1.0 - k + 2.0 * k * stream.next())
 
 
-## ms +/- spread, evenly (core/time.js spreadMs; default spread 0.2).
+## ms +/- spread, evenly (the original's spreadMs; default spread 0.2).
 static func spread_ms(ms: float, rng: NightWatchStream, spread := 0.2) -> float:
 	return ms * (1.0 - spread + 2.0 * spread * rng.next())
 
 
-## A pacer multiplier built so the WAIT is what is even (core/variety-stream.js tempo).
+## A pacer multiplier built so the WAIT is what is even (the original's tempo).
 static func tempo(vr: NightWatchStream, spread: float) -> float:
 	return 1.0 / jitter(1.0, spread, vr)
 

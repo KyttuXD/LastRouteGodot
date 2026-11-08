@@ -415,7 +415,7 @@ func go_online() -> void:
 func _start_offline_room() -> void:
 	# Explicitly bypasses health, directory, account, and periodic update traffic.
 	# It remains available when the online update gate is waiting so a local test
-	# does not depend on the Pterodactyl deployment matching the worktree.
+	# does not depend on the server deployment matching the worktree.
 	Backend.enter_run_offline()
 	_refresh_offline_ui()
 	RoomState.create_local(RoomState.Mode.DEFAULT)

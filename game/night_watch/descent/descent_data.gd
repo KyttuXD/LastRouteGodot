@@ -1,7 +1,7 @@
 class_name NightWatchDescentData
 extends RefCounted
 
-## The Descent's constants, copied from the 2D descent-data.js: the stages of each descent, how big each puzzle is, Elise's level and
+## The Descent's constants, copied from the 2D game's Descent data: the stages of each descent, how big each puzzle is, Elise's level and
 ## Zellia's script. Pure data; the rules are in descent_logic.gd.
 ##
 ## You ride an elevator down a shaft and repair it as you go. Each descent is a run of stages: wires (follow a lit fuse box's wire to its
@@ -36,4 +36,4 @@ const PIPES_TURNS := [2, 2, 2, 2, 2]
 
 const STAGE_NAMES := {"wires": "FUSE BOXES", "memory": "SIGNAL PANEL", "pipes": "PIPEWORK", "hold": "DOOR"}
 
-## Zellia's calls are the shared table (NightWatchCallsData, mode `descent`), verbatim from the 2D descent-data.js.
+## Zellia's calls are the shared table (NightWatchCallsData, mode `descent`), verbatim from the 2D game.

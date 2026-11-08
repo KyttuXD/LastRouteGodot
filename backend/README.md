@@ -10,7 +10,7 @@ Last Route:
 The room API stores live room/world state in memory. Accounts, their one JSON
 progress slot, and SHA-256-hashed 30-day session tokens are persisted to disk;
 passwords use scrypt records. Sessions therefore survive an automatic
-Pterodactyl restart without writing a usable bearer token into `.data`.
+server restart without writing a usable bearer token into `.data`.
 Native ENet packets are wrapped through the UDP relay, so hosts and guests
 make only outbound connections. Player routers do not need UPnP, a manual port
 forward, or a publicly reachable UDP socket.
@@ -35,20 +35,20 @@ curl http://127.0.0.1:1101/api/health
 
 Normal game builds use only the primary service at
 `https://lastroutegodot.games.kyttuslab.org`. TCP `8105` is reserved for the plain
-HTTP Pterodactyl listener used by room discovery and updates, while UDP `1105`
+HTTP listener used by room discovery and updates, while UDP `1105`
 remains the gameplay relay. Account/password actions intentionally remain unavailable over
 this public HTTP origin. The game exposes no environment variable,
 command-line override, custom directory, or direct-address lobby option.
 
-## Pterodactyl deployment
+## Deployment
 
-Upload the repository contents to the Node.js egg. The Pterodactyl-friendly
+Upload the repository contents to any Node.js 18+ host or game-server panel. The
 startup file deliberately lives at the server root, while its implementation
 stays in `backend/`. Either of these works from that root:
 
 ```sh
 npm start
-# or, for eggs with a configurable startup filename:
+# or, for hosts with a configurable startup filename:
 node index.js
 ```
 
@@ -59,7 +59,7 @@ environment take precedence, and both `.env` locations are ignored by Git.
 Copy `backend/.env.example` to `backend/.env`, replace its placeholder secrets,
 and restart the Node process after making changes.
 
-Pterodactyl normally injects `SERVER_PORT`; common proxy setups inject `PORT`.
+Game-server panels often inject `SERVER_PORT`; common proxy setups inject `PORT`.
 The server accepts either, with `PORT` taking precedence. Set a persistent
 volume for `LASTROUTE_DATA_DIR` so account data survives reinstall/redeploy.
 The repository default is the ignored `.data/` directory. A practical
@@ -104,9 +104,9 @@ Do not enable it on a service exposed directly to untrusted clients. The Node
 service enforces its own limits, and proxy/firewall limits are useful defense
 in depth.
 
-Allocate **TCP 8105** and **UDP 1105** to this Pterodactyl server and map both
+Allocate **TCP 8105** and **UDP 1105** to this server and map both
 through the firewall/container. TCP 8105 carries HTTP room codes and updates;
-UDP 1105 carries the authenticated gameplay relay. Only the Pterodactyl
+UDP 1105 carries the authenticated gameplay relay. Only the server
 machine needs a public inbound UDP allocation. Player hosts never expose UDP
 8421 and the client no longer contains a UPnP path.
 
@@ -143,7 +143,7 @@ Point that DNS name at the panel's public address and expose TCP 8105 plus UDP
 | `LASTROUTE_GITHUB_TAG` | `debug` | stable `debug` or `release` asset channel to mirror |
 | `LASTROUTE_GITHUB_TOKEN` | `GITHUB_TOKEN`, `GH_TOKEN`, or `ACCESS_TOKEN` | private server-side PAT; the named variable takes priority |
 | `LASTROUTE_UPDATE_POLL_SECONDS` | `15` (minimum `10`) | poll interval for hot release-asset synchronization |
-| `LASTROUTE_RESTART_ON_GITHUB_UPDATE` | auto when a token exists | request a Pterodactyl restart when the watched source branch advances; set `false` to disable |
+| `LASTROUTE_RESTART_ON_GITHUB_UPDATE` | auto when a token exists | exit with status 75 so the host restarts it when the watched source branch advances; set `false` to disable |
 | `LASTROUTE_GITHUB_BRANCH` | `main` | branch watched for backend source changes |
 | `LASTROUTE_SOURCE_POLL_SECONDS` | `30` (minimum `15`) | source-commit check interval |
 | `LASTROUTE_DEPLOYED_REVISION` | local `git rev-parse HEAD` | exact deployed SHA when the server directory has no `.git` folder |
@@ -187,7 +187,7 @@ names from the original deployment remain accepted as compatibility aliases.
 `GET /api/health` reports the exact Git commit currently published for each
 update channel under `updates.<channel>.revision`, together with its version
 and platform list, plus whether the UDP relay is bound. The same short commit
-is printed in the Pterodactyl console after every successful GitHub Release
+is printed in the server log after every successful GitHub Release
 sync.
 
 ## Accounts and release admin
@@ -232,17 +232,17 @@ in-game account card can continue or clear it. Co-op state and authored custom
 map payloads are intentionally excluded because their canonical state belongs
 to the live host/map workflow rather than to one player's account.
 
-## Pterodactyl-hosted updates
+## Server-hosted updates
 
-This supports the intended private-GitHub-to-Pterodactyl flow without putting
+This publishes GitHub Release builds through the server without putting
 a GitHub token in the game:
 
 1. Validation and exports are run locally before publishing. Use the complete
    `res://tests/scenes/validate.tscn` suite and `./tools/build/export_test_builds.sh`, then
    inspect the generated archives and manifest before uploading them. GitHub
-   Actions is intentionally not configured for this repository.
+   Actions (`.github/workflows/build.yml`) also exports debug builds as workflow artifacts.
 2. Set `LASTROUTE_AUTO_UPDATE=true` and provide the server-side PAT as
-   `LASTROUTE_GITHUB_TOKEN`; the common Pterodactyl `ACCESS_TOKEN` variable is
+   `LASTROUTE_GITHUB_TOKEN`; the `ACCESS_TOKEN` variable is
    also accepted. At startup and every `LASTROUTE_UPDATE_POLL_SECONDS`, Node
    reads the stable `debug` GitHub Release, downloads changed artifacts,
    verifies their manifest SHA-256 values, and atomically publishes the
@@ -284,19 +284,19 @@ Existing clients from before automatic installation require one final manual
 install of this bridge build. After that, newly published commits do not need a
 version change or browser download.
 
-## Pterodactyl source auto-restart
+## Source auto-restart
 
 With the server-side GitHub PAT configured, the backend watches GitHub `main`
 automatically. When the remote SHA differs from the deployed repository's
 `git rev-parse HEAD`, the service closes its HTTP listener and exits with
-status 75. Enable Pterodactyl's automatic crash restart and keep the existing
+status 75. Enable your host's automatic restart on exit and keep the existing
 `git pull` in the startup command: the restart runs that pull, then launches
 the current `index.js`. The watcher never runs `git pull` itself and never
 rewrites source files while Node is executing them. Set
 `LASTROUTE_RESTART_ON_GITHUB_UPDATE=false` only when a deployment must stay
 pinned.
 
-If the startup pull fails or Pterodactyl crash restart is disabled, this cannot
+If the startup pull fails or automatic restart is disabled, this cannot
 self-heal; the logs will show the local and remote short SHAs. Leave the option
 off on a manually managed production release branch.
 
@@ -314,7 +314,7 @@ Keep the GitHub tags channel-based: use `debug` for debug uploads and
 `release` for release uploads. The dotted game version belongs in the build,
 manifest, and release title rather than the tag name.
 
-The PAT belongs only in Pterodactyl's private variables or deployment script;
+The PAT belongs only in the server's private environment variables or deployment script;
 never write it into `updates.json`, the Godot project, an export, or Git.
 TLS termination is still strongly recommended before shipping a secure release.
 The current client opens the published archive/APK rather than attempting to

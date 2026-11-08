@@ -2,7 +2,7 @@ class_name VerrineGimmick
 extends HunterGimmick
 
 ## Verrine's vent lurker (hunterAbilities.verrine.ventLurker). Ported from
-## verrine.js's prepareVentLurker/useVent.
+## the original's prepareVentLurker/useVent.
 ##
 ## She never patrols the floor at all -- she is invisible and holds
 ## position, wherever she last teleported to, until the PLAYER steps into

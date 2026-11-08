@@ -2,7 +2,7 @@ class_name OpalieGimmick
 extends HunterGimmick
 
 ## Opalie's guard station (hunterAbilities.opalie.relayGuardian). Ported from
-## opalie.js's updateRelayGuardian: she picks one relay, walks to it, and then
+## the original's updateRelayGuardian: she picks one relay, walks to it, and then
 ## STOPS -- and while she is standing there, nothing within
 ## OPALIE_SUPPRESSION_RADIUS can be interacted with at all. Not the relay: the
 ## lift, a battery, a safe zone, anything. The counter is to draw her off or

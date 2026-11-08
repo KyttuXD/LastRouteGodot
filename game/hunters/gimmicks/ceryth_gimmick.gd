@@ -2,7 +2,7 @@ class_name CerythGimmick
 extends HunterGimmick
 
 ## Ceryth's hiding trap (hunterAbilities.ceryth.hidingTrap). Ported from
-## ceryth.js's updateHidingTrapHunter/resolveHidingTrapEntry.
+## the original's updateHidingTrapHunter/resolveHidingTrapEntry.
 ##
 ## She does not chase. The whole of her original file is two methods and
 ## neither one is pursuit: once, she picks a hiding spot and a colour of eyes

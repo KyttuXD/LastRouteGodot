@@ -1,8 +1,8 @@
 extends RefCounted
 
-## The Facility (3D): the rules port reproduces the 2D game (games/night-watch validate-story and -variety-facility): the six rooms and their doors, every
+## The Facility (3D): the rules port reproduces the 2D game (its Facility and Facility-variety validators): the six rooms and their doors, every
 ## night's task list, the stations and their puzzles, the three hunters (noise, the beacon, the lift), the night table and the variety levers, and the 2D
-## game's own draws (tests/data/nw_story_golden.json, written by tools/nightwatch/gen_story_golden.mjs: whole shifts event by event). Then the
+## game's own draws (tests/data/nw_story_golden.json, recorded from the original 2D game and fixed reference data: whole shifts event by event). Then the
 ## shift scene: six walkable rooms with a station each, the doors, the lift, the hunters walking, a win, a loss and the Custom Night.
 
 var _failures := 0

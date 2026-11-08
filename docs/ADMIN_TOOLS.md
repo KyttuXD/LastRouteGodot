@@ -6,7 +6,7 @@ admin login (see `backend/README.md` "Accounts and release admin"). A normal pla
 wrong scope, never gets the node, the key handler or any action; every row carries a permission scope (`player`, `world`,
 `hunters`, `visual`, `inventory`, or `owner_only`) and an unscoped row fails closed for delegated admins. In an online room
 or the PUBLIC route, a guest's request goes to the host as a ticket-verified `admin_world` event; nothing here works without
-that auth. Modelled on the 2D game's ADMIN debug section (`LastRoute/games/last-route/docs/ADMIN-DEBUG.md`).
+that auth. Modelled on the 2D game's ADMIN debug section.
 
 ## What is in it
 

@@ -1,7 +1,7 @@
 class_name NightWatchPalette
 extends RefCounted
 
-## The 2D game's office COLOURS on the 3D offices. Each 2D office (games/night-watch/assets/offices/<mode>.png) has its own wall, floor and ceiling colours (Classic and Dead Air teal, Masked Hours purple, Bedtime
+## The 2D game's office COLOURS on the 3D offices. Each 2D office has its own wall, floor and ceiling colours (Classic and Dead Air teal, Masked Hours purple, Bedtime
 ## violet, the Facility steel blue, the Descent slate, the day shift warm cream, Open Air a night-blue rooftop); the table below is those colours (sampled from the images), applied to the walls, floors and ceilings
 ## of the 3D office after it is built by tinting the shell's materials (NightWatchArt keeps one material per kind and tint, so this costs nothing). Props, screens, doors and lamps keep their own colours.
 

@@ -49,7 +49,7 @@ export async function loadEnvironmentFile(path, environment = process.env) {
   }
 
   for (const [key, value] of parseEnvironmentFile(contents)) {
-    // Pterodactyl variables and variables supplied to `node` remain authoritative.
+    // Host panel variables and variables supplied to `node` remain authoritative.
     if (!(key in environment)) environment[key] = value;
   }
   return true;

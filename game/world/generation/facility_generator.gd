@@ -1,8 +1,8 @@
 class_name FacilityGenerator
 extends RefCounted
 
-## Deterministic seeded facility generation, ported from LastRoute's
-## src/game/maze.js (the `Maze` class).
+## Deterministic seeded facility generation, ported from the original's
+## maze generator (the `Maze` class).
 ##
 ## Scope: this covers the structural algorithm and mechanical room population
 ## faithfully — the odd sector
@@ -25,7 +25,7 @@ const MIN_AUTHORED_ROOM_SIZE := 10
 const MAX_AUTHORED_ROOM_SIZE := 26
 const ROOM_SECTOR_FILL := 0.86
 const DEFAULT_AGENT_RADIUS := 0.23
-# TUNING.safeRadius (2.5) + 0.65, from maze.js's getSafeZoneBlockedCells default.
+# TUNING.safeRadius (2.5) + 0.65, from the original's getSafeZoneBlockedCells default.
 const SAFE_ZONE_BLOCK_RADIUS := 3.15
 const CARDINAL_IDS := ["north", "south", "west", "east"]
 const DIRECTIONS4 := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
@@ -447,7 +447,7 @@ func _prepare_custom_rooms() -> void:
 		room["prop_types"] = (type_entry["props"] as Array).duplicate()
 
 
-## Deterministic port of maze.js populateRooms. Large footprints are reserved
+## Deterministic port of the original's populateRooms. Large footprints are reserved
 ## first, the ordinary room doorway cross remains clear, and every placement
 ## uses the same footprint later consumed by navigation and 3D collision.
 func populate_rooms() -> void:
@@ -850,7 +850,7 @@ func can_occupy(x: float, y: float, radius: float = DEFAULT_AGENT_RADIUS, blocke
 	return true
 
 
-## Grid-space A* over the facility, matching maze.js's pathfind(): 8-way,
+## Grid-space A* over the facility, matching the original's pathfind(): 8-way,
 ## octile heuristic, and diagonal steps rejected unless both flanking
 ## orthogonal cells are also open (no corner-cutting through wall corners).
 ## Built lazily and cached — safe because a generator's grid never changes
@@ -884,7 +884,7 @@ func _get_astar() -> AStarGrid2D:
 	return _astar
 
 
-## Grid-raymarch line of sight, matching maze.js's hasLineOfSight(): samples
+## Grid-raymarch line of sight, matching the original's hasLineOfSight(): samples
 ## the straight segment at ceil(distance*6) points and rejects on the first
 ## sampled point that isn't floor. Walls only — furniture affects movement,
 ## but does not become a full-height vision wall (matching the original).
@@ -1167,7 +1167,7 @@ func place_batteries(from_start: Dictionary) -> void:
 	var chosen: Array = []
 	for cell in candidates:
 		if _pairwise_far(cell, chosen, 4.5):
-			# Fixed 15% — matches maze.js's placeBatteries (one battery powers a
+			# Fixed 15% — matches the original's placeBatteries (one battery powers a
 			# heater/fan appliance for exactly 30s at its 0.5%/s drain rate).
 			chosen.append({"id": "battery-%d" % chosen.size(), "x": cell.x, "y": cell.y, "charge": 15.0, "collected": false})
 			if chosen.size() == battery_count:
@@ -1176,7 +1176,7 @@ func place_batteries(from_start: Dictionary) -> void:
 
 
 ## Not part of generate() — called on demand once a hunter milestone actually
-## needs it (see MIGRATION.md), simplified to ONE spawn from maze.js's
+## needs it (see MIGRATION.md), simplified to ONE spawn from the original's
 ## placeHunterSpawns (which picks two, for a roster this port doesn't have
 ## yet). Reuses the same random stream as relay/battery placement.
 func place_hunter_spawn(from_start: Dictionary) -> Vector2i:

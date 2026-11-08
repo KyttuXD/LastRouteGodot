@@ -1,7 +1,7 @@
 class_name MixedLogic
 extends RefCounted
 
-## Mixed Shift's rules: a port of createMixedGame in the 2D game's modes/mixed/mixed-logic.js, number for number. A drawn roster of threats of different types
+## Mixed Shift's rules: a port of createMixedGame in the 2D game, number for number. A drawn roster of threats of different types
 ## (counter, watched, monitor, path, vent, winder) run by a small pacing director; every threat gives a tell before it can kill and has an answer. No scene, no
 ## input: the shift scene calls the setters (set_door, set_vent, light_vent, set_wind, set_monitor, set_room) and step(dt_ms), and draws the events. Three seeded
 ## streams (director, threats, feints) from NightWatchMulberry, so the same seed and inputs give the 2D game's night, event for event.

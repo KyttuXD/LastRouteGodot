@@ -2,7 +2,7 @@ class_name RavelleGimmick
 extends HunterGimmick
 
 ## Ravelle's tripwire trapper (hunterAbilities.ravelle.tripwireTrapper).
-## Ported from ravelle.js's updateTripwireTraps(): two invisible wires sit on
+## Ported from the original's updateTripwireTraps(): two invisible wires sit on
 ## doorway-shaped floor cells; crossing one locks her into a chase and
 ## PERMANENTLY raises her speed, compounding with every trigger. Her chase
 ## speed starts deliberately below the roster floor — the per-trigger bonus is
@@ -83,7 +83,7 @@ func _place_wires(brain: HunterBrain, generator) -> void:
 
 ## A doorway-shaped cell: open along one axis with at least one side of the
 ## other axis blocked — a pinch point rather than open floor. Direct port of
-## ravelle.js's doorwayCandidates().
+## the original's doorwayCandidates().
 static func _doorway_cells(generator) -> Array:
 	var cells: Array = []
 	for cell in generator.floor_cells():

@@ -1,7 +1,7 @@
 class_name NightWatchPacer
 extends RefCounted
 
-## core/time.js createPacer: how often a hunter moves. There is no fixed tick: after each move she waits a random time from a three-second
+## The pacer (createPacer): how often a hunter moves. There is no fixed tick: after each move she waits a random time from a three-second
 ## window that slides down with her level (NightWatchData.move_window). Level 0 never moves. Draws only from the stream it is given.
 
 var rng: NightWatchStream

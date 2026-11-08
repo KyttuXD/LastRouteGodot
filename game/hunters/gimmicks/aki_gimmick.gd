@@ -2,7 +2,7 @@ class_name AkiGimmick
 extends HunterGimmick
 
 ## Aki's phantom exposure (hunterAbilities.aki.phantomExposure). Ported from
-## hunter-gimmicks.js's updatePhantomExposure plus aki.js's resolver.
+## the original's updatePhantomExposure plus the original's resolver.
 ##
 ## She does nothing at all until you point your torch at her and hold it there.
 ## That one deliberate flash starts a ten-second fuse, and then she spikes your

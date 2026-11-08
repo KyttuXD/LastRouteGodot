@@ -1,7 +1,6 @@
 extends RefCounted
 
-## Night Watch, Open Air (mode `extra`, code `openair`): the rules port reproduces the 2D numbers (scripts/validate-openair.mjs and
-## validate-variety-openair.mjs), a watch replays the same for a seed, every watch can be won and lost, the hunters have routes to walk, and
+## Night Watch, Open Air (mode `extra`, code `openair`): the rules port reproduces the 2D numbers (its Open Air validators), a watch replays the same for a seed, every watch can be won and lost, the hunters have routes to walk, and
 ## the shift scene starts from the Shift Board, saves the clear, opens the next watch and runs a Custom Night's watches in a row.
 ## (Save and restore of a watch in progress is the framework's resume milestone and is not ported here.)
 

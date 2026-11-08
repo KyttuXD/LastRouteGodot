@@ -2,7 +2,7 @@ class_name FerrynGimmick
 extends HunterGimmick
 
 ## Ferryn's persistent stalk (hunterAbilities.ferryn.roundStalker). Ported
-## from ferryn.js's updateRoundStalker.
+## from the original's updateRoundStalker.
 ##
 ## She has no sight, no hearing, no lost-sight grace -- she simply always
 ## knows where the player is and chases, permanently. The only counters are

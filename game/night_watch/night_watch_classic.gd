@@ -1,7 +1,7 @@
 class_name NightWatchClassic
 extends RefCounted
 
-## Night Watch Classic: the night's rules (a port of createClassicGame in the 2D classic-logic.js plus the power meter that
+## Night Watch Classic: the night's rules (a port of createClassicGame in the 2D game plus the power meter that
 ## lives in the 2D scene). No scene, no input, no Node: the shift scene feeds it the state of the doors, lights and monitor and
 ## draws what happens, and tests/validate_night_watch.gd replays whole nights headless. The same seed gives the same night.
 ##

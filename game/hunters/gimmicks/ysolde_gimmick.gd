@@ -2,7 +2,7 @@ class_name YsoldeGimmick
 extends HunterGimmick
 
 ## Ysolde's battery theft (hunterAbilities.ysolde.batteryThief). Ported from
-## ysolde.js: she walks to the nearest UNCOLLECTED battery and, within
+## the original: she walks to the nearest UNCOLLECTED battery and, within
 ## YSOLDE_STEAL_RANGE, takes it -- permanently. It is off the floor; the player
 ## does not get to race her to it afterwards.
 ##

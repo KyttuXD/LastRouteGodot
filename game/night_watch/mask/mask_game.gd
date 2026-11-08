@@ -6,7 +6,7 @@ extends NightWatchMode
 ## off), the MONITOR (cameras 1-8; the music box is CAM 1), the MUSIC BOX (hold to wind: the monitor jumps to CAM 1), the two VENT grates and the HALL
 ## LIGHT (hold for the light), the desk lamp, the chair. Quick keys (on keys the shared map leaves free): Z mask, U monitor, hold G / H the left / right
 ## vent light, hold X the hall light, hold R to wind, Y the lamp; in the monitor 1-8 or the arrows pick a camera; P pauses. The rules are MaskLogic
-## (a port of mask-logic.js, seeded like the 2D game) behind MaskControls (the mask and the monitor are one exclusive pair, as in 2D).
+## (a port of the original's Masked Hours rules, seeded like the 2D game) behind MaskControls (the mask and the monitor are one exclusive pair, as in 2D).
 ## `manual_clock` stops the real-time clock so the validators step the shift themselves with advance_ms().
 
 enum State { PLAYING, PAUSED, WON, LOST }

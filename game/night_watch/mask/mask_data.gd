@@ -1,8 +1,8 @@
 class_name MaskData
 extends RefCounted
 
-## Masked Hours' constants, copied from the 2D game's modes/mask/mask-data.js (the wing, the graph, where each hunter waits, the tune,
-## Zellia's script). Pure data. The tuning numbers live in MaskLogic (mask-logic.js T, LEVELS, ...).
+## Masked Hours' constants, copied from the 2D game's Masked Hours data (the wing, the graph, where each hunter waits, the tune,
+## Zellia's script). Pure data. The tuning numbers live in MaskLogic (the original's T, LEVELS, ...).
 
 const CAST := ["verrine", "thessine", "glyra", "nyxie", "umbriel", "haelith", "ilyra"]
 const NAMES := {"thessine": "Thessine", "umbriel": "Umbriel", "verrine": "Verrine", "glyra": "Glyra", "nyxie": "Nyxie", "haelith": "Haelith", "ilyra": "Ilyra"}
@@ -49,7 +49,7 @@ const HALL_HUNTERS := ["thessine"]
 const RUSHER := "umbriel"
 const TUNE := [659, 587, 523, 587, 659, 659, 659, 587, 587, 587, 659, 784, 784]
 
-## Zellia's calls, nights 1-6 (mask-data.js CALLS). The keys she names are the 2D game's; the 3D controls are in the hint line.
+## Zellia's calls, nights 1-6 (the original's CALLS). The keys she names are the 2D game's; the 3D controls are in the hint line.
 const CALLS := {
 	1: ["Zellia. This wing has no doors, so the usual routine doesn't apply.",
 		"Thessine will use the hall. If she walks into the office, put the mask on and keep it on until she leaves. The hall light lights the hall.",

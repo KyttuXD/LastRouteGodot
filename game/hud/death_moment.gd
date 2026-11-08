@@ -3,7 +3,7 @@ extends CanvasLayer
 
 ## The short death cutscene: a dark subtitle box low on the screen, the catcher's name in spaced capitals and her line,
 ## typed one word every 250 ms (a caption shows whole, in italics). No jumpscare, no flashing. Ported from the 2D
-## game's death-moment.js. Tap/click/any key finishes the typing, then dismisses; Esc dismisses at once. The first
+## game. Tap/click/any key finishes the typing, then dismisses; Esc dismisses at once. The first
 ## 400 ms of input are ignored so the key held at the moment of death cannot skip it. It closes itself 7 s after the
 ## line is fully shown (2.5 s in short mode). Reduced motion shows the whole line at once with no fade.
 

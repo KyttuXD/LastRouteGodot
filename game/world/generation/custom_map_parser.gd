@@ -4,7 +4,7 @@ extends RefCounted
 ## Developer custom maps: a single colour-coded PNG stands in for procedural
 ## generation. One pixel = one grid cell, matched exactly against PALETTE
 ## below (no blending/anti-aliasing — that's what the original enforces too).
-## Ported from the original's src/game/custom-map.js, with the same palette
+## Ported from the original's custom-map parser, with the same palette
 ## and flood-fill-by-colour room detection.
 ##
 ## Geometry:

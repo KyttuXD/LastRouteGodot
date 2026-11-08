@@ -1,7 +1,7 @@
 class_name NightWatchDescentLogic
 extends RefCounted
 
-## The Descent's rules, a port of createDescentGame in the 2D descent-logic.js. No nodes: the shift scene feeds it the door-hold button and
+## The Descent's rules, a port of createDescentGame in the 2D game. No nodes: the shift scene feeds it the door-hold button and
 ## the panel presses and draws what happens, and tests/validate_night_watch_descent.gd replays whole descents headless.
 ##
 ##   wires   boxes light in turn; press the button at the end of each lit box's wire. A wrong button starts the run over and the wires are
@@ -76,7 +76,7 @@ func _r() -> float:
 	return minf(_rng.randf(), 0.99999999)
 
 
-# --- helpers ported from core/jitter.js and the puzzle makers -------------------------------------------------------------
+# --- helpers ported from the original's jitter and the puzzle makers -------------------------------------------------------------
 
 static func jitter(base: float, spread: float, rng: RandomNumberGenerator) -> float:
 	var k := clampf(spread, 0.0, 0.9)

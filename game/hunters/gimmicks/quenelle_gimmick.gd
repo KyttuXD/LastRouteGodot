@@ -2,7 +2,7 @@ class_name QuenelleGimmick
 extends HunterGimmick
 
 ## Quenelle's flashlight tracker (hunterAbilities.quenelle.flashlightTracker in
-## the original). Mirrors quenelle.js's updateFlashlightTracker(): sustained
+## the original). Mirrors the original's updateFlashlightTracker(): sustained
 ## flashlight-on time earns a permanent lock (never un-sets once true); once
 ## locked, every frame she re-affirms chase + last_known + a zeroed
 ## lost_sight_timer, so HunterBrain's own perception grace-timer decay never

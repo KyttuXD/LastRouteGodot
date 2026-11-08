@@ -1,7 +1,7 @@
 class_name LureData
 extends RefCounted
 
-## Dead Air (mode `lure`): the radio station, its cameras and Zellia's script. Pure data from games/night-watch/src/modes/lure/lure-data.js.
+## Dead Air (mode `lure`): the radio station, its cameras and Zellia's script. Pure data from the original game's Dead Air data.
 ## `pan` is where a room sounds from (-1 left to +1 right).
 
 const CAST := ["wynelle", "xivvy", "mavrine", "briselle", "solyth", "ferryn"]
@@ -68,7 +68,7 @@ static func call_lines(night: int) -> Array:
 	return CALLS.get(night, [])
 
 
-## Steps from every room to `target` (core/graph.js distancesTo).
+## Steps from every room to `target` (the original's distancesTo).
 static func distances_to(target: String) -> Dictionary:
 	var dist := {target: 0}
 	var queue := [target]

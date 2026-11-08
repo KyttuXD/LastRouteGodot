@@ -1,7 +1,6 @@
 # Night Watch: one office per mode (the OFFICE CONTRACT)
 
-Every mode of the 2D game has its own office picture (`games/night-watch/assets/offices/<office>.png`, the `office:` field of each mode in
-`src/modes/registry.js`). In 3D every mode gets its own **office scene** too, all different, built to one contract so the framework, the menus
+Every mode of the original 2D game has its own office picture. In 3D every mode gets its own **office scene** too, all different, built to one contract so the framework, the menus
 and the validators treat them alike. Classic's security room is the reference implementation.
 
 ## The contract
@@ -23,7 +22,7 @@ An office is a script `extends NightWatchOfficeBase` in the mode's own folder (`
 | `mood` | `{kind: warm_lamp / cold_monitor / emergency_red / daylight / night_outdoor / dusk / fluorescent, ambient, lamp, accent}` |
 | `tone_cue` | room tone: one of the shared `NightWatchSounds.CUES` |
 | `controls` | the quick-key actions that apply here (others are hidden from the hint line and the controls tab) |
-| `references` | 2D screenshot and concept image paths for this doc |
+| `references` | reference screenshot and concept image paths for this doc |
 
 Runtime interface (`NightWatchOfficeBase`): `spec`, `stations`, `props`, `build()`, `spawn_position()`, `entrance_position(id)`, `entrance_outward(id)`,
 `light_count()`. The mode's game scene makes its office with `NightWatchOfficeRegistry.make(mode_id)` and wires `stations[...].on_activate`.
@@ -40,7 +39,7 @@ Rules for an office:
 
 ## Who builds what, and from which 2D identity
 
-| Mode (2D `office`) | Office id | Concept (from the 2D mode) | Entrances | Monitor | Lane |
+| Mode (`office`) | Office id | Concept (from the 2D mode) | Entrances | Monitor | Lane |
 |---|---|---|---|---|---|
 | Classic (`classic`) | `classic_security` | the existing security room: two steel doors with panels and lights | doorL, doorR (slab) | yes | built; polish here |
 | Masked Hours (`mask`) | `front_office` | the day-shift front office / reception with a mask rack: no doors, hall hunters walk in | hall opening, vents | yes | B: **built** (`mask/mask_office.gd`) |
@@ -52,24 +51,24 @@ Rules for an office:
 | Open Air (`extra`) | `watch_post` | an outdoor guard booth / roof / bus stop / campfire (three watches): daylight and night outdoor | opening, edge, path | no | C (nw-modes-c): **built** |
 | Mixed Shift (`mixed`) | `hub_office` | rotates through the set (one office per hour, drawn by the pacing director) or the Classic building hub | per office | yes | **built** as the hub (`mixed/mixed_office.gd`) |
 
-Each mode chooses and documents its own offices in this file (a row of its own, with the 2D screenshot next to the 3D concept) and implements them in its
+Each mode chooses and documents its own offices in this file (a row of its own, with the 3D concept) and implements them in its
 own folder. Mixed Shift's `rotation` lists the office ids it cycles.
 
 ## Lane B offices (Masked Hours, Salvage Run)
 
 Both are subclasses of the Classic room (`NightWatchOffice`, so the desk, chair, lamp and door panels are the same reference mechanics) that override
 `_build_shell()` and `_build_wall_props()` and add their own stations; the games build them with `NightWatchOfficeRegistry.make(mode)`.
-| Office | 2D (`games/night-watch/assets/offices/`) | 3D, from the entrance | 3D, at the desk / main station |
-|---|---|---|---|
-| `front_office` (Masked Hours) | ![2D](night_watch_offices/front_office_2d.png) | ![door](night_watch_offices/front_office_door.png) ![desk](night_watch_offices/front_office_desk.png) | FNAF 2 style, its own room (not the Classic security room): a small night guard's office with NO doors, one wide opening straight onto the 15 m MAIN HALL (a velvet rope keeps you in), the desk right in front of you (monitor, mask, music box, lamp, a turning fan, a pizza box), a vent grate in each side wall (left and right air vents) and a decorative front vent above the opening, kids' drawings and a clock; stations `mask`, `musicbox`, `ventL`, `ventR`, `hall_light` (the hall light) |
-| `cargo_bay` (Salvage Run) | ![2D](night_watch_offices/cargo_bay_2d.png) | ![door](night_watch_offices/cargo_bay_door.png) ![desk](night_watch_offices/cargo_bay_desk.png) | warm wood panels, green checkerboard, a window in the front wall with a yard outside, pallet racking, crates, a workbench with the four-slot rack (`rack0`..`rack3`), a budget ledger on the desk (`ledger`), the two steel doors and panels; the monitor is off (the 2D mode has no cameras), so `has_monitor` is false |
+| Office | 3D, from the entrance | 3D, at the desk / main station |
+|---|---|---|
+| `front_office` (Masked Hours) | ![door](night_watch_offices/front_office_door.png) ![desk](night_watch_offices/front_office_desk.png) | FNAF 2 style, its own room (not the Classic security room): a small night guard's office with NO doors, one wide opening straight onto the 15 m MAIN HALL (a velvet rope keeps you in), the desk right in front of you (monitor, mask, music box, lamp, a turning fan, a pizza box), a vent grate in each side wall (left and right air vents) and a decorative front vent above the opening, kids' drawings and a clock; stations `mask`, `musicbox`, `ventL`, `ventR`, `hall_light` (the hall light) |
+| `cargo_bay` (Salvage Run) | ![door](night_watch_offices/cargo_bay_door.png) ![desk](night_watch_offices/cargo_bay_desk.png) | warm wood panels, green checkerboard, a window in the front wall with a yard outside, pallet racking, crates, a workbench with the four-slot rack (`rack0`..`rack3`), a budget ledger on the desk (`ledger`), the two steel doors and panels; the monitor is off (the 2D mode has no cameras), so `has_monitor` is false |
 Lights: Masked Hours has the desk lamp only (vent beams and the hall light are off until held); Salvage Run has the desk lamp (the yard lamp is an emissive cube).
 ### Mixed Shift: `hub_office`
 The Classic building's hub: the Classic security room (doors, panels, desk, monitor, chair, lamp) with the three permanent vents of the 2D Mixed office
 (`mixed/mixed_office.gd`, a subclass of `NightWatchOffice`): left and right low on the back wall and one in the ceiling above the desk, each with a shutter (shown while
 sealed) and a glowing opening for the vent light (an emissive cube, not a real light). The DOOR buttons stay; the LIGHT buttons are off (the doors' light pulses are the
 tell). Entrances: `doorL`, `doorR` (slab), `ventL`, `ventR`, `ventT`. Mixed Shift does not rotate through other offices yet (`rotation` is empty). Lights: the desk lamp.
-| `hub_office` (Mixed Shift) | ![2D](night_watch_offices/hub_office_2d.png) | ![door](night_watch_offices/hub_office_door.png) ![desk](night_watch_offices/hub_office_desk.png) |
+| `hub_office` (Mixed Shift) | ![door](night_watch_offices/hub_office_door.png) ![desk](night_watch_offices/hub_office_desk.png) |
 ## Lane C: `lift_landing` (The Descent) and `watch_post` (Open Air)
 Both are built from their mode's own world class (`NightWatchDescentWorld`, `NightWatchOpenAirWorld`) wrapped by a `NightWatchOfficeBase` script in the mode's folder
 (`game/night_watch/descent/descent_office.gd`, `game/night_watch/openair/openair_office.gd`); the game scenes make them with `NightWatchOfficeRegistry.make(mode)`. Neither has a
@@ -92,7 +91,7 @@ building (not derived from Classic), Dead Air = a radio station / studio floor, 
 Mixed Shift = rotates between the other modes' maps, Classic stays as is.
 
 | Mode | Map script | Layout | Top-down |
-|---|---|---|---|
+|---|---|---|
 | Dead Air (`lure`) | `game/night_watch/lure/lure_map.gd` (`LureMap`, built by `LureWorld`, walked by `LurePaths`) | a radio station: reception on top of a plus-shaped floor, studio A and B either side of the big live room, the transmitter room below it with the tape library beside it, two crawlspaces out to the booth; rooms of different sizes, doorways in shared walls. The rules graph is unchanged (lobby = reception, arcade = studio A, party = studio B, ballpit = live room, prize = tape library, storage = transmitter, ventl / ventr = the crawlspaces) | ![Dead Air map](night_watch_modes/1280x720_map_lure.png) |
 | Bedtime (`bedroom`) | `game/night_watch/bedroom/bedroom_map.gd` (`BedroomMap`; `BedroomOffice` is the bedroom, wardrobe and hall, `BedroomWing` the other rooms, `BedroomPaths` Javelle's route) | a house wing: the bedroom with its wardrobe, a long hall east to the living room (galley beyond), with a kids' room, a bathroom and the stair landing (stairs) off the hall. Mechanics unchanged; Javelle walks from the living room up the hall to the bedroom door and back; no cameras. Single-space no more | ![Bedtime map](night_watch_modes/1280x720_map_bedroom.png) [hall view](night_watch_modes/1280x720_bedroom_hall.png) |
 | The Facility (`story`) | `game/night_watch/story/story_map.gd` (`StoryMap`, built by `StoryWorld`) | an industrial complex: the production line of five rooms (breaker room, gallery, control, workshop, auditorium) with the lift north of control. It is the rules' own graph, so the plan is a line with one branch; none of Classic's room ids | ![Facility map](night_watch_modes/1280x720_map_story.png) |
@@ -100,7 +99,7 @@ Mixed Shift = rotates between the other modes' maps, Classic stays as is.
 ### Map rows
 
 | Mode | Map (`map_layout()`) | World | Top-down capture |
-|---|---|---|---|
+|---|---|---|
 | Masked Hours | `mask/mask_map.gd`: 14 rooms on a hall-and-plaza plan: the Game Area at the heart of the open-plan show floor (Show Stage north, Prize Corner west, Parts / Service east), the 15 m Main Hall south into the door-less office with four Party Rooms off it, Left / Right Halls to the Vent Hub behind the office, two air vent ducts | `mask/mask_world.gd` (own building, AStar graph, no jumps) | ![map](night_watch_modes/mask_map_topdown.png) |
 | Salvage Run | `dayshift/dayshift_map.gd`: 9 rooms on a long east-west ship: airlock, dock, gantry, engine room and bridge to the west, gantry and cargo hold to the east, the scrap yard with the crane to the south; Ravelle walks in from the airlock, Ceryth from the hold, Ysolde from the crane to the window | `dayshift/dayshift_yard.gd` (AStar graph over the cargo bay's opened halls) | ![map](night_watch_modes/dayshift_map_topdown.png) |
 | Mixed Shift | `mixed/mixed_map.gd`: its own TRANSIT HUB (not Classic's building): a concourse at the heart of the station with the platform and ticket hall to the north, the west and east arcades down both sides to the security office (the two door halls open into them), a cafe between the concourse and the office, lost property and the newsstand at the arcades' south ends, and the vent run as CAM 9 (nine cameras; `cams` / `labels` / `vents` / `office` feed the camera minimap). The golden-tested rules keep Classic's room ids; `MixedMap.SIM_TO_MAP` says which map room each is played in | `mixed/mixed_world.gd` (walls with doorway gaps, AStar graph, feeds) + `hub_office` | ![station](night_watch_modes/mixed_map_station.png) ![party](night_watch_modes/mixed_map_party.png) ![yard](night_watch_modes/mixed_map_yard.png) |

@@ -2,7 +2,7 @@ class_name XivvyGimmick
 extends HunterGimmick
 
 ## Xivvy's chase accelerator (hunterAbilities.xivvy.chaseAccelerator). Ported
-## from xivvy.js's updateChaseAccelerator(): she locks onto the target by pure
+## from the original's updateChaseAccelerator(): she locks onto the target by pure
 ## proximity — no sight, no hearing, no line of sight — and then her chase
 ## speed ramps for as long as the chase runs, resetting the moment she drops
 ## out of chase.

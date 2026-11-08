@@ -2,7 +2,7 @@ class_name JavelleGimmick
 extends HunterGimmick
 
 ## Javelle's hiding timeout (hunterAbilities.javelle.hidingTimeout). Ported from
-## javelle.js's updateHiddenHunterPressure: a locker is not safety from her. Stand
+## the original's updateHiddenHunterPressure: a locker is not safety from her. Stand
 ## still inside one while she is over it and after eight seconds she reaches in
 ## and pulls you out — alive, but standing in the open with her right there.
 ##

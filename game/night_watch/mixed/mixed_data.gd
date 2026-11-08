@@ -1,7 +1,7 @@
 class_name MixedData
 extends RefCounted
 
-## Mixed Shift's constants, copied from the 2D game's modes/mixed/mixed-data.js and mixed-map-data.js: the pool of threats, the presets (QUIET, STEADY, RESTLESS,
+## Mixed Shift's constants, copied from the 2D game's Mixed Shift data: the pool of threats, the presets (QUIET, STEADY, RESTLESS,
 ## CHAOS, ENDLESS), every tuning number, the routes through Classic's building and the vent run, chaos events and the music box. Pure data.
 
 const HOUR_MS := 45000.0
@@ -212,7 +212,7 @@ static func hours_text(n: int) -> String:
 	return "%d hour%s" % [n, "" if n == 1 else "s"]
 
 
-## The Classic graph plus the vent run and the three vent openings (mixed-map-data.js).
+## The Classic graph plus the vent run and the three vent openings (the original's map data).
 static func graph() -> Dictionary:
 	var g := {}
 	for id in NightWatchData.GRAPH:

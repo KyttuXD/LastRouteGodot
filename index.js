@@ -1,6 +1,6 @@
-// Pterodactyl-friendly entry point. Load the deployment's backend/.env before
+// Server entry point. Load the deployment's backend/.env before
 // importing modules that read process.env. A root .env remains a convenient
-// local fallback, while real process/Pterodactyl variables always win.
+// local fallback, while real process environment variables always win.
 import { loadEnvironmentFile } from "./backend/env_file.mjs";
 
 await loadEnvironmentFile(new URL("./backend/.env", import.meta.url));

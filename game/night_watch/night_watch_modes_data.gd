@@ -1,14 +1,14 @@
 class_name NightWatchModesData
 extends RefCounted
 
-## The 2D Night Watch's mode table, copied verbatim from games/night-watch/src/modes/registry.js (mode ids, titles, taglines,
+## The 2D Night Watch's mode table, copied verbatim from the original's mode table (mode ids, titles, taglines,
 ## blurbs, shift names, presets, casts, Custom Night sliders). The Godot menus, the Custom Night page and the mode framework
 ## all read this, so the 3D menus and the 2D menus cannot drift apart; tests/validate_night_watch_menus.gd checks the screens
-## against it. The modes now live in res://data/night_watch/modes/ (one file each); regenerate those from the 2D registry, do not hand-edit.
+## against it. The modes now live in res://data/night_watch/modes/ (one file each); they are fixed reference data from the original 2D game, do not hand-edit.
 
 const MAX_AI := 20
 const POINTS_PER_LEVEL := 10
-## [minimum share of the top score, rating] from the 2D account/merge.js, best first.
+## [minimum share of the top score, rating] from the 2D game's account merge, best first.
 const RATINGS := [[1.0, "Unbeatable!"], [0.8, "Perfect!"], [0.6, "Stupendous!"], [0.4, "Amazing!"], [0.2, "Fantastic!"], [0.0, "Great Job!"]]
 
 const NAMES := {

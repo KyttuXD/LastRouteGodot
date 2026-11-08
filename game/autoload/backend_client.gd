@@ -30,7 +30,7 @@ signal admin_roster_changed(ok: bool, message: String, roster: Array)
 signal owner_ticket_changed(ready: bool, room_code: String, message: String)
 
 const HEARTBEAT_SECONDS := 20.0
-## The current Pterodactyl allocation exposes Node's plain HTTP listener
+## The current server allocation exposes Node's plain HTTP listener
 ## directly. The user has explicitly enabled account/password requests for
 ## this exact origin. The plaintext-transport risk is documented in the repo.
 const PRIMARY_BASE_URL := "https://lastroutegodot.games.kyttuslab.org"

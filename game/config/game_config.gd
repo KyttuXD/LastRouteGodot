@@ -12,7 +12,7 @@ const PLAYER_SPRINT_SPEED := 100.0
 const PLAYER_CROUCH_SPEED := 36.0
 
 ## Difficulty profiles are multipliers over the Standard baseline, matching
-## the original web build's difficulty/core.js contract. Hard is the exact
+## the original web build's difficulty contract. Hard is the exact
 ## midpoint between Standard and Nightmare; Nightmare (selectable) is the original's top profile. A completed Zellia trade rolls
 ## ZELLIA_DEATH_CHANCE (relaxed 2%, standard 5%, hard 7.5%, nightmare 12%).
 const DIFFICULTY_PROFILES := {
@@ -146,15 +146,15 @@ const INTERACTION_RANGE := 72.0
 const INTERACTION_AIM_HALF_ANGLE := 0.42
 const INTERACTION_FACING_HALF_ANGLE := 0.7
 
-## TUNING.safeRadius (2.5 tiles) from the original's game-config.js, converted
+## TUNING.safeRadius (2.5 tiles) from the original's config, converted
 ## to pixels — how close the player must be to a safe zone for the HUD's
-## battery meter to read as "resting" (matches ui-controller.js's inSafeZone
+## battery meter to read as "resting" (matches the original's inSafeZone
 ## battery-color branch).
 const SAFE_ZONE_RADIUS := 2.5 * TILE_SIZE
 
-## Facility generation defaults, mirroring LastRoute's Standard MAP_SCALE_PROFILES
-## entry (src/config/game-config.js) and the safeZoneAtSpawn/safeZoneCount
-## a normal (non-Endless) Last Route floor requests in game.js's buildLevel().
+## Facility generation defaults, mirroring the original's Standard MAP_SCALE_PROFILES
+## entry (the original's config) and the safeZoneAtSpawn/safeZoneCount
+## a normal (non-Endless) Last Route floor requests in the original's level builder.
 const FACILITY_COLS := 45
 const FACILITY_ROWS := 45
 const FACILITY_RELAY_COUNT := 5
@@ -164,7 +164,7 @@ const FACILITY_SAFE_ZONE_COUNT := 1
 const FACILITY_SAFE_ZONE_AT_SPAWN := true
 
 ## Hunter/perception/capture tuning, ported from the original's TUNING block
-## and hunter-ai.js constants (game-config.js, hunter-ai.js). Unlike the
+## and hunter AI constants. Unlike the
 ## pixel-space player movement constants above, everything here operates in
 ## the SAME grid-cell units as facility_generator.gd (1 unit = 1 cell) —
 ## hunter_brain.gd is presentation-agnostic and never touches pixels or
@@ -196,8 +196,8 @@ const HUNTER_SENSE_INTERVAL := 0.10
 const HUNTER_VISIBLE_CHASE_SPEED_SCALE := 1.20
 
 ## Reduces a hunter's effective sight range while the player's own flashlight
-## is off — staying dark is a real stealth advantage (ui-controller.js/
-## hunter-ai.js's unlitSightScale). Room-power (unpoweredSightScale) isn't
+## is off — staying dark is a real stealth advantage (the original's
+## unlitSightScale). Room-power (unpoweredSightScale) isn't
 ## ported — no breaker system exists yet.
 const UNLIT_SIGHT_SCALE := 0.5
 ## A lit flashlight is an emission source, not merely an absence of darkness.
@@ -388,7 +388,7 @@ const HUNTER_RELAY_SPEED_BONUS := 0.1
 const HUNTER_DEPTH_SPEED_BONUS_PER_LEVEL := 0.055
 const HUNTER_DEPTH_SPEED_BONUS_MAX := 0.55
 
-## Capture/escape struggle (hunter-ai.js's ESCAPE_* / triggerGameOver).
+## Capture/escape struggle (the original's ESCAPE_* / triggerGameOver).
 ## CAPTURE_DISTANCE_SCALE is the shared base; the selected profile multiplies
 ## it inside HunterBrain.
 const CAPTURE_DISTANCE_SCALE := 1.0
@@ -397,7 +397,7 @@ const ESCAPE_PRESSES := 6
 const ESCAPE_COOLDOWN := 16.0
 const ESCAPE_GRACE := 1.5
 const ESCAPE_STUN_DURATION := 3.0
-## Restarting after a death (hunter-ai.js RESPAWN_STUN_DURATION): every active hunter is calmed and held this long, so
+## Restarting after a death (the original's RESPAWN_STUN_DURATION): every active hunter is calmed and held this long, so
 ## nothing parked by the checkpoint grabs the runner again the moment the restart grace (3.5 s) ends.
 const RESPAWN_STUN_DURATION := 4.0
 
@@ -457,7 +457,7 @@ const YSOLDE_STEAL_RANGE := 0.8
 
 ## Opalie — relay guardian (hunterAbilities.opalie.relayGuardian). While she
 ## holds station, nothing within the suppression radius can be interacted with.
-## The arrival distance is opalie.js's own 0.75 threshold for "close enough to
+## The arrival distance is the original's own 0.75 threshold for "close enough to
 ## settle", not a tuning choice.
 const OPALIE_SUPPRESSION_RADIUS := 1.5
 const OPALIE_GUARD_ARRIVAL := 0.75
@@ -474,7 +474,7 @@ const BEAM_ATTENTION_HALF_ANGLE := 0.28
 
 ## Aki — phantom exposure (hunterAbilities.aki.phantomExposure). Flashing her
 ## starts a fuse, then she spikes exposure to full three times, five seconds
-## apart. The burst amount is aki.js's own addExposure(100).
+## apart. The burst amount is the original's own addExposure(100).
 const AKI_INITIAL_DELAY := 10.0
 const AKI_BURST_INTERVAL := 5.0
 const AKI_BURST_COUNT := 3
@@ -482,7 +482,7 @@ const AKI_BURST_EXPOSURE := 100.0
 
 
 ## Javelle — hiding timeout (hunterAbilities.javelle.hidingTimeout). The reach is
-## javelle.js's own `plan.reach || 2`, and the stall is its ejectStall fallback:
+## the original's own `plan.reach || 2`, and the stall is its ejectStall fallback:
 ## the ejection is non-lethal, so she is left briefly winded rather than
 ## capturing the player she just pulled into the open.
 const JAVELLE_HIDING_SECONDS := 8.0

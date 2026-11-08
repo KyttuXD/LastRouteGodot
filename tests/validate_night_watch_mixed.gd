@@ -33,7 +33,7 @@ static func _ev_string(e: Dictionary) -> String:
 	return "|".join(parts)
 
 
-## The state-reading bot of the golden fixture (tests/fixtures/gen_night_watch_mixed_golden.mjs).
+## The state-reading bot of the golden fixture (the golden in tests/fixtures, recorded from the original 2D game).
 func _bot(kind: String, g: MixedLogic) -> void:
 	if kind == "idle":
 		return

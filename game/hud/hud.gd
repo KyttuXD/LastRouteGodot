@@ -11,8 +11,8 @@ signal admin_teleport_requested(world_position: Vector2, level: int)
 ## it only touches Control nodes and never reads World/Player state directly,
 ## so the orchestrator (main.gd / main_3d.gd) drives it through this API.
 
-## Meter colors, mirroring ui-controller.js's exact battery/stamina
-## color-state logic (see updateHud in the original's src/ui/ui-controller.js).
+## Meter colors, mirroring the original's exact battery/stamina
+## color-state logic (see updateHud in the original).
 const COLOR_METER_LOW := Color(0.902, 0.267, 0.318) # #e64451
 const COLOR_METER_WARN := Color(0.949, 0.733, 0.384) # #f2bb62
 const COLOR_METER_SAFE := Color(0.455, 0.722, 0.553) # #74b88d

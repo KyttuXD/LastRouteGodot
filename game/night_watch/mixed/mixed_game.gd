@@ -3,7 +3,7 @@ extends NightWatchMode
 
 ## Mixed Shift and Endless (mode `mixed`), the 3D shift scene: the transit hub (MixedMap: its own non-Classic layout) around the security room with three permanent vents, a vent run above the building (CAM 9),
 ## a drawn roster of threats (3 to 7 of the pool of eight, each with a tell and an answer) run by a pacing director, and no captions: every warning is a sound, a light, a
-## figure or a pulsing camera button. The rules are MixedLogic (a port of mixed-logic.js, seeded like the 2D game). You are the shared player and USE stations: the monitor,
+## figure or a pulsing camera button. The rules are MixedLogic (a port of the original's Mixed Shift rules, seeded like the 2D game). You are the shared player and USE stations: the monitor,
 ## the DOOR buttons (toggle), the three vent hatches (hold to seal), the desk lamp, the chair. Quick keys: Z / X doors, V / B / N hold to seal the left / top / right vent,
 ## tap G / Y / H the vent light, R held winds the music box, U the monitor, 1-8 / arrows / 9 the cameras. Hunters WALK (NightWatchPaths / NightWatchWalker).
 ## The five shifts (QUIET, STEADY, RESTLESS, CHAOS, ENDLESS) are all open; Endless has no 6 AM and saves its best hour (NightWatchSave.record_best, in hours).

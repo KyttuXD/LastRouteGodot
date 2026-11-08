@@ -45,7 +45,7 @@ func _player_block(text: String, is_main: bool) -> String:
 
 func run(host: Node) -> int:
 	NwLeakProbe.fresh()
-	# --- the table matches the 2D game (classic-logic.js, time.js)
+	# --- the table matches the 2D game
 	_expect(is_equal_approx(NightWatchData.NIGHT_MS, 270000.0), "a night is not 270 s")
 	_expect(NightWatchData.move_window(1) == Vector2(12500, 15500), "level 1 wait is not 12.5-15.5 s")
 	_expect(NightWatchData.move_window(10) == Vector2(8000, 11000), "level 10 wait is not 8-11 s")

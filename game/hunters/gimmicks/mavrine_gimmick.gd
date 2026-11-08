@@ -2,7 +2,7 @@ class_name MavrineGimmick
 extends HunterGimmick
 
 ## Mavrine's lattice mark (hunterAbilities.mavrine.latticeMark). Ported from
-## mavrine.js plus the phase machine in hunter-gimmicks.js's
+## the original's Mavrine rules plus its phase machine in
 ## updateLatticeMark(): she cycles
 ##   COOLDOWN -> SURVEY (holds position) -> PROJECT (an armed frame somewhere
 ##   on the floor) -> PING (on a crossing) -> COOLDOWN
@@ -28,7 +28,7 @@ var _last_mark_cell := Vector2i(-1, -1)
 
 func before_perception(brain: HunterBrain, delta: float, target: Dictionary, generator) -> void:
 	# An armed frame stays live, but a direct chase is never interrupted to
-	# replace it (hunter-gimmicks.js's first branch).
+	# replace it (the original's first branch).
 	if brain.state == HunterBrain.State.CHASE and phase in [Phase.COOLDOWN, Phase.SURVEY]:
 		_timer = maxf(_timer, GameConfig.MAVRINE_SURVEY_DELAY * 0.35)
 		return

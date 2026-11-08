@@ -7,8 +7,7 @@ extends RefCounted
 ## HunterBrain of any hunter whose id resolves to one below; everyone else's
 ## `gimmick` field is null and every hook here is skipped entirely.
 ##
-## Mirrors the original's per-hunter files (src/game/hunters/*.js in
-## KyttuXD/LastRoute) one-for-one: one script per hunter under this folder,
+## Mirrors the original's per-hunter files one-for-one: one script per hunter under this folder,
 ## registered in for_id() below. Override only the hooks a given hunter
 ## actually needs — each has a harmless no-op default. Add hooks here (and
 ## their matching call site in hunter_brain.gd) only when a real hunter
@@ -17,7 +16,7 @@ extends RefCounted
 
 ## Called once per HunterBrain.update(), before _update_perception() —
 ## mirrors where the original's per-hunter ability hooks run, ahead of the
-## shared sight/hearing block in hunter-ai.js's updateHunterInner(). Free to
+## shared sight/hearing block in the original's updateHunterInner(). Free to
 ## set brain.state/last_known/lost_sight_timer/etc. directly to override or
 ## pre-empt ordinary perception for this frame. `generator` is passed through
 ## because several gimmicks are spatial (line of sight, floor-cell searches,

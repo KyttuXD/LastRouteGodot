@@ -1,8 +1,8 @@
 class_name HunterBrain
 extends RefCounted
 
-## Presentation-agnostic hunter simulation, ported from LastRoute's shared
-## hunter-ai.js brain (perception, state machine, patrol/chase movement,
+## Presentation-agnostic hunter simulation, ported from the original's shared
+## hunter AI brain (perception, state machine, patrol/chase movement,
 ## capture trigger). The shared rules here are exactly Dovelle's zero-gimmick
 ## baseline (HUNTER_ABILITIES.dovelle = {} in the original: no bespoke
 ## behavior at all) — any hunter whose gimmick only changes tuning numbers,
@@ -428,7 +428,7 @@ func direct_to(point: Vector2) -> void:
 
 
 ## Stops the hunter dead — cannot chase, grab, or even perceive — for
-## `duration` seconds. Used after a broken grip (hunter-ai.js's
+## `duration` seconds. Used after a broken grip (the original's
 ## ESCAPE_STUN_DURATION) and after a respawn (RESPAWN_STUN_DURATION).
 ## Pure rule, shared with the validator: a hunter that is hunting (not wandering), whose last sighting is within
 ## HIDE_CHECK_TRAIL of the spot, and that has reached it.
@@ -1182,14 +1182,14 @@ func next_random_index(exclusive_max: int) -> int:
 	return _rng.next_index(exclusive_max)
 
 
-## Direct port of hunter-ai.js's beamIlluminates(): is `target` inside a cone
+## Direct port of the original's beamIlluminates(): is `target` inside a cone
 ## of half-angle `half_angle` radians, centred on `from_facing`, within
 ## `range`, and in line of sight? Shared because several hunters' gimmicks are
 ## cone checks that differ only in whose facing and which constants they use
 ## (Kathy's search beam today; Aki/Ferryn/Ilyra read the *player's* beam the
 ## same way once player facing is threaded through — see HUNTER_ROSTER.md).
 ## How long the PLAYER's beam has been held on this hunter, and the two signals
-## gimmicks read off it. Ported from hunter-ai.js's updateHunterBeamAttention.
+## gimmicks read off it. Ported from the original's updateHunterBeamAttention.
 ##
 ## The distinction the original draws, and the reason this is not just "is she
 ## lit": `beam_alerted` is true for every frame the beam stays on target once

@@ -26,7 +26,7 @@ var relay_target: int = 1
 ## decreases), while the lift gate reads "collected AND not sabotaged".
 var relays_sabotaged: int = 0
 
-## Zellia's economy. Per-RUN, not per-floor -- mirrors inventory.js's own
+## Zellia's economy. Per-RUN, not per-floor -- mirrors the original's own
 ## coins field, which survives a descent the same way score does.
 var coins: int = 0
 
@@ -138,8 +138,8 @@ func restore_queued_route_checkpoint() -> bool:
 	return true
 
 
-## Deterministic per-floor seed text, mirroring LastRoute's `${seed}-D${depth}`
-## levelSeed (game.js's buildLevel) so each depth of a run gets its own layout.
+## Deterministic per-floor seed text, mirroring the original's `${seed}-D${depth}`
+## levelSeed (the original's level builder) so each depth of a run gets its own layout.
 func level_seed_text() -> String:
 	return "%d-D%d" % [run_seed, depth]
 

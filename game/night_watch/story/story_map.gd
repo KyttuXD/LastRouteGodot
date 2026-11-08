@@ -2,7 +2,7 @@ class_name StoryMap
 extends RefCounted
 
 ## The Facility's MAP (docs/NIGHT_WATCH_OFFICES.md, "Maps"): an industrial complex, one long production line of five rooms side by side (breaker room, gallery, control,
-## workshop, auditorium) joined by doorways in their shared walls, with the lift car on the north side of Control. It is the rules' graph (story-data.js ROOMS) laid out
+## workshop, auditorium) joined by doorways in their shared walls, with the lift car on the north side of Control. It is the rules' graph (the original's ROOMS) laid out
 ## as the plant a shift walks end to end: power at one end, the stage at the other, Control in the middle with the lift. StoryWorld builds it; coordinates are metres.
 
 const CELL := 6.0

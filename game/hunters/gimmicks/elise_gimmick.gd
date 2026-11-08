@@ -2,7 +2,7 @@ class_name EliseGimmick
 extends HunterGimmick
 
 ## Elise' running-data ratchet (hunterAbilities.elise.runningData). Ported
-## from elise.js's updateRunningData(): every second the target spends
+## from the original's updateRunningData(): every second the target spends
 ## actually sprinting outside a safe zone accumulates, and — the whole point —
 ## NEVER decays. At 100% she locks into a permanent chase on the target's live
 ## position, with no sight or hearing check involved at all. Once locked she

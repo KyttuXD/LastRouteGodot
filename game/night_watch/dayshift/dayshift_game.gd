@@ -4,7 +4,7 @@ extends NightWatchMode
 ## Salvage Run (mode `dayshift`), the 3D shift scene: first the day (the shop: spend the week's budget on upgrades), then the night in the Classic security
 ## room, which here has a workbench with a four-slot rack and a window. Hold USE on a piece to take it (salvaging is loud, noise makes the doors' visitors
 ## keener), shut the doors / hold the door lights as in Classic, and keep quiet while Ysolde is at the window. The rules are DayshiftLogic (a port of
-## dayshift-logic.js, seeded like the 2D game). Shared player, prompt, crosshair and Sound only. `manual_clock` stops the real-time clock so the validators
+## the original's Salvage Run rules, seeded like the 2D game). Shared player, prompt, crosshair and Sound only. `manual_clock` stops the real-time clock so the validators
 ## step the night themselves with advance_ms(); they call start_shift() instead of pressing the shop's button.
 
 enum State { SHOP, PLAYING, PAUSED, WON, LOST }

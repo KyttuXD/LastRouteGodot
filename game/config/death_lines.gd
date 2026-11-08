@@ -1,7 +1,7 @@
 class_name DeathLines
 extends RefCounted
 
-## Death lines (`kyttu-death-lines/v1`), ported from the 2D game's death-lines.js; the data file is the same one.
+## Death lines (`kyttu-death-lines/v1`), ported from the 2D game; the data file is the same one.
 ## A line is a plain string or {text, style?: "caption"}. The pick is seeded (FNV-1a of seed|depth|hunter|salt), never
 ## random, so the same death on the same route and depth shows the same line on the host and on guests.
 ## Lines starting with [PLACEHOLDER] only render in debug builds.

@@ -1,7 +1,7 @@
 class_name LureLogic
 extends RefCounted
 
-## Dead Air rules, ported from games/night-watch/src/modes/lure/lure-logic.js (same numbers, same draws in the same order, so the same
+## Dead Air rules, ported from the original game's Dead Air rules (same numbers, same draws in the same order, so the same
 ## seed plays the same shift as the 2D game). Pure: no nodes.
 ##
 ## One real hunter (Xivvy) crawls through the building toward your office vents. The other three (Ferryn, Briselle, Mavrine) are phantoms:

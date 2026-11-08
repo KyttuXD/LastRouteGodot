@@ -2,7 +2,7 @@ class_name NightWatchData
 extends RefCounted
 
 ## Night Watch (3D): the building, the cast and the clock. Pure data, ported from the 2D game's
-## games/night-watch/src/modes/classic/classic-data.js and core/time.js so the rules (NightWatchClassic) and the
+## the original game's Classic data and clock so the rules (NightWatchClassic) and the
 ## scene share one table. Times are in milliseconds, like the 2D game.
 
 const GAME_ID := "night_watch"
@@ -29,7 +29,7 @@ static var ROOMS: Dictionary
 ## Walkable connections (undirected). The doors hang off the two halls.
 static var GRAPH: Dictionary
 
-## Hunters who work together: while one waits at her door, the other loses patience (classic-logic.js COMBOS). cast: a hunter's "combo".
+## Hunters who work together: while one waits at her door, the other loses patience (the original's COMBOS). cast: a hunter's "combo".
 static var COMBOS: Array
 
 ## Who is on the floor each night: AI level per night (index 0 = Night 1; later nights reuse the last), and the rules that make
@@ -38,7 +38,7 @@ static var COMBOS: Array
 static var HUNTERS: Dictionary
 ## cast: nyxie's levels.
 static var NYXIE_LEVELS: Array
-static var NIGHTS: int          # Night 7 is Kathy's alone (docs: classic-logic.js KATHY_HUNT)
+static var NIGHTS: int          # Night 7 is Kathy's alone (docs: the original's KATHY_HUNT)
 static var TUNED_NIGHTS: int    # the per-night tables (grace, pace, push) run to Night 6; Night 7 scales Night 6's
 
 ## Night 7: Kathy hunts, alone (2D KATHY_HUNT). She is not in HUNTERS (shared lore character; no Custom Night slider). hold_ms: how long a shut door

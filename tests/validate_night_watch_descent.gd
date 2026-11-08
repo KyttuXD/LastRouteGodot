@@ -1,7 +1,6 @@
 extends RefCounted
 
-## Night Watch, The Descent (mode `descent`): the rules port reproduces the 2D numbers (scripts/validate-descent.mjs and
-## validate-variety-descent.mjs), a descent replays the same for a seed, every puzzle can be solved, and the shift scene starts from the
+## Night Watch, The Descent (mode `descent`): the rules port reproduces the 2D numbers (its Descent validators), a descent replays the same for a seed, every puzzle can be solved, and the shift scene starts from the
 ## Shift Board, can be won and lost, saves the clear, opens the next descent and feeds the Custom Night slider into the logic.
 
 const L := preload("res://game/night_watch/descent/descent_logic.gd")
@@ -141,7 +140,7 @@ func run(host: Node) -> int:
 	return _failures
 
 
-# --- the numbers, pinned (descent-data.js / descent-logic.js) ---------------------------------------------------------------
+# --- the numbers, pinned (the original's Descent data and rules) ---------------------------------------------------------------
 
 func _numbers() -> void:
 	_expect(D.LEVELS["elise"] == [0, 5, 8, 11, 14], "Elise's levels differ from the 2D game's")

@@ -1,7 +1,7 @@
 extends RefCounted
 
 ## Night Watch's 3D menus match the 2D game's: for each screen the visible texts, in order, equal what the 2D game's DOM shows
-## (captured from games/night-watch with the preview server). Shortcut hints (ESC, ENTER, BACKSPACE) and
+## (captured from the original 2D game). Shortcut hints (ESC, ENTER, BACKSPACE) and
 ## spacing are normalised; case is compared in upper case. Also: the nine modes with their titles, taglines, blurbs and shifts, the
 ## Settings rows, the pause card, and that a locked shift cannot start. One deliberate difference is listed in the doc: the 2D Credits
 ## say sound is synthesized "in the browser"; the 3D game says "in the game".

@@ -1,7 +1,7 @@
 class_name SeededRandom
 extends RefCounted
 
-## Deterministic PRNG ported bit-for-bit from LastRoute's src/game/maze.js
+## Deterministic PRNG ported bit-for-bit from the original's maze generator
 ## (hashSeed: FNV-1a: createRandom: mulberry32). The same seed text always
 ## produces the same draw sequence as the original JavaScript implementation,
 ## verified against the reference by running both side by side.
@@ -33,6 +33,6 @@ func next_float() -> float:
 	return float((value ^ (value >> 14)) & MASK32) / 4294967296.0
 
 
-## Matches the common `Math.floor(random() * n)` call pattern used throughout maze.js.
+## Matches the common `Math.floor(random() * n)` call pattern used throughout the original.
 func next_index(exclusive_max: int) -> int:
 	return int(floor(next_float() * exclusive_max))

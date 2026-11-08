@@ -4,7 +4,7 @@ extends RefCounted
 ## Dead Air's MAP (docs/NIGHT_WATCH_OFFICES.md, "Maps"): a radio station, not Classic's grid of cells. A wide reception sits on top of a plus-shaped floor: a
 ## tall studio A and studio B either side of the big live room, the transmitter room below it with the tape library beside it, and two crawlspaces (left and
 ## right) that run out of the transmitter room toward the broadcast booth. The rooms have different sizes and the doorways sit in the walls they share. The
-## RULES graph is unchanged (lure-data.js GRAPH), so every sim room has a station room: lobby = reception, arcade = studio A, party = studio B, ballpit = live
+## RULES graph is unchanged (the original's GRAPH), so every sim room has a station room: lobby = reception, arcade = studio A, party = studio B, ballpit = live
 ## room, prize = tape library, storage = transmitter room, ventl / ventr = the crawlspaces. Coordinates are metres on the XZ plane, relative to ORIGIN.
 
 const ORIGIN := Vector3(-8.0, 0.0, -40.0)

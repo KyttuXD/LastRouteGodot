@@ -2,7 +2,7 @@ class_name SolythGimmick
 extends HunterGimmick
 
 ## Solyth's heat manifest (hunterAbilities.solyth.heatManifest). Ported from
-## solyth.js's syncSyttuState / updateSyttuBatteryBurn.
+## the original's syncSyttuState / updateSyttuBatteryBurn.
 ##
 ## The other **special**: always present but inert, summoned by temperature
 ## rather than the relay schedule, hunting alongside the drawn route hunter.

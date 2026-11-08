@@ -2,7 +2,7 @@ class_name PublicRoster
 extends RefCounted
 
 ## Hunter rules of the persistent PUBLIC route (the Godot twin of the 2D build's
-## src/game/hunter-roster.js public helpers): the UTC day picks a stable featured
+## roster public helpers): the UTC day picks a stable featured
 ## pair, the rest of the lineup is a weighted draw mixed with the day, and the
 ## number of hunters scales with the players online.
 

@@ -2,7 +2,7 @@ class_name NyxieGimmick
 extends HunterGimmick
 
 ## Nyxie's darkness stalker (hunterAbilities.nyxie.darknessStalker). Ported
-## from nyxie.js's updateDarknessWatch / syncNyxieState.
+## from the original's updateDarknessWatch / syncNyxieState.
 ##
 ## She is a **special**: always present on the floor but inert, woken by her
 ## own rule rather than the relay schedule, and hunting alongside whichever

@@ -1,7 +1,7 @@
 class_name VoidGimmick
 extends HunterGimmick
 
-## Shared helpers for the 2D game's Void powers (hunters/voids/*.js, voids/shared.js). Each colour is its own small
+## Shared helpers for the 2D game's Void powers. Each colour is its own small
 ## subclass; this base only holds the geometry the powers have in common.
 
 

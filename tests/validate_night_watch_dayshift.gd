@@ -2,7 +2,7 @@ extends RefCounted
 
 ## Night Watch Salvage Run (3D): the rules port reproduces the 2D game's numbers (whole shifts played by a fixed bot match the 2D logic's event logs, from
 ## tests/fixtures/night_watch_dayshift_golden.json), the shop, the rack, the noise, the door visitors and Ysolde at the window behave as in
-## validate-dayshift.mjs, a shift is deterministic by seed, and the scene (the shop, every week from the Shift Board, win, short, caught, Custom Night,
+## the original's Salvage Run validator, a shift is deterministic by seed, and the scene (the shop, every week from the Shift Board, win, short, caught, Custom Night,
 ## carry-over, Retry) works.
 
 const ZERO := {"ravelle": 0, "ceryth": 0, "ysolde": 0}

@@ -1,7 +1,7 @@
 class_name StoryData
 extends RefCounted
 
-## The Facility (mode `story`): the six rooms, each night's task list, and Zellia's script. Pure data from games/night-watch/src/modes/story/story-data.js.
+## The Facility (mode `story`): the six rooms, each night's task list, and Zellia's script. Pure data from the original game's Facility data.
 ## A night is a list of tasks, not a clock: it ends when the last one is done.
 
 const CAST := ["opalie", "porcelle", "quenelle"]

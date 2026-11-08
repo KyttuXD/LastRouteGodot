@@ -1,7 +1,7 @@
 class_name MaskControls
 extends RefCounted
 
-## Masked Hours' controls, ported from the 2D game's core/toggles.js and the control half of modes/mask/mask-logic.js: the mask and the camera monitor
+## Masked Hours' controls, ported from the 2D game's toggles and the control half of its Masked Hours rules: the mask and the camera monitor
 ## are one exclusive pair with short raise / lower times (they never share the screen; only a fully-on mask counts for the hunters; a press mid-
 ## transition is queued, the latest wins). Lights work only with both down and still; winding only with the monitor fully up on CAM 1; the vent
 ## lights also work on their own duct's camera. A held key is remembered (`held`), so a light or the wind comes back on its own once the panel is
@@ -11,7 +11,7 @@ extends RefCounted
 const PANELS := {"mask": {"raise": 200.0, "lower": 150.0}, "monitor": {"raise": 250.0, "lower": 200.0}}
 const HELD := ["lightL", "lightR", "lightH", "winKey", "winPtr"]
 
-# the exclusive-panel machine (toggles.js)
+# the exclusive-panel machine (the original's toggles)
 var phase := "idle"        # idle, raising, up, lowering
 var panel := ""
 var t := 0.0

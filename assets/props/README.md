@@ -18,8 +18,8 @@ what is drawn for every type that passes the fit and cost screen: `PropModelCata
 **1 grid tile = 1 meter = 1 Godot unit.** This lines up directly with
 `game/world/generation/facility_generator.gd`'s integer cell coordinates: a generator
 cell `(x, y)` maps to the 3D ground position `(x, 0, y)` (Godot is Y-up, so
-the facility's 2D grid becomes the XZ ground plane, not XY). The 2D port's
-own `GameConfig.TILE_SIZE` (16px) is the equivalent unit on that side — the
+the facility's 2D grid becomes the XZ ground plane, not XY). The original 2D game's
+own tile size (16px) is the equivalent unit on that side — the
 two are parallel, unrelated pixel/meter scales for the same grid, not a
 conversion factor between them.
 

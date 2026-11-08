@@ -1,7 +1,7 @@
 class_name MaskLogic
 extends RefCounted
 
-## Masked Hours' rules: a port of createMaskGame in the 2D game's modes/mask/mask-logic.js, number for number. No scene, no input, no Node:
+## Masked Hours' rules: a port of createMaskGame in the 2D game, number for number. No scene, no input, no Node:
 ## the shift scene feeds step() the state of the mask, the monitor, the lights and the wind and draws what happens; scripts/
 ## validate_night_watch_mask.gd replays whole nights headless. It draws from NightWatchMulberry (the 2D mulberry32), so the same seed gives
 ## the same night as the 2D game, event for event.

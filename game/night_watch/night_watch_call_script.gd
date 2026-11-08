@@ -1,7 +1,7 @@
 class_name NightWatchCallScript
 extends RefCounted
 
-## Zellia's call as a state machine, ported line for line from the 2D game's createCall (core/callbox.js): she rings `at` seconds into the
+## Zellia's call as a state machine, ported line for line from the 2D game's createCall (its call box): she rings `at` seconds into the
 ## night ("Incoming call…" for 2.2 s with the ring), then each line is typed out word by word (one more word every 250 ms, a talk blip on
 ## every second word), a line stays up 1.8 s plus 0.38 s per word, and when the last line is done the box closes. Mute ends the call.
 ## Pure: the HUD feeds it the shift clock and draws `text` while `open`. Events returned from update(): "ring", "talk", "open", "close".

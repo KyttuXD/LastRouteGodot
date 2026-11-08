@@ -2,7 +2,7 @@ class_name NightWatchMode
 extends Node3D
 
 ## The base of every Night Watch mode scene (Classic, Masked Hours, Dead Air, ...). It owns what the 2D game's shift runner owns in
-## `core/scene.js`: which mode and level this run is (from NightWatchSession, set by the menu), the seed, the Custom Night sliders, saving
+## its scene runner: which mode and level this run is (from NightWatchSession, set by the menu), the seed, the Custom Night sliders, saving
 ## a win into the mode-keyed save, and the Retry / Next / Menu actions. A mode subclass builds its own world and rules and calls:
 ##   read_session()                 first thing in _ready()
 ##   record_win(score)              when the shift is won (saves the clear, or the star and best score of a Custom Night)

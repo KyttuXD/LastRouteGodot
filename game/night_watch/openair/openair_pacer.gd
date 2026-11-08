@@ -1,7 +1,7 @@
 class_name NightWatchOpenAirPacer
 extends RefCounted
 
-## The 2D core/time.js createPacer: how often a hunter moves. After each move she waits a random time chosen from a three-second window
+## The 2D game's pacer (createPacer): how often a hunter moves. After each move she waits a random time chosen from a three-second window
 ## that slides down with her level (level 1: 12.5 to 15.5 s, level 10: 8 to 11 s, level 20: 3 to 6 s). Level 0 never moves.
 ## `rng` is a Callable returning 0..1 (a seeded stream, or a fixed roll in tests).
 

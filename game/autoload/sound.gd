@@ -165,7 +165,7 @@ func collect() -> bool:
 	return _play_named("collect")
 
 
-## Night Watch's own cues, recreated from the 2D game's synthesized sfx table (games/night-watch/src/core/audio.js): the same pitches, lengths and volumes, panned the same way.
+## Night Watch's own cues, recreated from the 2D game's synthesized sfx table: the same pitches, lengths and volumes, panned the same way.
 ## move / pick / deny / burst (menus and the camera static), step / clank / bound / pad (the hunters), ring / talk / chime (Zellia's call and the music-box note), door, light_on, camera, scare, power_out, crackle / hum /
 ## breath (Kathy and the hall), tape / radio / rustle / zip (the campfire), clunk / glass_tap / hinge / latch / squeak (the death scenes), lure and Bedtime's bed_*. `intensity` is the 2D `vol` over its default.
 func nw(cue_name: String, pan: float = 0.0, intensity: float = 1.0) -> bool:
@@ -850,7 +850,7 @@ static func _noise(duration: float, volume: float, frequency: float, delay := 0.
 		"volume": volume, "delay": delay, "pan": pan, "rate": rate}
 
 
-## The 2D game's cues (audio.js `sfx`): blip(freq, dur, type, vol) is a tone with the 2D envelope, noise(dur, vol, cutoff) a low-passed noise burst; setTimeout delays become `delay`.
+## The 2D game's cues (its `sfx` table): blip(freq, dur, type, vol) is a tone with the 2D envelope, noise(dur, vol, cutoff) a low-passed noise burst; setTimeout delays become `delay`.
 static func _nw_components(name: String, pan: float, k: float) -> Array:
 	var c: Array = []
 	match name:

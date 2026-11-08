@@ -7,7 +7,7 @@ const HUNTER_JUMPSCARE_SCENE := preload("res://game/hunters/view/hunter_jumpscar
 ## Also owns the hunter lifecycle: spawn/activation/per-frame brain update
 ## and the capture -> escape struggle -> success/jumpscare/game-over flow
 ## (hunter_brain.gd is pure simulation; this is where its results turn into
-## game state, matching how game.js's update() drives hunter-ai.js).
+## game state, matching how the original's update() drives the hunter AI).
 
 var pause_menu: PauseMenu
 var admin_menu: AdminMenu
@@ -574,7 +574,7 @@ func _collect_hunter_report() -> void:
 		})
 
 
-## Mirrors hunter-ai.js's guardianBlocking(), called from the same place its
+## Mirrors the original's guardianBlocking(), called from the same place its
 ## performInteraction() calls it: a guardian denies EVERYTHING inside her
 ## radius, not only the relay she came for -- the lift, a battery, a safe zone.
 ## Touching what she guards pings the player's position to every active hunter,
@@ -1001,7 +1001,7 @@ func _trigger_capture(view: HunterView3D, force_inescapable: bool = false) -> vo
 	# Immediate resolution conditions: void hunters, gimmick-declared
 	# inescapable grabs (Nyxie's dead-lamp etc.), an explicit forced
 	# inescapable trigger, or a re-grab still inside the post-escape cooldown
-	# (hunter-ai.js's triggerGameOver cooldown-skip branch).
+	# (the original's triggerGameOver cooldown-skip branch).
 	if force_inescapable or (view.brain.gimmick and view.brain.gimmick.capture_is_inescapable()) \
 			or is_void or GameState.escape_on_cooldown():
 		# Diagnostic: record why the capture skipped the escape struggle so
@@ -1091,7 +1091,7 @@ func _resolve_escape_success() -> void:
 
 
 ## Shared by both a failed struggle and the no-struggle-at-all cooldown skip
-## (hunter-ai.js's triggerGameOver: Nyxie/cooldown captures go straight
+## (the original's triggerGameOver: Nyxie/cooldown captures go straight
 ## here, everyone else only arrives via a timed-out struggle).
 ## Set by an instant capture just before _resolve_capture_outcome(): it skips the grab.
 var _capture_instant := false

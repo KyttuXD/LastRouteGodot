@@ -3655,7 +3655,7 @@ func restore_at_safe_zone() -> void:
 	exhausted = false
 
 
-## Mirrors ui-controller.js's inSafeZone battery-color branch — true while
+## Mirrors the original's inSafeZone battery-color branch — true while
 ## standing within a safe zone's rest radius, regardless of whether it has
 ## already been activated with [E].
 func is_in_safe_zone() -> bool:

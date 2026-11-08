@@ -2,7 +2,7 @@ class_name HaelithGimmick
 extends HunterGimmick
 
 ## Haelith's relay pursuit (hunterAbilities.haelith.relayPursuer). Ported from
-## haelith.js's updateRelayPursuer: every frame she re-aims at the nearest
+## the original's updateRelayPursuer: every frame she re-aims at the nearest
 ## UNCOLLECTED relay and investigates it. She does not chase the player to get
 ## there -- she simply goes where the objectives are, so the player keeps
 ## meeting her at the one place they have to be.

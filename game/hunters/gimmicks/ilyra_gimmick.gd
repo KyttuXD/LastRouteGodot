@@ -2,7 +2,7 @@ class_name IlyraGimmick
 extends HunterGimmick
 
 ## Ilyra's corner observation and shadow pounce (hunterAbilities.ilyra.
-## cornerObserver). Ported from ilyra.js's prepareCornerObserver/
+## cornerObserver). Ported from the original's prepareCornerObserver/
 ## respawnCornerObserver/resolveCornerObserver.
 ##
 ## She never walks anywhere -- she TELEPORTS to a corner of a random room and

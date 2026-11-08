@@ -2,7 +2,7 @@ class_name WynelleGimmick
 extends HunterGimmick
 
 ## Wynelle's cold materializer (hunterAbilities.wynelle.coldMaterializer).
-## Ported from wynelle.js's prepareColdMaterializer / updateColdMaterializers.
+## Ported from the original's prepareColdMaterializer / updateColdMaterializers.
 ##
 ## Unlike Nyxie and Solyth she is drawn into the ordinary rotation — she just
 ## starts **dormant** and wakes on cold rather than on the relay count. Cold

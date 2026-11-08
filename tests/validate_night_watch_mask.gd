@@ -2,7 +2,7 @@ extends RefCounted
 
 ## Night Watch Masked Hours (3D): the rules port reproduces the 2D game's numbers (whole shifts played by a fixed bot match the 2D logic's event
 ## logs, from tests/fixtures/night_watch_mask_golden.json), the hall walker, the rusher, the vent hunters, the music box, the battery, the dark
-## and the controls behave as in validate-mask.mjs, a shift is deterministic by seed, and the shift scene (every night starts from the Shift
+## and the controls behave as in the original's Masked Hours validator, a shift is deterministic by seed, and the shift scene (every night starts from the Shift
 ## Board, wins and loses, saves, Custom Night, Retry) works. Scene checks live further down.
 
 const CAMS := ["music", "costume", "gallery", "ballroom", "crawl", "ductL", "ductR", "hall"]
@@ -29,7 +29,7 @@ func _only(overrides: Dictionary, night := 3, seed_number := 1) -> MaskLogic:
 	return _game(night, seed_number, levels, true)
 
 
-## The state-reading bot of the golden fixture (tests/fixtures/gen_night_watch_mask_golden.mjs).
+## The state-reading bot of the golden fixture (the golden in tests/fixtures, recorded from the original 2D game).
 func _bot(kind: String, g: MaskLogic) -> Dictionary:
 	if kind == "idle":
 		return {}

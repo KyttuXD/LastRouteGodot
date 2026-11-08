@@ -2,7 +2,7 @@ class_name NightWatchDescentPanel
 extends Control
 
 ## The service panel's screen (drawn over the panel plate on the car's back wall): the fuse boxes and their buttons, the four signal pads,
-## the pipe grid, or the door hold. A port of the panels in the 2D descent.js. It only draws what the rules hold (refresh) and reports
+## the pipe grid, or the door hold. A port of the panels in the 2D game. It only draws what the rules hold (refresh) and reports
 ## presses as signals; the shift scene hands them to NightWatchDescentLogic. Sizes are in the project's 480 x 270 canvas.
 
 signal wire_pressed(button: int)

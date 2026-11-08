@@ -1,7 +1,7 @@
 class_name NightWatchMulberryPacer
 extends RefCounted
 
-## core/time.js createPacer: how often a hunter moves. After each move she waits a random time from a three-second window that slides down
+## The pacer (createPacer): how often a hunter moves. After each move she waits a random time from a three-second window that slides down
 ## with her level (level 1: 12.5 to 15.5 s, level 10: 8 to 11 s, level 20: 3 to 6 s); level 0 never moves. Draws from the shift's stream.
 
 var _rng: NightWatchMulberry

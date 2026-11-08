@@ -2,7 +2,7 @@ class_name KathyGimmick
 extends HunterGimmick
 
 ## Kathy's search beam (hunterAbilities.kathy.beamDetection). Ported from
-## hunter-ai.js's hunterBeamSpotsPlayer(): a cone along her OWN facing that
+## the original's hunterBeamSpotsPlayer(): a cone along her OWN facing that
 ## spots the target at 11.5 cells — well past the roster's ~8-cell ordinary
 ## sight — still requiring line of sight, and still blocked by a safe zone or
 ## hiding. In the original this feeds the shared `seesPlayer` disjunction;

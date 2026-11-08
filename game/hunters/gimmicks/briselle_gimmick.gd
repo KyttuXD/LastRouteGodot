@@ -1,7 +1,7 @@
 class_name BriselleGimmick
 extends HunterGimmick
 
-## Briselle's relay tracker (hunterAbilities.briselle.relayTracker). Ported from briselle.js. It replaced the old
+## Briselle's relay tracker (hunterAbilities.briselle.relayTracker). Ported from the original. It replaced the old
 ## relay saboteur, which Endless routes cannot use (there is no final-relay escape to protect).
 ##
 ## Whenever ANY relay is collected she locks on to it: INVESTIGATE toward that relay for BRISELLE_HUNT_SECONDS at

@@ -1,7 +1,7 @@
 class_name NightWatchOpenAirLogic
 extends RefCounted
 
-## Open Air's rules, a port of createWatchGame in the 2D openair-logic.js: three outdoor watches, each with its own hunter and its own way
+## Open Air's rules, a port of createWatchGame in the 2D game: three outdoor watches, each with its own hunter and its own way
 ## of keeping the dark off. No nodes: the shift scene feeds it what the player holds and draws what happens, and
 ## tests/validate_night_watch_extra.gd replays whole watches headless.
 ##

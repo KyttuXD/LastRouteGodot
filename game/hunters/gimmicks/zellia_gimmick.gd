@@ -2,7 +2,7 @@ class_name ZelliaGimmick
 extends HunterGimmick
 
 ## Zellia's coin exchange (hunterAbilities.zellia.merchant). Ported from
-## zellia.js's prepareMerchant/useMerchant/chooseMerchantOffer.
+## the original's prepareMerchant/useMerchant/chooseMerchantOffer.
 ##
 ## She is not a hunter in any real sense: on first activation she teleports
 ## once to whichever room sits closest to the facility's center and never

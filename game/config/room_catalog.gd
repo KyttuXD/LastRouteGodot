@@ -2,7 +2,7 @@ class_name RoomCatalog
 extends RefCounted
 
 ## Mechanical room-content catalog ported from the original web build's
-## game-config.js ROOM_TYPES and maze.js PROP_COLLIDERS. Art remains swappable:
+## config ROOM_TYPES and maze PROP_COLLIDERS. Art remains swappable:
 ## the generator consumes only ids, half-cell footprints, regions and labels.
 
 const CENTERPIECE_TYPES := ["circusTent", "garden", "diningRoom",

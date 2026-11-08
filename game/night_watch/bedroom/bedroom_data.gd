@@ -2,7 +2,7 @@ class_name BedroomData
 extends RefCounted
 
 ## Bedtime (mode `bedroom`): names, where each hunter sounds from and Zellia's script. Pure data from
-## games/night-watch/src/modes/bedroom/bedroom-data.js.
+## the original game's Bedtime data.
 
 const CAST := ["loxelle", "javelle", "haelith"]
 const NAMES := {"loxelle": "Loxelle", "javelle": "Javelle", "haelith": "Haelith"}

@@ -1,7 +1,7 @@
 extends RefCounted
 
 ## Gray (anti-idle signal route), Orange (system outages) and Purple (radar static / blackout): the Void powers ported from the 2D game
-## (voids/gray.js, orange.js, purple.js). Drives each gimmick on a synthetic brain with the numbers the 2D game uses, checks the replicated
+## (the Gray, Orange and Purple Void powers). Drives each gimmick on a synthetic brain with the numbers the 2D game uses, checks the replicated
 ## state, then applies the events on a real player and HUD (flashlight forced off, climate/radar offline, radar overlay, the signal-route
 ## prompt counting E presses, the result reaching Gray on the host).
 ##

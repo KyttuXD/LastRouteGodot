@@ -2,7 +2,7 @@ class_name LoxelleGimmick
 extends HunterGimmick
 
 ## Loxelle's passive incinerator (hunterAbilities.loxelle.passiveIncinerator /
-## breaksHiding). Ported from loxelle.js's updateLoxellePassive.
+## breaksHiding). Ported from the original's updateLoxellePassive.
 ##
 ## While she is not actively chasing or investigating, every
 ## LOXELLE_INTERVAL seconds she has a LOXELLE_CHANCE roll to burn the nearest

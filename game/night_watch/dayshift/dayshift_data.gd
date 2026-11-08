@@ -1,7 +1,7 @@
 class_name DayshiftData
 extends RefCounted
 
-## Salvage Run's constants, copied from the 2D game's modes/dayshift/dayshift-data.js: the three hunters, the shop's upgrades, the weekly
+## Salvage Run's constants, copied from the 2D game's Salvage Run data: the three hunters, the shop's upgrades, the weekly
 ## budget / quota / AI levels, what turns up on the rack, the three decks it is dealt from and Zellia's script. Pure data.
 
 const CAST := ["ravelle", "ceryth", "ysolde"]
@@ -35,7 +35,7 @@ const DECKS := [
 	{"id": "parts", "weight": 1, "scrap": 3, "parts": 6, "prize": 0},
 ]
 
-## Zellia's calls (dayshift-data.js CALLS); the keys she names are the 2D game's, the 3D controls are in the hint line.
+## Zellia's calls (the original's CALLS); the keys she names are the 2D game's, the 3D controls are in the hint line.
 const CALLS := {
 	1: ["Zellia. This is a work week, so the day comes first. Spend your budget in the shop, then start the shift.",
 		"At night, pick a piece on the rack and hold to take it. The quota is shown at the top. Noise is a cost, and you'll want to keep an eye on it.",

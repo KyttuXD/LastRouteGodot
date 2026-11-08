@@ -1,7 +1,7 @@
 class_name VoidGrayGimmick
 extends VoidGimmick
 
-## Gray Void, antiIdle (voids/gray.js): relay-pressure anti-idle signal. She is DORMANT (unseen, still, uncatchable) while the team keeps
+## Gray Void, antiIdle: relay-pressure anti-idle signal. She is DORMANT (unseen, still, uncatchable) while the team keeps
 ## collecting relays; a grace window of 180 s (120 s on Nightmare) restarts at every relay. Once it has run out, standing still in the
 ## open (not hiding, not in a safe room) for 45 s (30 s on Nightmare) opens a SIGNAL ROUTE: 5 E presses with 2.5 s for each (1.8 s on
 ## Nightmare). Clearing it keeps her dormant; missing one (or letting the clock run out) shows her and starts a normal chase that only

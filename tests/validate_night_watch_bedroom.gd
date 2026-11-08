@@ -1,8 +1,8 @@
 extends RefCounted
 
-## Bedtime (3D): the rules port reproduces the 2D game (games/night-watch validate-bedroom and -variety-bedroom): the night table, the stages,
+## Bedtime (3D): the rules port reproduces the 2D game (its bedroom and bedroom-variety validators): the night table, the stages,
 ## the defences, the battery, the restless house, Haelith's creep, the variety levers, and the 2D game's own draws (tests/data/nw_bedroom_golden.json,
-## written by tools/nightwatch/gen_bedroom_golden.mjs: whole shifts event by event for seeds, an idle and a busy hand, and Custom Nights).
+## recorded from the original 2D game and fixed reference data: whole shifts event by event for seeds, an idle and a busy hand, and Custom Nights).
 ## Then the shift scene: a dark room with no cameras, one hand, Javelle walking the hall, a win, a loss and the Custom Night.
 
 var _failures := 0

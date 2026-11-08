@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { createDirectoryServer, createLastRouteServer, deploymentPorts } from "./server.mjs";
 import { parseAgentTokens, signAgentRequest } from "./regions.mjs";
 
-test("deployment separates legacy Pterodactyl HTTP and ENet allocations", () => {
+test("deployment separates legacy HTTP and ENet allocations", () => {
   assert.deepEqual(deploymentPorts({ SERVER_PORT: "1105" }), {
     httpPort: 8105,
     relayPort: 1105,

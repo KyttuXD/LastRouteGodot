@@ -1,8 +1,8 @@
 class_name NightWatchSounds
 extends RefCounted
 
-## Night Watch's sounds are the 2D game's: the synthesized `sfx` table of games/night-watch/src/core/audio.js, recreated as Sound.nw(...) cues (the same pitches, lengths, volumes and pans), played through the shared
-## Sound autoload (its SFX bus, the master and SFX volume settings, the mute switch). The shared player controller still plays its own footsteps. Which cue plays when follows the 2D classic.js: a door is `door`, the
+## Night Watch's sounds are the 2D game's: the synthesized `sfx` table, recreated as Sound.nw(...) cues (the same pitches, lengths, volumes and pans), played through the shared
+## Sound autoload (its SFX bus, the master and SFX volume settings, the mute switch). The shared player controller still plays its own footsteps. Which cue plays when follows the 2D game: a door is `door`, the
 ## monitor and every camera switch `camera`, a lit door light `light_on`, a hunter in a hall `step` (panned by room, louder the nearer), at a door `step` again and `clank` on the arrival, the power going out `power_out` then a
 ## `chime` every 2.4 s in the dark, the hour `chime`, Zellia's ring `ring` and a `talk` blip on every second word, a caught shift `scare`, the menus `move` / `pick` / `deny`.
 

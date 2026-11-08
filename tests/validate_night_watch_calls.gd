@@ -1,7 +1,7 @@
 extends RefCounted
 
-## Zellia's call: the 3D table equals the 2D game's (every mode, level, ring time and line, compared with the golden file extracted from the 2D
-## source by tools/nightwatch/extract_2d_calls.mjs), the 2D timings are the 3D ones, the call script plays exactly as the 2D createCall does (rings at `at`,
+## Zellia's call: the 3D table equals the 2D game's (every mode, level, ring time and line, compared with the golden file recorded from the
+## 2D game, fixed reference data), the 2D timings are the 3D ones, the call script plays exactly as the 2D createCall does (rings at `at`,
 ## "Incoming call…" for 2.2 s, a word every 250 ms, talk blips on odd word counts, each line stays 1.8 s + 0.38 s per word, the box closes after the last line, Mute
 ## ends it), and the call box sits where the 2D box does (centred, 60% wide, its bottom at 10% of the height) without covering the HUD, at both test resolutions.
 
@@ -74,7 +74,7 @@ func run(host: Node) -> int:
 		return _failures
 	var timing: Dictionary = golden["timing"]
 	_expect(int(timing["ring"]) == NightWatchCallsData.INCOMING_MS and int(timing["word"]) == NightWatchCallsData.WORD_MS \
-		and int(timing["base"]) == NightWatchCallsData.LINE_BASE_MS and int(timing["perWord"]) == NightWatchCallsData.LINE_WORD_MS, "the call timings differ from callbox.js")
+		and int(timing["base"]) == NightWatchCallsData.LINE_BASE_MS and int(timing["perWord"]) == NightWatchCallsData.LINE_WORD_MS, "the call timings differ from the original's")
 	var calls: Dictionary = golden["calls"]
 	var lines_total := 0
 	for mode in calls:

@@ -1,7 +1,7 @@
 class_name NightWatchStalker
 extends RefCounted
 
-## One hunter, ported from createStalker in the 2D game's classic-logic.js (the variety levers and Kathy's fading are later
+## One hunter, ported from createStalker in the 2D game (the variety levers and Kathy's fading are later
 ## milestones, see docs/NIGHT_WATCH_3D.md). She walks the building graph toward her door after a random wait, then waits at
 ## it: a shut door (T_CLOSED_MS) or the light held on her (push_ms) sends her back, otherwise she attacks after `attack_ms`.
 ## Deterministic: every roll comes from the shared seeded RandomNumberGenerator.
@@ -32,7 +32,7 @@ var _only_when_cams_down := false
 var _freezes_when_watched := false
 var _blocked: Callable = func(_room: String) -> bool: return false
 
-# the pacer (core/time.js createPacer): time waited and the wait drawn for this move (-1 = none drawn yet)
+# the pacer (the original's createPacer): time waited and the wait drawn for this move (-1 = none drawn yet)
 var _t := 0.0
 var _next := -1.0
 ## Kathy's differences (all off for everyone else): the light never holds her wait (`unseen`), a shut door has to stay shut for a rolled time (`need_ms`,

@@ -1,7 +1,7 @@
 class_name NightWatchOpenAirData
 extends RefCounted
 
-## Open Air's constants, copied from the 2D openair-data.js: the three outdoor watches, who keeps each, the weather and Zellia's script.
+## Open Air's constants, copied from the 2D game's Open Air data: the three outdoor watches, who keeps each, the weather and Zellia's script.
 ## Pure data; the rules are in openair_logic.gd. Each level is its own watch with its own hunter and its own way of keeping the dark off:
 ##   1. ROOFTOP   Verrine walks the edge. A lantern the wind keeps blowing out, a torch to hold her still, a stair door and a hatch to bar.
 ##   2. BUS STOP  Wynelle waits on the road. It is cold; keep warm with the heat lamp, and find fuel for it.
@@ -36,7 +36,7 @@ static func rebuild_from_registry() -> void:
 	WATCH_MS = NightWatchData.NIGHT_MS
 
 
-## Zellia's calls are the shared table (NightWatchCallsData, mode `extra`), verbatim from the 2D openair-data.js.
+## Zellia's calls are the shared table (NightWatchCallsData, mode `extra`), verbatim from the 2D game.
 
 
 ## Where a step is heard: on the side she is coming from ("L" the stair door, "R" the hatch), at her own distance from centre.

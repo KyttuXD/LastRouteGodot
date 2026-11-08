@@ -1,13 +1,13 @@
 class_name NightWatchCallsData
 extends RefCounted
 
-## Zellia's headset calls, copied verbatim from the 2D game: each mode's `CALLS` in games/night-watch/src/modes/<mode>/<mode>-data.js
+## Zellia's headset calls, copied verbatim from the 2D game: each mode's `CALLS` table
 ## ({"level": {at: seconds into the night she rings, lines: [...]}}), keyed by the 3D mode id (Open Air is `extra`). Mixed Shift and a
-## Custom Night have no call (2D: `callForNight` is null / `opts.custom` gives no script). The tables now live in res://data/night_watch/calls/ (one file per mode); regenerate those from the 2D files, do not hand-edit.
-## tests/validate_night_watch_calls.gd extracts the same tables from the 2D source (when it is present) and compares them.
+## Custom Night have no call (2D: `callForNight` is null / `opts.custom` gives no script). The tables now live in res://data/night_watch/calls/ (one file per mode); they are fixed reference data from the original 2D game, do not hand-edit.
+## tests/validate_night_watch_calls.gd compares the same tables against the recorded 2D reference data (tests/data/night_watch_2d_calls.json).
 ## The 2D wording is kept exactly, including its key names (the 2D keys are A/D doors, Q/E lights, Space cameras).
 
-## Timings from the 2D core/callbox.js, ms.
+## Timings from the 2D game's call box, ms.
 const INCOMING_MS := 2200       # "Incoming call..." shows this long before the first line (the ring)
 const WORD_MS := 250            # one more word every 250 ms
 const LINE_BASE_MS := 1800      # a line stays up for this plus ...

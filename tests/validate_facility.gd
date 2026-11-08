@@ -1,15 +1,15 @@
 extends SceneTree
 
 ## Headless invariant check for facility_generator.gd, in the spirit of the
-## original LastRoute's scripts/validate-maze.mjs. Generates many seeded
+## the original game's maze validator. Generates many seeded
 ## facilities and asserts structural invariants hold for every one of them.
 ##
 ## Run with:
 ##   godot4 --headless --script tests/validate_facility.gd -- --count 200
 ##
 ## Exits with a non-zero code (via quit(1)) if any invariant fails, so it can
-## be wired into CI the same way the original's `node scripts/validate-*.mjs`
-## checks are.
+## be wired into CI the same way the original's validators
+## are.
 
 const DEFAULT_COUNT := 200
 

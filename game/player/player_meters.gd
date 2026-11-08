@@ -2,7 +2,7 @@ class_name PlayerMeters
 extends RefCounted
 
 ## The three facility-pressure meters — exposure, noise and temperature —
-## ported from game.js's updatePlayerExposure / updateNoiseMeter /
+## ported from the original's updatePlayerExposure / updateNoiseMeter /
 ## updatePlayerTemperature. Presentation-agnostic like the rest of the
 ## simulation: it takes the player's per-frame situation and returns nothing,
 ## and both the HUD and hunter gimmicks read the resulting fields.

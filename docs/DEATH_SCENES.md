@@ -1,7 +1,7 @@
 # Death lines and the death moment
 
-Ported from the 2D game (`death-lines.js`, `death-moment.js`, `docs/death-lines-format.md` in the 2D repo). The
-catalog is the 2D game's own file, `assets/data/death_lines.json` (`kyttu-death-lines/v1`), so Night Watch and Last
+Ported from the original 2D game. The
+catalog is the original game's own file, `assets/data/death_lines.json` (`kyttu-death-lines/v1`), so Night Watch and Last
 Route read the same lines.
 
 ## Lines

@@ -1,7 +1,7 @@
 class_name VoidOrangeGimmick
 extends VoidGimmick
 
-## Orange Void, systemSaboteur (voids/orange.js): every 26 s she takes ONE of the runner's systems offline for 9 s: the flashlight (forced
+## Orange Void, systemSaboteur: every 26 s she takes ONE of the runner's systems offline for 9 s: the flashlight (forced
 ## off and cannot be switched on), the climate control (the heater goes off) or the radar (the minimap and map go black). The system comes
 ## back by itself. The player side applies it (main_3d: system_outage event -> PlayerController3D.begin_outage, HUD radar overlay).
 
