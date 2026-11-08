@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, cp } from "node:fs/promises";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FALLBACK_PACK_KINDS } from "./mod_packs.mjs";
 import { PACK_KINDS_FILE, loadPackKinds, readPackKindsFromRepo } from "./pack_kinds.mjs";
@@ -13,8 +13,8 @@ const SCRIPT = fileURLToPath(new URL("./pack_kinds.mjs", import.meta.url));
 const KIND = /^[a-z][a-z0-9_]{0,31}$/;
 
 function writeRegistry(root, body) {
-  mkdirSync(join(root, "src", "config"), { recursive: true });
-  writeFileSync(join(root, "src", "config", "content_registry.gd"), body);
+  mkdirSync(join(root, "game", "config"), { recursive: true });
+  writeFileSync(join(root, "game", "config", "content_registry.gd"), body);
 }
 
 test("a checkout that is not a repo has no pack kinds", async () => {
@@ -61,7 +61,11 @@ test("loadPackKinds uses pack_kinds.json, otherwise the repo, and never the fall
     assert.deepEqual(loaded, readPackKindsFromRepo());
   }
   const checkout = readPackKindsFromRepo();
-  const extras = ["nw_buildings", "nw_calls", "nw_casts", "nw_modes", "nw_offices", "nw_rules", "nw_scares", "nw_sounds"];
+  // extension kinds are every key of data/kinds/*.json that is not built in, sorted
+  const kindsDir = join(dirname(SCRIPT), "..", "data", "kinds");
+  const declared = readdirSync(kindsDir).filter((name) => name.endsWith(".json"))
+    .flatMap((name) => Object.keys(JSON.parse(readFileSync(join(kindsDir, name), "utf8"))));
+  const extras = [...new Set(declared)].filter((kind) => KIND.test(kind) && !FALLBACK_PACK_KINDS.includes(kind)).sort();
   assert.deepEqual(checkout, [...FALLBACK_PACK_KINDS, ...extras]);
 });
 

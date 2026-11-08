@@ -254,8 +254,8 @@ test("pack folders come from the game: ContentRegistry.PACK_KINDS plus data/kind
   const root = await mkdtemp(join(tmpdir(), "pack-kinds-"));
   try {
     assert.equal(readPackKindsFromRepo(root), null, "not a checkout");
-    mkdirSync(join(root, "src", "config"), { recursive: true });
-    writeFileSync(join(root, "src", "config", "content_registry.gd"),
+    mkdirSync(join(root, "game", "config"), { recursive: true });
+    writeFileSync(join(root, "game", "config", "content_registry.gd"),
       'const PACK_KINDS := ["props", "regions", "hunters", "grabs", "sounds", "ambience", "floors", "walls", "ceilings", "rooms",\n\t"deaths", "emotes"]\n');
     mkdirSync(join(root, "data", "kinds"), { recursive: true });
     writeFileSync(join(root, "data", "kinds", "night_watch.json"), JSON.stringify({ nw_offices: {}, nw_calls: {}, props: {}, "Bad-Kind": {} }));

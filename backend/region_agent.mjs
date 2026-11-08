@@ -21,6 +21,8 @@ import { spawn } from "node:child_process";
 import { cpus, freemem, loadavg, totalmem } from "node:os";
 import { readFileSync } from "node:fs";
 import { signAgentRequest } from "./regions.mjs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 export const REPORT_MS = 5_000;
 export const STOP_GRACE_MS = 10_000;
@@ -175,7 +177,7 @@ export function createAgent(env = process.env, { spawnProcess = spawn, fetchImpl
   return { region, reportOnce, spawnHost, stopHost, stopAll, status, hosts, cap };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const agent = createAgent();
   if (!agent.region || !process.env.LASTROUTE_AGENT_TOKEN || !process.env.LASTROUTE_DIRECTORY_URL) {
     console.error("region agent: set LASTROUTE_REGION, LASTROUTE_AGENT_TOKEN and LASTROUTE_DIRECTORY_URL");
