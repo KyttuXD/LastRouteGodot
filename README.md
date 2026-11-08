@@ -1,6 +1,11 @@
-# Kyttu's Lab
+# KYTTU: Last Route Godot Edition
 
-Home of **KYTTU: The Last Route**, a first-person co-op horror game built with Godot 4.
+The Godot 4 edition of **KYTTU: The Last Route**, a first-person co-op horror game.
+
+> **Status: semi-obsolete.** This Godot edition is being brought to a semi-stable state and will then be kept in
+> maintenance mode only: bug fixes and build upkeep, no new features. Active development is moving to a Rust port of the
+> game. Staging builds stay available (see [Downloads](#downloads)), and the code stays here as a reference and for
+> anyone who wants to play or mod this edition.
 
 You and up to a few friends explore a procedurally streamed facility of rooms, halls, stairwells, sewers and vents while a roster of 26 distinct hunters stalks the route. Find tools, hide, flee and rescue each other; if you are caught, you spectate until the party recovers or the run ends.
 
@@ -27,6 +32,12 @@ See [docs/QUICK_START.md](docs/QUICK_START.md) for the full controls.
 | Android, Quest, iOS, SteamVR | Export presets exist but need local SDKs and signing; see [docs/XR_ANDROID.md](docs/XR_ANDROID.md), [docs/design/XR.md](docs/design/XR.md) and [docs/design/IOS.md](docs/design/IOS.md) |
 
 The project uses Godot's Compatibility renderer.
+
+## Downloads
+
+The latest debug builds of `main` are on the [staging release](https://github.com/KyttuXD/LastRouteGodot/releases/tag/staging):
+Linux, Windows, macOS (Intel and Apple Silicon) and Web. Every push to `main` replaces its files, so it is always the
+newest build, not a versioned release.
 
 ## Open it in Godot
 

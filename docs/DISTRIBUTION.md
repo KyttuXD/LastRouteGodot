@@ -16,14 +16,16 @@ Co-op and the PUBLIC route need only the Node service in `backend/` (no Godot se
 ## Where builds come from
 Builds come from GitHub Actions artifacts and GitHub Releases. The CI workflow in `.github/workflows/` exports the game per platform; tagged releases attach the exported archives. Exported archives are never committed to this repo.
 
-## App name (Kyttu's Lab)
+## App name (KYTTU: Last Route Godot Edition)
 
-The application is "Kyttu's Lab" (`application/config/name`, window title, export `application/name`, Windows product and
-file description, Android package name); "The Last Route" is the game inside it. Export artifacts are `KyttusLab-<platform>-...`
-(test, beta and debug zips; `tools/build/generate_update_manifest.mjs` and `backend/updates.example.json` use the same names).
+The application is "KYTTU: Last Route Godot Edition" (`application/config/name`, window title, web page title, export
+`application/name`, Windows product and file description, Android package name). macOS bundles use
+"KYTTU - Last Route Godot Edition", because Godot replaces a colon in the `.app` folder name with `_`. Export artifacts
+keep the `KyttusLab-<platform>-...` file names (CI, the staging release, `tools/build/generate_update_manifest.mjs` and
+`backend/updates.example.json` use the same names).
 Kept on purpose: the bundle identifier `org.kyttuslab.lastroute`, all version fields, the backend/service/instance names and repo
 names, save formats, and the user data folder: `project.godot` pins it with `config/custom_user_dir_name`
 (`Godot/app_userdata/KYTTU- The Last Route`, `godot/...` on Linux), because renaming `config/name` alone would silently move
 `user://` and orphan accounts, settings, run saves, per-server sessions and update staging. The `app_name` validator checks it.
-A macOS bundle is now `Kyttu's Lab.app`: the in-game updater installs whatever `.app` is in the staged zip, so an old
-`KYTTU- The Last Route.app` stays beside it until deleted. The site's project title ("The Last Route (Godot)") is separate.
+The in-game updater installs whatever `.app` is in the staged zip, so an older `Kyttu's Lab.app` stays beside the new one
+until deleted. "Kyttu's Lab" remains the studio name and the in-game research lab.

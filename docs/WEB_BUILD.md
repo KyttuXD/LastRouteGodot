@@ -31,7 +31,7 @@ with brotli (`index.wasm` 6.7 MB, `index.pck` 33.6 MB). The preset's `html/head_
   transport for the public route (always) and for private rooms started with `-- --ws-rooms`, so web and native players
   can share a room. A room hosted over ENet is native-only; a browser that tries its code gets a clear message.
 * **No update check.** `UpdateManager.check()` returns at once on web and `Build.requires_update_gate()` is false.
-* **Menus.** JOIN ROOM and PLAY OFFLINE work; CREATE ROOM makes a solo room (see below); QUIT returns to Kyttu's Lab.
+* **Menus.** JOIN ROOM and PLAY OFFLINE work; CREATE ROOM makes a solo room (see below); QUIT returns to the game hub.
 * **No co-op hosting.** A browser stops a hidden tab's game loop, so a room hosted from a tab froze for all of
   its guests whenever the host switched tabs. `RoomState.web_host_refusal()` refuses private CREATE ROOM and reserved
   rooms on web (`WEB_HOST_REFUSED`; CREATE ROOM stays a playable solo room and its dialog says co-op is hosted from the

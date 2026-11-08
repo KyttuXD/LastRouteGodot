@@ -108,7 +108,7 @@ game state and orphan nodes are checked. It prints `hub_nav ...` and exits non-z
 
 ## Accounts (one login for the whole app)
 
-The account is Kyttu's Lab's, not a game's. The signed-in account, session tokens per server, admin/owner status and the debug
+The account belongs to the app, not to one game. The signed-in account, session tokens per server, admin/owner status and the debug
 flags are app-level state in the `Backend` autoload; nothing about them lives in a game's scene.
 
 | Piece | Where |

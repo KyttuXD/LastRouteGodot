@@ -1,10 +1,10 @@
 extends RefCounted
 
-## The app is "Kyttu's Lab" (more games live in it; The Last Route is the game inside). Renaming config/name moves
+## The app is "KYTTU: Last Route Godot Edition" (Night Watch lives in it too). Renaming config/name moves
 ## Godot's default user data folder, which would orphan accounts, settings, run saves and per-server sessions, so the
 ## project pins the CURRENT folder name (config/custom_user_dir_name). This keeps both true, and keeps the bundle id.
 
-const DISPLAY_NAME := "Kyttu's Lab"
+const DISPLAY_NAME := "KYTTU: Last Route Godot Edition"
 const OLD_DATA_FOLDER := "KYTTU- The Last Route"
 
 var _failures := 0

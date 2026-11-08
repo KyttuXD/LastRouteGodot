@@ -1,7 +1,7 @@
 class_name AccountPanel
 extends CanvasLayer
 
-## The ONE account panel for the whole app (Kyttu's Lab): sign in, register, sign out, account settings (username,
+## The ONE account panel for the whole app: sign in, register, sign out, account settings (username,
 ## password, the admin setup key field) and a SAVES section with one row per game from GameRegistry. It knows no game: a
 ## game's save row comes from GameRegistry.save_summary(), its OPEN / CLEAR actions are links into that game's menu.
 ## The signed-in account, its session tokens per server, admin/owner status and debug flags are app-level state in the
