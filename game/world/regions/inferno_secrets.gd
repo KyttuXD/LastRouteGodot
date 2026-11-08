@@ -1,7 +1,7 @@
 class_name InfernoSecrets
 extends RefCounted
 
-## The wolf spiders' home: the Inferno, level -3 (docs/SECRET_WOLF_SPIDER.md). One instance lives on the streamed route node and is
+## The wolf spiders' home: the Inferno, level -3. One instance lives on the streamed route node and is
 ## updated from its host-side hunter tick. Guests do not run it (the host spawns a durable "SECRET:" hunter state which the normal hunter
 ## replication carries). The dwell clock runs while the local runner OR a living co-op guest is on the home level.
 ##

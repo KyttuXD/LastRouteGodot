@@ -6,7 +6,7 @@ extends NightWatchOfficeBase
 ## the wall beside it and a short dark hall behind it. Everything is built from shaded cubes (NightWatchArt: baked vertex-colour
 ## shading and painted pixel textures, no post effects) in named prop groups. Everything solid has a collision body on layer 1;
 ## the things you can aim at are NightWatchStation nodes (shared interactables: prompt and use through the shared player). Real lights are only
-## the desk lamp and the two door lights (on only while held) plus a very dim light in each hall (docs/REF_LOOK.md budget).
+## the desk lamp and the two door lights (on only while held) plus a very dim light in each hall.
 
 const A := preload("res://game/night_watch/night_watch_art.gd")
 const HALF_W := 3.0

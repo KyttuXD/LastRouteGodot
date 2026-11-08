@@ -2,7 +2,7 @@ class_name NightWatchSave
 extends RefCounted
 
 ## Night Watch progress, kept apart from Last Route's: its own file and section (`night_watch`), so the two games never share
-## a key (docs/NIGHT_WATCH_3D.md). Highest night unlocked and the nights cleared. Account sync (the backend `game` field the
+## a key. Highest night unlocked and the nights cleared. Account sync (the backend `game` field the
 ## City mode added) is a later milestone; this is the device cache the 2D game also keeps in localStorage.
 
 const GAME_ID := NightWatchData.GAME_ID

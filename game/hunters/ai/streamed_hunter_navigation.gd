@@ -22,7 +22,7 @@ var vents: Array = []
 ## Music boxes on this level: {"id", "x", "y", "source_chunk"} (Glyra reads her nearest).
 var music_boxes: Array = []
 var hiding_spots: Array = []
-## Free seats a patrolling hunter may sit on (HunterSeats, docs/SEATING.md): one per sit point of every sit prop.
+## Free seats a patrolling hunter may sit on (HunterSeats): one per sit point of every sit prop.
 var seat_spots: Array = []
 var start := Vector2i.ZERO
 var exit_cell := Vector2i.ZERO
@@ -810,7 +810,7 @@ func _collect_solid_prop_cells(coord: Vector3i, data: Dictionary, out: Dictionar
 		var occupied: Array = prop.get("occupied_cells", [])
 		if occupied.is_empty():
 			occupied = [prop.get("cell", Vector2i.ZERO)]
-		# walkability and navigation agree (docs/NAV_WALKABLE.md): a prop low enough to walk onto is floor, and a reserved
+		# walkability and navigation agree: a prop low enough to walk onto is floor, and a reserved
 		# cell is blocked only where the collider (grown by the navigation's capsule radius) covers its centre: the open
 		# corner of an L desk, the gap between two potted palms, the free end of a cart's cell all stay open
 		if blocks_nothing(prop):

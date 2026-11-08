@@ -41,7 +41,7 @@ const T := {
 	"lampDrain": 0.1, "camDrain": 0.025,
 }
 
-## Variety (docs/VARIETY.md): rests +/-30%, vent waits +/-20% (never under 90%), the favoured vent, and the pressure phases.
+## Variety: rests +/-30%, vent waits +/-20% (never under 90%), the favoured vent, and the pressure phases.
 const VARIETY := {"restSpread": 0.3, "killSpread": 0.2, "killFloor": 0.9, "sideBias": [0.35, 0.65], "salt": 0x3d1f8a57,
 	"factors": [0.88, 1.0, 1.12], "ms": [30000.0, 60000.0]}
 

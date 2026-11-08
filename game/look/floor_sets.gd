@@ -13,7 +13,7 @@ const _CODE_HALLS := {
 	"mansion": {"floor": ["parquet0", "parquet1"], "runner": true},
 	"hotel": {"floor": ["carpet_teal"], "runner": false},               # teal and gold hotel carpet
 	"apartment": {"floor": ["parquet0", "parquet1"], "runner": true},
-	"beach": {"floor": ["sand0", "sand1", "wetsand0"], "runner": false},   # sand, a damp strip now and then (docs/BEACH_LOOK.md)
+	"beach": {"floor": ["sand0", "sand1", "wetsand0"], "runner": false},   # sand, a damp strip now and then
 	"gothic": {"floor": ["stone0", "stone1"], "runner": true},
 	"carnival": {"floor": ["check0", "check1"], "runner": false},
 	"prison": {"floor": ["concrete0", "concrete1"], "runner": false},
@@ -96,7 +96,7 @@ const ROOMS := {
 	"clean_room": ["epoxy0"], "containment": ["epoxy1", "hazard"], "server_hall": ["grate", "epoxy0"],
 	"control_room": ["carpet_tile1", "epoxy0"], "decon": ["grate", "epoxy1"], "chem_lab": ["epoxy0", "epoxy1"],
 	"bio_lab": ["epoxy0"], "pod_room": ["epoxy0"],
-	# the music wing (docs/MUSIC_WING.md): a wooden stage and store, padded practice rooms, a carpeted booth
+	# the music wing: a wooden stage and store, padded practice rooms, a carpeted booth
 	"music_stage": ["parquet0", "parquet1"], "practice_room": ["carpet_tile0", "carpet_tile1"], "instrument_storage": ["concrete1"],
 	"recording_booth": ["carpet_tile1"], "music_store": ["parquet1", "parquet0"], "carnival_stage": ["parquet0", "parquet1"], "cold_storage": ["metal1", "epoxy0"], "lab_office": ["carpet_tile0", "carpet_tile1"],
 	# greenhouse

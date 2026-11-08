@@ -1,4 +1,4 @@
-// Shader-computed lights for the chunk surfaces (docs/SHADER_LIGHTS.md).
+// Shader-computed lights for the chunk surfaces.
 //
 // Included by ref_surface_lit.gdshader ONLY. It is used when a GPU's engine light path is broken (Apple's legacy OpenGL 4.1
 // driver on Intel Macs lights nothing beyond about a metre): the flashlight cone and the lamp pool are computed here with
@@ -17,7 +17,7 @@ const float SL_CLIP_FADE = 2.0;
 const float SL_CLIP_LO = -0.5;           // behind the hit plane by this much: fully clipped
 const float SL_CLIP_HI = -0.2;           // by this much: not clipped
 
-// x = flashlight gain, y = lamp gain (engine light units -> this shader's units; see docs/SHADER_LIGHTS.md, Calibration)
+// x = flashlight gain, y = lamp gain (engine light units -> this shader's units)
 uniform vec2 sl_gain = vec2(2.1, 2.1);
 uniform vec4 sl_flash_a = vec4(0.0, 0.0, 0.0, 16.0);        // xyz position, w range
 uniform vec4 sl_flash_b = vec4(0.0, 0.0, -1.0, 0.8660254);  // xyz direction, w cos(spot angle)

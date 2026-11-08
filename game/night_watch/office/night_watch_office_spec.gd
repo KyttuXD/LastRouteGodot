@@ -6,7 +6,7 @@ extends RefCounted
 
 const ENTRANCE_KINDS := ["door_slab", "door_wood", "curtain", "hatch", "vent", "window", "stairs", "lift", "gate", "opening"]
 const MOODS := ["warm_lamp", "cold_monitor", "emergency_red", "daylight", "night_outdoor", "dusk", "fluorescent"]
-## Real lights an office may have switched on at once (docs/REF_LOOK.md budget): the desk lamp and the two entrance lights, no shadow casters.
+## Real lights an office may have switched on at once: the desk lamp and the two entrance lights, no shadow casters.
 const MAX_REAL_LIGHTS := 3
 
 var id := ""                       # unique across all modes ("classic_security", "broadcast_booth", ...)

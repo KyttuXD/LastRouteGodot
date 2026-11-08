@@ -1,7 +1,7 @@
 class_name GeometryAudit
 extends RefCounted
 
-## Geometry overlap audit (docs/GEOMETRY_AUDIT.md). Collects every placed solid (props, walls, doors, building masses,
+## Geometry overlap audit. Collects every placed solid (props, walls, doors, building masses,
 ## street furniture) of the generated content as an oriented footprint plus a height span and reports
 ##   solid_overlap  solid-into-solid interpenetration (prop in wall / prop / hall / door zone, masses, furniture)
 ##   floating       a piece with no support (surface prop with no parent, wall mount with no wall, prop over a void)

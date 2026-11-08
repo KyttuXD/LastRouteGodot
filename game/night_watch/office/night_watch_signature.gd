@@ -1,7 +1,7 @@
 class_name NightWatchSignature
 extends RefCounted
 
-## The 2D offices' SIGNATURE pieces on the 3D offices (docs/night_watch_ui/NIGHT_WATCH_OFFICE_PORT.md): per office, the things that make its 2D picture itself, built from NightWatchArt cubes and a few painted pixel textures.
+## The 2D offices' SIGNATURE pieces on the 3D offices: per office, the things that make its 2D picture itself, built from NightWatchArt cubes and a few painted pixel textures.
 ## Classic (and Mixed Shift, which is Classic's office): the orange band over a navy-and-white checker band round the walls, the five posters (purple star, red balloons, the big red triangle, the green face, amber star)
 ## and warm yellow ceiling lamps. One function per office; `apply(office, office_id)` is called by the office base after the shell is built.
 

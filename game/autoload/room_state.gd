@@ -1971,7 +1971,7 @@ static func _random_guest_callsign() -> String:
 
 
 
-# --- deliberate host handoff (docs/HOST_HANDOFF.md, game/network/host_handoff.gd) ----
+# --- deliberate host handoff (game/network/host_handoff.gd) ----
 ##
 ## Old host: PREPARING (guests freeze + ack: the barrier) -> checkpoint to the successor -> RELEASING (relay commit)
 ##   -> leaves WITHOUT unregistering on a confirmed or ambiguous commit; a refusal resumes hosting (pre-commit).

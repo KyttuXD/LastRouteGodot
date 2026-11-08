@@ -4,7 +4,7 @@ extends RefCounted
 ## What size each kind of room should be, and how much of its signature furniture it holds (docs/ROOM_SIZES.md).
 ## Sizes are cells (x, z) in either orientation. `generated` says whether the generators make this room type today; the
 ## planned types (classroom, library, gym, warehouse...) are listed so new districts and the city follow the same table.
-## Hunter-scale pass (docs/ROOM_REFERENCE.md): ICU, nurses station, imaging, chem/bio lab, control room and arcade are 21x9
+## Hunter-scale pass: ICU, nurses station, imaging, chem/bio lab, control room and arcade are 21x9
 ## rooms now, the server hall and glasshouse can be 21x21; every aisle and every strip beside a bed or counter is 1.4 m+.
 ## Small rooms never go below the 9x9 playable minimum (the maze's middle banks are 8 deep beside its five-wide centre
 ## hall: "5 wide maze region hallways"); corridors and halls are not rooms and are not listed.

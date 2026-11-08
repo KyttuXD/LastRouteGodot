@@ -1,4 +1,4 @@
-// Online-only real-world City maps (docs/CITY_OSM_MAPS.md). Maps are built and signed on a build host, promoted into
+// Online-only real-world City maps. Maps are built and signed on a build host, promoted into
 // `<dir>/live/<id>/<version>/` on this server and listed in `<dir>/live/index.json`. Clients must hold a live
 // account session to list maps or get a ticket, and every file request needs a short-lived ticket bound to the
 // account, the map id and the version. Nothing here is ever bundled with the game.

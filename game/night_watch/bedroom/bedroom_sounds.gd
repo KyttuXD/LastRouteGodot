@@ -1,7 +1,7 @@
 class_name BedroomSounds
 extends RefCounted
 
-## Bedtime's cues: nothing of its own, only the shared office cues through NightWatchSounds (docs/NIGHT_WATCH_3D.md 5c). Everything is heard, so every
+## Bedtime's cues: nothing of its own, only the shared office cues through NightWatchSounds. Everything is heard, so every
 ## cue is panned to the side its hunter comes from (BedroomData.PAN).
 
 static func breath(id: String, intensity: float) -> void:

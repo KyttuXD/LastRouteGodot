@@ -263,7 +263,7 @@ Visual check (Godot windowed): `dev/look/capture.tscn`, `dev/look/chunk_map.gd`,
 - **Hunter-scale furniture.** Beds, benches and counters need >= 1.4 m strips to a wall or the room counts stranded floor (ICU beds and night-diner counters: `97e2ced5`, `dccae4f3`; ward bedside kit a row out: `7368e3cc`).
 - **Seat reservations.** Seats moved in front of screens carry their occupied cell (`c24a81a5`: 772 lab rooms had stale reservations).
 - **Beds.** Every bedroom-purpose room must end up with a bed (`4a25c281`, `bedrooms` suite).
-- **Dangling doc references.** Generator comments cite `docs/REGIONS.md` and `docs/BIOMES.md`; neither exists. `biomes` is only a legacy suite alias for the four region shards.
+- **`biomes` suite alias.** `biomes` is only a legacy suite alias for the four region shards.
 - **Region names are admin-only** (`073aca05`): route any new UI string through `RegionNames`.
 - **Music wing / office suite / carousel** live inside bank chunks of their regions (`MUSIC_WING_REGIONS` hotel, maze office quarter, carnival big top). A new great-hall type in those regions must leave them alone.
 - **Stale numbers in older docs** (`REF_LOOK.md` heights, `WALL_THEMES.md` district table lacks the newer regions). Trust code.

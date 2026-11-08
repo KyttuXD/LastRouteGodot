@@ -1,7 +1,7 @@
 class_name MusicProps
 extends RefCounted
 
-## Playable music-wing props (docs/MUSIC_WING.md). Interacting with a mic or an instrument plays its short cue (Sound.music)
+## Playable music-wing props. Interacting with a mic or an instrument plays its short cue (Sound.music)
 ## and, while `noise_enabled` ("music_noise", on by default), makes a noise burst that nearby hunters hear, like the
 ## water splash. Props not listed here are dressing.
 

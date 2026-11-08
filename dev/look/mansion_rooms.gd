@@ -1,6 +1,6 @@
 extends Node
 
-## Mansion luxury before/after (docs/MANSION_LUXURY.md): the first mansion bedroom, drawing room, dining room and luxury
+## Mansion luxury before/after: the first mansion bedroom, drawing room, dining room and luxury
 ## bathroom of a seeded route, from a back corner, with the region finishes off (before) and on (after). Windowed, so
 ## run it with a display:
 ##   godot --path . res://dev/look/mansion_rooms.tscn -- /tmp/mansion_caps before

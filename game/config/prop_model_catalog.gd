@@ -589,7 +589,7 @@ static func authored_visual_yaw(gameplay_yaw: float) -> float:
 	return gameplay_yaw + PI
 
 
-## Region finishes (docs/MANSION_LUXURY.md): the mansion gets its own looks of the ordinary furniture types (lacquer,
+## Region finishes: the mansion gets its own looks of the ordinary furniture types (lacquer,
 ## marble tops, velvet, gilt), built as "<type>Mansion" model sets with the same footprints. The type names stay the
 ## same, so sizes, colliders, surfaces, hiding spots and room rules all apply unchanged.
 ## Data: each district theme's `finish` (data/themes/regions/<id>.json, game/look/theme_data.gd), so a pack can give a
@@ -826,11 +826,11 @@ static func is_batchable(type: String) -> bool:
 
 ## Turn decorative furniture into a gameplay surface without coupling the
 ## generator to model filenames. An empty result remains ordinary dressing.
-## Hunter-scale rescale (docs/SEATING.md, docs/SCALE_FIT.md): the world is built for a 2.67 m hunter, and these models were
+## Hunter-scale rescale (docs/SCALE_FIT.md): the world is built for a 2.67 m hunter, and these models were
 ## authored person-sized. ModelSlot.instantiate_prop scales their children by this factor, so the view, the collider
 ## emitter (PropColliderSizes) and every audit see the same scaled model. Seats, benches, sofas and stools all scale.
 const HUNTER_SCALE := {
-	# every person-sized prop people use (docs/PROP_SIZES.md, data/scale/prop_size_ranges.json): seats, beds, tables,
+	# every person-sized prop people use (data/scale/prop_size_ranges.json): seats, beds, tables,
 	# counters, storage, machines, carts, bathrooms and their mansion-finish copies; a few take less than 1.5 to land in range.
 	# The "...Mansion" finish copies spawn under their base type (model_path picks the model, the hint stays the base
 	# type), so they already take the base's scale; their own entries keep the catalog audits (scale_fit) consistent.

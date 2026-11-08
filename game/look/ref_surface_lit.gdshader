@@ -1,5 +1,5 @@
 shader_type spatial;
-// SHADER-LIGHTS VARIANT of ref_surface.gdshader (docs/SHADER_LIGHTS.md). It is ref_surface.gdshader line for line, plus the
+// SHADER-LIGHTS VARIANT of ref_surface.gdshader. It is ref_surface.gdshader line for line, plus the
 // include below and the sl_emission(...) term on the EMISSION line, and it is only ever loaded when the engine light path is
 // proven broken on this GPU (or forced with LR_SHADER_LIGHTS=1). Keep the two files in step: tests/validate_shader_lights.gd
 // fails when a line of ref_surface.gdshader is missing here.

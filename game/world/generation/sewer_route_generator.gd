@@ -71,7 +71,7 @@ const LINK_CHANCE := 0.55
 ## Every sewer space has the same low brick ceiling, so a ladder shaft always
 ## spans exactly LEVEL_HEIGHT - CEILING_HEIGHT between it and the maze floor.
 const CEILING_HEIGHT := 3.2
-## Crawl-under pipes (docs/GEOMETRY_AUDIT.md): a low iron main across a utility room's three-wide branch. The underside is the
+## Crawl-under pipes: a low iron main across a utility room's three-wide branch. The underside is the
 ## crouched capsule plus 5 cm, so a crouched player passes and a standing one (or any normal hunter) does not. The authored
 ## sewerPipeRun is two stacked mains, the lower 0.11 m in radius about 0.30 m above its origin.
 const CRAWL_CLEARANCE := PlayerController3D.CROUCH_COLLISION_HEIGHT + 0.05

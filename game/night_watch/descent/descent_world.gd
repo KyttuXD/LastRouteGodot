@@ -4,7 +4,7 @@ extends Node3D
 ## The Descent's 3D set: a service elevator car seen from inside (a blocky room, NightWatchArt cubes) with the service panel on the back
 ## wall between two caged windows, and the shaft outside them. A sill runs outside each window; Elise comes along the sill on her side
 ## (she is a walking blocky model placed by the game scene). While the car drops a floor the shaft's beams slide past. Real lights are
-## the car's ceiling lamp and one dim lamp over each sill (docs/REF_LOOK.md budget).
+## the car's ceiling lamp and one dim lamp over each sill.
 
 const A := preload("res://game/night_watch/night_watch_art.gd")
 const HALF_W := 1.7

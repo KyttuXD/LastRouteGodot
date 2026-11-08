@@ -1,7 +1,7 @@
 class_name MusicWing
 extends RefCounted
 
-## The music wing (docs/MUSIC_WING.md), kept out of StreamedRouteGenerator so rooms can be resized freely.
+## The music wing, kept out of StreamedRouteGenerator so rooms can be resized freely.
 ##
 ##   carve()       the "rehearsal_hall": BOTH great-hall slots of one chunk (StreamedRouteGenerator.large_plan, 21x21 each,
 ##                 doors facing each other across the vertical hall). The west slot is the 15x13 stage, entered straight

@@ -929,7 +929,7 @@ static func _paint_glass(_variant: int) -> Image:
 	return img
 
 
-# -- beach (docs/BEACH_LOOK.md) -------------------------------------------------
+# -- beach -------------------------------------------------
 #
 # A stylised daylight beach for the Beach district: warm pale sand, damp sand, bleached boardwalk planks, sea-washed
 # stone, whitewashed and turquoise-painted planking and a bright sky-blue skylight ceiling. Painted values stay under
@@ -1156,7 +1156,7 @@ const FLOOR_PAINTERS := {
 	"epoxy0": [&"_paint_epoxy", 0], "epoxy1": [&"_paint_epoxy", 1],
 	"terracotta0": [&"_paint_terracotta", 0], "terracotta1": [&"_paint_terracotta", 1],
 	"rock0": [&"_paint_rock_floor", 0], "rock1": [&"_paint_rock_floor", 1], "rock2": [&"_paint_rock_floor", 2],
-	# beach (docs/BEACH_LOOK.md): sand, damp sand, bleached boardwalk planks. Appended: ceiling layers shift, lookups are by name
+	# beach: sand, damp sand, bleached boardwalk planks. Appended: ceiling layers shift, lookups are by name
 	"sand0": [&"_paint_sand", 0], "sand1": [&"_paint_sand", 1], "wetsand0": [&"_paint_sand", 2],
 	"driftwood0": [&"_paint_driftwood", 0], "driftwood1": [&"_paint_driftwood", 1],
 }
@@ -1368,7 +1368,7 @@ static func layer(group: String, kind: String) -> float:
 	return float((_array_layers[group] as Dictionary).get(kind, 0))
 
 
-## Daylight floor of the beach kinds (docs/BEACH_LOOK.md): the share of the painted texel the surface shows with no lamp
+## Daylight floor of the beach kinds: the share of the painted texel the surface shows with no lamp
 ## near, so a sand, seawall or whitewash room reads as sunlit at a glance instead of black away from a lantern. Only the
 ## beach's own kinds are listed (no other region paints them), so no other district changes.
 const BEACH_EMIT_FLOOR := .6
@@ -1396,7 +1396,7 @@ static func params(group: String, kind: String) -> Color:
 		# the sewer has no ambient fill and its lamps light downward: a faint glow keeps the vault a visible slab
 		# over the fittings instead of black space ("floating lights")
 		emit = .16
-	# the beach is a daylight seaside (docs/BEACH_LOOK.md): its own kinds carry a daylight floor that rides in the
+	# the beach is a daylight seaside: its own kinds carry a daylight floor that rides in the
 	# vertex colour, a beach-only ambient with no light and no shader change
 	if BEACH_DAYLIGHT.has(group) and (BEACH_DAYLIGHT[group] as Dictionary).has(kind):
 		emit = float((BEACH_DAYLIGHT[group] as Dictionary)[kind])
@@ -1409,7 +1409,7 @@ static func array_material(group: String) -> ShaderMaterial:
 	if not _array_textures.has(group):
 		_build_array(group)
 	var m := ShaderMaterial.new()
-	# ref_surface.gdshader unless the shader-lights mode is on (ShaderLights, docs/SHADER_LIGHTS.md): then its lit twin
+	# ref_surface.gdshader unless the shader-lights mode is on (ShaderLights): then its lit twin
 	m.shader = ShaderLights.surface_shader(ARRAY_SHADER)
 	m.set_shader_parameter("tex", _array_textures[group])
 	m.set_shader_parameter("tint", Vector3(1.25, 1.22, 1.3))

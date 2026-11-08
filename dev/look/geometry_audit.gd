@@ -4,8 +4,6 @@ extends Node
 ## prints the counts table plus the top findings.
 ##
 ##   godot --headless --path . res://dev/look/geometry_audit.tscn -- OUTDIR [SEEDS=6] [PER_REGION=6] [TAG=before]
-##
-## docs/GEOMETRY_AUDIT.md holds the before/after numbers.
 
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()

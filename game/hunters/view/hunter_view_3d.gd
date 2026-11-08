@@ -60,7 +60,7 @@ var _peek_pose := ""
 signal peek_spotted(view: HunterView3D)
 var _peek_spotted := false
 const PEEK_SPOT_RANGE := 16.0
-## The duck / shoulder turn through door frames (docs/DOORWAY_CLEARANCE.md); only humanoid rigs bind it.
+## The duck / shoulder turn through door frames; only humanoid rigs bind it.
 var _doorway := DoorwayPose.new()
 var nw_pose_opts := {}
 var nw_layers := false
@@ -603,7 +603,7 @@ func _apply_sleep_pose() -> void:
 		_model.remove_meta("awake_position")
 
 
-## Seated on a seat (HunterSeats, docs/SEATING.md): facing out of the seat, in the shared "sit" pose. Set every sync by
+## Seated on a seat (HunterSeats): facing out of the seat, in the shared "sit" pose. Set every sync by
 ## the host and from the hunter report on guests.
 var _seated := false
 

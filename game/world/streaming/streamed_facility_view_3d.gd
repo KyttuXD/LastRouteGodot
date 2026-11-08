@@ -3311,7 +3311,7 @@ static func room_anchor_map(data: Dictionary) -> Dictionary:
 
 
 ## The cells a room door stands in -> {"normal" (through the door), "front_h" / "back_h" (the ceilings either side)}:
-## the header over the frame closes the opening up to both ceilings (docs/DOORWAY_CLEARANCE.md).
+## the header over the frame closes the opening up to both ceilings.
 static func door_headers(region_props: Array, heights: Dictionary, corridor_h: float) -> Dictionary:
 	var out := {}
 	for prop_value in region_props:
@@ -4453,7 +4453,7 @@ func _spawn_authored_prop(parent: Node3D, path: String, at: Vector3,
 	if furniture_action == "mirror":
 		_spawn_mirror_surface(parent, at, yaw)
 	if not furniture_action.is_empty():
-		# a multi-seat (waiting-room row, bench, couch, booth) gets one interactable per seat (docs/SEATING.md)
+		# a multi-seat (waiting-room row, bench, couch, booth) gets one interactable per seat
 		var seat_points: Array = PropModelCatalog.seat_points(prop_type, blocker_size) if furniture_action == "sit" \
 			else [{"x": 0.0, "z": 0.0, "turn": 0.0, "width": blocker_size.x}]
 		var seat_height := seat_top(visual, path, prop_type) if furniture_action == "sit" else 0.0

@@ -1,7 +1,7 @@
 class_name DoorwayPose
 extends RefCounted
 
-## How a 1.5x hunter gets through a door frame without her head or shoulders going through it (docs/DOORWAY_CLEARANCE.md):
+## How a 1.5x hunter gets through a door frame without her head or shoulders going through it:
 ## a duck (knees bend, a lean and a head dip) when the opening is lower than her head plus DoorwayFrames.HEADROOM, and a
 ## shoulder turn (the upper body turns side-on, the head keeps looking ahead, arms and stride swing less) when the opening
 ## is narrower than her shoulders. Additive on whatever the clip, the head look and the Night Watch layers left on the bones,

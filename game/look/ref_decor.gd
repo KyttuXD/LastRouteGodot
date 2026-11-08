@@ -658,13 +658,13 @@ func _style() -> Dictionary:
 ## Per-region fixture recipe: which lamp family, how dense, which wall extras.
 const STYLE := {
 	"maze": {"lamp": "ceiling", "wall_lamp": 11, "teal": 9, "pipe": 3, "cable": 20, "frame": 0, "lit_rooms": .8},
-	# luxury (docs/MANSION_LUXURY.md): every room lit, sconces at the closest spacing, warm candle-gold light, crown
+	# luxury: every room lit, sconces at the closest spacing, warm candle-gold light, crown
 	# moulding and coffered ceilings in the rooms
 	"mansion": {"lamp": "sconce", "wall_lamp": 6, "teal": 22, "pipe": 99, "cable": 99, "frame": 7, "lit_rooms": 1.0,
 		"tint": Color("ffc27a"), "stutter": 0, "luxury": true},
 	"hotel": {"lamp": "sconce", "wall_lamp": 5, "teal": 14, "pipe": 8, "cable": 40, "frame": 6, "lit_rooms": .9},
 	"apartment": {"lamp": "sconce", "wall_lamp": 7, "teal": 20, "pipe": 6, "cable": 30, "frame": 8, "lit_rooms": .85},
-	# daylight seaside (docs/BEACH_LOOK.md): steady warm sun-white lanterns, every room lit
+	# daylight seaside: steady warm sun-white lanterns, every room lit
 	"beach": {"lamp": "lantern", "wall_lamp": 3, "teal": 28, "pipe": 99, "cable": 99, "frame": 0, "lit_rooms": 1.0,
 		"tint": Color("ffe2b0"), "stutter": 0},
 	"gothic": {"lamp": "lantern", "wall_lamp": 6, "teal": 30, "pipe": 6, "cable": 30, "frame": 0, "lit_rooms": .8},
@@ -881,7 +881,7 @@ func _pedestal(world: Vector3) -> void:
 
 ## Share (percent) of rooms/blocks whose lamps are on: the district's own value scaled down, except in a safe room.
 func _lit_percent(style: Dictionary) -> int:
-	# the beach is all daylight lanterns (docs/BEACH_LOOK.md "every room lit"): no 0.4 scale there
+	# the beach is all daylight lanterns: no 0.4 scale there
 	var scale := 1.0 if bool(_data.get("safe_room", false)) or _region == "beach" else RefLook.LIT_ROOMS_SCALE
 	return int(float(style["lit_rooms"]) * 100.0 * scale)
 
@@ -1057,7 +1057,7 @@ static func mesh_for(key: String) -> Mesh:
 		"rib": mesh = _merge([["iron", _box(Vector3(1.0, .3, .3)), _t(0, 0, 0)],
 			["brass", _box(Vector3(1.0, .05, .34)), _t(0, -.17, 0)]])
 		"chain": mesh = _build_chain()
-		# mansion ceilings (docs/MANSION_LUXURY.md)
+		# mansion ceilings
 		"crown": mesh = _merge([["plaster", _box(Vector3(1.0, .18, .1)), Transform3D.IDENTITY],
 			["plaster", _box(Vector3(1.0, .06, .16)), _t(0, .06, .03)],
 			["brass", _box(Vector3(1.0, .03, .12)), _t(0, -.1, .01)]])

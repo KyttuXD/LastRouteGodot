@@ -30,7 +30,7 @@ Runtime interface (`NightWatchOfficeBase`): `spec`, `stations`, `props`, `build(
 Rules for an office:
 * New files only; never edit another office or another mode's folder. Cubes only through `NightWatchArt.box` (baked shading, one texel density, hazard tape only
   where a hazard sign belongs); interactables are `NightWatchStation`; solid things have a layer-1 `StaticBody3D`.
-* Real lights: at most `NightWatchOfficeSpec.MAX_REAL_LIGHTS` (3) on at once, no shadow casters (docs/REF_LOOK.md budget).
+* Real lights: at most `NightWatchOfficeSpec.MAX_REAL_LIGHTS` (3) on at once, no shadow casters.
 * Shared player (`game/night_watch/night_watch_player.tscn`), shared prompt, crosshair and sounds. Hunters reach the entrances by path (`NightWatchPaths` pattern); no teleports.
 * Walkable: the suite does a capsule flood fill from the spawn: it must reach every station (within 3 m) and every entrance (within 2.5 m); no blocked spawn,
   no split room.

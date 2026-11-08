@@ -1,7 +1,7 @@
 class_name ShaderLights
 extends RefCounted
 
-## Shader-computed lights for the chunk surfaces (docs/SHADER_LIGHTS.md).
+## Shader-computed lights for the chunk surfaces.
 ##
 ## Apple's legacy OpenGL driver (Intel Macs) breaks the engine's light path: a light lights nothing beyond about a metre and
 ## the reach shrinks as its energy grows. On such a GPU the flashlight cone and the lamp pool are computed in the surface
@@ -30,7 +30,7 @@ const BASE_PARAMETERS: Array[StringName] = [&"tex", &"tint", &"specular_base", &
 
 # -- twins of the constants in shader_lights.gdshaderinc (the test compares them) --------------------------------------------
 
-## Engine light units -> this shader's units. Derived from the flash_lab numbers (docs/SHADER_LIGHTS.md, Calibration): with
+## Engine light units -> this shader's units. Derived from the flash_lab numbers (Calibration): with
 ## Godot's own falloff the PC's real SpotLight3D (7.5, range 16) is 2.1x the plain Lambert term at both the floor and the
 ## 12 m end wall. Windowed tuning knob: LR_SL_FLASH_GAIN / LR_SL_LAMP_GAIN (no shader edit).
 const FLASH_GAIN := 2.1

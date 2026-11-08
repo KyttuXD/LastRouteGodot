@@ -36,7 +36,7 @@ const RULES := [
 ## Architecture against the player: [name, value, min, max, note].
 const ARCHITECTURE := [
 	["ceiling_height", 4.0, 2.6, 4.5, "StreamedFacilityView3D.WALL_HEIGHT; high on purpose (hunters are 1.5x)"],
-	["door_opening_height", DoorwayFrames.TARGET_OPENING, 2.9, 3.2, "doors open 3.07 m: a normal hunter (2.67 m) + 40 cm; two-cell doors for every room with a side of 4+ cells (docs/DOORWAY_CLEARANCE.md)"],
+	["door_opening_height", DoorwayFrames.TARGET_OPENING, 2.9, 3.2, "doors open 3.07 m: a normal hunter (2.67 m) + 40 cm; two-cell doors for every room with a side of 4+ cells"],
 	["hall_width", 3.0, 2.0, 5.0, "StreamedRouteGenerator.CORRIDOR_WIDTH, 3 or 5 cells"],
 	["capsule_standing", PlayerController3D.STANDING_COLLISION_HEIGHT, 1.6, 2.0, "PlayerController3D.STANDING_COLLISION_HEIGHT vs the 1.9 m runner"],
 	["camera_vs_model_eye", 0.08, 0.0, 0.15, "camera 1.71 against the model's eye node at 1.61"],

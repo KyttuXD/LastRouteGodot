@@ -80,7 +80,7 @@ const BANK_BIG_TYPES := {
 	"mansion": ["drawing_room", "dining_room"], "carnival": ["midway", "carnival_stage"],
 	"gothic": ["crypt", "chapel", "archive"], "inferno": ["forge", "thermal_chamber", "lava_gallery", "altar_room"],
 	"beach": ["cove", "tide_pool"], "maze": ["restaurant_dining", "storage", "arcade_room"],
-	# hunter-scale beds, imaging, benches and consoles need 1.4 m aisles (docs/ROOM_REFERENCE.md): these are 21x9 rooms
+	# hunter-scale beds, imaging, benches and consoles need 1.4 m aisles: these are 21x9 rooms
 	"hospital": ["ward", "operating_theatre", "icu", "nurses_station", "imaging"],
 	"lab": ["server_hall", "containment", "clean_room", "chem_lab", "bio_lab", "control_room"],
 	"greenhouse": ["glasshouse", "palm_house"],
@@ -2411,7 +2411,7 @@ func _carve_suite_cluster(coord: Vector3i, region: String, grid: Array,
 
 	# four rooms round a three-wide cross: 7 x 7 in a 17 x 17 sector; the maze's office sector is 17 wide (the seam bay
 	# needs the last three columns) and 19 tall under the five-wide hall, so its rooms are 7 x 8 (hunter scale needs the
-	# depth; docs/ROOM_REFERENCE.md). A 21 sector would give 9 x 9.
+	# depth). A 21 sector would give 9 x 9.
 	var room_w := (rect.size.x - 3) / 2
 	var room_h := (rect.size.y - 3) / 2
 	var far_x := room_w + 3
@@ -3229,7 +3229,7 @@ func _furnished_room_props(coord: Vector3i, region: String, room: Dictionary,
 
 ## Things standing on furniture (a lamp on a dresser, a computer on a desk) are authored at the person-sized parent's top
 ## (`mount_y`). The parent is drawn at its hunter scale (PropModelCatalog.HUNTER_SCALE), so its top is that much higher:
-## raise the mount with it, or the lamp sinks into the dresser (docs/PROP_SIZES.md).
+## raise the mount with it, or the lamp sinks into the dresser.
 static func scale_surface_mounts(props: Array) -> void:
 	for prop_value in props:
 		var prop: Dictionary = prop_value
@@ -3528,7 +3528,7 @@ static func _claim_order(specs: Array) -> Array:
 
 ## A seat set around a table at fixed cells (dining sets, cafeteria rows, desks) hits its hunter-scale table: slide it
 ## straight back from what it faces, 15 cm at a time up to 1.2 m, until it is clear and still inside the room on open
-## floor (docs/PROP_SIZES.md). Only seats move; anything else that collides is dropped as before.
+## floor. Only seats move; anything else that collides is dropped as before.
 static func _nudge_seat_clear(entry: Dictionary, placed: Array, grid: Array, rect: Rect2i) -> bool:
 	if PropModelCatalog.interaction_for(String(entry.get("type", ""))) != "sit":
 		return false
@@ -4265,7 +4265,7 @@ static func _room_template_specs(template: String, region: String,
 				"depth": mid_depth - 1, "facing": "open", "solid": false})
 	if region in ["hospital", "lab", "greenhouse", "mall"]:
 		specs.append_array(_region_room_specs(template, (side_span - 3) / 2, depth_span, mirror))
-	# the music wing's rooms (docs/MUSIC_WING.md): the stage, practice rooms, store, booth, the mall music store, the carnival stage
+	# the music wing's rooms: the stage, practice rooms, store, booth, the mall music store, the carnival stage
 	if MusicWing.TEMPLATES.has(template):
 		specs.append_array(MusicWing.room_specs(template, (side_span - 3) / 2, depth_span, mirror))
 	# 21-wide hall rooms (docs/ROOM_SIZES.md): the inferno recipes repeat across the width instead of leaving it bare
@@ -4282,7 +4282,7 @@ static func _room_template_specs(template: String, region: String,
 			if String(spec_value.get("type", "")) in ["ceilingFan", "ceilingLight"]:
 				spec_value["type"] = "diningChandelier"
 	if region == "mansion" and template in ["bedroom", "lounge", "mansion_dining", "dining_hall"]:
-		# Mansion luxury (docs/MANSION_LUXURY.md): marble columns in the back corners, porcelain vases on the back wall.
+		# Mansion luxury: marble columns in the back corners, porcelain vases on the back wall.
 		var corner := maxi(2, side_span / 2 - 1)
 		for column_side in [-corner, corner]:
 			specs.append({"type": "mansionMarbleColumn", "side": column_side, "depth": 0, "wall_backed": true, "facing": "open"})
@@ -4332,7 +4332,7 @@ const _MOUNT := {"wall_mount": true, "solid": false}
 const _LOOSE := {"solid": false}
 
 
-## Hospital, research lab and greenhouse rooms (docs/REGIONS.md). Recipes are written for the 11-wide bank room (interior
+## Hospital, research lab and greenhouse rooms. Recipes are written for the 11-wide bank room (interior
 ## sides -4..4, depths 0..front); REGION_REPEAT_TEMPLATES are laid twice, at sides -5 and +5, across a 21-wide hall room.
 ## `front` is the entrance row; nothing solid lands on its middle cell (_keep_entrance_clear) and recipes keep the
 ## middle column in front of the door free so the room reads from the doorway.
@@ -5064,7 +5064,7 @@ func _room_door_props(coord: Vector3i, region: String, rooms: Array,
 		var rect: Rect2i = room.get("rect", Rect2i())
 		var suite_child := room.has("suite_id") \
 			and not bool(room.get("suite_parent", false))
-		# Doors are sized for the hunters (docs/DOORWAY_CLEARANCE.md): every room with a side of 4+ cells and a suite's
+		# Doors are sized for the hunters: every room with a side of 4+ cells and a suite's
 		# own entrance get a two-cell double door (three cells in WIDE_DOUBLE_DOOR_REGIONS); only small rooms and the
 		# rooms inside a suite keep a single door.
 		var major := _is_major_room(room, rect)

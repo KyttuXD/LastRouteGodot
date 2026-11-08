@@ -62,7 +62,7 @@ const TENT_PACE := 3.25
 const BACK_PACE := 1.0
 const LOW_FIRE := 25.0
 const LOW_FIRE_BONUS := 3
-## Variety (docs/VARIETY.md, "Open Air"): every draw is on the watch's one seeded stream; none touches a tell or a held defence.
+## Variety: every draw is on the watch's one seeded stream; none touches a tell or a held defence.
 const ARRIVE_SPREAD_MS := 4000.0
 const GUST_FIRST_SPREAD := 0.25
 const SIDE_SWITCH := 0.65

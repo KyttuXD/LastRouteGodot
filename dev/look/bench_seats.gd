@@ -1,6 +1,6 @@
 extends Node
 
-## Three on one waiting-room row (docs/SEATING.md): a hunter in the shared "sit" pose and two runners in their "sit"
+## Three on one waiting-room row: a hunter in the shared "sit" pose and two runners in their "sit"
 ## clip, each on their own sit point, lifted to the hunter-scale seat as peers see them. Windowed, so it needs a display:
 ##   godot --path . res://dev/look/bench_seats.tscn -- /tmp/bench_caps [type]
 ## (type defaults to waitingChairs; dinerBooth seats four, two per bench, facing across the table)

@@ -3,7 +3,7 @@ extends VoidGimmick
 
 ## Pink Void, falseSignal: she never attacks. Every 11 s she has a 60 % chance to make the runner hear false footsteps somewhere
 ## close: a short run of quiet footfalls, no text, no HUD, no alert stinger. (The two fake radar contacts for 6 s need the radar
-## to accept ghost marks and are still to do, see docs/HUNTER_PARITY.md.)
+## to accept ghost marks and are still to do.)
 ##
 ## The host decides everything from the brain's deterministic RNG and queues one mechanic event, `fake_footsteps`:
 ##   {"what": "fake_footsteps", "peer_id": int (target, when known), "target_depth": int (target's level, when known),

@@ -1,6 +1,6 @@
 extends Node
 
-## Startup self-test for the engine light path, and the owner of ShaderLights' per-frame push (docs/SHADER_LIGHTS.md).
+## Startup self-test for the engine light path, and the owner of ShaderLights' per-frame push.
 ##
 ## Apple's legacy OpenGL driver (Intel Macs) lights nothing beyond about a metre. On a macOS desktop build whose GPU is not a
 ## known Apple GPU, a tiny off-screen corridor is rendered with one omni light and one spot at the flashlight's energy and

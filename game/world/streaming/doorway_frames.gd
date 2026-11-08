@@ -2,7 +2,7 @@ class_name DoorwayFrames
 extends RefCounted
 
 ## Every door frame a hunter walks through (room doors, boarded doorways, prison cell doorways), so the hunter view can
-## tell when she is in one and how big the opening is (docs/DOORWAY_CLEARANCE.md). Frames register themselves when
+## tell when she is in one and how big the opening is. Frames register themselves when
 ## they enter the tree and drop out when they leave; a frame's local z = 0 plane is the wall, x runs across the opening.
 ##
 ## Door frames are also RAISED here: since the hunters are 1.5x (2.67 m, up to 3.2 m with hair), the authored 2.375 m

@@ -503,7 +503,7 @@ func _local_state() -> Dictionary:
 		"hiding_style": controller.hiding_style(),
 		"hide_slot": controller.hidden_slot,
 		"asleep": controller.asleep,
-		# the seat this runner sits on (SeatOccupancy, docs/SEATING.md): peers do not offer it
+		# the seat this runner sits on (SeatOccupancy): peers do not offer it
 		"seat_at": SeatOccupancy.plan_of(controller.resting_furniture) \
 			if controller.resting_pose == "sit" and controller.resting_furniture != null and is_instance_valid(controller.resting_furniture) else null,
 		"seat_top": float(controller.resting_furniture.get_meta("seat_top", 0.0)) \

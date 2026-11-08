@@ -1,7 +1,7 @@
 class_name StorySounds
 extends RefCounted
 
-## The Facility's cues: nothing of its own, only the shared office cues through NightWatchSounds (docs/NIGHT_WATCH_3D.md 5c).
+## The Facility's cues: nothing of its own, only the shared office cues through NightWatchSounds.
 
 static func hunter_close(id: String, away: bool) -> void:
 	NightWatchSounds.office("footsteps", float(StoryData.PAN[id]), 0.5 if away else 0.9)

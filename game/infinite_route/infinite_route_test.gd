@@ -3286,7 +3286,7 @@ func _hunter_step_group(cycle_delta: float, group: int) -> void:
 			_store_hunter(entity_id, view)
 			continue
 		view.set_asleep(false)
-		# idle seats (docs/SEATING.md): a seated hunter is owned by the seat until a noise or a sighting gets her up
+		# idle seats: a seated hunter is owned by the seat until a noise or a sighting gets her up
 		if not _naps.naps.has(entity_id) and _seats.update(entity_id, view.brain, navigation, target, delta, _nap_rng.randf(), RoomState.difficulty_id()):
 			view.target_peer_id = 0
 			view.set_look_target(null)
@@ -3611,7 +3611,7 @@ var _naps := HunterNaps.new()
 var _seats := HunterSeats.new()
 
 
-## Who sits where this frame (SeatOccupancy, docs/SEATING.md): remote runners from their replicated seat, hunters from
+## Who sits where this frame (SeatOccupancy): remote runners from their replicated seat, hunters from
 ## their seated views (host and guests alike), so a taken seat offers no prompt and no hunter picks it.
 func _tick_seat_occupancy() -> void:
 	var taken: Array = _remotes.occupied_seats() if _remotes != null else []

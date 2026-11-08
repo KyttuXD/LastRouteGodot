@@ -3,7 +3,7 @@ extends Control
 
 ## Night Watch's menus, rebuilt from the 2D game's (its menu, hub and custom screens): the TITLE (PLAY, CUSTOM NIGHT,
 ## ACCOUNT, SETTINGS, CREDITS, QUIT), the SHIFT BOARD (nine modes, shift tiles, START SHIFT), CUSTOM NIGHT, ACCOUNT, SETTINGS and CREDITS,
-## over the office. Same order, labels, structure and palette as the 2D game; docs/NIGHT_WATCH_MENUS.md lays them side by side and
+## over the office. Same order, labels, structure and palette as the 2D game;
 ## tests/validate_night_watch_menus.gd checks the labels. The mode table is NightWatchModesData (copied from the 2D registry).
 ## QUIT goes back to the games hub, as the 2D QUIT goes back to the lab.
 

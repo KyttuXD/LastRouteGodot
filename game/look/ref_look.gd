@@ -128,7 +128,7 @@ static func _update_grid(host: Node, material: ShaderMaterial) -> void:
 #   mansion   drawing room / grand hall / dining room, wainscoted corridors
 #   hotel     lobby and wallpapered corridors with carpet runners
 #   apartment two-tone wallpapered flats with parquet
-#   beach     daylight seaside (docs/BEACH_LOOK.md): sand and boardwalk planks, seawall stone, whitewash and turquoise panels, sky ceiling
+#   beach     daylight seaside: sand and boardwalk planks, seawall stone, whitewash and turquoise panels, sky ceiling
 #   gothic    vaulted brick / stone arcades
 #   carnival  prize room: star carpet, brass, checker
 #   prison    service bays: riveted metal, hazard striping

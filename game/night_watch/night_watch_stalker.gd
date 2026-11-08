@@ -2,7 +2,7 @@ class_name NightWatchStalker
 extends RefCounted
 
 ## One hunter, ported from createStalker in the 2D game (the variety levers and Kathy's fading are later
-## milestones, see docs/NIGHT_WATCH_3D.md). She walks the building graph toward her door after a random wait, then waits at
+## milestones). She walks the building graph toward her door after a random wait, then waits at
 ## it: a shut door (T_CLOSED_MS) or the light held on her (push_ms) sends her back, otherwise she attacks after `attack_ms`.
 ## Deterministic: every roll comes from the shared seeded RandomNumberGenerator.
 

@@ -1,7 +1,7 @@
 class_name LureSounds
 extends RefCounted
 
-## Dead Air's cues: nothing of its own. Everything is one of the shared office cues through NightWatchSounds (see docs/NIGHT_WATCH_3D.md 5c).
+## Dead Air's cues: nothing of its own. Everything is one of the shared office cues through NightWatchSounds.
 
 static func moved(room: String) -> void:
 	var pan := float(LureData.INFO.get(room, {}).get("pan", 0.0))

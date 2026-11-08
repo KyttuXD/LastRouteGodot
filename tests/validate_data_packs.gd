@@ -133,8 +133,9 @@ func _check_loaded(dir: String) -> void:
 	var ceiling := _surface_pixel("ceiling", "vault")
 	_expect(ceiling == "(32, 32) %d %s true" % [Image.FORMAT_RGBA8, Color.DEEP_PINK.to_html()],
 		"ceiling replacement not painted into the floor/ceiling array: %s" % ceiling)
-	_expect(RefTextures.params("ceiling", "vault").b > 0.0 and RefTextures.params("ceiling", "glass").b > 0.0,
-		"replacing a ceiling's picture lost the glass/vault glow")
+	# only the sewer vault glows (glass has no glow by design); a replaced picture must keep that
+	_expect(RefTextures.params("ceiling", "vault").b > 0.0 and RefTextures.params("ceiling", "glass").b == 0.0,
+		"replacing a ceiling's picture changed the vault glow or gave glass one")
 	var wall := _surface_pixel("wall", "panel0")
 	_expect(wall == "(32, 128) %d %s true" % [Image.FORMAT_RGBA8, Color.LIME.to_html()],
 		"wall replacement (an RGB8 PNG) not converted into a complete array: %s" % wall)

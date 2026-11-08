@@ -4,7 +4,7 @@ extends RefCounted
 ## The Inferno's secret creatures: two variants of one species, a white and a black wolf spider. Deliberately NOT in HunterRoster.PROFILES: everything that walks PROFILES (dossier
 ## counters, undiscovered-signal rows, random draws, validators' "38 hunters") must never learn this id exists, so
 ## it lives here and is reached through three narrow fallbacks (get_identity, gimmick lookup, death lines) plus the
-## admin hunter picker. Design and tuning knobs: docs/SECRET_WOLF_SPIDER.md.
+## admin hunter picker.
 
 const WHITE_WOLF_SPIDER := "white_wolf_spider"
 const BLACK_WOLF_SPIDER := "black_wolf_spider"

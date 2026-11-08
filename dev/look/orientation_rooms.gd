@@ -1,6 +1,6 @@
 extends Node
 
-## Prop orientation before/after (docs/PROP_ORIENTATION.md): the first furnished room of each listed district on a seeded
+## Prop orientation before/after: the first furnished room of each listed district on a seeded
 ## route, from high in one corner looking down across the room, so facing pairs and wall-backed props read. Windowed:
 ##   godot --path . res://dev/look/orientation_rooms.tscn -- /tmp/out tag
 

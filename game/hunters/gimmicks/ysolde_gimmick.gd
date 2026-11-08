@@ -21,7 +21,7 @@ extends HunterGimmick
 ## heater_unfrozen/heater_powered already are.
 
 
-## YSOLDE AVOIDS (docs/YSOLDE.md): she is timid. When the runner is close and in sight she does not come closer: she backs
+## YSOLDE AVOIDS: she is timid. When the runner is close and in sight she does not come closer: she backs
 ## off along the real nav graph to a reachable, non-dead-end cell that gains distance. The style is chosen here:
 ##   "avoid" keeps about AVOID_DISTANCE away and slips around (normal pace, short retreats),
 ##   "run"   bolts away faster and farther and gives up the area for a while.

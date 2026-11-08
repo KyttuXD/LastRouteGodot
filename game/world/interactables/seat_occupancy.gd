@@ -1,7 +1,7 @@
 class_name SeatOccupancy
 extends RefCounted
 
-## Who sits where (docs/SEATING.md): plan positions (x, z in metres) of every occupied seat, shared by runners and
+## Who sits where: plan positions (x, z in metres) of every occupied seat, shared by runners and
 ## hunters. Rebuilt every frame by the route from the remote runners' replicated `seat_at` and the seated hunters' views;
 ## the local runner is never in it. A seat within NEAR of an occupant is taken: it offers no prompt to anyone else, and
 ## HunterSeats skips it. Sit points on one bench are 0.9 m+ apart, so a neighbour never blocks the next seat.

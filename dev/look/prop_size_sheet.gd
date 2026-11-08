@@ -1,6 +1,6 @@
 extends Node3D
 
-## Before/after size panels for the hunter-scale rescale (docs/PROP_SIZES.md): for each prop, the authored (person-sized)
+## Before/after size panels for the hunter-scale rescale: for each prop, the authored (person-sized)
 ## model on the left, the rescaled one on the right, a 1.60 m runner mannequin and a 2.67 m hunter between them for
 ## scale, on a 1 m grid floor. One PNG per prop; tools/props/prop_size_sheet.py tiles them. Windowed: needs a display.
 ##   godot --path . res://dev/look/prop_size_sheet.tscn -- /tmp/size_sheet type1,type2,...

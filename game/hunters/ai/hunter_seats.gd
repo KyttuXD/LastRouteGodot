@@ -1,7 +1,7 @@
 class_name HunterSeats
 extends RefCounted
 
-## Hunters taking a seat (docs/SEATING.md). Host-side, like HunterNaps: now and then a patrolling hunter (wandering or
+## Hunters taking a seat. Host-side, like HunterNaps: now and then a patrolling hunter (wandering or
 ## idle, no runner close) walks to a free seat nearby and sits for a while. Seated she still hunts with her senses: the
 ## brain is not stepped, but she gets up at once on a noise or on sight of a runner and goes to look (sight wins: she
 ## chases). Rare, and rarer the harder the difficulty; never for Voids or the secret creatures.
