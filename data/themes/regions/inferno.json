@@ -1,0 +1,21 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "inferno",
+	"wall": [
+		"rockwall0",
+		"rockwall1",
+		"rockwall2",
+		"rockwall3",
+		"rockwall4",
+		"rockwall5",
+		"rockwall6",
+		"rockwall7"
+	],
+	"ceiling": "rockceil",
+	"accent": {
+		"texture": "floor",
+		"kind": "metal3",
+		"tint": "#9a6a50",
+		"metal": true
+	}
+}

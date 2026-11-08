@@ -1,0 +1,15 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "apartment",
+	"wall": [
+		"paper0",
+		"office1"
+	],
+	"ceiling": "ceil1",
+	"accent": {
+		"texture": "floor",
+		"kind": "metal0",
+		"tint": "#b8955a",
+		"metal": true
+	}
+}

@@ -1,0 +1,307 @@
+[gd_scene load_steps=13 format=3]
+
+[ext_resource type="Script" path="res://game/menus/main_menu.gd" id="1_menu"]
+[ext_resource type="PackedScene" path="res://game/menus/settings_overlay.tscn" id="2_settings"]
+[ext_resource type="Script" path="res://game/ui_common/signal_backdrop.gd" id="3_backdrop"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_normal"]
+bg_color = Color(0.04, 0.065, 0.075, 0.92)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.48, 0.47, 0.8)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+content_margin_left = 6.0
+content_margin_top = 3.0
+content_margin_right = 6.0
+content_margin_bottom = 3.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_hover"]
+bg_color = Color(0.08, 0.15, 0.16, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.35, 0.75, 0.7, 0.9)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+content_margin_left = 6.0
+content_margin_top = 3.0
+content_margin_right = 6.0
+content_margin_bottom = 3.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_pressed"]
+bg_color = Color(0.12, 0.22, 0.22, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.45, 0.85, 0.8, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+content_margin_left = 6.0
+content_margin_top = 3.0
+content_margin_right = 6.0
+content_margin_bottom = 3.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_disabled"]
+bg_color = Color(0.02, 0.03, 0.035, 0.6)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.15, 0.22, 0.22, 0.4)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+content_margin_left = 6.0
+content_margin_top = 3.0
+content_margin_right = 6.0
+content_margin_bottom = 3.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_focus"]
+bg_color = Color(0.08, 0.15, 0.16, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.62, 0.94, 0.88, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+content_margin_left = 6.0
+content_margin_top = 3.0
+content_margin_right = 6.0
+content_margin_bottom = 3.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_slider_bg"]
+bg_color = Color(0.05, 0.08, 0.09, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.3, 0.3, 0.8)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_slider_fill"]
+bg_color = Color(0.561, 0.816, 0.878, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(0.015, 0.025, 0.035, 0.88)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.48, 0.47, 0.8)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_actions"]
+
+[sub_resource type="Theme" id="Theme_menu"]
+default_font_size = 10
+Button/colors/font_color = Color(0.78, 0.96, 0.91, 1)
+Button/colors/font_disabled_color = Color(0.42, 0.5, 0.5, 0.55)
+Button/colors/font_hover_color = Color(0.9, 1, 0.97, 1)
+Button/colors/font_pressed_color = Color(0.62, 0.94, 0.88, 1)
+Button/font_sizes/font_size = 10
+Button/styles/disabled = SubResource("StyleBoxFlat_btn_disabled")
+Button/styles/focus = SubResource("StyleBoxFlat_btn_focus")
+Button/styles/hover = SubResource("StyleBoxFlat_btn_hover")
+Button/styles/normal = SubResource("StyleBoxFlat_btn_normal")
+Button/styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+HSlider/styles/grabber_area = SubResource("StyleBoxFlat_slider_fill")
+HSlider/styles/grabber_area_highlight = SubResource("StyleBoxFlat_slider_fill")
+HSlider/styles/slider = SubResource("StyleBoxFlat_slider_bg")
+Label/colors/font_color = Color(0.78, 0.96, 0.91, 1)
+Label/font_sizes/font_size = 9
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")
+
+[node name="Background" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1
+anchor_bottom = 1
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_backdrop")
+
+[node name="TitleLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -155
+offset_top = -30
+offset_right = 55
+offset_bottom = 24
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.95, 0.93, 0.9, 1)
+theme_override_colors/font_outline_color = Color(0.1, 0.05, 0.08, 1)
+theme_override_colors/font_shadow_color = Color(0.27, 0.17, 0.32, 0.92)
+theme_override_font_sizes/font_size = 28
+theme_override_constants/line_spacing = -8
+theme_override_constants/outline_size = 1
+theme_override_constants/shadow_offset_x = 4
+theme_override_constants/shadow_offset_y = 4
+theme_override_constants/shadow_outline_size = 1
+text = "THE LAST\nROUTE"
+
+[node name="ButtonPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -155
+offset_top = 50
+offset_right = 155
+offset_bottom = 97
+grow_horizontal = 2
+grow_vertical = 1
+theme_override_styles/panel = SubResource("StyleBoxEmpty_actions")
+
+[node name="ButtonBox" type="HFlowContainer" parent="ButtonPanel"]
+layout_mode = 2
+theme_override_constants/h_separation = 5
+theme_override_constants/v_separation = 4
+
+[node name="PlayButton" type="Button" parent="ButtonPanel/ButtonBox"]
+theme_override_font_sizes/font_size = 6
+unique_name_in_owner = true
+layout_mode = 2
+text = "CREATE ROOM"
+
+[node name="JoinButton" type="Button" parent="ButtonPanel/ButtonBox"]
+theme_override_font_sizes/font_size = 6
+unique_name_in_owner = true
+layout_mode = 2
+text = "JOIN ROOM"
+
+[node name="SettingsButton" type="Button" parent="ButtonPanel/ButtonBox"]
+theme_override_font_sizes/font_size = 6
+unique_name_in_owner = true
+layout_mode = 2
+text = "SETTINGS"
+
+[node name="AccountButton" type="Button" parent="ButtonPanel/ButtonBox"]
+theme_override_font_sizes/font_size = 5
+unique_name_in_owner = true
+layout_mode = 2
+text = "REGISTER / SIGN IN"
+
+[node name="UpdateButton" type="Button" parent="ButtonPanel/ButtonBox"]
+theme_override_font_sizes/font_size = 6
+unique_name_in_owner = true
+layout_mode = 2
+visible = false
+text = "DOWNLOAD UPDATE"
+
+[node name="QuitButton" type="Button" parent="ButtonPanel/ButtonBox"]
+theme_override_font_sizes/font_size = 5
+unique_name_in_owner = true
+layout_mode = 2
+text = "BACK TO GAMES"
+
+[node name="KickerLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -155.0
+offset_top = -76.0
+offset_right = 185.0
+offset_bottom = -66.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.788, 0.663, 0.847, 1)
+theme_override_font_sizes/font_size = 5
+text = "SIGNAL ARCHIVE // ROUTE UNSTABLE"
+
+[node name="BrandLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -155.0
+offset_top = -62.0
+offset_right = 85.0
+offset_bottom = -48.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.784, 0.663, 0.847, 1)
+theme_override_colors/font_outline_color = Color(0.09, 0.045, 0.07, 1)
+theme_override_colors/font_shadow_color = Color(0.22, 0.13, 0.27, 0.95)
+theme_override_font_sizes/font_size = 10
+theme_override_constants/outline_size = 1
+theme_override_constants/shadow_offset_x = 3
+theme_override_constants/shadow_offset_y = 3
+theme_override_constants/shadow_outline_size = 1
+text = "K Y T T U ' S   L A B"
+
+[node name="LedeLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -155.0
+offset_top = 26.0
+offset_right = 180.0
+offset_bottom = 49.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.72, 0.68, 0.66, 1)
+theme_override_font_sizes/font_size = 7
+text = "Keep moving. Do not look back."
+autowrap_mode = 2
+
+[node name="VersionLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -120.0
+offset_top = -18.0
+offset_right = 120.0
+offset_bottom = -4.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "VERSION 0.0.1.0"
+horizontal_alignment = 1
+
+[node name="SettingsOverlay" parent="." instance=ExtResource("2_settings")]
+unique_name_in_owner = true
+visible = false

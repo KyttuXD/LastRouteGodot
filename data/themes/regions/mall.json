@@ -1,0 +1,15 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "mall",
+	"wall": [
+		"mall0",
+		"mall1"
+	],
+	"ceiling": "ceil1",
+	"accent": {
+		"texture": "floor",
+		"kind": "terrazzo0",
+		"tint": "#e0dcd4",
+		"metal": false
+	}
+}

@@ -1,0 +1,12 @@
+{
+	"schema": "lr.pack/1",
+	"id": "poster_shop",
+	"name": "Poster Shop",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (example)",
+	"description": "Example pack: a poster stall joins the mall's shop cycle, and the mall's terrazzo0 floor becomes a cream-and-teal checker.",
+	"overrides": [
+		"regions/mall",
+		"floors/terrazzo0"
+	]
+}

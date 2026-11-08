@@ -1,0 +1,124 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/environment/floor_tile.tscn" id="1_floor"]
+[ext_resource type="PackedScene" path="res://assets/environment/wall_block.tscn" id="2_wall"]
+[ext_resource type="PackedScene" path="res://assets/environment/door_frame.tscn" id="3_door"]
+[ext_resource type="PackedScene" path="res://assets/props/generic_prop.tscn" id="4_prop"]
+[ext_resource type="PackedScene" path="res://assets/characters/character_scale_reference.tscn" id="5_char"]
+[ext_resource type="PackedScene" path="res://assets/characters/player.tscn" id="6_player"]
+[ext_resource type="PackedScene" path="res://assets/characters/dovelle.tscn" id="7_dovelle"]
+[ext_resource type="PackedScene" path="res://assets/interactables/relay.tscn" id="8_relay"]
+[ext_resource type="PackedScene" path="res://assets/interactables/battery.tscn" id="9_battery"]
+[ext_resource type="PackedScene" path="res://assets/interactables/safe_zone.tscn" id="10_safe_zone"]
+[ext_resource type="PackedScene" path="res://assets/characters/quenelle.tscn" id="11_quenelle"]
+
+[node name="ReferenceLayout" type="Node3D"]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-55, -30, 0)
+shadow_enabled = true
+
+[node name="Camera3D" type="Camera3D" parent="."]
+position = Vector3(6, 8, 13)
+rotation_degrees = Vector3(-25, 15, 0)
+current = true
+
+[node name="FloorPatch" type="Node3D" parent="."]
+
+[node name="Floor0" parent="FloorPatch" instance=ExtResource("1_floor")]
+position = Vector3(0, 0, 0)
+
+[node name="Floor1" parent="FloorPatch" instance=ExtResource("1_floor")]
+position = Vector3(1, 0, 0)
+
+[node name="Floor2" parent="FloorPatch" instance=ExtResource("1_floor")]
+position = Vector3(2, 0, 0)
+
+[node name="Floor3" parent="FloorPatch" instance=ExtResource("1_floor")]
+position = Vector3(3, 0, 0)
+
+[node name="Floor4" parent="FloorPatch" instance=ExtResource("1_floor")]
+position = Vector3(0, 0, 1)
+
+[node name="Floor5" parent="FloorPatch" instance=ExtResource("1_floor")]
+position = Vector3(1, 0, 1)
+
+[node name="Floor6" parent="FloorPatch" instance=ExtResource("1_floor")]
+position = Vector3(2, 0, 1)
+
+[node name="Floor7" parent="FloorPatch" instance=ExtResource("1_floor")]
+position = Vector3(3, 0, 1)
+
+[node name="Walls" type="Node3D" parent="."]
+
+[node name="Wall0" parent="Walls" instance=ExtResource("2_wall")]
+position = Vector3(0, 0, -0.5)
+
+[node name="Wall1" parent="Walls" instance=ExtResource("2_wall")]
+position = Vector3(1, 0, -0.5)
+
+[node name="Wall2" parent="Walls" instance=ExtResource("2_wall")]
+position = Vector3(2, 0, -0.5)
+
+[node name="Wall3" parent="Walls" instance=ExtResource("2_wall")]
+position = Vector3(3, 0, -0.5)
+
+[node name="SampleRow" type="Node3D" parent="."]
+
+[node name="FloorDoor" parent="SampleRow" instance=ExtResource("1_floor")]
+position = Vector3(5, 0, 0)
+
+[node name="Door" parent="SampleRow" instance=ExtResource("3_door")]
+position = Vector3(5, 0, 0)
+
+[node name="FloorProp" parent="SampleRow" instance=ExtResource("1_floor")]
+position = Vector3(5, 0, 1)
+
+[node name="Prop" parent="SampleRow" instance=ExtResource("4_prop")]
+position = Vector3(5, 0, 1)
+
+[node name="FloorChar" parent="SampleRow" instance=ExtResource("1_floor")]
+position = Vector3(5, 0, 2)
+
+[node name="Character" parent="SampleRow" instance=ExtResource("5_char")]
+position = Vector3(5, 0, 2)
+
+[node name="CastRow" type="Node3D" parent="."]
+
+[node name="FloorPlayer" parent="CastRow" instance=ExtResource("1_floor")]
+position = Vector3(7, 0, 0)
+
+[node name="Player" parent="CastRow" instance=ExtResource("6_player")]
+position = Vector3(7, 0, 0)
+
+[node name="FloorDovelle" parent="CastRow" instance=ExtResource("1_floor")]
+position = Vector3(7, 0, 1)
+
+[node name="Dovelle" parent="CastRow" instance=ExtResource("7_dovelle")]
+position = Vector3(7, 0, 1)
+
+[node name="FloorQuenelle" parent="CastRow" instance=ExtResource("1_floor")]
+position = Vector3(7, 0, 2)
+
+[node name="Quenelle" parent="CastRow" instance=ExtResource("11_quenelle")]
+position = Vector3(7, 0, 2)
+
+[node name="InteractablesRow" type="Node3D" parent="."]
+
+[node name="FloorRelay" parent="InteractablesRow" instance=ExtResource("1_floor")]
+position = Vector3(9, 0, 0)
+
+[node name="Relay" parent="InteractablesRow" instance=ExtResource("8_relay")]
+position = Vector3(9, 0, 0)
+
+[node name="FloorBattery" parent="InteractablesRow" instance=ExtResource("1_floor")]
+position = Vector3(9, 0, 1)
+
+[node name="Battery" parent="InteractablesRow" instance=ExtResource("9_battery")]
+position = Vector3(9, 0, 1)
+
+[node name="FloorSafeZone" parent="InteractablesRow" instance=ExtResource("1_floor")]
+position = Vector3(9, 0, 2)
+
+[node name="SafeZone" parent="InteractablesRow" instance=ExtResource("10_safe_zone")]
+position = Vector3(9, 0, 2)

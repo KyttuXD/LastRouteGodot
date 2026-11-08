@@ -1,0 +1,17 @@
+{
+	"schema": "lr.prop/1",
+	"family": "library",
+	"props": [
+		{
+			"id": "library_rooms_ladder",
+			"models": [
+				"assets/rolling_ladder.glb"
+			],
+			"size": [
+				0.7,
+				2.3,
+				0.45
+			]
+		}
+	]
+}

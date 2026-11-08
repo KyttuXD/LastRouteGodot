@@ -1,0 +1,15 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "hospital",
+	"wall": [
+		"hospital0",
+		"hospital1"
+	],
+	"ceiling": "ceil0",
+	"accent": {
+		"texture": "floor",
+		"kind": "metal1",
+		"tint": "#e4e8ea",
+		"metal": true
+	}
+}

@@ -1,0 +1,8 @@
+{
+	"schema": "lr.room_theme/1",
+	"id": "overgrown_room",
+	"wall": [
+		"glasshouse1",
+		"hedge1"
+	]
+}

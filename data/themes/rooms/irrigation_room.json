@@ -1,0 +1,8 @@
+{
+	"schema": "lr.room_theme/1",
+	"id": "irrigation_room",
+	"wall": [
+		"glasshouse0",
+		"panel2"
+	]
+}

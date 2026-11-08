@@ -1,0 +1,76 @@
+class_name HunterEmotePersonality
+extends RefCounted
+
+## Which emotes a hunter prefers. A multiplier on the base chance of every emote of that kind (1 = default, 0 = never).
+## Chosen from the hunter's dossier ability (HunterDossier): a stalker that always knows where you are does not taunt, a
+## shy one fidgets, the music-box hunter hums. Hunters not listed use 1 for everything; Void hunters use VOID.
+## `clip_overrides` lets a hunter play one of its personal emote clips (assets/hunters_blocky/emotes.json) for an emote.
+
+const WEIGHTS := {
+	# Kathy (persona sheet): a warm, protective big sister who watches everyone and speaks in short, calm, final lines. No mocking
+	# (taunt/smug/dance 0), a rare quiet laugh, she watches (look around) and calls people to her (beckon), a warm wave.
+	"kathy": {"taunt": 0.0, "smug": 0.0, "dance": 0.0, "laugh": .3, "stretch": .3, "yawn": .2, "hum": .4, "wave": 1.5,
+		"beckon": 1.8, "point": 1.2, "look_around": 2.0, "shrug": .5, "victory": .3},
+	"aki": {"stretch": 1.5, "wave": 1.5, "taunt": .2, "laugh": .3, "smug": .3},                    # shy
+	# Ferryn (persona sheet): shy and jumpy, screams then apologises, stammers, never commanding or gloating. Startles hard (flinch),
+	# shrugs apologetically, glances round nervously, a timid little wave; no taunt/laugh/smug/dance/hum, hardly points or beckons.
+	"ferryn": {"taunt": 0.0, "laugh": 0.0, "hum": 0.0, "smug": 0.0, "dance": 0.0, "victory": 0.0, "stretch": .2, "yawn": .3,
+		"point": .4, "beckon": .3, "look_around": 2.0, "shrug": 2.5, "wave": 1.0, "flinch": 2.5},
+	"glyra": {"hum": 3.0, "dance": 2.0, "wave": .5},                                               # MUSIC-BOX PRESSURE
+	"xivvy": {"dance": 2.0, "laugh": 2.0, "wave": 1.5, "shrug": .5},                               # playful flyer
+	"loxelle": {"taunt": 1.5, "laugh": 1.5, "yawn": .5},                                           # PASSIVE INCINERATOR
+	"ilyra": {"point": 0.0, "beckon": 0.0, "look_around": 1.5, "stretch": 0.0},                    # SHADOW POUNCE: still, watching
+	"haelith": {"point": 2.0},                                                                     # RELAY PURSUER
+	# Javelle (persona sheet): pushy but means well, a self-appointed coach and referee ("Touch it. Properly."): no smirking, she coaches
+	# with orders (point, beckon "come out, I know you're in there").
+	"javelle": {"smug": 0.0, "taunt": .6, "beckon": 2.0, "point": 2.0, "laugh": .5, "shrug": .8, "wave": 1.0},
+	# Briselle (persona sheet): a showy hostess who overcorrects with politeness and stacked apologies: no smirking, welcoming waves and
+	# ushering beckons, apologetic shrugs, a little flourish (dance).
+	"briselle": {"smug": 0.0, "taunt": .3, "laugh": .8, "wave": 1.5, "beckon": 1.5, "shrug": 1.5, "dance": 1.0, "victory": .5},
+	"ceryth": {"look_around": 2.0, "taunt": 0.0},                                                  # HIDING RIDDLE
+	# Elise (persona sheet): competitive, clipped and impatient, makes everything a race: no humming (that is Glyra's), restless rather than
+	# lounging, pushes the pace (point) and crows at a win (victory).
+	"elise": {"hum": 0.0, "stretch": .5, "yawn": .3, "point": 1.3, "taunt": 1.3, "victory": 1.5},
+}
+const VOID := {"laugh": 0.0, "hum": 0.0, "dance": 0.0, "wave": 0.0, "yawn": 0.0, "stretch": 0.0, "smug": .5}
+
+## hunter id -> {emote id: personal clip}. Empty until the animation session adds clips worth wiring.
+const CLIP_OVERRIDES := {
+	"aki": {"stretch": "emote_shy"},
+}
+
+
+## A content pack's emotes/ file for this hunter (docs/modding/content-types.md, "Emotes"): its weights, clips and voice
+## come first; anything it leaves out falls back to the tables above.
+static func _pack(hunter_id: String) -> Dictionary:
+	return ContentRegistry.get_def("emotes", hunter_id)
+
+
+static func weight(hunter_id: String, emote_index: int) -> float:
+	var id := String(HunterEmoteCatalog.entry(emote_index).get("id", ""))
+	if id.is_empty():
+		return 0.0
+	var pack_weights: Dictionary = _pack(hunter_id).get("weights", {})
+	if pack_weights.has(id):
+		return float(pack_weights[id])
+	var table: Dictionary = VOID if hunter_id.begins_with("void_") else WEIGHTS.get(hunter_id, {})
+	return float(table.get(id, 1.0))
+
+
+static func clip_override(hunter_id: String, emote_index: int) -> String:
+	var id := String(HunterEmoteCatalog.entry(emote_index).get("id", ""))
+	var pack_clips: Dictionary = _pack(hunter_id).get("clips", {})
+	if pack_clips.has(id):
+		return String(pack_clips[id])
+	return String((CLIP_OVERRIDES.get(hunter_id, {}) as Dictionary).get(id, ""))
+
+
+## A pack's recordings for this hunter's emote (AudioStreams; [] when none).
+static func voice(hunter_id: String, emote_index: int) -> Array:
+	var id := String(HunterEmoteCatalog.entry(emote_index).get("id", ""))
+	var out := []
+	for path in (_pack(hunter_id).get("voice", {}) as Dictionary).get(id, []):
+		var stream := ContentRegistry.pack_audio(String(path))
+		if stream != null:
+			out.append(stream)
+	return out

@@ -1,0 +1,8 @@
+{
+	"schema": "lr.room_theme/1",
+	"id": "server_hall",
+	"wall": [
+		"lab0",
+		"panel2"
+	]
+}

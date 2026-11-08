@@ -1,0 +1,15 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "carnival",
+	"wall": [
+		"paper1",
+		"panel1"
+	],
+	"ceiling": "ceil1",
+	"accent": {
+		"texture": "floor",
+		"kind": "metal0",
+		"tint": "#d4a84a",
+		"metal": true
+	}
+}

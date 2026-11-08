@@ -1,0 +1,16 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "mansion",
+	"wall": [
+		"paper0",
+		"paper1"
+	],
+	"ceiling": "ceil1",
+	"accent": {
+		"texture": "floor",
+		"kind": "metal0",
+		"tint": "#c9a25a",
+		"metal": true
+	},
+	"finish": "Mansion"
+}

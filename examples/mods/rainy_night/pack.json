@@ -1,0 +1,15 @@
+{
+	"schema": "lr.pack/1",
+	"id": "rainy_night",
+	"name": "Rainy Night",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (example)",
+	"description": "Example pack: rain on the roof and distant thunder over the maze, rain heard down a grate in the sewers, creaking doors and wet footsteps. All audio is generated, none sampled.",
+	"overrides": [
+		"ambience/maze",
+		"ambience/sewer",
+		"sounds/door_open",
+		"sounds/door_close",
+		"sounds/footstep_walk"
+	]
+}

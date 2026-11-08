@@ -1,0 +1,16 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "lab",
+	"wall": [
+		"lab0",
+		"lab0",
+		"lab1"
+	],
+	"ceiling": "ceil0",
+	"accent": {
+		"texture": "floor",
+		"kind": "metal1",
+		"tint": "#c8d4dc",
+		"metal": true
+	}
+}

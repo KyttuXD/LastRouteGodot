@@ -1,0 +1,8 @@
+{
+	"skins": {
+		"schema": "lr.skin/1",
+		"root": "res://data/skins",
+		"validator": "res://game/player/skin_catalog.gd",
+		"assets": {"image": "png"}
+	}
+}

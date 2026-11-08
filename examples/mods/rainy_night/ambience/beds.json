@@ -1,0 +1,19 @@
+{
+	"schema": "lr.sound/1",
+	"sounds": [
+		{
+			"id": "maze",
+			"files": [
+				"assets/rain_roof_loop.ogg"
+			],
+			"gain_db": -2
+		},
+		{
+			"id": "sewer",
+			"files": [
+				"assets/rain_sewer_loop.ogg"
+			],
+			"gain_db": -1
+		}
+	]
+}

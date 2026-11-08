@@ -1,0 +1,21 @@
+// The Kyttu's Lab APK installer plugin (docs/XR_ANDROID.md, "Self-update"). Built by
+// tools/android/build_installer_plugin.sh with the Gradle wrapper of Godot's Android build template, against the
+// same Android Gradle Plugin and Kotlin versions the template uses, so a warm Gradle cache already has everything.
+pluginManagement {
+    plugins {
+        id 'com.android.library' version '8.6.1'
+        id 'org.jetbrains.kotlin.android' version '2.1.21'
+    }
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = 'kyttu_installer'

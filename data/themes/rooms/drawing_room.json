@@ -1,0 +1,8 @@
+{
+	"schema": "lr.room_theme/1",
+	"id": "drawing_room",
+	"wall": [
+		"paper0",
+		"paper1"
+	]
+}

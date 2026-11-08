@@ -1,0 +1,12 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/characters/wooden_mannequin.glb" id="1_model"]
+
+; The body EVERY player wears: a low-poly wooden artist's mannequin (faceted
+; segments, ball-joint rings, plain egg head), built by
+; tools/characters/build_wooden_mannequin.py. Clips: idle, walk, sprint, chase,
+; crouch, sit, lay, tpose. The previous Minecraft-skin mannequin is
+; player_legacy.tscn, selected with PlayerModels.USE_WOODEN.
+[node name="Player" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]

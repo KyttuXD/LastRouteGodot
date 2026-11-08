@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/interactables/vent.glb" id="1_model"]
+
+; Recessed wall grate with a deep backing, overlapping angled louvres, centre
+; brace, raised frame and visible fasteners. Base-centred and floor-flush.
+[node name="Vent" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]

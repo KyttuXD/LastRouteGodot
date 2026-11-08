@@ -1,0 +1,13 @@
+{
+	"schema": "lr.surface/1",
+	"surfaces": [
+		{
+			"id": "terrazzo0",
+			"image": "assets/arcade_floor_a.png"
+		},
+		{
+			"id": "terrazzo1",
+			"image": "assets/arcade_floor_b.png"
+		}
+	]
+}

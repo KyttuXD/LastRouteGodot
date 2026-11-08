@@ -1,0 +1,9 @@
+{
+	"schema": "lr.deaths/1",
+	"id": "glyra",
+	"mode": "add",
+	"lines": [
+		"Hm hmm.. that was the bridge, you missed the bridge.",
+		"One more verse, and then you can go."
+	]
+}

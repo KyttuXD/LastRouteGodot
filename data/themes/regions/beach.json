@@ -1,0 +1,17 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "beach",
+	"wall": [
+		"seawall0",
+		"whitewash0",
+		"tealpanel0",
+		"seawall1"
+	],
+	"ceiling": "skylight0",
+	"accent": {
+		"texture": "floor",
+		"kind": "driftwood0",
+		"tint": "#e6d8b8",
+		"metal": false
+	}
+}

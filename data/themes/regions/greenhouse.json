@@ -1,0 +1,15 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "greenhouse",
+	"wall": [
+		"glasshouse0",
+		"glasshouse1"
+	],
+	"ceiling": "glass",
+	"accent": {
+		"texture": "floor",
+		"kind": "metal2",
+		"tint": "#5f7a5a",
+		"metal": true
+	}
+}

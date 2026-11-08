@@ -1,0 +1,8 @@
+{
+	"schema": "lr.room_theme/1",
+	"id": "restaurant_dining",
+	"wall": [
+		"paper0",
+		"paper1"
+	]
+}

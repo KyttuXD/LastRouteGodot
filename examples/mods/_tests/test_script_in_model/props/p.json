@@ -1,0 +1,12 @@
+{
+	"schema": "lr.prop/1",
+	"family": "t",
+	"props": [
+		{
+			"id": "test_script_in_model_box",
+			"models": [
+				"assets/scripted.glb"
+			]
+		}
+	]
+}

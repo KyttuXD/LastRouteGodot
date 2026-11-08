@@ -1,0 +1,457 @@
+extends RefCounted
+
+## Headless check for the cube ("blocky") hunter models in assets/hunters_blocky/.
+##
+## Every model must load, share the hunter rig (same bone names), carry the clips the
+## game asks for, expose a "Head" node and eye locators (HunterView3D), stand on y = 0
+## at about 1.78 m, and have an expression quad that BlockyFace can swap.
+##
+## Run with:
+##   godot4 --headless res://tests/scenes/validate.tscn -- blocky
+
+const HUNTERS := ["aki", "briselle", "ceryth", "dovelle", "elise", "ferryn", "glyra", "haelith", "ilyra",
+	"javelle", "kathy", "loxelle", "mavrine", "nyxie", "opalie", "porcelle", "quenelle", "ravelle", "solyth",
+	"thessine", "umbriel", "verrine", "wynelle", "xivvy", "ysolde", "zellia",
+	"void_black", "void_blue", "void_brown", "void_cyan", "void_gray", "void_green", "void_orange", "void_pink",
+	"void_purple", "void_red", "void_white", "void_yellow"]
+## Void hunters: presented larger than the A-Z hunters, each with one silhouette cue on a Cue-* bone
+const VOID_HEIGHT := 2.0
+const VOID_CUES := {
+	"void_black": ["Cue-Motes"], "void_blue": ["Cue-Crown", "Cue-Trail-1", "Cue-Trail-2"],
+	"void_brown": [], "void_cyan": ["Cue-Antenna-L", "Cue-Antenna-R"], "void_gray": [],
+	"void_green": ["Cue-Spores"], "void_orange": ["Cue-Crest-L", "Cue-Crest-R"], "void_pink": ["Cue-Lure"],
+	"void_purple": ["Cue-Phase"], "void_red": [], "void_white": ["Cue-Ear-L", "Cue-Ear-R"], "void_yellow": ["Cue-Bolt"]}
+const BONES := ["Pelvis", "Belly", "Chest", "Head", "L-Arm", "L-Forearm", "L-Hand", "R-Arm", "R-Forearm",
+	"R-Hand", "L-Thigh", "L-Calf", "L-Foot", "R-Thigh", "R-Calf", "R-Foot"]
+const CLIPS := ["idle", "walk", "chase", "sprint", "crouch", "stun", "charge", "flight", "jumpscare"]
+
+var _failures := 0
+
+
+func _fail(message: String) -> void:
+	print("  FAIL  %s" % message)
+	_failures += 1
+
+
+func run(host: Node) -> int:
+	var table := {}
+	var file := FileAccess.open("res://assets/hunters_blocky/emotes.json", FileAccess.READ)
+	if file == null:
+		_fail("emotes.json is missing")
+	else:
+		table = JSON.parse_string(file.get_as_text())
+	for id in HUNTERS:
+		var path := "res://assets/hunters_blocky/%s/%s.glb" % [id, id]
+		if not ResourceLoader.exists(path):
+			_fail("%s: %s is not imported" % [id, path])
+			continue
+		var node := ModelSlot.instantiate(path)
+		if node == null:
+			_fail("%s did not instantiate" % id)
+			continue
+		host.add_child(node)
+		for bone in BONES:
+			if node.find_child(bone, true, false) == null:
+				_fail("%s is missing bone %s" % [id, bone])
+		# emotes: the hunter's list must exist as one-shot clips and each must name a face BlockyFace knows
+		var listed: Array = table.get(id, [])
+		if listed.size() < (4 if id.begins_with("void_") else 5):
+			_fail("%s has only %d emotes (4 shared + her own expected)" % [id, listed.size()])
+		for entry in listed:
+			var emote_player := ModelSlot.find_animation_player(node)
+			var emote_clip := String(entry.get("clip", ""))
+			if emote_player == null or not emote_player.has_animation(emote_clip):
+				_fail("%s lists emote %s but the model has no such clip" % [id, emote_clip])
+			elif emote_player.get_animation(emote_clip).loop_mode != Animation.LOOP_NONE:
+				_fail("%s emote %s loops (emotes are one-shot)" % [id, emote_clip])
+			var face_name := String(entry.get("face", ""))
+			if not BlockyFace.CELLS.has(face_name) and not BlockyFace.ANIMS.has(face_name):
+				_fail("%s emote %s uses unknown face %s" % [id, emote_clip, face_name])
+		_check_catalog_emotes(id, node, listed)
+		_check_uv_mapping(id, node)
+		_check_no_generated_lods(path)
+		if id.begins_with("void_"):
+			for cue in VOID_CUES.get(id, []):
+				if node.find_child(cue, true, false) == null:
+					_fail("%s is missing cue bone %s" % [id, cue])
+			var void_file := FileAccess.open("res://assets/hunters_blocky/%s/%s.glb" % [id, id], FileAccess.READ)
+			if void_file == null or void_file.get_length() > 200 * 1024:
+				_fail("%s.glb is over the 200 KB budget" % id)
+			var glow_found := false
+			for mesh_node in node.find_children("*", "MeshInstance3D", true, false):
+				var glow_mesh := (mesh_node as MeshInstance3D).mesh
+				for si in glow_mesh.get_surface_count():
+					var glow_mat := glow_mesh.surface_get_material(si) as StandardMaterial3D
+					if glow_mat != null and glow_mat.emission_enabled and glow_mat.emission_texture != null:
+						glow_found = true
+			if not glow_found:
+				_fail("%s has no emissive eye material" % id)
+			var void_atlas := Image.load_from_file(ProjectSettings.globalize_path("res://assets/hunters_blocky/%s/%s_atlas.png" % [id, id]))
+			if void_atlas == null or void_atlas.get_width() > 128 or void_atlas.get_height() > 256:
+				_fail("%s atlas is missing or larger than 128x256" % id)
+		if id.begins_with("xivvy"):
+			for wing in ["L-Wing", "R-Wing", "L-HindWing", "R-HindWing"]:
+				if node.find_child(wing, true, false) == null:
+					_fail("%s is missing wing bone %s" % [id, wing])
+		if id.begins_with("loxelle") or id.begins_with("opalie"):
+			for fish_bone in ["L-Gill", "R-Gill", "Tail-1", "Tail-2", "Tail-3", "Tail-Fin"]:
+				if node.find_child(fish_bone, true, false) == null:
+					_fail("%s is missing %s" % [id, fish_bone])
+		if id.begins_with("verrine") or id.begins_with("haelith") or id.begins_with("quenelle"):
+			for wolf_bone in ["L-Ear", "R-Ear", "Tail-1", "Tail-2", "Tail-3", "Tail-4"]:
+				if node.find_child(wolf_bone, true, false) == null:
+					_fail("%s is missing %s" % [id, wolf_bone])
+		if id.begins_with("ilyra") or id.begins_with("elise"):
+			for cat_bone in ["L-Ear", "R-Ear", "Tail-1", "Tail-2", "Tail-3", "Tail-4"]:
+				if node.find_child(cat_bone, true, false) == null:
+					_fail("%s is missing %s" % [id, cat_bone])
+		if id.begins_with("glyra") or id.begins_with("javelle") or id.begins_with("umbriel"):
+			for horn_bone in ["L-Horn", "R-Horn"]:
+				if node.find_child(horn_bone, true, false) == null:
+					_fail("%s is missing %s" % [id, horn_bone])
+		if id.begins_with("nyxie") or id.begins_with("solyth"):
+			for glyph_bone in ["R-Glyph"]:
+				if node.find_child(glyph_bone, true, false) == null:
+					_fail("%s is missing %s" % [id, glyph_bone])
+		if id.begins_with("porcelle") or id.begins_with("mavrine") or id.begins_with("solyth"):
+			if node.find_child("Halo", true, false) == null:
+				_fail("%s is missing its Halo" % id)
+		if id.begins_with("porcelle") and node.find_child("L-Horn", true, false) == null:
+			_fail("porcelle is missing her horns")
+		if id.begins_with("javelle") or id.begins_with("porcelle"):
+			for pig in ["L-Pig-1", "R-Pig-1"]:
+				if node.find_child(pig, true, false) == null:
+					_fail("%s is missing %s" % [id, pig])
+		if id.begins_with("wynelle"):
+			for pig in ["L-Pig-1", "L-Pig-3", "R-Pig-1", "R-Pig-3", "Pony-1"]:
+				if node.find_child(pig, true, false) == null:
+					_fail("%s is missing pigtail bone %s" % [id, pig])
+		if id.begins_with("kathy"):
+			for pony in ["Pony-1", "Pony-2", "Pony-3"]:
+				if node.find_child(pony, true, false) == null:
+					_fail("%s is missing ponytail bone %s" % [id, pony])
+		var player := ModelSlot.find_animation_player(node)
+		if player == null:
+			_fail("%s has no AnimationPlayer" % id)
+		else:
+			for clip in CLIPS:
+				if not player.has_animation(clip):
+					_fail("%s is missing clip %s" % [id, clip])
+				elif player.get_animation(clip).loop_mode == Animation.LOOP_NONE:
+					_fail("%s clip %s does not loop" % [id, clip])
+				else:
+					_check_seamless(id, clip, player.get_animation(clip))
+			# stun_recover is the one-shot wake-up that follows the looping stun
+			if not player.has_animation("stun_recover"):
+				_fail("%s is missing clip stun_recover" % id)
+			elif player.get_animation("stun_recover").loop_mode != Animation.LOOP_NONE:
+				_fail("%s clip stun_recover should be one-shot" % id)
+		if node.find_child("Head", true, false) == null:
+			_fail("%s has no Head node" % id)
+		for eye in ["L-Eye-Attachment", "R-Eye-Attachment"]:
+			if node.find_child(eye, true, false) == null:
+				_fail("%s has no %s" % [id, eye])
+		var bounds := _bounds(node)
+		if absf(bounds.position.y) > .03:
+			_fail("%s feet are not on the floor (min y %.3f)" % [id, bounds.position.y])
+		var want_height := VOID_HEIGHT if id.begins_with("void_") else 1.78
+		if absf(bounds.size.y - want_height) > .08:
+			_fail("%s is %.2f m tall, wanted %.2f" % [id, bounds.size.y, want_height])
+		if not BlockyFace.set_expression(node, "blink"):
+			_fail("%s has no swappable Face quad" % id)
+		for anim in ["derp", "wink_left", "wink_right", "blank", "stun", "chase", "scream", "happy", "neutral"]:
+			if not BlockyFace.set_expression(node, anim):
+				_fail("%s cannot show the %s expression" % [id, anim])
+		# second skin layer (hat, jacket, sleeves, pants) must be present, not just the base boxes
+		var head_mesh := node.find_child("Head", true, false) as MeshInstance3D
+		if head_mesh == null or head_mesh.mesh == null \
+				or (head_mesh.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() < 48:
+			_fail("%s has no hat layer on the Head mesh" % id)
+		var vertices := 0
+		for mesh_node in node.find_children("*", "MeshInstance3D", true, false):
+			var mi := mesh_node as MeshInstance3D
+			vertices += (mi.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+		if vertices < 280 * 2:
+			_fail("%s has only %d vertices, the overlay layers are missing" % [id, vertices])
+		node.queue_free()
+	_check_scythe(host)
+	_check_player_mannequin(host)
+	print("  %d blocky hunters checked" % HUNTERS.size())
+	return _failures
+
+
+## docs/HUNTER_EMOTES.md: every non-Void hunter carries the 12 catalog clips (emote_<id>) as one-shots of about the catalog
+## length with the catalog face listed in emotes.json; the moving ones (taunt, point, beckon; also void_pink's beckon) are built on
+## the run, so they must keep animating the legs. (Void otherwise uses its shared stand-ins.)
+const CATALOG_MOVING := ["taunt", "point", "beckon"]
+
+
+## Per body part, where its triangles sample the atlas. Vanilla skin layout (hunters other than the Voids): each part must
+## stay inside its own skin region (base + overlay), except the joint plugs, which deliberately sample the neighbouring
+## torso colour; the part's base-layer triangles must land on opaque texels; the Face quad stays in the expression cells.
+## Catches a wrong atlas size / UV divisor, swapped limbs and faces pointing at transparent padding.
+const UV_REGIONS := {
+	"Head": [Rect2(0, 0, 64, 16)], "Belly": [Rect2(16, 16, 24, 32)], "Chest": [Rect2(16, 16, 24, 32)],
+	"R-Arm": [Rect2(40, 16, 16, 32)], "R-Forearm": [Rect2(40, 16, 16, 32)], "R-Hand": [Rect2(40, 16, 16, 32)],
+	"L-Arm": [Rect2(32, 48, 32, 16)], "L-Forearm": [Rect2(32, 48, 32, 16)], "L-Hand": [Rect2(32, 48, 32, 16)],
+	"R-Thigh": [Rect2(0, 16, 16, 32)], "R-Calf": [Rect2(0, 16, 16, 32)], "R-Foot": [Rect2(0, 16, 16, 32)],
+	"L-Thigh": [Rect2(16, 48, 16, 16), Rect2(0, 48, 16, 16)], "L-Calf": [Rect2(16, 48, 16, 16), Rect2(0, 48, 16, 16)],
+	"L-Foot": [Rect2(16, 48, 16, 16), Rect2(0, 48, 16, 16)],
+}
+const UV_BASE_REGIONS := {
+	"Head": Rect2(0, 0, 32, 16), "Belly": Rect2(16, 16, 24, 16), "Chest": Rect2(16, 16, 24, 16),
+	"R-Arm": Rect2(40, 16, 16, 16), "R-Forearm": Rect2(40, 16, 16, 16), "R-Hand": Rect2(40, 16, 16, 16),
+	"L-Arm": Rect2(32, 48, 16, 16), "L-Forearm": Rect2(32, 48, 16, 16), "L-Hand": Rect2(32, 48, 16, 16),
+	"R-Thigh": Rect2(0, 16, 16, 16), "R-Calf": Rect2(0, 16, 16, 16), "R-Foot": Rect2(0, 16, 16, 16),
+	"L-Thigh": Rect2(16, 48, 16, 16), "L-Calf": Rect2(16, 48, 16, 16), "L-Foot": Rect2(16, 48, 16, 16),
+}
+## Godot's generated mesh LODs decimate these few-hundred-triangle cube meshes once a viewport's LOD threshold is high
+## (low-res / scaled 3D): hands and forearms vanish, ear tips are cut and leg stripes smear. The imports must not make any.
+func _check_no_generated_lods(path: String) -> void:
+	var config := ConfigFile.new()
+	if config.load(path + ".import") == OK and bool(config.get_value("params", "meshes/generate_lods", false)):
+		_fail("%s imports with meshes/generate_lods=true (hunter hands/limbs vanish at distance)" % path)
+
+
+const UV_PLUG_TRIS := 24   # joint-plug triangles per part that may sample outside the part's own region
+
+
+func _check_uv_mapping(id: String, node: Node) -> void:
+	var vanilla := not id.begins_with("void_")
+	var stack: Array = [node]
+	while stack.size() > 0:
+		var current: Node = stack.pop_back()
+		stack.append_array(current.get_children())
+		var mesh_node := current as MeshInstance3D
+		if mesh_node == null or mesh_node.mesh == null:
+			continue
+		var part := String(mesh_node.name)
+		for surface in mesh_node.mesh.get_surface_count():
+			var arrays := mesh_node.mesh.surface_get_arrays(surface)
+			var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			var index: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			var material := mesh_node.mesh.surface_get_material(surface) as BaseMaterial3D
+			var image: Image = null
+			if material != null and material.albedo_texture != null:
+				image = material.albedo_texture.get_image()
+				if image.is_compressed():
+					image.decompress()
+			if image == null:
+				_fail("%s %s has no atlas texture" % [id, part])
+				continue
+			var size := Vector2(image.get_size())
+			var stray := 0
+			var clear_base := 0
+			var base_tris := 0
+			for i in range(0, index.size(), 3):
+				var centre := (uvs[index[i]] + uvs[index[i + 1]] + uvs[index[i + 2]]) / 3.0
+				if centre.x < 0.0 or centre.x > 1.0 or centre.y < 0.0 or centre.y > 1.0:
+					_fail("%s %s samples outside the atlas (%s)" % [id, part, centre])
+					break
+				var px := centre * size
+				if part == "Face":
+					if px.y < 64.0 or px.x > 24.0:
+						_fail("%s Face quad samples %s, outside the expression cells" % [id, px])
+					break
+				if not vanilla or not UV_REGIONS.has(part) or size != Vector2(64, 128):
+					continue
+				var inside := false
+				for rect in UV_REGIONS[part]:
+					if (rect as Rect2).grow(.6).has_point(px):
+						inside = true
+				if not inside and not Rect2(16, 16, 24, 32).grow(.6).has_point(px):
+					stray += 1
+				if (UV_BASE_REGIONS[part] as Rect2).grow(.6).has_point(px):
+					base_tris += 1
+					if image.get_pixel(clampi(int(px.x), 0, 63), clampi(int(px.y), 0, 127)).a < .5:
+						clear_base += 1
+			if stray > UV_PLUG_TRIS:
+				_fail("%s %s has %d triangles sampling outside its own skin region" % [id, part, stray])
+			if clear_base > 0:
+				_fail("%s %s has %d base-layer triangles on transparent texels" % [id, part, clear_base])
+
+
+func _check_catalog_emotes(id: String, node: Node, listed: Array) -> void:
+	var player := ModelSlot.find_animation_player(node)
+	if player == null:
+		return
+	var is_void := id.begins_with("void_")
+	for entry in HunterEmoteCatalog.ENTRIES:
+		var emote_id := String(entry["id"])
+		var clip := String(entry["clip"])
+		if is_void and not (id == "void_pink" and emote_id == "beckon"):
+			continue
+		if emote_id == "wave" or emote_id == "shrug":
+			continue            # the shared set (wave, shrug) is checked with every hunter's own list
+		if not player.has_animation(clip):
+			_fail("%s is missing the catalog emote clip %s" % [id, clip])
+			continue
+		var anim := player.get_animation(clip)
+		if anim.loop_mode != Animation.LOOP_NONE:
+			_fail("%s catalog emote %s must be a one-shot" % [id, clip])
+		if absf(anim.length - float(entry["seconds"])) > .45 and not (emote_id in ["dance", "victory", "stretch", "yawn", "hum", "look_around", "smug", "laugh"]):
+			_fail("%s %s is %.2f s, catalog says %.2f s" % [id, clip, anim.length, float(entry["seconds"])])
+		if anim.length < float(entry["seconds"]) - .5:
+			_fail("%s %s is %.2f s, much shorter than the catalog's %.2f s" % [id, clip, anim.length, float(entry["seconds"])])
+		var face_ok := false
+		for item in listed:
+			if String(item.get("clip", "")) == clip and String(item.get("face", "")) == String(entry["face"]):
+				face_ok = true
+		if not face_ok:
+			_fail("%s emotes.json does not list %s with the catalog face %s" % [id, clip, entry["face"]])
+		if emote_id in CATALOG_MOVING:
+			var legs := false
+			for t in anim.get_track_count():
+				if String(anim.track_get_path(t)).contains("Thigh"):
+					legs = true
+			if not legs:
+				_fail("%s %s is a moving emote but has no leg tracks (the legs would freeze)" % [id, clip])
+
+
+## The player body on the hunter rig (assets/hunters_blocky/player_mannequin): same bones, the player clip set (loops seamless,
+## jump / stun_recover one-shot), 1.78 m, both skin layers, a 64x64 atlas and a tiny file.
+const PLAYER_PATH := "res://assets/hunters_blocky/player_mannequin/player_mannequin.glb"
+const PLAYER_LOOPS := ["idle", "walk", "chase", "sprint", "crouch", "stun", "sit", "lay", "tpose", "fall", "climb"]
+const PLAYER_ONE_SHOTS := ["stun_recover", "jump"]
+
+
+func _check_player_mannequin(host: Node) -> void:
+	if not ResourceLoader.exists(PLAYER_PATH):
+		_fail("%s is not imported" % PLAYER_PATH)
+		return
+	var file := FileAccess.open(PLAYER_PATH, FileAccess.READ)
+	if file == null or file.get_length() > 150 * 1024:
+		_fail("player_mannequin.glb is over the 150 KB budget")
+	var node := ModelSlot.instantiate(PLAYER_PATH)
+	if node == null:
+		_fail("player_mannequin did not instantiate")
+		return
+	host.add_child(node)
+	for bone in BONES:
+		if node.find_child(bone, true, false) == null:
+			_fail("player_mannequin is missing bone %s" % bone)
+	var player := ModelSlot.find_animation_player(node)
+	if player == null:
+		_fail("player_mannequin has no AnimationPlayer")
+	else:
+		for clip in PLAYER_LOOPS:
+			if not player.has_animation(clip):
+				_fail("player_mannequin is missing clip %s" % clip)
+			elif player.get_animation(clip).loop_mode == Animation.LOOP_NONE:
+				_fail("player_mannequin clip %s does not loop" % clip)
+			else:
+				_check_seamless("player_mannequin", clip, player.get_animation(clip))
+		for clip in PLAYER_ONE_SHOTS:
+			if not player.has_animation(clip):
+				_fail("player_mannequin is missing clip %s" % clip)
+			elif player.get_animation(clip).loop_mode != Animation.LOOP_NONE:
+				_fail("player_mannequin clip %s should be one-shot" % clip)
+	var bounds := _bounds(node)
+	if absf(bounds.size.y - 1.78) > .08:
+		_fail("player_mannequin is %.2f m tall, wanted 1.78" % bounds.size.y)
+	var head_mesh := node.find_child("Head", true, false) as MeshInstance3D
+	if head_mesh == null or head_mesh.mesh == null \
+			or (head_mesh.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() < 48:
+		_fail("player_mannequin has no hat layer on the Head mesh")
+	var atlas := Image.load_from_file(ProjectSettings.globalize_path("res://assets/hunters_blocky/player_mannequin/player_mannequin_atlas.png"))
+	if atlas == null or atlas.get_width() != 64 or atlas.get_height() != 64:
+		_fail("player_mannequin atlas is missing or not the standard 64x64 skin")
+	node.queue_free()
+
+
+## A looping clip must end exactly where it starts (and span the whole clip), or it pops at every wrap.
+func _check_seamless(id: String, clip: String, anim: Animation) -> void:
+	for t in anim.get_track_count():
+		var keys := anim.track_get_key_count(t)
+		if keys < 2:
+			continue
+		var first = anim.track_get_key_value(t, 0)
+		var last = anim.track_get_key_value(t, keys - 1)
+		var close := false
+		if first is Quaternion:
+			close = (first as Quaternion).angle_to(last as Quaternion) < 0.002
+		elif first is Vector3:
+			close = (first as Vector3).distance_to(last as Vector3) < 0.0005
+		else:
+			close = first == last
+		if not close:
+			_fail("%s clip %s does not loop seamlessly on %s" % [id, clip, anim.track_get_path(t)])
+			return
+		if absf(anim.track_get_key_time(t, keys - 1) - anim.length) > 0.002:
+			_fail("%s clip %s: track %s stops before the end of the clip" % [id, clip, anim.track_get_path(t)])
+			return
+
+
+## Kathy's scythe prop: loads, has a Grip at the origin, is 1.6-1.95 m long, stays inside the triangle/size budget, and
+## every hunter has an R-HandProp to hold it with; Kathy carries the optional scythe clips.
+func _check_scythe(host: Node) -> void:
+	var path := "res://assets/props/hunter_items/kathy_scythe.glb"
+	if not ResourceLoader.exists(path):
+		_fail("%s is not imported" % path)
+		return
+	var prop := ModelSlot.instantiate(path)
+	if prop == null:
+		_fail("kathy_scythe did not instantiate")
+		return
+	host.add_child(prop)
+	var grip := prop.find_child("Grip", true, false) as Node3D
+	if grip == null:
+		_fail("kathy_scythe has no Grip node")
+	elif grip.global_position.length() > 0.001:
+		_fail("kathy_scythe Grip is not at the origin")
+	var box := _bounds(prop)
+	if box.size.y < 1.6 or box.size.y > 1.95:
+		_fail("kathy_scythe is %.2f m long, wanted 1.6-1.95" % box.size.y)
+	if box.position.y > -0.3 or box.end.y < 0.9:
+		_fail("kathy_scythe does not straddle its grip (y %.2f..%.2f)" % [box.position.y, box.end.y])
+	var tris := 0
+	for mesh_node in prop.find_children("*", "MeshInstance3D", true, false):
+		var mesh := (mesh_node as MeshInstance3D).mesh
+		for s in mesh.get_surface_count():
+			var arrays := mesh.surface_get_arrays(s)
+			tris += (arrays[Mesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
+	if tris > 600:
+		_fail("kathy_scythe has %d triangles (budget 600)" % tris)
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null or file.get_length() > 200 * 1024:
+		_fail("kathy_scythe.glb is over the 200 KB budget")
+	prop.queue_free()
+	for id in HUNTERS:
+		var model := ModelSlot.instantiate("res://assets/hunters_blocky/%s/%s.glb" % [id, id])
+		if model == null:
+			continue
+		host.add_child(model)
+		for hand in ["R-HandProp", "L-HandProp"]:
+			if model.find_child(hand, true, false) == null:
+				_fail("%s has no %s attach point" % [id, hand])
+		if id.begins_with("kathy"):
+			var player := ModelSlot.find_animation_player(model)
+			for clip in ["scythe_idle", "scythe_walk", "scythe_swing", "scythe_stun", "scythe_stun_recover"]:
+				if player == null or not player.has_animation(clip):
+					_fail("%s is missing the %s clip" % [id, clip])
+			if player != null and player.has_animation("scythe_stun") and player.get_animation("scythe_stun").loop_mode == Animation.LOOP_NONE:
+				_fail("%s scythe_stun should loop" % id)
+			if player != null and player.has_animation("scythe_stun_recover") and player.get_animation("scythe_stun_recover").loop_mode != Animation.LOOP_NONE:
+				_fail("%s scythe_stun_recover should be one-shot" % id)
+			if player != null and player.has_animation("scythe_swing") and player.get_animation("scythe_swing").loop_mode != Animation.LOOP_NONE:
+				_fail("%s scythe_swing should be one-shot" % id)
+		model.queue_free()
+
+
+func _bounds(node: Node3D) -> AABB:
+	var box := AABB()
+	var first := true
+	for mesh_node in node.find_children("*", "MeshInstance3D", true, false):
+		var m := mesh_node as MeshInstance3D
+		# horns, ears, wings, tails, gills and halos are extras: the 1.78 m body height is measured without them
+		var skip := false
+		for extra in ["Horn", "Ear", "Wing", "Tail", "Gill", "Halo", "Glyph", "Pig", "Braid", "Lock", "Cue"]:
+			if String(m.name).contains(extra):
+				skip = true
+		if skip:
+			continue
+		var local := node.global_transform.affine_inverse() * m.global_transform
+		var b := local * m.get_aabb()
+		box = b if first else box.merge(b)
+		first = false
+	return box

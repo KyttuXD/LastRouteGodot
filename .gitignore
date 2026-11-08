@@ -1,0 +1,55 @@
+# Godot 4 generated files
+.godot/
+
+# Exported builds
+builds/
+dist/
+android/*
+android/build/*
+
+# Local editor/OS files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# Local secrets and account data
+.env
+.data/
+data/accounts.json
+backend/data/
+updates/
+build_revision.json
+
+# Local visual-review renders
+.artifacts/
+meshy_output/
+assets/**/previews/
+art_source/**/previews/
+
+# Blender's automatic previous-save copies are recoverable local backups, not
+# authored source. Keep the deliberate .blend files, runtime GLBs and atlases.
+*.blend1
+
+
+# Python bytecode from tools/
+__pycache__/
+*.pyc
+.venv/
+build/
+!/tools/build/
+
+# playtest output
+.playtest/
+.playtest-results/
+
+# flythrough videos
+captures/videos/
+# Built by tools/android/build_installer_plugin.sh (docs/XR_ANDROID.md); never committed
+addons/kyttu_installer/bin/
+.validate_timings.json
+backend/pack_kinds.json
+
+# Local captures and handoff notes
+captures/
+handoff/

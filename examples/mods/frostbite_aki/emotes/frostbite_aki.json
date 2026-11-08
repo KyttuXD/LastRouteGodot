@@ -1,0 +1,15 @@
+{
+	"schema": "lr.emote/1",
+	"id": "frostbite_aki_aki",
+	"weights": {
+		"taunt": 0,
+		"laugh": 0,
+		"dance": 0,
+		"flinch": 3,
+		"look_around": 2,
+		"stretch": 2
+	},
+	"clips": {
+		"stretch": "emote_shy"
+	}
+}

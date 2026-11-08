@@ -1,0 +1,8 @@
+{
+	"schema": "lr.room_theme/1",
+	"id": "thermal_chamber",
+	"wall": [
+		"inferno0",
+		"panel2"
+	]
+}

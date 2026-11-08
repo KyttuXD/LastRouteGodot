@@ -1,0 +1,15 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "hotel",
+	"wall": [
+		"paper1",
+		"paper0"
+	],
+	"ceiling": "ceil1",
+	"accent": {
+		"texture": "floor",
+		"kind": "metal0",
+		"tint": "#c9a25a",
+		"metal": true
+	}
+}

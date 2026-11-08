@@ -1,0 +1,12 @@
+{
+	"region_themes": {
+		"schema": "lr.region_theme/1",
+		"root": "res://data/themes/regions",
+		"validator": "res://game/look/theme_data.gd"
+	},
+	"room_themes": {
+		"schema": "lr.room_theme/1",
+		"root": "res://data/themes/rooms",
+		"validator": "res://game/look/theme_data.gd"
+	}
+}

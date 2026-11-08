@@ -1,0 +1,14 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/interactables/hiding_spot.glb" id="1_model"]
+
+; Full-height single-person locker with inset door panels, real louvres,
+; handle/lock hardware, hinges, ID plate and floor feet. The GLB origin is at
+; its base centre, matching every interactable slot's floor-pivot contract.
+; Blender authored the door on local +Z, while route fixtures use Godot's -Z
+; as their usable/front direction. Correct that once in the model wrapper so
+; every finite and streamed locker presents its door toward open floor.
+[node name="HidingSpot" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]
+rotation = Vector3(0, 3.14159265, 0)

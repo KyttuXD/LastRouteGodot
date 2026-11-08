@@ -1,0 +1,16 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "prison",
+	"wall": [
+		"corridor0",
+		"corridor1",
+		"panel0"
+	],
+	"ceiling": "ceil0",
+	"accent": {
+		"texture": "floor",
+		"kind": "metal1",
+		"tint": "#8a96a0",
+		"metal": true
+	}
+}

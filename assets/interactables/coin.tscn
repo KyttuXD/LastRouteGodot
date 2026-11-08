@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/interactables/coin.glb" id="1_model"]
+
+; Upright minted route coin with separate face/rim metal and a raised LR mark.
+; Its base-level origin preserves the existing floating pickup presentation.
+[node name="Coin" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]

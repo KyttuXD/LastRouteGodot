@@ -1,0 +1,8 @@
+{
+	"schema": "lr.room_theme/1",
+	"id": "guest_room",
+	"wall": [
+		"paper1",
+		"paper0"
+	]
+}

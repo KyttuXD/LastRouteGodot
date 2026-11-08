@@ -1,0 +1,16 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "sewer",
+	"wall": [
+		"brick0",
+		"brick1",
+		"brick1"
+	],
+	"ceiling": "vault",
+	"accent": {
+		"texture": "floor",
+		"kind": "stone0",
+		"tint": "#9a948a",
+		"metal": false
+	}
+}

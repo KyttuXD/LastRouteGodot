@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/characters/void_yellow.glb" id="1_model"]
+
+; Void hunter converted from the reviewed Minecraft skin. The extra scene scale keeps this category taller than A-Z hunters.
+[node name="Yellow Void" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]
+scale = Vector3(1.22, 1.22, 1.22)

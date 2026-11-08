@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tests/parity/dump_node.gd" id="1_dump"]
+
+; Parity dump harness for the Infinite route (see dump_node.gd). A scene, so the autoloads register.
+[node name="Dump" type="Node"]
+script = ExtResource("1_dump")

@@ -1,0 +1,9 @@
+{
+	"schema": "lr.pack/1",
+	"id": "frostbite_aki",
+	"name": "Frostbite Aki",
+	"version": "1.0.0",
+	"author": "Kyttu's Lab (example)",
+	"description": "Example pack: an icy variant of Aki with a tinted body and portrait, a slightly slower chase, her own death lines and shivery emote weights. A new hunter, so the original Aki is untouched.",
+	"overrides": []
+}

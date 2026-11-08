@@ -1,0 +1,9 @@
+{
+	"schema": "lr.surface/1",
+	"surfaces": [
+		{
+			"id": "stone0",
+			"image": "assets/huge_floor.png"
+		}
+	]
+}

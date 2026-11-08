@@ -1,0 +1,7 @@
+{
+	"loot": {
+		"schema": "lr.loot/1",
+		"root": "res://data/loot",
+		"validator": "res://game/world/interactables/loot_tables.gd"
+	}
+}

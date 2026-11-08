@@ -1,0 +1,71 @@
+name: Pack smoke
+
+# Validates every published example pack under examples/mods with the game's own loader
+# (tools/build/pack_smoke.sh examples -> ModKit.validate). A schema change that the loader
+# refuses fails this workflow, on every push and pull request. It does not export a build
+# and does not install export templates. Godot is pinned in tools/build/setup_godot.sh, the
+# same pin the export workflow uses.
+#
+# The editor cache key is separate from the export job's cache (that one also holds export
+# templates). The .godot import cache key matches the export job so a warm import is shared.
+
+run-name: "${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} @ ${{ github.sha }}"
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: pack-smoke-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  example-packs:
+    name: Example packs (${{ github.sha }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned Godot version
+        id: pin
+        run: echo "version=$(sed -n 's/^GODOT_VERSION="\${GODOT_VERSION:-\(.*\)}"/\1/p' tools/build/setup_godot.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Godot editor
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/${{ steps.pin.outputs.version }}
+          key: godot-editor-${{ steps.pin.outputs.version }}-${{ runner.os }}
+
+      - name: Install Godot
+        run: tools/build/setup_godot.sh
+
+      - name: Cache Godot import data
+        uses: actions/cache@v4
+        with:
+          path: .godot
+          key: godot-import-${{ steps.pin.outputs.version }}-${{ hashFiles('project.godot', '**/*.import') }}
+          restore-keys: godot-import-${{ steps.pin.outputs.version }}-
+
+      - name: Import project
+        run: ~/.local/bin/godot4 --headless --path . --import || true
+
+      - name: Validate example packs
+        run: |
+          set -euo pipefail
+          set +e
+          tools/build/pack_smoke.sh examples | tee pack-smoke.log
+          status=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "### Example packs"
+            echo
+            echo '```'
+            grep -E '^(OK |ERROR |WARNING |EXAMPLE |missing |example pack smoke:)' pack-smoke.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

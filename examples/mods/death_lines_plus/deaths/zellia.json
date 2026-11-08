@@ -1,0 +1,9 @@
+{
+	"schema": "lr.deaths/1",
+	"id": "zellia",
+	"mode": "add",
+	"lines": [
+		"The tea is cold, the bill is not.",
+		"Come again, guest, and bring something shinier."
+	]
+}

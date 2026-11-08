@@ -1,0 +1,240 @@
+class_name DeathLines
+extends RefCounted
+
+## Death lines (`kyttu-death-lines/v1`), ported from the 2D game's death-lines.js; the data file is the same one.
+## A line is a plain string or {text, style?: "caption"}. The pick is seeded (FNV-1a of seed|depth|hunter|salt), never
+## random, so the same death on the same route and depth shows the same line on the host and on guests.
+## Lines starting with [PLACEHOLDER] only render in debug builds.
+
+const PATH := "res://assets/data/death_lines.json"
+const SCHEMA := "kyttu-death-lines/v1"
+const CAUSE_KEYS := ["nyxie", "darkness", "deal", "cold"]
+const PLACEHOLDER_PREFIX := "[PLACEHOLDER]"
+const DEFAULT_COPY := "A hunter intercepted your signal on depth {depth}."
+
+static var _data: Dictionary = {}
+static var _loaded := false
+## The file as shipped, kept so content packs' deaths/ (docs/modding/content-types.md, "Death lines") can be applied
+## on top and taken off again (rebuild_from_registry).
+static var _base: Dictionary = {}
+static var _watching: bool = ContentRegistry.watch(rebuild_from_registry)
+const PACK_SCHEMA := "lr.deaths/1"
+
+
+static func data() -> Dictionary:
+	if not _loaded:
+		_loaded = true
+		var text := FileAccess.get_file_as_string(PATH)
+		var parsed = JSON.parse_string(text) if not text.is_empty() else null
+		if parsed is Dictionary and validate(parsed).is_empty():
+			_base = parsed
+		_data = _with_packs(_base)
+	return _data
+
+
+## Packs changed: the shipped lines again, then the loaded packs' deaths/ files.
+static func rebuild_from_registry() -> void:
+	if _loaded:
+		_data = _with_packs(_base)
+
+
+## `base` with every pack death file applied: "replace" (default) swaps a hunter's lines (and lore line if given),
+## "add" appends to them. Pack hunters get lines this way too.
+static func _with_packs(base: Dictionary) -> Dictionary:
+	var defs := ContentRegistry.pack_defs("deaths")
+	if defs.is_empty():
+		return base
+	var out := base.duplicate(true)
+	var hunters: Dictionary = out.get_or_add("hunters", {})
+	for def in defs:
+		var key := file_id(String(def["id"]))
+		var entry: Dictionary = hunters.get_or_add(key, {"lines": []})
+		if String(def.get("mode", "replace")) == "add":
+			(entry.get_or_add("lines", []) as Array).append_array(def["lines"])
+		else:
+			entry["lines"] = (def["lines"] as Array).duplicate()
+			entry.erase("loreLine")
+		if def.has("lore_line"):
+			entry["loreLine"] = def["lore_line"]
+	return out
+
+
+## One pack deaths/ file -> {"def": {id, lines, lore_line?, mode?}, "errors"}, with the shipped file's line rules.
+static func parse_pack_file(path: String) -> Dictionary:
+	var out := {"def": {}, "errors": PackedStringArray()}
+	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if not data is Dictionary:
+		out["errors"].append("%s: not a JSON object" % path)
+		return out
+	var errors: PackedStringArray = out["errors"]
+	for key in data:
+		if not key in ["schema", "id", "lines", "lore_line", "mode"]:
+			errors.append("%s: unknown key \"%s\"" % [path, key])
+	if String(data.get("schema", "")) != PACK_SCHEMA:
+		errors.append("%s: schema must be %s" % [path, PACK_SCHEMA])
+	if typeof(data.get("id")) != TYPE_STRING or not ContentRegistry._is_id(data["id"]):
+		errors.append("%s: \"id\" must be the hunter id" % path)
+	var lines = data.get("lines")
+	if not lines is Array or (lines as Array).is_empty() or not (lines as Array).all(_valid_line):
+		errors.append("%s: lines must be a non-empty list of text (or {text, style: \"caption\"})" % path)
+	if data.has("lore_line") and not _valid_line(data["lore_line"]):
+		errors.append("%s: lore_line must be text" % path)
+	if data.has("mode") and not String(data["mode"]) in ["replace", "add"]:
+		errors.append("%s: mode must be replace or add" % path)
+	if errors.is_empty():
+		data.erase("schema")
+		out["def"] = data
+	return out
+
+
+## Test hook.
+static func set_data(value: Dictionary) -> void:
+	_base = value
+	_data = _with_packs(value)
+	_loaded = true
+
+
+## File ids are the lowercased dossier ids: the Godot roster's void_red is voidred there.
+static func file_id(hunter_id: String) -> String:
+	return HunterIdAliases.canonical(hunter_id.to_lower()).replace("_", "")
+
+
+## Void hunters are voiceless: they never get a death line, shipped or from a pack. Matches roster ids
+## (void_red) and file ids (voidred).
+static func voiceless(hunter_id: String) -> bool:
+	var key := file_id(hunter_id)
+	for id in HunterRoster.VOID_IDS:
+		if file_id(String(id)) == key:
+			return true
+	return false
+
+
+static func line_text(line) -> String:
+	if line is String:
+		return line
+	if line is Dictionary and (line as Dictionary).get("text") is String:
+		return String((line as Dictionary)["text"])
+	return ""
+
+
+static func line_style(line, hunter: Dictionary = {}) -> String:
+	if line is Dictionary and String((line as Dictionary).get("style", "")) == "caption":
+		return "caption"
+	if String(hunter.get("style", "")) == "caption":
+		return "caption"
+	return ""
+
+
+static func _valid_line(line) -> bool:
+	if line is String:
+		return not (line as String).strip_edges().is_empty()
+	if not line is Dictionary:
+		return false
+	var d: Dictionary = line
+	if not d.get("text") is String or String(d["text"]).strip_edges().is_empty():
+		return false
+	return not d.has("style") or String(d["style"]) == "caption"
+
+
+static func validate(d: Dictionary, ids: Array = []) -> Array:
+	var errors := []
+	if String(d.get("schema", "")) != SCHEMA:
+		errors.append("schema must be %s" % SCHEMA)
+	if not d.get("hunters") is Dictionary:
+		errors.append("hunters must be an object")
+		return errors
+	if not d.get("causes") is Dictionary:
+		errors.append("causes must be an object")
+		return errors
+	if String(d.get("fallback", "")).strip_edges().is_empty():
+		errors.append("fallback must be a non-empty string")
+	var hunters: Dictionary = d["hunters"]
+	for id in ids:
+		if not hunters.has(id):
+			errors.append("missing hunter %s" % id)
+	for id in hunters:
+		var entry: Dictionary = hunters[id]
+		for line in entry.get("lines", []):
+			if not _valid_line(line):
+				errors.append("%s has an invalid line" % id)
+		if entry.has("loreLine") and not _valid_line(entry["loreLine"]):
+			errors.append("%s.loreLine is invalid" % id)
+		if ids.size() > 0 and not ids.has(id):
+			errors.append("unknown hunter %s" % id)
+	for key in CAUSE_KEYS:
+		var list = (d["causes"] as Dictionary).get(key)
+		if not list is Array or (list as Array).is_empty():
+			errors.append("causes.%s needs 1 or more valid lines" % key)
+		else:
+			for line in list:
+				if not _valid_line(line):
+					errors.append("causes.%s has an invalid line" % key)
+	return errors
+
+
+## FNV-1a, 32 bit, over UTF-16 code units like the JS original (the lines are ASCII, so this is byte-stable).
+static func hash_text(text: String) -> int:
+	var h := 0x811c9dc5
+	for i in text.length():
+		h ^= text.unicode_at(i)
+		h = (h * 0x01000193) & 0xffffffff
+	return h
+
+
+static func cause_key(cause: Dictionary) -> String:
+	if cause.is_empty():
+		return ""
+	var via := String(cause.get("via", ""))
+	if via == "deal":
+		return "deal"
+	if via == "cold":
+		return "cold"
+	if file_id(String(cause.get("hunter_id", ""))) == "nyxie":
+		return "darkness" if String(cause.get("detail", "")) == "darkness" else "nyxie"
+	return ""
+
+
+static func _usable(line, allow_placeholders: bool) -> bool:
+	var text := line_text(line)
+	if text.strip_edges().is_empty():
+		return false
+	return allow_placeholders or not text.strip_edges().to_upper().begins_with(PLACEHOLDER_PREFIX)
+
+
+## {text, source: hunter|cause|fallback|default, style: caption|""}. cause = {hunter_id, via, detail}.
+## A void hunter always gets the end-card fallback (DeathMoment.plays is false for it), so it never speaks.
+static func pick(cause: Dictionary, seed_text: String, depth: int, display_name: String = "",
+		allow_placeholders: bool = OS.is_debug_build()) -> Dictionary:
+	var d := data()
+	var hunter_id := file_id(String(cause.get("hunter_id", "")))
+	var mute := voiceless(hunter_id)
+	var hunter: Dictionary = {} if mute else (d.get("hunters", {}) as Dictionary).get(hunter_id, {})
+	if hunter.is_empty() and not mute:
+		hunter = SecretCreatures.death_entry(hunter_id)
+	var key := "" if mute else cause_key(cause)
+	var pool: Array = []
+	if key != "":
+		for line in (d.get("causes", {}) as Dictionary).get(key, []):
+			if _usable(line, allow_placeholders):
+				pool.append({"line": line, "source": "cause"})
+	if not hunter.is_empty():
+		var own: Array = []
+		own.append_array(hunter.get("lines", []))
+		if hunter.has("loreLine"):
+			own.append(hunter["loreLine"])
+		for line in own:
+			if _usable(line, allow_placeholders):
+				pool.append({"line": line, "source": "hunter"})
+	if not pool.is_empty():
+		var index := hash_text("%s|%d|%s|%s" % [seed_text, depth, hunter_id, key]) % pool.size()
+		var picked: Dictionary = pool[index]
+		return {"text": _fill(line_text(picked["line"]), depth, display_name),
+			"source": String(picked["source"]), "style": line_style(picked["line"], hunter)}
+	var fallback := String(d.get("fallback", ""))
+	if not fallback.strip_edges().is_empty():
+		return {"text": _fill(fallback, depth, display_name), "source": "fallback", "style": ""}
+	return {"text": _fill(DEFAULT_COPY, depth, display_name), "source": "default", "style": ""}
+
+
+static func _fill(text: String, depth: int, display_name: String) -> String:
+	return text.replace("{depth}", str(depth)).replace("{name}", display_name)

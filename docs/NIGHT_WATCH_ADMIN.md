@@ -1,0 +1,79 @@
+# Night Watch: the admin menu
+
+The Night Watch admin menu is the shared `AdminMenu` (`game/admin/admin_menu.gd`, the **0** key) filled from a per-mode data table by `NightWatchAdmin` (`game/night_watch/admin/night_watch_admin.gd`). Same gate as Last Route and the City:
+`Build.tools_enabled()` (a signed-in admin; `NightWatchAdmin.attach` returns null for everyone else, so the menu does not exist and the key does nothing), each entry carries a `permission` scope (`world`, `player`,
+`hunters`, `visual`) checked per account, and using a control marks the run as a DEBUG run (`ADMIN ACTIVE // ...`, not recorded). The hint line lists `0 admin` only for an admin.
+
+## How it is built
+
+* **Common controls** are generated from HOOKS the game offers (`admin_*` methods): an entry exists only when the game has the hook, so every control changes game state through a public method, never a test-only path.
+  `admin_jump_to(level)`, `admin_set_hour(h)`, `admin_set_frozen(on)`, `admin_set_power(%)`, `admin_set_infinite_power(on)`, `admin_set_god(on)`, `admin_set_no_scare(on)`, `admin_set_hunter_speed(x)`,
+  `admin_hunter_ids()` + `admin_set_hunter_level(id, n)`, `admin_places()` + `admin_place_hunter(id, place)`, `admin_play_call()` / `admin_skip_call()`, `admin_set_reveal(on)`, `admin_win()` / `admin_lose()`,
+  `admin_set_noclip(on)`, plus `admin_status()` for the status tab.
+* **A mode section** comes from `NightWatchAdmin.PROVIDERS[mode_id]` (one line each): a script with `static func entries(game) -> Array` (AdminMenu entry format: `heading` / `items` + `labels` + `action(id)` /
+  `label` + `state` + `action` / `hunter_tool`, each with a `permission`) and optional `static func status(game) -> String`. Attach with `admin_menu = NightWatchAdmin.attach(self)` **after** the mode's sim exists.
+* Suite `night_watch_admin`: the gate (null for a non-admin), the sections, the layout at 480x270 / 1280x720 / 1920x1080, and that every Classic control changes state (see its list).
+
+## Classic (done)
+
+SHIFT: jump to Night 1-7, set the hour, freeze the clock, set power (100/50/10/0 = power out), infinite power, god mode (a caught hunter is sent back to wait), no jumpscare, noclip, reveal hunters on the camera map (red dots),
+hunter speed (0.5x to 4x), per hunter AI level 0-20 and SEND TO any camera room or door. ZELLIA AND THE NIGHT: play / skip the call, win / lose the shift. CLASSIC SPECIFIC: shut / open either door, door lights, all hunters to
+their doors, and on Night 7 force Kathy's meet-her-eyes.
+
+![SHIFT tab](night_watch_admin/admin_classic_n3_1280x720_1_SHIFT.png)
+![Classic specific, Night 7](night_watch_admin/admin_classic_n7_1280x720_3_CLASSIC_SPECIFIC.png)
+
+## Per-mode sections still to add (one provider script each, in the mode's own folder, + one PROVIDERS line, + the game's admin_* hooks)
+
+Dead Air (radio / lure controls, vent crawlers), Bedtime (closet / bed state, sleep meter), Masked Hours (mask timer, music box %, vent lights), The Facility (power / hazards), Salvage Run (hull / oxygen / scrap),
+The Descent (level / stairs), Open Air (watch / waypoints), Mixed Shift / Endless (rotation: pick the next dressing / shift, set the endless wave). Each adds the common hooks it can (a mode with no clock, e.g. Bedtime's sleep meter,
+simply lacks `admin_set_hour`) and checks its section in `night_watch_admin` or its own suite.
+
+## Masked Hours, Salvage Run, Mixed Shift (done)
+
+Each game offers its own `admin_*` hooks (jump to a shift, set the hour, freeze the clock, "power" = the flashlight battery / the power / the doors' seal store, infinite power, god mode, no jumpscare, hunter speed, hunters and where
+they are, win / lose, noclip; calls where the mode has them; reveal where it has a camera map) and a provider script: `mask/mask_admin.gd`, `dayshift/dayshift_admin.gd`, `mixed/mixed_admin.gd` (one `PROVIDERS` line each).
+Hunter speed is a real multiplier in each logic (`hunter_speed`, 1.0 = the 2D numbers exactly, so the golden shifts are untouched). Every entry is exercised in the mode's own suite through `tests/night_watch_admin_check.gd`
+(the gate, the sections, the layout at 480x270 / 1280x720 / 1920x1080, and that EVERY control changes the snapshot of the game's state).
+
+* **Masked Hours** (MASKED HOURS SPECIFIC): mask on / off and Thessine's mask timer, music box %, vent lights and hall light (held), one flash of the hall light, the desk lamp, Thessine into the office, Umbriel runs the hall, Verrine to the left vent, all hunters home.
+* **Salvage Run** (SALVAGE RUN SPECIFIC): money, quota, rack pieces (scrap / parts / prize / clear), the upgrades, the noise, doors and door lights, Ysolde's knock / glass / away, both visitors one step from their doors. (The 2D mode has no hull or oxygen.)
+* **Mixed Shift** (MIXED SHIFT SPECIFIC): the rotation (tonight's dressing), Endless's hour and roster re-draw, force the next spike, a chaos event now, doors and vent seals, the vent crawler into the run or at a vent, stop the Winder's music box, all threats home.
+
+![Masked Hours](night_watch_admin/admin_mask_3_MASKED_HOURS_SPECIFIC.png)
+![Salvage Run](night_watch_admin/admin_dayshift_3_SALVAGE_RUN_SPECIFIC.png)
+![Mixed Shift](night_watch_admin/admin_mixed_3_MIXED_SHIFT_SPECIFIC.png)
+## Dead Air, Bedtime, The Facility (done; suite `night_watch_admin_a`)
+
+Each game offers `admin_*` hooks (jump to a shift, freeze, the mode's "power" as the common POWER control, infinite power, god, no jumpscare, hunter speed, per-hunter AI level and SEND TO, call play / skip, win / lose; plus
+time, reveal and noclip where the mode has them) and a provider in its own folder (`lure_admin.gd`, `bedroom_admin.gd`, `story_admin.gd`, one line each in `NightWatchAdmin.PROVIDERS`). The rules got three neutral switches (`god`,
+`hunter_speed`; Dead Air also `set_level`): at their defaults the 2D numbers and the goldens are untouched. `night_watch_admin_a` checks the gate, the sections, the layout at three sizes, and runs every entry from a prepared
+state comparing the game's state before and after (an items group is run last item first so each item has to move something).
+
+| Mode | "Power" is | Mode section (`<MODE> SPECIFIC`) |
+|---|---|---|
+| Dead Air | the air (100 = clear) | lure Xivvy now (no cooldown, no audio), reset the lure cooldown, force Xivvy to a crawlspace or a vent opening, break / fix each system (audio, cameras, vents, heater, fan), seal / open each vent, set the temperature, heater / fan on / off, clear the cold and the heat; common: set the hour, reveal (red dots on the camera map), phantoms shown in a chosen room |
+| Bedtime | the flashlight battery | which hand is down (closet door / hall light / bed light / none), the sleep meter (Haelith's creep) 0-99, make the house restless now; common: set the hour, reveal (all three shown and the room lit), Loxelle / Javelle to a stage, Haelith's creep to 0 / 50 / 90 |
+| The Facility | the beacon charge | the noise meter, force the current task done, jump to any task, go to any room, the lift (away / bell / open); common: Opalie and Porcelle 0-3 steps from you, noclip |
+
+![Dead Air specific](night_watch_admin/admin_lure_1280x720_3_DEAD_AIR_SPECIFIC.png)
+![Bedtime specific](night_watch_admin/admin_bedroom_1280x720_3_BEDTIME_SPECIFIC.png)
+![Facility specific](night_watch_admin/admin_story_1280x720_3_THE_FACILITY_SPECIFIC.png)
+(every tab of each mode is in `docs/night_watch_admin/`)
+## The Descent and Open Air (done)
+
+Providers `game/night_watch/descent/descent_admin.gd` and `game/night_watch/openair/openair_admin.gd`; hooks in `descent_game.gd` / `openair_game.gd`; shared checks in `tests/nw_admin_check.gd`
+(gate, sections, a permission on every control, the layout at 480x270 / 1280x720 / 1920x1080, and every entry, every dropdown item and every hunter-tool action run on a fresh game and must change its state),
+used by the suites `night_watch_descent` and `night_watch_extra`.
+
+**The Descent** (no clock, not walkable: no `admin_set_hour`, no noclip): common: jump to descent 1-5, freeze, god (she never gets in), no jumpscare, speed (scales her closeness rate), Elise's AI level and
+SEND TO (far / step 2 / step 1 / at the edge = her closeness), reveal (shows her whatever the bar says), play / skip Zellia's call, win / lose. Specific: ELEVATOR DEPTH (jump to any floor / stage of the run), SOLVE THIS STAGE,
+DEAL THIS PUZZLE AGAIN, WRONG ATTEMPTS (add one / clear), ELISE'S CLOSENESS (0 to 90%), HOLD THE DOOR latch.
+
+**Open Air** (a clock and a walkable player): common: jump to a watch, set the hour, freeze, god (whoever would catch you is sent back, the cold and the dark let go), no jumpscare, speed (scales every hunter's steps), each hunter's AI level
+(0 takes her off the floor) and SEND TO a step of her approach (Ysolde: trees / out of them / log pile; Wynelle: how far the cold has got), reveal (shows the hunters who are off), noclip, call, win / lose. Specific, by watch:
+ROOFTOP lantern on / out, oil, which door she is at; BUS STOP warmth, fuel, chill, drop a canister, call the bus; CAMPFIRE fire, logs, Verrine's mood; and the weather now (bus stop, campfire).
+
+![Descent specific](night_watch_admin/admin_descent_3_THE_DESCENT_SPECIFIC.png)
+![Open Air rooftop specific](night_watch_admin/admin_openair_rooftop_3_OPEN_AIR_SPECIFIC.png)
+![Open Air campfire specific](night_watch_admin/admin_openair_campfire_3_OPEN_AIR_SPECIFIC.png)

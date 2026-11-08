@@ -1,0 +1,10 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "industrial",
+	"accent": {
+		"texture": "floor",
+		"kind": "metal1",
+		"tint": "#6f8a96",
+		"metal": true
+	}
+}

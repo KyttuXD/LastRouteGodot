@@ -1,0 +1,10 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "office",
+	"accent": {
+		"texture": "floor",
+		"kind": "concrete0",
+		"tint": "#b0aaa0",
+		"metal": false
+	}
+}

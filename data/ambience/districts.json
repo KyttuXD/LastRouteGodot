@@ -1,0 +1,68 @@
+{
+	"schema": "lr.ambience/1",
+	"scope": "district",
+	"beds": {
+		"maze": [
+			{"kind": "hum", "hz": 120.0, "vol": 0.01},
+			{"kind": "noise", "hz": 260.0, "vol": 0.006}
+		],
+		"mansion": [
+			{"kind": "noise", "hz": 180.0, "vol": 0.006},
+			{"kind": "pulse", "hz": 70.0, "vol": 0.012, "every": 2.9, "len": 0.25}
+		],
+		"hotel": [
+			{"kind": "hum", "hz": 60.0, "vol": 0.009},
+			{"kind": "noise", "hz": 300.0, "vol": 0.004}
+		],
+		"apartment": [
+			{"kind": "hum", "hz": 100.0, "vol": 0.006},
+			{"kind": "pulse", "hz": 1800.0, "vol": 0.003, "every": 1.5, "len": 0.02}
+		],
+		"beach": [
+			{"kind": "noise", "hz": 420.0, "vol": 0.014, "swell": 6.0},
+			{"kind": "chirp", "hz": 2600.0, "vol": 0.004, "count": 3}
+		],
+		"gothic": [
+			{"kind": "noise", "hz": 220.0, "vol": 0.012, "swell": 3.0},
+			{"kind": "pulse", "hz": 85.0, "vol": 0.01, "every": 2.3, "len": 0.35}
+		],
+		"carnival": [
+			{"kind": "pulse", "hz": 523.0, "vol": 0.006, "every": 0.5, "len": 0.3},
+			{"kind": "pulse", "hz": 392.0, "vol": 0.005, "every": 0.75, "len": 0.3},
+			{"kind": "noise", "hz": 200.0, "vol": 0.004}
+		],
+		"prison": [
+			{"kind": "hum", "hz": 50.0, "vol": 0.008},
+			{"kind": "pulse", "hz": 140.0, "vol": 0.014, "every": 3.0, "len": 0.12, "wave": "square"}
+		],
+		"hospital": [
+			{"kind": "hum", "hz": 120.0, "vol": 0.011},
+			{"kind": "hum", "hz": 240.0, "vol": 0.004},
+			{"kind": "pulse", "hz": 980.0, "vol": 0.006, "every": 1.5, "len": 0.09}
+		],
+		"lab": [
+			{"kind": "noise", "hz": 650.0, "vol": 0.009},
+			{"kind": "hum", "hz": 120.0, "vol": 0.003},
+			{"kind": "pulse", "hz": 3000.0, "vol": 0.004, "every": 6.0, "len": 0.7, "wave": "saw"}
+		],
+		"greenhouse": [
+			{"kind": "noise", "hz": 2200.0, "vol": 0.004, "swell": 3.0},
+			{"kind": "pulse", "hz": 1400.0, "vol": 0.004, "every": 1.2, "len": 0.04},
+			{"kind": "chirp", "hz": 3200.0, "vol": 0.005, "count": 4}
+		],
+		"sewer": [
+			{"kind": "noise", "hz": 300.0, "vol": 0.014, "swell": 6.0},
+			{"kind": "pulse", "hz": 1250.0, "vol": 0.006, "every": 1.0, "len": 0.05},
+			{"kind": "chirp", "hz": 4200.0, "vol": 0.003, "count": 2}
+		],
+		"mall": [
+			{"kind": "pulse", "hz": 440.0, "vol": 0.005, "every": 1.0, "len": 0.5},
+			{"kind": "pulse", "hz": 554.0, "vol": 0.004, "every": 1.5, "len": 0.5},
+			{"kind": "hum", "hz": 70.0, "vol": 0.008}
+		],
+		"inferno": [
+			{"kind": "noise", "hz": 140.0, "vol": 0.016, "swell": 2.0},
+			{"kind": "hum", "hz": 41.0, "vol": 0.012}
+		]
+	}
+}

@@ -1,0 +1,681 @@
+extends Control
+
+## The staging screen: the room you are about to enter a route from.
+##
+## Built from Palette in code rather than as a scene, for the same reason the
+## pause overlay is -- colours written into a .tscn are invisible to a palette
+## change. Layout follows the web build's own staging screen: amber system
+## line, the room code, the route seed in an inset block with a crimson rule,
+## then the host's configuration and the seats.
+##
+## Offline this shows exactly what it shows online. That is deliberate: the
+## screen is not a singleplayer menu wearing a room's clothes, it IS the room;
+## ENet only changes who occupies it.
+
+const ROW_HEIGHT := 13
+const SIGNAL_BACKDROP_SCRIPT := preload("res://game/ui_common/signal_backdrop.gd")
+## Clear space left between the staging panel and the edge of the screen (horizontal, then vertical).
+const MARGIN_X := 10
+const MARGIN_Y := 10
+
+var _notice := ""
+var _modal: Control
+var _dossier_name: Label
+var _dossier_status: Label
+var _dossier_behavior: Label
+var _dossier_counter: Label
+var _dossier_gimmick_heading: Label
+var _dossier_gimmick: Label
+var _dossier_stats: Label
+var _default_focus: Control
+## The owner's END ROUTE is two presses: the first arms it (SURE?), the second sends it. Persists across _rebuild().
+var _end_armed := false
+## Owner CONTINUE RUN: the room may hold the owner and the dedicated host's own peer, nothing else.
+## Persistent across _rebuild(): the mod-pack confirm/progress/error overlay for joining a room that runs mods.
+var mod_join: ModJoinDialog
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel") and _modal != null:
+		_close_modal()
+		get_viewport().set_input_as_handled()
+
+
+func _ready() -> void:
+	MouseLock.release_all()
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+	RoomState.changed.connect(_rebuild)
+	mod_join = ModJoinDialog.new()
+	add_child(mod_join)
+	if not RoomState.status_message.is_empty():
+		_notice = RoomState.status_message
+	_rebuild()
+
+
+func _rebuild() -> void:
+	_modal = null
+	_default_focus = null
+	_clear_dossier_fields()
+	for child in get_children():
+		if child != mod_join:
+			child.queue_free()
+	move_child.call_deferred(mod_join, -1)
+
+	var background := SIGNAL_BACKDROP_SCRIPT.new()
+	background.name = "SignalBackdrop"
+	background.pattern_strength = 0.7
+	background.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(background)
+
+	var panel := PanelContainer.new()
+	panel.name = "StagingPanel"
+	panel.add_theme_stylebox_override("panel", Palette.panel_box(Palette.PANEL,
+		Palette.PANEL_EDGE, 12))
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	# Full window width less a margin, not a fixed +-190 px around centre: a panel whose content is wider than
+	# its set width used to grow both ways and clip off both screen edges.
+	panel.anchor_left = 0.0
+	panel.anchor_right = 1.0
+	panel.offset_left = MARGIN_X
+	panel.offset_right = -MARGIN_X
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	# Bounded to the viewport with a real margin rather than sized by its
+	# content. Staging grows -- more players, more config -- and a panel that
+	# sizes itself pushes ENTER ROUTE off the bottom of the screen, which is
+	# the one button that has to be reachable.
+	panel.offset_top = MARGIN_Y
+	panel.offset_bottom = -MARGIN_Y
+	panel.anchor_top = 0.0
+	panel.anchor_bottom = 1.0
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	add_child(panel)
+
+	# ...and scrolls if it still does not fit, so nothing is ever simply
+	# unreachable on a short window.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.add_child(scroll)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 5)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(column)
+
+	var header := HBoxContainer.new()
+	column.add_child(header)
+	header.add_child(_label(Palette.track("CO-OP STAGING SIGNAL"), Palette.AMBER, 7))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(spacer)
+	header.add_child(_label("%d / %d SIGNALS" % [RoomState.roster().size(),
+		RoomState.seats()], Palette.MUTED, 7))
+
+	var title := HBoxContainer.new()
+	title.name = "RoomTitle"
+	title.add_theme_constant_override("separation", 6)
+	column.add_child(title)
+	var room_heading := _label("ROOM", Palette.INK, 18)
+	room_heading.name = "RoomTitleLabel"
+	Palette.style_title(room_heading)
+	title.add_child(room_heading)
+	var room_code := _label(RoomState.code, Palette.ACCENT, 18)
+	room_code.name = "RoomCodeLabel"
+	Palette.style_title(room_code, Palette.ACCENT)
+	title.add_child(room_code)
+
+	column.add_child(_seed_block())
+	column.add_child(_config_block())
+	column.add_child(_label(Palette.track("CONNECTED PLAYERS"), Palette.AMBER, 7))
+	column.add_child(_player_list())
+	# the live status wins, so a refused owner command (RoomState._owner_refused) shows; the entry notice is the fallback
+	var notice := RoomState.status_message if not RoomState.status_message.is_empty() else _notice
+	if not notice.is_empty():
+		column.add_child(_wrapped_label(notice, Palette.ALERT, 7))
+	column.add_child(_wrapped_label(_connection_summary(), Palette.MUTED, 7))
+	column.add_child(_actions())
+	if _default_focus != null:
+		_focus_default.call_deferred()
+
+
+## A rebuild can run in the same press that leaves staging. Focus only if that button is still on screen.
+func _focus_default() -> void:
+	if _default_focus != null and is_instance_valid(_default_focus) and _default_focus.is_inside_tree():
+		_default_focus.grab_focus()
+
+
+## Host controls (difficulty, reroll, start) are live for a player who hosts the room, and for the owner of a hosted room
+## (their changes go to the dedicated host through owner_send). Not while a hosted room is still waiting to be joined.
+func _host_controls_enabled() -> bool:
+	if RoomState.hosted_join_pending():
+		return false
+	return RoomState.is_host or RoomState.is_room_owner()
+
+
+func _connection_summary() -> String:
+	if RoomState.hosted_join_pending():
+		var last := "" if RoomState.hosted_join_last_error.is_empty() \
+			else " // %s" % RoomState.hosted_join_last_error
+		return "WAITING FOR ROOM %s // CHECK %d%s" % [RoomState.code, RoomState.hosted_join_checks, last]
+	if RoomState.connecting:
+		return "JOINING THROUGH PRIMARY SERVER..."
+	if RoomState.online and RoomState.is_host and not Backend.registered:
+		return "REGISTERING ROOM %s WITH PRIMARY SERVER..." % RoomState.code
+	if RoomState.online:
+		return "ROOM %s // PRIMARY SERVER // %d CONNECTED" % [RoomState.code,
+			RoomState.roster().size()]
+	return "SOLO ROOM %s // PRIMARY SERVER UNAVAILABLE" % RoomState.code
+
+
+func _seed_block() -> Control:
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel",
+		Palette.panel_box(Palette.INSET, Palette.ACCENT_DEEP, 6))
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 1)
+	box.add_child(stack)
+	stack.add_child(_label(Palette.track("ROUTE SEED"), Palette.AMBER, 6))
+	stack.add_child(_label(RoomState.seed_text, Palette.INK, 9))
+	stack.add_child(_label(
+		"Players enter from separate nearby access points. The route is shared.",
+		Palette.MUTED, 6))
+	return box
+
+
+func _config_block() -> Control:
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET,
+		Palette.PANEL_EDGE, 6))
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 3)
+	box.add_child(stack)
+
+	var head := HBoxContainer.new()
+	stack.add_child(head)
+	head.add_child(_label(Palette.track("ROUTE SETUP"), Palette.AMBER, 7))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(spacer)
+	head.add_child(_label("HOST CONTROLS" if _host_controls_enabled() else "HOST DECIDES",
+		Palette.MUTED, 6))
+
+	# a flow row: groups wrap onto a new line instead of widening the panel
+	var groups := HFlowContainer.new()
+	groups.add_theme_constant_override("h_separation", 5)
+	groups.add_theme_constant_override("v_separation", 4)
+	stack.add_child(groups)
+	# The route is now the game rather than a selectable experimental mode, so
+	# MODE and MAP SCALE were redundant controls. Difficulty remains the one
+	# meaningful room choice; the freed above-fold space exposes local archives.
+	var difficulty_group := _config_group("DIFFICULTY", RoomState.DIFFICULTY_LABELS,
+		RoomState.difficulty,
+		func(value: int) -> void: RoomState.set_difficulty(value),
+		func(value: int) -> bool:
+			return _host_controls_enabled() and RoomState.difficulty_available(value),
+		RoomState.DIFFICULTY_BLURBS)
+	difficulty_group.add_child(_label(String(RoomState.DIFFICULTY_BLURBS.get(RoomState.difficulty, "")), Palette.MUTED, 6))
+	groups.add_child(difficulty_group)
+	# AI teammates the host runs (co-op only: they need the revive window). Admins and devs only: players
+	# never see the row.
+	if Build.tools_enabled() and RoomState.is_host:
+		groups.add_child(_npc_scroller())
+	groups.add_child(_archive_group())
+
+	stack.add_child(_wrapped_label("THE RUN SAVES ITSELF // DEATH ENDS IT", Palette.MUTED, 6))
+	return box
+
+
+## The run's automatic save (RunSaves): one CONTINUE, for the solo player or a host who is still alone.
+func _archive_group() -> Control:
+	var group := VBoxContainer.new()
+	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	group.add_theme_constant_override("separation", 2)
+	group.add_child(_label("SAVED RUN", Palette.MUTED, 6))
+	var summary := RunSaves.summary()
+	var has_run := bool(summary.get("ok", false))
+	var status := String(summary.get("status", "")) if has_run else String(summary.get("message", ""))
+	if status.is_empty():
+		status = "NO SAVED RUN"
+	if RoomState.online and RoomState.is_room_owner():
+		if has_run:
+			status = "SAVED RUN CONTINUES IN SOLO"
+	elif RoomState.online and not RoomState.is_host:
+		status = "THE HOST'S RUN SAVES ITSELF"
+	elif has_run and RoomState.online and RoomState.roster().size() > 1:
+		status = "CONTINUE NEEDS AN EMPTY ROOM"
+	var status_label := _label(status, Palette.BODY, 7)
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	group.add_child(status_label)
+	var button := Button.new()
+	button.name = "LobbyContinueButton"
+	button.text = "CONTINUE RUN"
+	button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+	button.focus_mode = Control.FOCUS_ALL
+	Palette.style_button(button, false)
+	button.disabled = not _archive_load_allowed() or not has_run
+	button.pressed.connect(_continue_saved_run)
+	group.add_child(button)
+	return group
+
+
+## Solo, or the host of a room that is still empty; the room owner of a hosted room counts as host for this gate only.
+func _archive_load_allowed() -> bool:
+	if RoomState.connecting:
+		return false
+	if not RoomState.online:
+		return true
+	return RoomState.is_host and RoomState.roster().size() <= 1
+
+
+func _continue_saved_run() -> void:
+	if not _archive_load_allowed():
+		return
+	var result := RunSaves.queue_continue()
+	if not bool(result.get("ok", false)):
+		RoomState.status_message = String(result.get("message", "SAVED RUN COULD NOT BE READ"))
+		RoomState.changed.emit()
+		return
+	var payload: Dictionary = result.get("payload", {})
+	RoomState.mode = RoomState.Mode.DEFAULT
+	RoomState.map_scale = RoomState.Scale.INFINITE
+	RoomState.seed_text = String(payload.get("seed_text", RoomState.seed_text))
+	RoomState.difficulty = clampi(int(payload.get("difficulty",
+		RoomState.Difficulty.STANDARD)), RoomState.Difficulty.RELAXED,
+		RoomState.Difficulty.NIGHTMARE)
+	RoomState.status_message = "CONTINUING // %s" % String(result.get("place", "THE ROUTE"))
+	_close_modal()
+	RoomState.enter(get_tree())
+
+
+func _config_group(title: String, labels: Dictionary, selected: int,
+		on_pick: Callable, is_allowed: Callable, tips: Dictionary = {}) -> Control:
+	var group := VBoxContainer.new()
+	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	group.add_theme_constant_override("separation", 2)
+	group.add_child(_label(title, Palette.MUTED, 6))
+	group.add_child(_toggles(labels, selected, on_pick, is_allowed, tips))
+	return group
+
+
+## NPC TEAMMATES  ◀ N ▶  (0 up, no upper limit: NpcTeammates.clamp_count); usable in an online, non-public room.
+func _npc_scroller() -> Control:
+	var group := VBoxContainer.new()
+	group.name = "LobbyNpcTeammates"
+	group.add_theme_constant_override("separation", 2)
+	group.add_child(_label("NPC TEAMMATES (ADMIN)", Palette.MUTED, 6))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 3)
+	group.add_child(row)
+	var allowed := RoomState.online and not RoomState.public_route
+	for step in [-1, 0, 1]:
+		if step == 0:
+			var value := _label("%d" % RoomState.npc_teammates, Palette.INK, 8)
+			value.name = "NpcCount"
+			value.custom_minimum_size = Vector2(22, ROW_HEIGHT)
+			value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			row.add_child(value)
+			continue
+		var button := Button.new()
+		button.name = "NpcLess" if step < 0 else "NpcMore"
+		button.text = "<" if step < 0 else ">"
+		button.custom_minimum_size = Vector2(ROW_HEIGHT, ROW_HEIGHT)
+		button.focus_mode = Control.FOCUS_ALL
+		Palette.style_button(button, false)
+		var next: int = RoomState.npc_teammates + step
+		button.disabled = not allowed or next < 0
+		button.pressed.connect(func() -> void: RoomState.set_npc_teammates(RoomState.npc_teammates + step))
+		row.add_child(button)
+	if not allowed:
+		group.add_child(_label("ONLINE ROOMS ONLY", Palette.MUTED, 6))
+	return group
+
+
+## A row of mutually exclusive buttons, amber-filled when selected -- the web
+## build's quick button groups.
+func _toggles(labels: Dictionary, selected: int, on_pick: Callable,
+		is_allowed: Callable, tips: Dictionary = {}) -> Control:
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("separation", 3)
+	for value in labels:
+		var button := Button.new()
+		button.text = String(labels[value])
+		button.tooltip_text = String(tips.get(value, ""))
+		button.add_theme_font_size_override("font_size", 7)
+		button.custom_minimum_size = Vector2(0, ROW_HEIGHT)
+		button.focus_mode = Control.FOCUS_ALL
+		var allowed: bool = is_allowed.call(value)
+		Palette.style_button(button, false)
+		if value == selected:
+			button.add_theme_stylebox_override("normal",
+				Palette.button_box(Palette.AMBER_FILL, Palette.AMBER))
+			button.add_theme_color_override("font_color", Palette.ON_AMBER)
+		button.disabled = not allowed
+		if allowed:
+			button.pressed.connect(func() -> void: on_pick.call(value))
+		row.add_child(button)
+	return row
+
+
+## One seat. Every part of this used to be hardcoded, so a guest's window
+## showed itself as the host.
+## The same list as in a run (name, ping, status, floor, host badge, voice), live with joins and leaves because the staging screen
+## rebuilds on RoomState.changed. Before the route there is no replicated state, so status reads IN LOBBY.
+func _player_list() -> Control:
+	var list := PlayerListPanel.new()
+	list.name = "LobbyPlayerList"
+	var rows := RoomPlayerList.build(RoomState.roster_rows(), {}, {}, {}, {}, false, Time.get_ticks_usec(), false)
+	list.custom_minimum_size = Vector2(0, mini(26 + 14 * rows.size(), 100))
+	# the owner of a hosted room gets KICK on the other seats (set before set_rows: the signature includes it)
+	list.kick_enabled = RoomState.is_room_owner() and not RoomState.is_host
+	list.kick_requested.connect(_on_kick_requested)
+	list.set_rows(rows)
+	return list
+
+
+func _on_kick_requested(peer_id: int) -> void:
+	RoomState.owner_kick(peer_id)
+
+
+func _actions() -> Control:
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 4)
+	# a flow row: ENTER ROUTE, REROLL, DOSSIER and BACK wrap instead of forcing the panel wider
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 5)
+	row.add_theme_constant_override("v_separation", 4)
+	stack.add_child(row)
+
+	var enter := Button.new()
+	enter.name = "EnterRouteButton"
+	# the owner of a hosted room starts it here too: the dedicated host (no player) runs the route
+	var guest_waiting := RoomState.online and not RoomState.is_host and not RoomState.is_room_owner()
+	enter.text = "CONNECTING..." if RoomState.connecting else (
+		"WAITING FOR ROOM" if RoomState.hosted_join_pending()
+		else "WAITING FOR HOST" if guest_waiting
+		else "WAITING FOR PRIMARY SERVER" if RoomState.online and not Backend.registered
+		else RoomState.start_label())
+	enter.add_theme_font_size_override("font_size", 10)
+	enter.custom_minimum_size = Vector2(0, 18)
+	Palette.style_button(enter, true)
+	enter.disabled = RoomState.connecting or RoomState.hosted_join_pending() or guest_waiting \
+		or (RoomState.online and RoomState.is_host and not Backend.registered) \
+		or not RoomState.mode_available(RoomState.mode)
+	if not enter.disabled:
+		enter.pressed.connect(func() -> void: RoomState.enter(get_tree()))
+	row.add_child(enter)
+
+	var reroll := Button.new()
+	reroll.text = "REROLL ROUTE"
+	reroll.add_theme_font_size_override("font_size", 7)
+	reroll.custom_minimum_size = Vector2(0, 18)
+	Palette.style_button(reroll, false)
+	reroll.disabled = RoomState.connecting or RoomState.hosted_join_pending() \
+		or (RoomState.online and not RoomState.is_host and not RoomState.is_room_owner())
+	if not reroll.disabled:
+		reroll.pressed.connect(func() -> void: RoomState.reroll_seed())
+	row.add_child(reroll)
+
+	var dossier := Button.new()
+	dossier.name = "DossierButton"
+	dossier.text = "HUNTER DOSSIER"
+	dossier.add_theme_font_size_override("font_size", 7)
+	dossier.custom_minimum_size = Vector2(0, 18)
+	Palette.style_button(dossier, false)
+	dossier.pressed.connect(_on_dossier_pressed)
+	row.add_child(dossier)
+	_default_focus = enter if not enter.disabled else dossier
+
+	# END ROUTE is not offered on the lobby (no live run here); owner_end_route() stays for the in-run HUD
+	if false:
+		var end_route := Button.new()
+		end_route.name = "OwnerEndRouteButton"
+		end_route.text = "SURE? END ROUTE" if _end_armed else "END ROUTE"
+		end_route.add_theme_font_size_override("font_size", 7)
+		end_route.custom_minimum_size = Vector2(0, 18)
+		Palette.style_button(end_route, false)
+		end_route.disabled = RoomState.connecting or RoomState.hosted_join_pending()
+		end_route.pressed.connect(_on_owner_end_pressed)
+		row.add_child(end_route)
+
+	var leave := Button.new()
+	leave.name = "BackToMenuButton"
+	leave.text = RoomState.menu_back_label()   # "BACK TO LAST ROUTE": this game's menu, not the games hub
+	leave.add_theme_font_size_override("font_size", 7)
+	leave.custom_minimum_size = Vector2(0, 18)
+	Palette.style_button(leave, false)
+	leave.pressed.connect(func() -> void:
+		var menu_scene := RoomState.menu_scene_path()
+		# the host leaving staging closes the room; a guest leaves it. Both end up at the menu with the room state cleared.
+		if RoomState.online and RoomState.is_host:
+			RoomState.close_room()
+		elif RoomState.online:
+			RoomState.reset_after_leaving("YOU LEFT THE ROOM")
+		else:
+			RoomState.leave_network()
+		XRFade.change_scene(get_tree(), menu_scene))
+	row.add_child(leave)
+
+	return stack
+
+
+## First press arms the confirm (the row is rebuilt to show SURE?); the second press asks the dedicated host to end the route.
+func _on_owner_end_pressed() -> void:
+	if not _end_armed:
+		_end_armed = true
+		_rebuild()
+		return
+	_end_armed = false
+	RoomState.owner_end_route()
+
+
+func _on_dossier_pressed() -> void:
+	_close_modal()
+	var content := _modal_content("ARCHIVED HUNTER SIGNALS", "HUNTER DOSSIER",
+		Vector2(420, 232))
+	var split := HBoxContainer.new()
+	split.name = "DossierSplit"
+	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	split.add_theme_constant_override("separation", 8)
+	content.add_child(split)
+
+	var roster := ItemList.new()
+	roster.name = "DossierRoster"
+	roster.custom_minimum_size = Vector2(108, 0)
+	roster.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	roster.allow_reselect = true
+	roster.fixed_icon_size = Vector2i(48, 48)
+	roster.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # 2D pixel-art portraits
+	roster.icon_mode = ItemList.ICON_MODE_LEFT
+	roster.add_theme_font_size_override("font_size", 7)
+	roster.add_theme_color_override("font_color", Palette.BODY)
+	roster.add_theme_color_override("font_selected_color", Palette.ON_AMBER)
+	roster.add_theme_stylebox_override("panel", Palette.panel_box(Palette.INSET,
+		Palette.PANEL_EDGE, 3))
+	roster.add_theme_stylebox_override("selected", Palette.button_box(
+		Palette.AMBER_FILL, Palette.AMBER, 3, 1))
+	roster.add_theme_stylebox_override("selected_focus", Palette.button_box(
+		Palette.AMBER_FILL, Palette.AMBER, 3, 1))
+	split.add_child(roster)
+
+	var details := VBoxContainer.new()
+	details.name = "DossierDetails"
+	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	details.add_theme_constant_override("separation", 4)
+	split.add_child(details)
+
+	var identity := HBoxContainer.new()
+	identity.add_theme_constant_override("separation", 5)
+	details.add_child(identity)
+	_dossier_name = _label("", Palette.INK, 16)
+	_dossier_name.name = "DossierName"
+	_dossier_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	Palette.style_title(_dossier_name)
+	identity.add_child(_dossier_name)
+	_dossier_status = _label("", Palette.AMBER, 6)
+	_dossier_status.name = "DossierStatus"
+	_dossier_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	identity.add_child(_dossier_status)
+
+	_dossier_behavior = _dossier_copy("DossierBehavior")
+	details.add_child(_dossier_behavior)
+	_dossier_gimmick_heading = _label(Palette.track("VOID GIMMICK CHART"),
+		Palette.AMBER, 6)
+	_dossier_gimmick_heading.name = "DossierGimmickHeading"
+	_dossier_gimmick_heading.visible = false
+	details.add_child(_dossier_gimmick_heading)
+	_dossier_gimmick = _dossier_copy("DossierGimmick")
+	_dossier_gimmick.visible = false
+	details.add_child(_dossier_gimmick)
+	_dossier_counter = _dossier_copy("DossierCounter")
+	_dossier_counter.visible = false
+	details.add_child(_dossier_counter)
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	details.add_child(spacer)
+	_dossier_stats = _label("", Palette.MUTED, 6)
+	_dossier_stats.name = "DossierStats"
+	_dossier_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	details.add_child(_dossier_stats)
+
+	var ids: Array = []
+	for category in ["az", "void"] + SecretCreatures.dossier_categories():
+		var header_text := HunterDossier.category_title(category)
+		var header := roster.add_item("-- %s --" % header_text)
+		roster.set_item_disabled(header, true)
+		for hunter_id in HunterDossier.category_ids(category):
+			ids.append(hunter_id)
+			var discovered := Backend.hunter_discovered(hunter_id)
+			var profile: Dictionary = HunterDossier.profile(hunter_id)
+			var label := String(profile["name"]).to_upper() if discovered \
+				else "???"
+			var index := roster.add_item(label, HunterDossier.portrait(hunter_id))
+			roster.set_item_metadata(index, hunter_id)
+			if not discovered:
+				roster.set_item_icon_modulate(index, HunterDossier.SILHOUETTE)
+	roster.item_selected.connect(func(index: int) -> void:
+		_show_dossier_entry(String(roster.get_item_metadata(index))))
+	if not ids.is_empty():
+		roster.select(1)
+		_show_dossier_entry(String(ids[0]))
+		roster.grab_focus.call_deferred()
+
+
+func _dossier_copy(node_name: String) -> Label:
+	var label := _label("", Palette.BODY, 7)
+	label.name = node_name
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return label
+
+
+func _show_dossier_entry(hunter_id: String) -> void:
+	var profile: Dictionary = HunterDossier.profile(hunter_id)
+	var entry: Dictionary = HunterDossier.entry(hunter_id)
+	if profile.is_empty() or entry.is_empty() or _dossier_name == null:
+		return
+	if not Backend.hunter_discovered(hunter_id):
+		_dossier_name.text = "??? (LOCKED)"
+		_dossier_status.text = "ACCOUNT DISCOVERY REQUIRED" \
+			if Backend.signed_in() else "SIGN IN TO RETAIN DISCOVERIES"
+		_dossier_behavior.text = HunterDossier.redacted(hunter_id, String(entry["behavior"]))
+		var locked_chart := entry.has("gimmick_behavior")
+		_dossier_gimmick_heading.visible = locked_chart
+		_dossier_gimmick.visible = locked_chart
+		_dossier_gimmick.text = HunterDossier.redacted(hunter_id,
+			String(entry.get("gimmick_behavior", ""))) if locked_chart else ""
+		_dossier_counter.text = ""
+		_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
+			float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
+			float(profile["hearing"])]
+		return
+	_dossier_name.text = String(profile["name"]).to_upper()
+	var category := String(profile.get("category", "az"))
+	var special := HunterRoster.SPECIAL_IDS.has(hunter_id)
+	_dossier_status.text = "VOID INCURSION // EXTRA HUNTER" if category == "void" \
+		else "SECRET // FOUND IN THE CITY" if category == "secret" \
+		else "RULE-SUMMONED // A-Z SPECIAL" if special \
+		else "A-Z ROUTE DRAW // %s" % String(profile["tier"]).to_upper()
+	_dossier_behavior.text = String(entry["behavior"])
+	var has_chart := entry.has("gimmick_behavior")
+	_dossier_gimmick_heading.visible = has_chart
+	_dossier_gimmick.visible = has_chart
+	_dossier_gimmick.text = String(entry.get("gimmick_behavior", "")) if has_chart else ""
+	_dossier_counter.text = ""
+	_dossier_stats.text = "PATROL %.2f  //  CHASE %.2f  //  SIGHT %.1f  //  HEARING %.2f" % [
+		float(profile["speed"]), float(profile["chase"]), float(profile["sight"]),
+		float(profile["hearing"])]
+
+
+func _modal_content(kicker: String, title: String, minimum: Vector2) -> VBoxContainer:
+	_modal = ColorRect.new()
+	_modal.name = "DossierModal"
+	_modal.color = Palette.SCRIM
+	_modal.mouse_filter = Control.MOUSE_FILTER_STOP
+	_modal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_modal.z_index = 80
+	add_child(_modal)
+	var panel := PanelContainer.new()
+	panel.name = "DossierPanel"
+	panel.add_theme_stylebox_override("panel", Palette.panel_box(Color("0c080e"),
+		Palette.PANEL_EDGE, 12))
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	panel.custom_minimum_size = minimum
+	panel.offset_left = -minimum.x * 0.5
+	panel.offset_top = -minimum.y * 0.5
+	panel.offset_right = minimum.x * 0.5
+	panel.offset_bottom = minimum.y * 0.5
+	_modal.add_child(panel)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 5)
+	panel.add_child(content)
+	var top := HBoxContainer.new()
+	content.add_child(top)
+	top.add_child(_label(Palette.track(kicker), Palette.AMBER, 6))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(spacer)
+	var close := Button.new()
+	close.name = "DossierCloseButton"
+	close.add_theme_font_size_override("font_size", 7)
+	Palette.style_escape_close(close)
+	close.pressed.connect(_close_modal)
+	top.add_child(close)
+	var heading := _label(title, Palette.INK, 15)
+	Palette.style_title(heading)
+	content.add_child(heading)
+	return content
+
+
+func _close_modal() -> void:
+	if _modal != null and is_instance_valid(_modal):
+		_modal.queue_free()
+	_modal = null
+	_clear_dossier_fields()
+
+
+func _clear_dossier_fields() -> void:
+	_dossier_name = null
+	_dossier_status = null
+	_dossier_behavior = null
+	_dossier_counter = null
+	_dossier_gimmick_heading = null
+	_dossier_gimmick = null
+	_dossier_stats = null
+
+
+func _label(text: String, tint: Color, size: int) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_color_override("font_color", tint)
+	label.add_theme_font_size_override("font_size", size)
+	return label
+
+
+## Body text that wraps to the panel width. Tracked captions keep _label (one line, no wrap).
+func _wrapped_label(text: String, tint: Color, size: int) -> Label:
+	var label := _label(text, tint, size)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return label

@@ -1,0 +1,1400 @@
+extends RefCounted
+
+## Headless check on the three objective-driven hunters.
+##
+## Haelith, Ysolde and Opalie are the first hunters whose behaviour is about the
+## FLOOR rather than the player, and all three depend on the generator's
+## `collected` flag actually meaning something. They are driven here the way the
+## game drives them -- a real generated facility, a real brain, real frames --
+## because the failure mode for all three is silent: a hunter who simply stands
+## still, or who walks to a relay that was collected ten minutes ago.
+##
+## Run with:
+##   godot4 --headless res://tests/scenes/validate.tscn -- hunters
+
+const STEP := 1.0 / 60.0
+
+var _failures := 0
+
+
+func _fail(message: String) -> void:
+	print("  FAIL  %s" % message)
+	_failures += 1
+
+
+func _expect(condition: bool, message: String) -> void:
+	if not condition:
+		_fail(message)
+
+
+func run(_host: Node) -> int:
+	# RoomState is an autoload -- it survives between suites in the same
+	# runner invocation, so whatever an earlier suite left map_scale/difficulty
+	# set to would otherwise leak into every generator built here. That is a
+	# real bug this run just caught: Loxelle's own facility came out a
+	# different size depending on which suites ran before this one, and with
+	# it, whether her fixed 40-interval budget was still enough to find a
+	# candidate. Pin it, the same way validate_sync.gd does.
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	# create_local() deliberately rolls a fresh room seed. That is correct for
+	# gameplay but made this regression suite exercise a different facility on
+	# every invocation; rare layouts could leave Loxelle wandering between
+	# rooms whenever her passive roll fired. Keep the suite reproducible and
+	# make the live scenes below use the same seed as the shared fixture.
+	RoomState.seed_text = "HUNTERS-CHECK"
+	var generator := FacilityGenerator.new("HUNTERS-CHECK", RoomState.generator_options())
+	_difficulty_scales_shared_brain(generator)
+	_hunter_view_faces_its_travel_direction()
+	_hunter_wander_does_not_track_unseen_runner()
+	_haelith_goes_where_the_relays_are(generator)
+	_ysolde_takes_it_off_the_floor(generator)
+	_opalie_holds_her_post(generator)
+	_aki_answers_a_flash(generator)
+	_chase_persists_around_corners()
+	await _hunter_face_lights_are_aligned(_host)
+	await _porcelle_is_only_on_the_map(_host)
+	await _hiding_spots_and_javelle(_host)
+	await _loxelle_burns_and_regrows(_host)
+	await _ceryth_traps_and_disperses(_host)
+	await _briselle_sabotages_and_resecures(_host)
+	_ferryn_stalks_and_screams(generator)
+	_glyra_winds_down_and_back_up(generator)
+	_ilyra_tags_and_pounces(generator)
+	await _verrine_lurks_and_chases(_host)
+	await _zellia_trades_and_repairs(_host)
+	await _interactables_require_facing(_host)
+	_hunter_paths_to_a_distant_target(generator)
+	if _failures == 0:
+		print("hunters OK")
+	return _failures
+
+
+func _brain(id: String, at: Vector2) -> HunterBrain:
+	var brain := HunterBrain.new(at, "HUNTERS-CHECK:%s" % id, id)
+	brain.gimmick = HunterGimmick.for_id(id)
+	brain.activate_at(at)
+	return brain
+
+
+func _target(at: Vector2) -> Dictionary:
+	return {"position": at, "hidden": false, "in_safe_zone": false, "noise": 0.0,
+		"flashlight_on": false, "sprinting": false, "facing": Vector2(0, 1),
+		"lamp_charge": 100.0, "meters": null,
+		"heater_unfrozen": false, "heater_powered": false}
+
+
+class CornerNavigation:
+	var line_clear := true
+	var path_calls := 0
+	var safe_zones: Array = []
+	var rooms: Array = []
+
+	func has_line_of_sight(_from: Vector2, _to: Vector2) -> bool:
+		return line_clear
+
+	func can_occupy(_x: float, _y: float, _radius: float = .23,
+			_blocked_cells = null) -> bool:
+		return true
+
+	func find_path(from: Vector2i, to: Vector2i) -> Array:
+		path_calls += 1
+		var result := [from]
+		var cursor := from
+		while cursor.y != to.y:
+			cursor.y += 1 if to.y > cursor.y else -1
+			result.append(cursor)
+		while cursor.x != to.x:
+			cursor.x += 1 if to.x > cursor.x else -1
+			result.append(cursor)
+		return result
+
+
+func _chase_persists_around_corners() -> void:
+	var navigation := CornerNavigation.new()
+	var brain := _brain("dovelle", Vector2(.5, .5))
+	var target := _target(Vector2(6.5, .5))
+	target["flashlight_on"] = true
+	target["noise"] = 12.0
+	brain.sense_timer = 0.0
+	brain.update(GameConfig.HUNTER_SENSE_INTERVAL, navigation, target, 1, 1)
+	_expect(brain.state == HunterBrain.State.CHASE and brain.direct_chase_visible,
+		"a clearly visible lit runner did not start immediate direct pursuit")
+	_expect(navigation.path_calls == 0,
+		"direct visible chase performed an unnecessary path search")
+
+	# The runner turns the corner but remains loud. One sound route should both
+	# preserve CHASE and guide movement; losing the ray must not cancel pursuit.
+	navigation.line_clear = false
+	target["position"] = Vector2(6.5, 3.5)
+	brain.sense_timer = 0.0
+	brain.update(GameConfig.HUNTER_SENSE_INTERVAL, navigation, target, 1, 1)
+	_expect(brain.state == HunterBrain.State.CHASE and not brain.direct_chase_visible,
+		"turning one corner immediately cancelled the hunter chase")
+	_expect(brain.has_last_known and brain.last_known == target["position"] \
+		and navigation.path_calls == 1,
+		"corner pursuit did not reuse one hearing path toward the live runner")
+	print("  pursuit   direct sight is immediate; corner hearing preserves one routed chase")
+
+
+func _hunter_face_lights_are_aligned(host: Node) -> void:
+	# Every A-Z model must retain the same 8x8 face contract used by the runtime
+	# Check the actual imported locator bones across the full roster, then check
+	# one live view so this cannot pass while presentation forgets to create the
+	# enlarged emissive faces. The checker irises occupy the lower quarter of the
+	# 8x8 face; a merely in-bounds attachment is not precise enough.
+	for hunter_id in HunterRoster.A_Z_IDS:
+		var identity := HunterRoster.get_identity(hunter_id)
+		var model := ModelSlot.instantiate(String(identity.get("model_scene", "")))
+		_expect(model != null, "%s has no renderable model for eye validation" % hunter_id)
+		if model == null:
+			continue
+		var head := model.find_child("Head", true, false) as MeshInstance3D
+		var left := model.find_child("L-Eye-Attachment", true, false) as Node3D
+		var right := model.find_child("R-Eye-Attachment", true, false) as Node3D
+		_expect(head != null and left != null and right != null,
+			"%s is missing its head or authored eye centres" % hunter_id)
+		if head != null and left != null and right != null \
+				and String(identity.get("model_scene", "")).begins_with(HunterRoster.BLOCKY_DIR):
+			# Blocky models: the head mesh covers hair too, so check the locators sit symmetrically on the
+			# face half of the head, just inside its front plane (the glow is projected out of it).
+			var blocky_bounds := head.get_aabb()
+			_expect(absf(left.position.x + right.position.x) < .003 \
+				and left.position.x < 0.0 and right.position.x > 0.0 \
+				and absf(right.position.x) < blocky_bounds.size.x * .5 \
+				and left.position.y > blocky_bounds.position.y \
+				and left.position.y < blocky_bounds.end.y \
+				and left.position.z > blocky_bounds.position.z \
+				and left.position.z < blocky_bounds.position.z + blocky_bounds.size.z * .25,
+				"%s blocky eye locators are not on the face half of the head" % hunter_id)
+		elif head != null and left != null and right != null:
+			var bounds := head.get_aabb()
+			var expected_y := bounds.position.y + bounds.size.y * .25
+			var expected_x := bounds.size.x * .25
+			for eye in [left, right]:
+				var local_eye := (eye as Node3D).position
+				var signed_x := -expected_x if eye == left else expected_x
+				_expect(absf(local_eye.x - signed_x) < .003 \
+					and absf(local_eye.y - expected_y) < .003 \
+					and local_eye.z < bounds.position.z \
+					and local_eye.z > bounds.position.z - .01,
+					"%s eye attachment is not centred on its textured 2x2 iris" \
+						% hunter_id)
+		model.free()
+
+	var brain := _brain("kathy", Vector2.ZERO)
+	brain.active = true
+	var view := HunterView3D.new()
+	view.brain = brain
+	host.get_tree().root.add_child(view)
+	await host.get_tree().process_frame
+	var authored_kathy_eye := HunterRoster.eye_glow_color("kathy")
+	# The old glowing eye quads are gone: faces carry their own eyes.
+	_expect(view.find_children("HunterEyeGlow", "MeshInstance3D", true, false).is_empty(),
+		"hunters still render the old glowing eye quads")
+	_expect(view._kathy_beam != null and view._kathy_beam.visible \
+		and view._kathy_beam.light_color.is_equal_approx(authored_kathy_eye),
+		"Kathy's yellow eye beam is missing or hidden")
+	# the beam is visible (unshaded core + shell) and goes red while she chases, neutral otherwise
+	_expect(view._beam_core != null and view._beam_shell != null, "Kathy's visible beam cone is missing")
+	if view._beam_core != null:
+		var core_material := view._beam_core.material_override as ShaderMaterial
+		_expect(core_material != null and core_material.shader.code.contains("unshaded"), "the beam must be an unshaded material")
+	view.brain.state = HunterBrain.State.CHASE
+	for _i in 40:
+		view._update_beam_visual(.1)
+	_expect(view._beam_color.r > .9 and view._beam_color.g < .25 and view._kathy_beam.light_color.r > .9,
+		"Kathy's beam should turn red while she chases")
+	view.brain.state = HunterBrain.State.WANDER
+	for _i in 40:
+		view._update_beam_visual(.1)
+	_expect(view._kathy_beam.light_color.is_equal_approx(authored_kathy_eye), "Kathy's beam should return to its neutral colour")
+	view.queue_free()
+	await host.get_tree().process_frame
+	print("  eyes      A-Z eye locators are on the face; no glow quads; Kathy beam renders")
+
+
+func _difficulty_scales_shared_brain(generator: FacilityGenerator) -> void:
+	var at := Vector2(generator.start) + Vector2(0.5, 0.5)
+	var relaxed := HunterBrain.new(at, "DIFFICULTY:RELAXED", "dovelle", "relaxed")
+	var standard := HunterBrain.new(at, "DIFFICULTY:STANDARD", "dovelle", "standard")
+	var hard := HunterBrain.new(at, "DIFFICULTY:HARD", "dovelle", "hard")
+	for brain in [relaxed, standard, hard]:
+		brain.activate_at(at)
+	var relaxed_speed: float = relaxed._current_speed(1, 0)
+	var standard_speed: float = standard._current_speed(1, 0)
+	var hard_speed: float = hard._current_speed(1, 0)
+	_expect(relaxed_speed < standard_speed and standard_speed < hard_speed,
+		"hunter speed does not increase Relaxed < Standard < Hard")
+
+	# Between Standard's and Hard's reach, Dovelle catches only on Hard. Delta zero keeps movement out of it.
+	_expect(relaxed.capture_reach() < standard.capture_reach() and standard.capture_reach() < hard.capture_reach(),
+		"capture reach does not grow Relaxed < Standard < Hard")
+	var between := (standard.capture_reach() + hard.capture_reach()) * 0.5
+	var target := _target(at + Vector2(between, 0.0))
+	_expect(not standard.update(0.0, generator, target, 1, 0),
+		"Standard captured at Hard's extended-only distance")
+	_expect(hard.update(0.0, generator, target, 1, 0),
+		"Hard did not apply its capture-distance multiplier")
+	# the grab starts at arm's length. Collision keeps the bodies PLAYER_RADIUS + HUNTER_RADIUS apart,
+	# so every difficulty's reach must be past that, or a hunter could only catch by pushing into the runner.
+	var touching := GameConfig.PLAYER_RADIUS + GameConfig.HUNTER_RADIUS
+	_expect(relaxed.capture_reach() > touching + 0.25,
+		"Relaxed reach %.2f is not an arm's length past touching (%.2f)" % [relaxed.capture_reach(), touching])
+	var arm_length := _target(at + Vector2(touching + 0.3, 0.0))
+	_expect(standard.update(0.0, generator, arm_length, 1, 0),
+		"Standard did not catch at arm's length (%.2f cells)" % (touching + 0.3))
+	print("  difficulty hunter speed/perception profile and capture reach applied")
+
+
+func _hunter_view_faces_its_travel_direction() -> void:
+	var brain := HunterBrain.new(Vector2(2.5, 3.5), "FACING-CHECK", "dovelle")
+	brain.facing = Vector2(1, 0)
+	var view := HunterView3D.new()
+	view.brain = brain
+	# Rotation is the unit under test; avoid loading a full GLB merely to check
+	# the wrapper basis in this headless suite.
+	view._shown_id = "dovelle"
+	view.sync_from_brain()
+	var forward_3d := -view.transform.basis.z
+	var drawn_forward := Vector2(forward_3d.x, forward_3d.z).normalized()
+	_expect(drawn_forward.dot(brain.facing) > 0.999,
+		"hunter model forward points %s while movement points %s"
+			% [drawn_forward, brain.facing])
+	# A patrol turn is presented over time instead of snapping to a reverse
+	# waypoint. The first sync is allowed to establish the initial heading; the
+	# runtime wrapper caps subsequent heading changes.
+	var reverse := HunterBrain.new(Vector2(2.5, 3.5), "FACING-TURN-CHECK", "dovelle")
+	var reverse_view := HunterView3D.new()
+	reverse_view.brain = reverse
+	reverse_view._shown_id = "dovelle"
+	reverse_view._presentation_initialized = true
+	reverse_view._heading_initialized = true
+	reverse_view.rotation.y = 0.0
+	reverse.facing = Vector2(0, -1)
+	reverse_view.sync_from_brain()
+	_expect(absf(reverse_view.rotation.y) < PI - deg_to_rad(1.0),
+		"hunter body still snapped 180 degrees on a patrol turn")
+	reverse_view.free()
+	view.free()
+	print("  facing    hunter models face movement with bounded patrol turns")
+
+
+func _hunter_wander_does_not_track_unseen_runner() -> void:
+	var brain := HunterBrain.new(Vector2(2.5, 3.5), "LOOK-CHECK", "dovelle")
+	brain.activate_at(Vector2(12.5, 3.5))
+	brain.state = HunterBrain.State.WANDER
+	brain.has_wander_target = true
+	brain.wander_target = Vector2(4.5, 3.5)
+	brain.has_last_known = false
+	_expect(brain.presentation_look_target() == null,
+		"wandering hunter exposed a look target without a sensed runner")
+	print("  look     unseen runners do not steer a wandering hunter's head")
+
+
+## She re-aims every frame, so collecting the one she is walking to has to send
+## her somewhere else rather than leave her circling an empty tile.
+func _haelith_goes_where_the_relays_are(generator: FacilityGenerator) -> void:
+	for entry in generator.relays:
+		entry["collected"] = false
+	var start := Vector2(generator.start) + Vector2(0.5, 0.5)
+	var brain := _brain("haelith", start)
+	if brain.gimmick == null:
+		_fail("Haelith has no gimmick")
+		return
+
+	for i in 30:
+		brain.update(STEP, generator, _target(start), 1, 0)
+	var first := brain.last_known
+	_expect(brain.has_last_known, "Haelith never picked a relay to walk to")
+	_expect(_is_a_relay(generator, first), "Haelith is walking to %s, which is not a relay" % first)
+
+	# Take the one she chose. She must not keep going to it.
+	generator.mark_collected(generator.relays, Vector2i(int(first.x), int(first.y)))
+	for i in 30:
+		brain.update(STEP, generator, _target(start), 1, 0)
+	_expect(brain.last_known != first,
+		"Haelith is still walking to a relay that has already been collected")
+	print("  haelith   re-aims off a collected relay onto another")
+
+
+func _is_a_relay(generator: FacilityGenerator, at: Vector2) -> bool:
+	for entry in generator.relays:
+		if Vector2i(entry["x"], entry["y"]) == Vector2i(int(at.x), int(at.y)):
+			return true
+	return false
+
+
+## Standing next to a battery has to actually take it -- and say so, because a
+## battery that vanishes with no report reads as a bug rather than a hunter.
+func _ysolde_takes_it_off_the_floor(generator: FacilityGenerator) -> void:
+	for entry in generator.batteries:
+		entry["collected"] = false
+	if generator.batteries.is_empty():
+		_fail("no batteries on the floor to steal")
+		return
+	var battery: Dictionary = generator.batteries[0]
+	var cell := Vector2i(battery["x"], battery["y"])
+	var brain := _brain("ysolde", Vector2(cell) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Ysolde has no gimmick")
+		return
+
+	brain.update(STEP, generator, _target(Vector2(0, 0)), 1, 0)
+	_expect(battery.get("collected", false),
+		"Ysolde stood on a battery and did not take it")
+	if brain.world_events.is_empty():
+		_fail("Ysolde took a battery and told nobody, so it stays on every other peer's floor")
+		return
+	var event: Dictionary = brain.world_events[0]
+	_expect(event.get("cell", Vector2i(-1, -1)) == cell,
+		"Ysolde's theft names cell %s, not %s" % [event.get("cell"), cell])
+	_expect(int(event.get("kind", -1)) == int(RouteInteractable3D.Kind.BATTERY),
+		"Ysolde's theft is not reported as a battery")
+	# The theft is announced to nobody: no toast text, no stinger (HunterBrain.ANNOUNCE_HUNTER_EVENTS is off).
+	_expect(not event.has("message") and not event.has("sound"),
+		"Ysolde's theft still carries an announcement")
+	print("  ysolde    takes a battery off the floor and reports it silently")
+
+
+## The whole hunter is standing still in the right place and refusing things.
+func _opalie_holds_her_post(generator: FacilityGenerator) -> void:
+	if generator.relays.is_empty():
+		_fail("no relays for Opalie to guard")
+		return
+	var relay: Dictionary = generator.relays[0]
+	var post := Vector2(relay["x"] + 0.5, relay["y"] + 0.5)
+	var brain := _brain("opalie", post)
+	if brain.gimmick == null:
+		_fail("Opalie has no gimmick")
+		return
+
+	# Nobody detected (the runner is in a safe room), so she keeps standing watch.
+	var unseen := _target(post + Vector2(6, 6))
+	unseen["in_safe_zone"] = true
+	for i in 60:
+		brain.update(STEP, generator, unseen, 1, 0)
+	if not brain.gimmick.holds_position():
+		_fail("Opalie started on her relay and still has not settled on it")
+		return
+	var moved := brain.position.distance_to(post)
+	_expect(moved < 1.0, "Opalie drifted %.2f cells off the relay she is guarding" % moved)
+
+	_expect(brain.gimmick.call("blocks", post),
+		"Opalie does not deny the relay she is standing on")
+	_expect(brain.gimmick.call("blocks", post + Vector2(1.4, 0.0)),
+		"Opalie's suppression does not reach %.1f cells" % GameConfig.OPALIE_SUPPRESSION_RADIUS)
+	_expect(not brain.gimmick.call("blocks", post + Vector2(4.0, 0.0)),
+		"Opalie denies interactions far outside her suppression radius")
+
+	# "chase further". A runner she detects, even well away from the post, gets a normal chase.
+	var far := Vector2.ZERO
+	for cell in generator.floor_cells():
+		var point := Vector2(cell.x + .5, cell.y + .5)
+		var gap := point.distance_to(brain.position)
+		if gap >= 6.0 and gap <= 9.0 and generator.has_line_of_sight(brain.position, point):
+			far = point
+			break
+	var seen := _target(far)
+	seen["flashlight_on"] = true
+	seen["noise"] = 0.6
+	var chased := false
+	for i in 60:
+		brain.update(STEP, generator, seen, 1, 0)
+		if brain.state == HunterBrain.State.CHASE and not brain.gimmick.holds_position():
+			chased = true
+			break
+	_expect(far != Vector2.ZERO and chased, "Opalie saw a runner %.1f cells off and stayed on her post instead of chasing" % far.distance_to(post))
+	print("  opalie    settles on a relay, denies %.1f cells around it, and leaves it to chase a runner she detects"
+		% GameConfig.OPALIE_SUPPRESSION_RADIUS)
+
+
+## Aki does nothing until you point a torch at her and HOLD it. The two ways to
+## get her wrong are firing on a beam that merely swept past, and firing on
+## every frame the beam stays on her -- so both are driven here, not asserted
+## about.
+func _aki_answers_a_flash(generator: FacilityGenerator) -> void:
+	var post := Vector2(generator.start) + Vector2(0.5, 0.5)
+	var brain := _brain("aki", post)
+	if brain.gimmick == null:
+		_fail("Aki has no gimmick")
+		return
+	var meters := PlayerMeters.new()
+
+	# Two cells apart, torch aimed straight at her, so line of sight holds.
+	var from := post - Vector2(0.0, 2.0)
+	var lit := _target(from)
+	lit["flashlight_on"] = true
+	lit["facing"] = (post - from).normalized()
+	lit["meters"] = meters
+	var dark := lit.duplicate()
+	dark["flashlight_on"] = false
+
+	# A beam that only brushes her is not a flash.
+	brain.update(STEP, generator, lit, 1, 0)
+	brain.update(STEP, generator, dark, 1, 0)
+	_expect(brain.gimmick.phase == AkiGimmick.Phase.IDLE,
+		"Aki woke on a beam that swept past her, not on a held flash")
+
+	var flashes := 0
+	for i in 120:
+		brain.update(STEP, generator, lit, 1, 0)
+		if brain.flash_triggered:
+			flashes += 1
+	_expect(flashes == 1,
+		"holding the beam on Aki counted as %d flashes; a held torch is one" % flashes)
+	if brain.gimmick.phase == AkiGimmick.Phase.IDLE:
+		_fail("Aki never woke despite a torch held on her for two seconds")
+		return
+
+	# The fuse, then three bursts five seconds apart.
+	var before := meters.exposure
+	for i in int(GameConfig.AKI_INITIAL_DELAY / STEP) + 2:
+		brain.update(STEP, generator, lit, 1, 0)
+	_expect(meters.exposure > before, "Aki's fuse ran out and nothing happened")
+	for i in int(GameConfig.AKI_BURST_INTERVAL / STEP) * 3 + 8:
+		brain.update(STEP, generator, lit, 1, 0)
+	_expect(brain.gimmick.bursts_remaining == 0 and brain.gimmick.phase == AkiGimmick.Phase.IDLE,
+		"Aki did not settle back to idle after her %d bursts" % GameConfig.AKI_BURST_COUNT)
+	print("  aki       wakes on one held flash, spikes exposure %dx, goes quiet"
+		% GameConfig.AKI_BURST_COUNT)
+
+
+## Porcelle is now fully visible in the room while still exposing herself on the
+## full map, so the two halves have to be checked together. Driven through
+## the real scene, because "the gimmick returns true" is exactly the kind of
+## check that passes while the model is still on screen.
+func _porcelle_is_only_on_the_map(host: Node) -> void:
+	var scene: Node = load("res://game/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+
+	var view: HunterView3D = scene.hunter_views[0] if not scene.hunter_views.is_empty() else null
+	if view == null:
+		_fail("no hunter on the floor to make Porcelle out of")
+		scene.queue_free()
+		return
+	view.brain.hunter_id = "porcelle"
+	view.brain.gimmick = HunterGimmick.for_id("porcelle")
+	view.brain.active = true
+	view._shown_id = ""
+	view._apply_model("porcelle")
+	# The hunter she replaced is queue_free()d, which does not take effect until
+	# the end of the frame -- without this the sweep below finds the OLD body
+	# still hanging in the tree and blames Porcelle for it.
+	await host.get_tree().process_frame
+
+	_expect_fully_visible_hunter(view, "Porcelle")
+
+	var marks: Array = scene._map_marks()
+	var found := false
+	for mark in marks:
+		if String(mark.get("name", "")).to_lower() == "porcelle":
+			found = bool(mark.get("ghost", false)) \
+				and String(mark.get("hunter_id", "")) == "porcelle"
+	_expect(found,
+		"Porcelle lacks her ghost-tagged counterplay marker on the map")
+	_expect(FacilityMap.PORCELLE_GHOST.a > 0.0,
+		"Porcelle ghost map palette is fully invisible")
+	view.brain.hunter_id = "verrine"
+	view.brain.gimmick = HunterGimmick.for_id("verrine")
+	view._shown_id = ""
+	view._apply_model("verrine")
+	await host.get_tree().process_frame
+	_expect_world_silhouette(view, .72, "an active stealth hunter")
+	# A locker hide must not erase other hunters. Javelle standing at the door
+	# is the readable tell; making her (or anyone else) vanish with the player
+	# is the same fully-invisible failure as a broken stealth fade.
+	if not scene.facility_view.generator.hiding_spots.is_empty():
+		var locker_cell := Vector2i(scene.facility_view.generator.hiding_spots[0]["x"],
+			scene.facility_view.generator.hiding_spots[0]["y"])
+		var locker: RouteInteractable3D = scene.facility_view.hiding_spot_at(locker_cell)
+		if locker != null:
+			scene.player.enter_hiding(locker_cell, locker.hiding_inside_position(),
+				scene.player.global_position, locker)
+			view.sync_from_brain()
+			_expect_world_silhouette(view, .72, "a stealth hunter while the runner is hidden")
+			scene.player.force_flashlight_flicker(0.2, 0.02, 0.02)
+			scene.player._update_flashlight_flicker(1.0 / 60.0)
+			view.sync_from_brain()
+			_expect_world_silhouette(view, .72,
+				"a stealth hunter during flashlight flicker")
+			scene.player.leave_hiding(Vector2.ZERO, true)
+	view.brain.hunter_id = "dovelle"
+	view.brain.gimmick = HunterGimmick.for_id("dovelle")
+	view.brain.active = true
+	view._shown_id = ""
+	view._apply_model("dovelle")
+	await host.get_tree().process_frame
+	_expect_fully_visible_hunter(view, "an active non-stealth hunter")
+	# (Red, not Gray: a dormant Gray is deliberately unseen until her signal route fails)
+	view.brain.hunter_id = "void_red"
+	view.brain.gimmick = HunterGimmick.for_id("void_red")
+	view._shown_id = ""
+	view._apply_model("void_red")
+	await host.get_tree().process_frame
+	_expect_fully_visible_hunter(view, "an active Void hunter")
+	_expect(view._model.find_children("HunterEyeGlow", "MeshInstance3D", true, false).is_empty(),
+		"a Void hunter received A-Z glow-eye attachments")
+	print("  stealth   Porcelle stays visible; hidden active hunters retain faint silhouettes")
+	scene.queue_free()
+
+
+## Hiding spots, and Javelle reaching into one.
+##
+## Two failure modes worth naming. A locker you can enter and not leave is the
+## worse one, and it was real: hiding freezes input, and the freeze swallowed
+## the key that gets you out. The other is Javelle's timer keying on her being in
+## "chase" -- the shared brain drops her out of chase the moment you hide, so
+## the ejection never fires and the locker is permanent safety.
+func _hiding_spots_and_javelle(host: Node) -> void:
+	RoomState.seed_text = "HIDE-CHECK"
+	GameState.start_new_run(RoomState.run_seed(), RoomState.difficulty_id())
+	var generator := FacilityGenerator.new(GameState.level_seed_text(),
+		RoomState.generator_options())
+	var spots := generator.place_hiding_spots()
+	if spots.size() < 2:
+		_fail("only %d hiding spots placed on a whole floor" % spots.size())
+		return
+	for spot in spots:
+		var spot_cell := Vector2i(spot["x"], spot["y"])
+		_expect(generator.grid[spot_cell.y][spot_cell.x] == 0,
+			"hiding spot %s is inside a wall" % spot_cell)
+		_expect(spot_cell != generator.start and spot_cell != generator.exit_cell,
+			"a hiding spot is on the spawn or the lift")
+	print("  hiding    %d spots, all on open cells backed onto a wall" % spots.size())
+
+	# In and back out, through the real scene, using the key a player uses.
+	var scene: Node = load("res://game/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var real: Array = scene.facility_view.generator.place_hiding_spots()
+	if real.is_empty():
+		_fail("no hiding spots on the live floor")
+		scene.queue_free()
+		return
+	var cell := Vector2i(real[0]["x"], real[0]["y"])
+	var fixture: RouteInteractable3D = scene.facility_view.hiding_spot_at(cell)
+	_expect(fixture != null, "the live hiding spot has no interactable locker")
+	if fixture == null:
+		scene.queue_free()
+		return
+	var inside := fixture.hiding_inside_position()
+	var inside_local := fixture.to_local(inside)
+	# the hider's eye sits LOCKER_EYE_BEHIND behind the door's vent band, centred on it (the trailer's "locker breath" view)
+	_expect(absf(inside_local.z - (RouteInteractable3D.LOCKER_DOOR_Z + RouteInteractable3D.LOCKER_EYE_BEHIND)) < .01,
+		"the locker camera is not right behind its vent slats")
+	_expect(absf(fixture.hiding_eye_height() + .02 - (RouteInteractable3D.LOCKER_VENT_LO + RouteInteractable3D.LOCKER_VENT_HI) * .5) < .01,
+		"the locker camera is not centred on its vent band")
+	var approach := fixture.global_position + Vector3(0.0, 0.0, -.65)
+	scene.player.global_position = approach
+	scene.player.enter_hiding(cell, inside, approach, fixture)
+	_expect(scene.player.hidden, "entering a locker did not hide the player")
+	_expect(fixture.local_hiding_view_open(),
+		"entering a locker did not enable its local inside view")
+	# Inside, the prompt is the LEAVE hint (a319611b, prompt_glyphs); the HIDE toast for the locker itself is gone.
+	_expect(not scene.player.get_interaction_prompt().contains("HIDE"),
+		"the removed HIDE toast still appears while inside a locker")
+	scene.player.leave_hiding(Vector2(cell) + Vector2(0.5, 0.5))
+	_expect(not scene.player.hidden, "the player could not get back out of a locker")
+
+	# Javelle standing over an occupied spot for her full count.
+	var brain := _brain("javelle", Vector2(cell) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Javelle has no gimmick")
+		scene.queue_free()
+		return
+	var hiding := _target(Vector2(cell) + Vector2(0.5, 0.5))
+	hiding["hidden"] = true
+	hiding["hiding_spot"] = cell
+	var fired := false
+	for i in int((GameConfig.JAVELLE_HIDING_SECONDS + 0.5) / STEP):
+		brain.update(STEP, scene.facility_view.generator, hiding, 1, 0)
+		if brain.gimmick.ejecting:
+			fired = true
+			break
+	_expect(fired, "Javelle stood over an occupied locker for %.0fs and never reached in"
+		% GameConfig.JAVELLE_HIDING_SECONDS)
+	_expect(brain.stun_timer > 0.0,
+		"Javelle's ejection left her free to grab the player she just pulled out")
+	print("  javelle     pulls a hidden player out after %.0fs, then stalls"
+		% GameConfig.JAVELLE_HIDING_SECONDS)
+	scene.queue_free()
+
+
+## Loxelle burns hiding spots in her own room while idle/wandering, and pulls
+## the player out of an occupied one rather than burning it. Both are driven
+## through the real scene, because the failure mode is a spot that vanishes
+## with nothing in the world reflecting it -- correct data, wrong screen.
+func _loxelle_burns_and_regrows(host: Node) -> void:
+	var scene: Node = load("res://game/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var generator: FacilityGenerator = scene.facility_view.generator
+	# Room-interior specifically, not just "a" hiding spot: place_hiding_spots()
+	# falls back to corridor cells when a floor is too small to seat every spot
+	# in a room, and Loxelle's passive -- correctly, matching the original's own
+	# `if (!room) return` -- does nothing while she is standing in a corridor.
+	# hiding_spots[0] picked whichever came first; on a seed where that happened
+	# to be a corridor spot, she had nothing to do all test and this failed for
+	# a reason that had nothing to do with her actually being broken.
+	var spot: Dictionary = {}
+	for candidate in generator.hiding_spots:
+		if not String(candidate.get("room_id", "")).is_empty():
+			spot = candidate
+			break
+	if spot.is_empty():
+		_fail("no room-interior hiding spot on the live floor to test Loxelle against")
+		scene.queue_free()
+		return
+
+	var cell := Vector2i(spot["x"], spot["y"])
+	var brain := _brain("loxelle", Vector2(cell) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Loxelle has no gimmick")
+		scene.queue_free()
+		return
+
+	# Hidden, not merely distant: activate_at() wakes her straight into
+	# INVESTIGATE, and with the fake player standing on her own cell ordinary
+	# sight would otherwise see it at distance zero and lock her into CHASE
+	# forever, which is a bug in this harness, not in Loxelle -- she never gets
+	# the idle/wander time her passive requires unless perception is told there
+	# is nothing to see.
+	var target := _target(Vector2(cell) + Vector2(0.5, 0.5))
+	target["hidden"] = true
+	# Not a claim about THIS starting spot specifically: she is still an
+	# ordinary wandering hunter between rolls, on the same shared movement
+	# every idle/wander hunter uses, and over a long enough window that
+	# carries her through several other rooms -- confirmed by watching her
+	# room_at() visibly change room to room while this ran. What the passive
+	# actually promises is "she burns a spot in whichever room she is
+	# currently in when her timer fires," so that is what gets checked: the
+	# first burn she raises, wherever it lands, not one pinned in advance.
+	var burned_cell := Vector2i(-1, -1)
+	var saw_charge := false
+	# 40 rolls at a 25% chance each leaves under a 1-in-30000 chance of never
+	# firing -- long enough to test the mechanism without reaching in and
+	# forcing the dice, which would test the test rather than Loxelle.
+	for i in int((GameConfig.LOXELLE_INTERVAL * 40.0) / STEP):
+		brain.update(STEP, generator, target, 1, 0)
+		if not (brain.gimmick as LoxelleGimmick)._charge_phase.is_empty():
+			saw_charge = true
+		for toggle in brain.gimmick.toggles:
+			if toggle.get("disabled", false):
+				burned_cell = toggle["cell"]
+				break
+		if burned_cell.x >= 0:
+			break
+	if burned_cell.x < 0:
+		_fail("Loxelle never burned any hiding spot while idle/wandering")
+		scene.queue_free()
+		return
+	_expect(saw_charge, "Loxelle broke a locker without approaching and charging it")
+
+	var live: RouteInteractable3D = scene.facility_view.hiding_spot_at(burned_cell)
+	if live == null:
+		_fail("no interactable node at the hiding spot Loxelle burned")
+		scene.queue_free()
+		return
+	# Drain the toggle the way main_3d._update_gameplay does every frame.
+	for toggle in brain.gimmick.toggles.duplicate():
+		if toggle.get("cell") == burned_cell:
+			live.set_disabled(bool(toggle.get("disabled", false)))
+	_expect(live.disabled, "Loxelle burned a spot but its interactable is still usable")
+	_expect(live.get_prompt().is_empty(), "a burned hiding spot still offers to hide the player")
+
+	# Her chase-only door attack uses the same visible charge clip, but emits a
+	# durable room-door breach rather than a locker toggle.
+	brain.stun_timer = 0.0
+	brain.state = HunterBrain.State.CHASE
+	brain.world_events.clear()
+	var door_position := brain.position + Vector2(.15, 0.0)
+	var door_started := (brain.gimmick as LoxelleGimmick).start_door_breach(
+		brain, "0:0:0:DOOR:0", door_position)
+	var saw_door_charge := false
+	for i in int(ceil((GameConfig.LOXELLE_CHARGE_WINDUP + .55) / STEP)):
+		saw_door_charge = saw_door_charge \
+			or (brain.gimmick as LoxelleGimmick).charge_active()
+		brain.update(STEP, generator, _target(door_position), 1, 0)
+	var breached_door := brain.world_events.any(func(event: Dictionary) -> bool:
+		return event.get("what") == "room_door" \
+			and event.get("door_id") == "0:0:0:DOOR:0" \
+			and bool(event.get("broken", false)))
+	_expect(door_started and saw_door_charge,
+		"Loxelle did not enter her charge animation before a chase door breach")
+	_expect(breached_door,
+		"Loxelle's chase charge emitted no authoritative broken-door event")
+
+	print("  loxelle   charges lockers and chase-blocking doors before impact")
+	scene.queue_free()
+
+
+## Ceryth never chases. She teleports once to a hiding spot, holds position
+## forever, and asks a flashlight riddle the moment anyone tries to hide there
+## -- wrong answer locks you in, right answer disperses her for good. Every
+## branch is driven through the real scene, because "resolve_entry returns the
+## right dict" is exactly the kind of check that passes while the player is
+## still stuck behind a lock timer that never got wired to _physics_process.
+func _ceryth_traps_and_disperses(host: Node) -> void:
+	var scene: Node = load("res://game/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var view: HunterView3D = scene.hunter_views[0] if not scene.hunter_views.is_empty() else null
+	if view == null:
+		_fail("no hunter on the floor to make Ceryth out of")
+		scene.queue_free()
+		return
+	view.brain.hunter_id = "ceryth"
+	view.brain.gimmick = HunterGimmick.for_id("ceryth")
+	view.brain.active = true
+
+	var generator: FacilityGenerator = scene.facility_view.generator
+	var far := Vector2(generator.start) + Vector2(10, 10)
+	var target := _target(far)
+	target["hidden"] = true
+	for i in 10:
+		view.brain.update(STEP, generator, target, 1, 0)
+	var gimmick: CerythGimmick = view.brain.gimmick
+	_expect(gimmick.trap_spot.x >= 0, "Ceryth never staked out a hiding spot")
+	view.sync_from_brain()
+	_expect_fully_visible_hunter(view, "Ceryth posted at a locker")
+	var stood_at := view.brain.position
+	for i in 60:
+		view.brain.update(STEP, generator, target, 1, 0)
+	_expect(view.brain.position == stood_at,
+		"Ceryth moved after staking her spot; she is supposed to never move at all")
+
+	# Wrong answer: flashlight state answers the wrong colour.
+	var wrong := gimmick.eyes_red  # red wants the light OFF; on is wrong for red
+	scene.player.flashlight_enabled = wrong
+	scene.player.lamp_charge = 100.0
+	var _message: String = scene.player.enter_hiding(gimmick.trap_spot)
+	_expect(scene.player.hidden and scene.player.hiding_lock_timer > 0.0,
+		"answering Ceryth's riddle wrong did not lock the player in")
+	_expect(not scene.player.flashlight_enabled,
+		"a locked-in player's flashlight is still on")
+	_expect(scene.player.leave_hiding().begins_with("Locked"),
+		"the exit key worked while Ceryth's lock was still counting down")
+	scene.player.leave_hiding(Vector2.ZERO, true)  # reset for the next case, forced past the lock
+
+	# Right answer: disperses her, for good.
+	scene.player.flashlight_enabled = not wrong
+	_message = scene.player.enter_hiding(gimmick.trap_spot)
+	for _i in 3:
+		view.brain.update(STEP, generator, target, 1, 0)
+	_expect(gimmick.retreating or gimmick.dispersed, "answering Ceryth's riddle right did not send her away")
+	_expect(scene.player.hiding_lock_timer <= 0.0,
+		"a correct answer still locked the player in")
+	view.sync_from_brain()
+	# view._model directly, not a sweep of view's children: the model she is
+	# replacing is queue_free()'d in the same call and does not actually leave
+	# the tree until end of frame, so a sweep here would blame her for a stale
+	# node on its way out rather than for her own visibility.
+	_expect(view._model != null and (view._model.visible != gimmick.dispersed),
+		"Ceryth's visibility disagrees with whether she left the floor")
+
+	print("  ceryth    stakes one spot, locks a wrong answer, flees to a new spot on a right one")
+	scene.queue_free()
+
+
+## Briselle's relay tracker (2D relayTracker): collecting ANY relay locks her onto it for BRISELLE_HUNT_SECONDS at
+## BRISELLE_SPEED_SCALE x speed, and an aimed torch breaks the lock with a stun. Driven through the real scene so the
+## collection is detected from the generator's own relay list. The shared sabotage machinery (relay offline, lift gate,
+## restore) is still exercised by the event test below because Ysolde and the world events use it.
+func _briselle_sabotages_and_resecures(host: Node) -> void:
+	var scene: Node = load("res://game/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var generator: FacilityGenerator = scene.facility_view.generator
+	if generator.relays.is_empty():
+		_fail("no relays on the live floor to test Briselle against")
+		scene.queue_free()
+		return
+	var relay_cell := Vector2i(generator.relays[0]["x"], generator.relays[0]["y"])
+	var brain := _brain("briselle", Vector2(2.5, 2.5))
+	if brain.gimmick == null:
+		_fail("Briselle has no gimmick")
+		scene.queue_free()
+		return
+	var target := _target(Vector2(1.0e4, 1.0e4))
+	target["hidden"] = true
+	brain.update(STEP, generator, target, 1, 0)
+	var briselle := brain.gimmick as BriselleGimmick
+	_expect(not briselle.locked, "Briselle locked on before any relay was collected")
+	var relay_node: RouteInteractable3D = scene.facility_view._at(relay_cell, RouteInteractable3D.Kind.RELAY)
+	if relay_node == null:
+		_fail("no interactable at the first relay's cell")
+		scene.queue_free()
+		return
+	relay_node.activate(scene.player)
+	_expect(GameState.relays_collected == 1, "collecting the relay did not register")
+	brain.update(STEP, generator, target, 1, 1)
+	_expect(briselle.locked, "collecting a relay did not lock Briselle on")
+	_expect(brain.state == HunterBrain.State.INVESTIGATE and brain.last_known.distance_to(Vector2(relay_cell) + Vector2(.5, .5)) < 0.01,
+		"Briselle is not heading to the collected relay")
+	_expect(is_equal_approx(briselle.speed_scale(brain), GameConfig.BRISELLE_SPEED_SCALE),
+		"a locked Briselle is not sped up")
+	brain.flash_triggered = true
+	briselle.after_perception(brain, STEP, target, generator)
+	_expect(not briselle.locked and brain.stun_timer > 0.0, "a torch flash did not break her lock and stun her")
+	_expect(is_equal_approx(briselle.speed_scale(brain), 1.0), "a broken lock left her fast")
+
+	# The relay-offline world event still works end to end (Ysolde and the rest use it).
+	scene.facility_view.apply_event({"what": "sabotage", "cell": relay_cell, "sabotaged": true})
+	_expect(relay_node.sabotaged, "the sabotage event never reached the relay's own interactable")
+	_expect(GameState.relays_sabotaged == 1, "GameState does not know a relay is offline")
+	var restore_message := relay_node.set_sabotaged(false)
+	_expect(not relay_node.sabotaged and GameState.relays_sabotaged == 0 and not restore_message.is_empty(),
+		"restoring a sabotaged relay did not clear it")
+
+	print("  briselle  locks onto collected relays, speeds up, is broken by a flash; relay-offline events still work")
+	scene.queue_free()
+
+
+## Ferryn always knows where the player is -- no sight or hearing check gates
+## her chase at all -- and only stops for hiding, a safe zone, or a held
+## torch, which sends her back to a fixed origin AND, for a flash specifically,
+## puts every other active hunter onto the player. Driven through two real
+## brains, because "she raises a facility_alert" is exactly the kind of check
+## that passes while the SECOND hunter never actually receives it.
+func _ferryn_stalks_and_screams(generator: FacilityGenerator) -> void:
+	var far := Vector2(generator.start) + Vector2(0.5, 0.5)
+	var brain := _brain("ferryn", far)
+	if brain.gimmick == null:
+		_fail("Ferryn has no gimmick")
+		return
+	var meters := PlayerMeters.new()
+	var elsewhere := far + Vector2(6.0, 6.0)
+	var target := _target(elsewhere)
+	target["meters"] = meters
+
+	# No sight, no hearing, nothing lit -- and she still locks CHASE at range,
+	# which no other hunter in this roster does.
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(brain.state == HunterBrain.State.CHASE,
+		"Ferryn did not chase a player she has no way to have sensed")
+	_expect(brain.last_known == elsewhere, "Ferryn is not tracking the player's real position")
+	for i in 30:
+		brain.update(STEP, generator, target, 1, 0)
+	_expect(brain.state == HunterBrain.State.CHASE,
+		"Ferryn's chase decayed on its own -- the lost-sight reset is not holding")
+
+	# Hiding sends her home and quiets her down, no scream.
+	var hidden_target := target.duplicate()
+	hidden_target["hidden"] = true
+	brain.update(STEP, generator, hidden_target, 1, 0)
+	_expect(brain.state == HunterBrain.State.WANDER, "hiding did not send Ferryn back to wander")
+	_expect(brain.position == brain.gimmick.stalker_origin, "hiding did not return Ferryn to her origin")
+	_expect(brain.world_events.is_empty(), "merely hiding raised a facility alert -- only a flash should")
+	brain.world_events.clear()
+
+	# Flash her: real beam, real dwell, not an injected flag. Aimed at wherever
+	# she ACTUALLY is (she was just teleported to her origin by hiding above),
+	# not the stale `elsewhere` from before that -- a beam aimed at the wrong
+	# point never lights her no matter how long it's held.
+	brain.update(STEP, generator, target, 1, 0)  # re-lock chase first
+	var from := brain.position - Vector2(0.0, 2.0)
+	var lit := _target(from)
+	lit["flashlight_on"] = true
+	lit["facing"] = (brain.position - from).normalized()
+	lit["meters"] = meters
+	var before_noise: float = meters.noise_meter
+	var flashed := false
+	for i in 60:
+		brain.update(STEP, generator, lit, 1, 0)
+		if brain.flash_triggered:
+			flashed = true
+	_expect(flashed, "never actually held a flash on Ferryn -- setup problem, not her")
+	# add_noise() only banks a rise; PlayerMeters.update() is what actually
+	# folds it into noise_meter, same as the real per-frame player loop does.
+	meters.update(STEP, {})
+	_expect(meters.noise_meter > before_noise, "flashing Ferryn raised no facility noise")
+
+	var alert: Dictionary = {}
+	for event in brain.world_events:
+		if event.get("what") == "facility_alert":
+			alert = event
+	_expect(not alert.is_empty(), "flashing Ferryn raised no facility_alert for other hunters")
+	if not alert.is_empty():
+		_expect(String(alert.get("except", "")) == "ferryn",
+			"her own alert would re-target herself if a sibling brain applied it blindly")
+
+	print("  ferryn    chases with no sight or hearing, resets on a flash, and screams the facility awake")
+
+
+## Glyra never moves -- she is a timer wearing a hunter's slot -- and only
+## matters through her music box: silent while wound, a real noise
+## contribution once it runs down, and winding it gives back exactly what she
+## added rather than leaving the meter wherever it happened to land.
+func _glyra_winds_down_and_back_up(generator: FacilityGenerator) -> void:
+	# Finite floor: no route boxes, so she keeps one private box at her spawn (the full rules: glyra_music).
+	var brain := _brain("glyra", Vector2(generator.start) + Vector2(0.5, 0.5))
+	var glyra := brain.gimmick as GlyraGimmick
+	if glyra == null:
+		_fail("Glyra has no gimmick")
+		return
+	var target := _target(brain.position + Vector2(12, 0))
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(glyra.mood == MusicBoxes.Mood.PLAYING and glyra.immune_to_capture() and glyra.humming(),
+		"a freshly wound Glyra is not calm, humming and harmless")
+	_expect(not glyra.holds_position(), "Glyra is still pinned in place")
+	glyra.boxes.set_seconds_left(glyra.box_id, 0.0)
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(glyra.mood == MusicBoxes.Mood.STOPPED and not glyra.immune_to_capture() and not glyra.humming(),
+		"Glyra's stopped box did not set her hunting")
+	glyra.wind()
+	brain.update(STEP, generator, target, 1, 0)
+	_expect(glyra.mood == MusicBoxes.Mood.PLAYING, "winding Glyra's box on the finite floor did not calm her")
+	print("  glyra     calm while her box plays, hunts once it stops, calm again after a wind")
+
+
+## Ilyra teleports to a corner and watches. Seen once, then LOOKED AWAY FROM
+## (not chased off -- she never chases), she tags wherever the player was and
+## pounces after a short delay regardless of where the player has since gone.
+## A held torch banishes her outright. Driven through real perception (sight,
+## not an injected flag) because "she sets _tagged=true" is exactly the check
+## that passes while sight/hearing never actually gated it.
+func _ilyra_tags_and_pounces(generator: FacilityGenerator) -> void:
+	var brain := _brain("ilyra", Vector2(generator.start) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Ilyra has no gimmick")
+		return
+
+	# Her first update teleports her from wherever activate_at() put her to
+	# her own chosen corner -- that jump is real and expected, so what gets
+	# tested for "never walks" is stillness AFTER that landing, not agreement
+	# with the arbitrary spot she started at.
+	brain.update(STEP, generator, _target(brain.position + Vector2(40, 40)), 1, 0)
+	var corner := brain.position
+
+	# Close enough for real sight to land, torch off so it is sight and not
+	# a beam that puts her in the wrong branch.
+	var near := _target(corner + Vector2(1.0, 0.0))
+	# Perception is deliberately sampled instead of ray-tested every physics
+	# tick. Give the real sensor one complete interval rather than assuming it
+	# still runs at 60 Hz.
+	for i in ceili(GameConfig.HUNTER_SENSE_INTERVAL / STEP) + 2:
+		brain.update(STEP, generator, near, 1, 0)
+	_expect(brain.state == HunterBrain.State.CHASE,
+		"setup problem: Ilyra never actually saw the player at this range")
+	_expect(brain.position == corner, "Ilyra moved -- she is supposed to only ever teleport")
+
+	# Looked away: push the player out of sight/hearing range entirely.
+	var far := _target(corner + Vector2(40.0, 40.0))
+	far["hidden"] = true
+	var pounced := false
+	for i in int((GameConfig.ILYRA_POUNCE_DELAY + 1.0) / STEP):
+		brain.update(STEP, generator, far, 1, 0)
+		for event in brain.world_events:
+			if event.get("what") == "stun":
+				pounced = true
+		brain.world_events.clear()
+		if pounced:
+			break
+	_expect(pounced, "Ilyra saw the player and lost sight of her, but never pounced")
+
+	var after_pounce := brain.position
+	_expect(after_pounce != corner, "Ilyra did not teleport to a new corner after pouncing")
+
+	# A held torch banishes her outright -- hidden, and inert.
+	var lit := _target(brain.position - Vector2(0.0, 2.0))
+	lit["flashlight_on"] = true
+	lit["facing"] = Vector2(0, 1)
+	var flashed := false
+	for i in 90:
+		brain.update(STEP, generator, lit, 1, 0)
+		if brain.flash_triggered:
+			flashed = true
+	_expect(flashed, "setup problem: never actually held a flash on Ilyra")
+	_expect(brain.gimmick.hidden_from_view(), "flashing Ilyra did not banish her")
+
+	print("  ilyra     tags a real sighting, pounces after the delay, banished by a held torch")
+
+
+func _verrine_lurks_and_chases(host: Node) -> void:
+	# A real scene, purely for a real player node -- global_position is
+	# unreadable/unsettable on a PlayerController3D that was never actually
+	# built from its own scene (its @onready camera/flashlight children do
+	# not exist on a bare .new()). The generator comes along with it, already
+	# carrying a real vent network from _spawn_interactables' own call to
+	# place_vents(). Verrine's own brain is still built by hand, same as
+	# Javelle/Ceryth's checks -- the scene's own random draw has no reason to
+	# have actually drawn her.
+	var scene: Node = load("res://game/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var generator: FacilityGenerator = scene.facility_view.generator
+	var player: PlayerController3D = scene.player
+	var vents: Array = generator.vents
+
+	if vents.size() < GameConfig.VERRINE_VENT_COUNT:
+		_fail("only %d vents placed on a whole floor" % vents.size())
+		scene.queue_free()
+		return
+	for vent in vents:
+		var cell := Vector2i(vent["x"], vent["y"])
+		_expect(generator.grid[cell.y][cell.x] == 0, "vent %s is inside a wall" % cell)
+
+	var brain := _brain("verrine", Vector2(vents[0]["x"], vents[0]["y"]) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Verrine has no gimmick")
+		scene.queue_free()
+		return
+
+	# Not in the network at all: hidden, holding position, and ignoring a
+	# player standing right next to her -- the whole point of a lurker.
+	var away := _target(brain.position + Vector2(1.0, 0.0))
+	for i in 5:
+		brain.update(STEP, generator, away, 1, 0)
+	_expect(brain.gimmick.hidden_from_view(), "Verrine is visible before the player ever entered a vent")
+	_expect(brain.state != HunterBrain.State.CHASE, "Verrine chased a player who never entered the network")
+	var still_here := brain.position
+
+	player.global_position = Vector3(vents[0]["x"] + 0.5, 0.0, vents[0]["y"] + 0.5)
+
+	var message: String = brain.gimmick.use_vent(String(vents[0]["id"]), brain, player, generator)
+	_expect(player.in_vent, "entering a vent did not mark the player in_vent")
+	_expect(message.begins_with("VENT TRANSIT"), "entering the network did not transit forward: got '%s'" % message)
+	_expect(brain.position != still_here, "Verrine did not teleport in when the player entered the network")
+	var destination_vent: Dictionary = vents[1]
+	var destination_center := Vector2(destination_vent["x"] + .5,
+		destination_vent["y"] + .5)
+	_expect(player.grid_position().distance_to(destination_center) >= .9 \
+		and generator.can_occupy(player.global_position.x,
+			player.global_position.z, VerrineGimmick.PLAYER_EXIT_RADIUS),
+		"vent transit placed the player inside its destination grate or wall")
+
+	# Driven frames with in_vent true: chase, and speed ramping over time.
+	var in_vent_target := _target(player.grid_position())
+	in_vent_target["in_vent"] = true
+	in_vent_target["vent_time_in"] = 0.0
+	brain.update(STEP, generator, in_vent_target, 1, 0)
+	_expect(brain.state == HunterBrain.State.CHASE, "Verrine did not chase once the player was in the vent network")
+	_expect(not brain.gimmick.hidden_from_view(), "Verrine stayed hidden while actively chasing through the vents")
+	var early_speed: float = brain.gimmick.speed_scale(brain)
+	_expect(is_equal_approx(early_speed, GameConfig.VERRINE_INITIAL_SPEED_SCALE),
+		"Verrine's speed scale did not start at the network's initial value")
+
+	in_vent_target["vent_time_in"] = 200.0
+	brain.update(STEP, generator, in_vent_target, 1, 0)
+	var ramped_speed: float = brain.gimmick.speed_scale(brain)
+	_expect(ramped_speed > early_speed, "Verrine's speed did not ramp up the longer the player stayed in the vents")
+	_expect(ramped_speed <= GameConfig.VERRINE_MAX_SPEED_SCALE + 0.001,
+		"Verrine's speed scale exceeded the network's maximum")
+
+	# Walk the ring all the way back around to the entry vent to exit --
+	# each interaction happens at whichever vent the last transit landed on,
+	# not the entry vent itself.
+	var standing_index := 1
+	var exited := false
+	for i in vents.size() - 1:
+		message = brain.gimmick.use_vent(String(vents[standing_index]["id"]), brain, player, generator)
+		if message == "VENT NETWORK EXITED":
+			exited = true
+			break
+		standing_index = (standing_index + 1) % vents.size()
+	_expect(exited, "walking the whole ring never brought the player back to the entry vent")
+	_expect(not player.in_vent, "exiting the network did not clear in_vent")
+
+	# Back outside the network: inert again.
+	brain.update(STEP, generator, _target(brain.position + Vector2(1.0, 0.0)), 1, 0)
+	_expect(brain.gimmick.hidden_from_view(), "Verrine stayed visible after the player left the vent network")
+
+	scene.queue_free()
+	print("  verrine   inert outside the network, chases and ramps speed inside it, resets on exit")
+
+
+func _zellia_trades_and_repairs(host: Node) -> void:
+	var scene: Node = load("res://game/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var generator: FacilityGenerator = scene.facility_view.generator
+	var player: PlayerController3D = scene.player
+
+	var coins: Array = generator.coins
+	if coins.size() < GameConfig.COIN_PICKUP_COUNT:
+		_fail("only %d coin pickups placed on a whole floor" % coins.size())
+		scene.queue_free()
+		return
+	for coin in coins:
+		var cell := Vector2i(coin["x"], coin["y"])
+		_expect(generator.grid[cell.y][cell.x] == 0, "coin %s is inside a wall" % cell)
+
+	# A real pickup, through the real interactable.
+	var coin_node: RouteInteractable3D = scene.facility_view._at(
+		Vector2i(coins[0]["x"], coins[0]["y"]), RouteInteractable3D.Kind.COIN)
+	if coin_node == null:
+		_fail("no interactable at the first coin's cell")
+		scene.queue_free()
+		return
+	var coins_before := GameState.coins
+	coin_node.activate(player)
+	_expect(GameState.coins == coins_before + GameConfig.COIN_PICKUP_VALUE,
+		"collecting a coin did not credit GameState.coins")
+	_expect(coin_node.completed, "a collected coin did not mark itself completed")
+
+	var brain := _brain("zellia", Vector2(generator.start) + Vector2(0.5, 0.5))
+	if brain.gimmick == null:
+		_fail("Zellia has no gimmick")
+		scene.queue_free()
+		return
+
+	# First update settles her near the facility's center and she never moves
+	# again, even with the player right on top of her.
+	brain.update(STEP, generator, _target(brain.position + Vector2(40.0, 40.0)), 1, 0)
+	var settled_at := brain.position
+	for i in 10:
+		brain.update(STEP, generator, _target(settled_at), 1, 0)
+		_expect(brain.position == settled_at, "Zellia moved -- she is supposed to hold position forever")
+	_expect(brain.state == HunterBrain.State.IDLE,
+		"Zellia reacted to the player standing on top of her")
+
+	# Standing exactly where a capture would ordinarily trigger must never
+	# actually capture her.
+	var captured := brain.update(STEP, generator, _target(settled_at), 1, 0)
+	_expect(not captured, "Zellia captured the player -- she is supposed to be immune")
+
+	# Out of range: no shop.
+	var message: String = brain.gimmick.open_shop(settled_at + Vector2(10.0, 10.0), settled_at, Vector2(0, 1))
+	_expect(message.is_empty(), "the shop opened from far outside its range")
+
+	# In range and facing her (distance 0 counts as facing -- there is no
+	# meaningful "behind you" when you're standing exactly where she is):
+	# opens with a real offer menu.
+	GameState.coins = 20
+	message = brain.gimmick.open_shop(settled_at, settled_at, Vector2(0, 1))
+	_expect(not message.is_empty() and message.begins_with("ZELLIA'S STORE"),
+		"opening the shop in range and facing her did not return a menu")
+	_expect(brain.gimmick.shop_open, "opening the shop did not mark it open")
+
+	# In range but facing away: refused, same as any other interactable.
+	brain.gimmick.shop_open = false
+	var away_point := settled_at + Vector2(1.0, 0.0)
+	message = brain.gimmick.open_shop(away_point, settled_at, Vector2(0, 1))
+	_expect(message.is_empty(), "the shop opened while facing away from her")
+	_expect(not brain.gimmick.shop_open, "facing away still marked the shop open")
+
+	# Choosing before it's open is a no-op (guarded separately below by
+	# closing it first).
+	brain.gimmick.shop_open = false
+	_expect(brain.gimmick.choose_offer(1, player, scene.facility_view).is_empty(),
+		"choosing an offer with the shop closed did something")
+	brain.gimmick.shop_open = true
+
+	# Cooling costs coins and actually cools the player.
+	player.meters.temperature = 80.0
+	var coins_before_trade := GameState.coins
+	message = brain.gimmick.choose_offer(1, player, scene.facility_view)
+	_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real cool trade did not complete: got '%s'" % message)
+	_expect(is_equal_approx(player.meters.temperature, 80.0 - GameConfig.ZELLIA_TEMPERATURE_STEP),
+		"cooling did not actually lower temperature")
+	_expect(GameState.coins == coins_before_trade - GameConfig.ZELLIA_COOL_COST,
+		"cooling did not charge the right number of coins")
+	_expect(not brain.gimmick.shop_open, "a completed trade left the shop open")
+
+	# Not enough coins: refused, and nothing is charged.
+	GameState.coins = 0
+	brain.gimmick.shop_open = true
+	message = brain.gimmick.choose_offer(2, player, scene.facility_view)
+	_expect(message.contains("NOT ENOUGH COINS"), "an unaffordable trade was not refused: got '%s'" % message)
+	_expect(GameState.coins == 0, "a refused trade still charged coins")
+
+	# Repair, with a real sabotaged relay on the floor.
+	if generator.relays.is_empty():
+		_fail("no relays on the live floor to test Zellia's repair against")
+	else:
+		var relay_cell := Vector2i(generator.relays[0]["x"], generator.relays[0]["y"])
+		var relay_node: RouteInteractable3D = scene.facility_view._at(relay_cell, RouteInteractable3D.Kind.RELAY)
+		relay_node.set_sabotaged(true)
+		GameState.coins = 20
+		brain.gimmick.shop_open = true
+		message = brain.gimmick.choose_offer(3, player, scene.facility_view)
+		_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real repair trade did not complete")
+		_expect(not relay_node.sabotaged, "repair did not bring the sabotaged relay back online")
+
+	# Pesticide arms the timer Loxelle/Ysolde read off the target dict.
+	GameState.coins = 20
+	brain.gimmick.shop_open = true
+	message = brain.gimmick.choose_offer(4, player, scene.facility_view)
+	_expect(message.begins_with("ZELLIA'S STORE // TRADE COMPLETE"), "a real pesticide trade did not complete")
+	_expect(player.pesticide_timer >= GameConfig.ZELLIA_PESTICIDE_SECONDS - 0.01,
+		"pesticide did not arm the player's timer")
+
+	# Far and hidden, so ordinary sight/hearing cannot itself put either brain
+	# into CHASE/INVESTIGATE -- isolates the assertion to each gimmick's OWN
+	# ability logic, which is what the pesticide guard actually gates.
+	var pesticide_target := _target(Vector2(500.0, 500.0))
+	pesticide_target["hidden"] = true
+	pesticide_target["pesticide_active"] = true
+	var loxelle_brain := _brain("loxelle", Vector2(0.5, 0.5))
+	loxelle_brain.gimmick._passive_timer = 999.0
+	loxelle_brain.update(STEP, generator, pesticide_target, 1, 0)
+	_expect(loxelle_brain.gimmick._passive_timer >= 999.0 - STEP - 0.001,
+		"Loxelle's passive timer kept advancing while pesticide was active")
+	# Her own logic sets last_known to a battery's position unconditionally
+	# once one exists, regardless of range -- state alone can't tell the
+	# difference here, since activate_at() already starts her in INVESTIGATE.
+	var ysolde_brain := _brain("ysolde", Vector2(0.5, 0.5))
+	var last_known_before := ysolde_brain.last_known
+	ysolde_brain.update(STEP, generator, pesticide_target, 1, 0)
+	_expect(ysolde_brain.last_known == last_known_before,
+		"Ysolde still targeted a battery while pesticide was active")
+
+	scene.queue_free()
+	print("  zellia   coins collect, trades cost and apply, and pesticide gates Loxelle/Ysolde")
+
+
+## Not hunter-specific -- general player/interactable infrastructure, tested
+## here because this file already has the real-scene + real-relay harness
+## (see _briselle_sabotages_and_resecures) that a facing check needs. Being
+## in reach used to be the whole gate; now the player also has to be turned
+## through the camera crosshair, which _nearest_interactable() enforces for
+## every interactable at once (see PlayerController3D._nearest_interactable).
+func _interactables_require_facing(host: Node) -> void:
+	var scene: Node = load("res://game/main_3d.tscn").instantiate()
+	host.get_tree().root.add_child(scene)
+	await host.get_tree().process_frame
+	var generator: FacilityGenerator = scene.facility_view.generator
+	var player: PlayerController3D = scene.player
+	if generator.relays.is_empty():
+		_fail("no relays on the live floor to test facing-gated interaction against")
+		scene.queue_free()
+		return
+	# Pick a relay/approach whose forward cone is unambiguous. Using the first
+	# random relay plus a hard-coded south approach made this fixture flaky when
+	# another interactable happened to be closer in the same cone.
+	var relay_node: RouteInteractable3D = null
+	var approach := Vector2.ZERO
+	for entry in generator.relays:
+		var relay_cell := Vector2i(entry["x"], entry["y"])
+		var candidate: RouteInteractable3D = scene.facility_view._at(
+			relay_cell, RouteInteractable3D.Kind.RELAY)
+		if candidate == null:
+			continue
+		for direction in [Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT]:
+			player.global_position = candidate.global_position \
+				+ Vector3(direction.x, 0.0, direction.y)
+			player.first_person_camera.look_at(candidate.interaction_focus(), Vector3.UP)
+			if player._nearest_interactable() == candidate:
+				relay_node = candidate
+				approach = direction
+				break
+		if relay_node != null:
+			break
+	if relay_node == null:
+		_fail("no relay has an unambiguous one-metre interaction approach")
+		scene.queue_free()
+		return
+
+	# Close enough to reach, one metre off the relay.
+	player.global_position = relay_node.global_position \
+		+ Vector3(approach.x, 0.0, approach.y)
+
+	# Facing away from it: no prompt, and pressing interact does nothing --
+	# proximity alone used to be enough for both.
+	var away := player.first_person_camera.global_position \
+		+ Vector3(approach.x, 0.0, approach.y)
+	player.first_person_camera.look_at(away, Vector3.UP)
+	_expect(player._nearest_interactable() != relay_node,
+		"a relay right next to the player stayed targeted while they faced away from it")
+	player._try_interact()
+	_expect(GameState.relays_collected == 0,
+		"pressing interact while facing away from a relay collected it anyway")
+
+	# Turned to face it: the same relay, now reachable both for the prompt
+	# and for the press -- unless real facility collision blocks the ray.
+	player.first_person_camera.look_at(relay_node.interaction_focus(), Vector3.UP)
+	_expect(player._nearest_interactable() == relay_node,
+		"a relay right in front of the player was not targeted while facing it directly")
+	var blocker := StaticBody3D.new()
+	var blocker_shape := CollisionShape3D.new()
+	var blocker_box := BoxShape3D.new()
+	blocker_box.size = Vector3(0.45, 1.8, 0.45)
+	blocker_shape.shape = blocker_box
+	blocker.add_child(blocker_shape)
+	scene.get_node("World").add_child(blocker)
+	blocker.global_position = (player.first_person_camera.global_position \
+		+ relay_node.interaction_focus()) * 0.5
+	await host.get_tree().physics_frame
+	_expect(player._nearest_interactable() != relay_node,
+		"an interactable stayed targetable through a solid line-of-sight blocker")
+	blocker.queue_free()
+	await host.get_tree().physics_frame
+	player.first_person_camera.look_at(relay_node.interaction_focus(), Vector3.UP)
+	_expect(player._nearest_interactable() == relay_node,
+		"an interactable did not regain focus after its line-of-sight blocker left")
+	player._try_interact()
+	_expect(GameState.relays_collected == 1,
+		"pressing interact while facing a relay directly did not collect it")
+
+	scene.queue_free()
+	print("  aiming    crosshair aim and line of sight choose the reachable interactable")
+
+
+## Not hunter-specific -- pure A*/movement infrastructure, colocated here for
+## the same reason _interactables_require_facing is. Every other check in
+## this file drives state transitions (last_known, CHASE/SEARCH) without
+## ever asserting the thing a player actually SEES: that `position` keeps
+## advancing toward a real, far-off target over many real frames rather than
+## stalling. A tuning-only baseline (Dovelle, no gimmick) isolates that from
+## any gimmick's own movement override.
+func _hunter_paths_to_a_distant_target(generator: FacilityGenerator) -> void:
+	var start_pos := Vector2(generator.start) + Vector2(0.5, 0.5)
+	var far_target := Vector2(generator.exit_cell) + Vector2(0.5, 0.5)
+	if start_pos.distance_to(far_target) < 8.0:
+		_fail("setup problem: start and exit are too close to prove real pathing")
+		return
+
+	var brain := HunterBrain.new(start_pos, "PATH-CHECK:dovelle", "dovelle")
+	# Mirrors activate_at() in the real game: aimed at wherever the player
+	# actually was the moment she woke.
+	brain.activate_at(far_target)
+
+	# The "player" stays permanently out of sight and hearing, so this
+	# isolates path-FOLLOWING toward the already-locked last_known, not
+	# perception re-acquiring her every frame.
+	var target := _target(Vector2(-999.0, -999.0))
+	target["hidden"] = true
+
+	var start_distance := start_pos.distance_to(far_target)
+	var closest := start_distance
+	for i in 1800:  # 30 real seconds -- generous; she should close most of it
+		brain.update(STEP, generator, target, 1, 0)
+		closest = minf(closest, brain.position.distance_to(far_target))
+
+	_expect(closest < start_distance * 0.5,
+		"a hunter aimed at a real target %.1f tiles away only closed to %.1f in 30s -- pathing looks stalled"
+			% [start_distance, closest])
+	print("  pathing   a hunter closes real distance to a far target over many frames, not just state")
+
+
+func _expect_world_silhouette(view: HunterView3D, fade_amount: float, label: String) -> void:
+	_expect(view != null and view._model != null and view._model.visible,
+		"%s has no faint world silhouette" % label)
+	if view == null or view._model == null:
+		return
+	var ghost_meshes := view._model.find_children("*", "GeometryInstance3D", true, false)
+	var faded := false
+	for mesh_value in ghost_meshes:
+		if absf((mesh_value as GeometryInstance3D).transparency - fade_amount) < .01:
+			faded = true
+			break
+	_expect(faded, "%s's world silhouette is not translucently ghosted" % label)
+	_expect(ModelSlot.fade_survives_alpha_test(view._model, fade_amount),
+		"%s's fade is discarded by ALPHA_SCISSOR instead of remaining a silhouette" % label)
+
+
+func _expect_fully_visible_hunter(view: HunterView3D, label: String) -> void:
+	_expect(view != null and view._model != null and view._model.visible,
+		"%s is not drawn" % label)
+	if view == null or view._model == null:
+		return
+	var meshes := view._model.find_children("*", "GeometryInstance3D", true, false)
+	var unfaded := not meshes.is_empty()
+	for mesh_value in meshes:
+		if (mesh_value as GeometryInstance3D).transparency > .01:
+			unfaded = false
+			break
+	_expect(unfaded, "%s is still faded instead of fully visible" % label)
+	_expect(ModelSlot.fade_survives_alpha_test(view._model, 0.0),
+		"%s's opaque materials cannot survive their own alpha test" % label)

@@ -1,0 +1,9 @@
+{
+	"schema": "lr.surface/1",
+	"surfaces": [
+		{
+			"id": "terrazzo0",
+			"image": "assets/poster_floor.png"
+		}
+	]
+}

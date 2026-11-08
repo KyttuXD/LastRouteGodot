@@ -1,0 +1,14 @@
+{
+	"schema": "lr.hunter/1",
+	"id": "ember_aki",
+	"name": "Ember",
+	"tier": "intermediate",
+	"speed": 0.86,
+	"chase": 3.8,
+	"prog": 0.19,
+	"sight": 8.4,
+	"hearing": 1.05,
+	"spawn": 12,
+	"model": "res://assets/hunters_blocky/aki/aki.glb",
+	"portrait": "res://assets/ui/hunter_portraits/aki.png"
+}

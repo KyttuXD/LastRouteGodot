@@ -1,0 +1,15 @@
+{
+	"schema": "lr.room/1",
+	"id": "music_store",
+	"items": [
+		{"type": "guitarWallHanger", "side": ["-half+3", "half-2", 3], "depth": "back", "wall_mount": true, "solid": false,
+			"mirror": false, "facing": "open"},
+		{"type": ["electricGuitarStand", "acousticGuitarStand", "bassGuitarStand"], "side": ["-half+3", "half-2", 3],
+			"depth": 2, "mirror": false, "facing": "open"},
+		{"type": "keyboardStand", "side": -4, "depth": "front-2", "facing": "center"},
+		{"type": "ampStack", "side": 5, "depth": "front-2", "facing": "center"},
+		{"type": "comboAmp", "side": 3, "depth": "front-2", "facing": "center"},
+		{"type": "checkoutCounter", "side": "-half+3", "depth": "front-1", "facing": "center"},
+		{"type": "ceilingLight", "side": 0, "depth": "mid-1", "solid": false, "mirror": false, "facing": "open"}
+	]
+}

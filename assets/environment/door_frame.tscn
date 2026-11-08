@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/environment/door_frame.glb" id="1_model"]
+
+; Real model, replacing the flat-coloured primitive placeholder.
+; ONE mesh group on purpose: ModelSlot.load_gridmap_item() keeps only the
+; first MeshInstance3D and the first CollisionShape3D it finds, so anything
+; split across groups would be silently dropped from the GridMap.
+[node name="DoorFrame" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]

@@ -1,0 +1,31 @@
+{
+	"schema": "lr.ambience/1",
+	"scope": "level",
+	"beds": {
+		"maze": [
+			{"kind": "hum", "hz": 55.0, "vol": 0.007},
+			{"kind": "thump", "hz": 48.0, "vol": 0.03, "every": 4.2}
+		],
+		"mezzanine": [
+			{"kind": "wind", "hz": 520.0, "vol": 0.01, "q": 1.1, "gust": 7.0},
+			{"kind": "creak", "hz": 410.0, "vol": 0.007, "every": 3.4}
+		],
+		"sewer": [
+			{"kind": "water", "hz": 1300.0, "vol": 0.009, "density": 55.0, "swell": 5.0},
+			{"kind": "pulse", "hz": 1500.0, "vol": 0.005, "every": 1.1, "len": 0.04},
+			{"kind": "groan", "hz": 85.0, "vol": 0.01, "every": 5.5},
+			{"kind": "thump", "hz": 60.0, "vol": 0.012, "every": 6.5}
+		],
+		"inferno": [
+			{"kind": "noise", "hz": 300.0, "vol": 0.012, "swell": 4.0},
+			{"kind": "crackle", "hz": 2100.0, "vol": 0.006, "rate": 3.5},
+			{"kind": "noise", "hz": 55.0, "vol": 0.016, "swell": 9.0},
+			{"kind": "thump", "hz": 32.0, "vol": 0.02, "every": 6.0}
+		],
+		"void": [
+			{"kind": "wind", "hz": 170.0, "vol": 0.016, "q": 4.0, "gust": 9.0},
+			{"kind": "wind", "hz": 420.0, "vol": 0.005, "q": 2.0, "gust": 5.0},
+			{"kind": "hum", "hz": 38.0, "vol": 0.004}
+		]
+	}
+}

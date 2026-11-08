@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tests/validate_runner.gd" id="1_runner"]
+
+; Headless test harness. A scene rather than a --script run, because that mode
+; registers no autoloads and every suite that touches one fails to compile.
+[node name="Validate" type="Node"]
+script = ExtResource("1_runner")

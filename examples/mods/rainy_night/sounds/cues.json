@@ -1,0 +1,29 @@
+{
+	"schema": "lr.sound/1",
+	"sounds": [
+		{
+			"id": "door_open",
+			"files": [
+				"assets/door_creak_a.ogg",
+				"assets/door_creak_b.ogg"
+			],
+			"gain_db": -4
+		},
+		{
+			"id": "door_close",
+			"files": [
+				"assets/door_creak_b.ogg"
+			],
+			"gain_db": -6
+		},
+		{
+			"id": "footstep_walk",
+			"files": [
+				"assets/wet_step_a.ogg",
+				"assets/wet_step_b.ogg",
+				"assets/wet_step_c.ogg"
+			],
+			"gain_db": -3
+		}
+	]
+}

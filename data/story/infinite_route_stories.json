@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "scenes": {
+    "ilyra_warning": {
+      "kind": "dialog",
+      "label": "Ilyra Warning",
+      "admin_only": true,
+      "start": "intro",
+      "nodes": {
+        "intro": {
+          "speaker": "ilyra",
+          "text": "You shouldn't be here. Turn back while you still can.",
+          "choices": [
+            {"label": "I'm not leaving.", "next": "refuse"},
+            {"label": "Sorry. Wrong facility.", "next": "flee"}
+          ]
+        },
+        "refuse": {
+          "speaker": "ilyra",
+          "text": "Then don't say I didn't warn you."
+        },
+        "flee": {
+          "speaker": "ilyra",
+          "text": "Smart choice."
+        }
+      }
+    },
+    "first_signal": {
+      "kind": "cutscene",
+      "label": "First Signal",
+      "admin_only": true,
+      "steps": [
+        {"type": "wait", "seconds": 0.35},
+        {"type": "dialog", "scene": "ilyra_warning"},
+        {"type": "wait", "seconds": 0.2}
+      ]
+    },
+    "admin_sample_tour": {
+      "kind": "cutscene",
+      "label": "Admin Sample Tour",
+      "admin_only": true,
+      "custom_map": "sample.png",
+      "steps": [
+        {"type": "move_camera", "to": {"x": 10, "y": 8}, "duration": 3},
+        {"type": "dialog", "scene": "ilyra_warning"}
+      ]
+    }
+  },
+  "triggers": []
+}

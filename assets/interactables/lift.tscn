@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/interactables/lift.glb" id="1_model"]
+
+; Real model, replacing the flat-coloured primitive placeholder. The glow that
+; shows completed/not-completed is still RouteInteractable3D's own OmniLight3D
+; -- nothing here recolours the model, per that script's contract.
+[node name="Lift" type="Node3D"]
+
+[node name="Model" parent="." instance=ExtResource("1_model")]

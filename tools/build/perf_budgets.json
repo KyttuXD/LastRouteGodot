@@ -1,0 +1,33 @@
+{
+  "_doc": "Budgets for tools/build/perf_report.py. 'air' is measured on a 2015 MacBook Air (30-60 fps goal) with --graphics=LOW. 'proxy' is for a fast dev PC: the frame-rate numbers mean nothing there, so it caps the things that make a weak machine slow (draw calls, visible lights, level-change spikes, memory growth). All values are first guesses; tune them against real Air runs.",
+  "air": {
+    "avg_fps_min": 30,
+    "low1_fps_min": 20,
+    "p95_ms_max": 33.3,
+    "p99_ms_max": 50,
+    "max_ms_max": 120,
+    "hitch_share_max": 0.01,
+    "draw_calls_mean_max": 400,
+    "lights_visible_peak_max": 12,
+    "mem_mb_peak_max": 900,
+    "mem_growth_mb_max": 40,
+    "trip_max_ms_max": 150,
+    "collect_frame_ms_max": 50,
+    "toggle_frame_ms_max": 50
+  },
+  "proxy": {
+    "avg_fps_min": 0,
+    "low1_fps_min": 0,
+    "p95_ms_max": 16.7,
+    "p99_ms_max": 25,
+    "max_ms_max": 100,
+    "hitch_share_max": 0.01,
+    "draw_calls_mean_max": 400,
+    "lights_visible_peak_max": 12,
+    "mem_mb_peak_max": 900,
+    "mem_growth_mb_max": 40,
+    "trip_max_ms_max": 100,
+    "collect_frame_ms_max": 33.3,
+    "toggle_frame_ms_max": 33.3
+  }
+}

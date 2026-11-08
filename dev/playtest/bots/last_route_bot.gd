@@ -1,0 +1,2078 @@
+class_name LastRouteBot
+extends BotAdapter
+
+## Playtest bot for The Last Route's streamed route. It plays through the real input path (PlaytestInput): it plans with the
+## same StreamedHunterNavigation the hunters use, walks the path by turning with the look stick and pressing the move actions,
+## collects relays, flees from hunters to safe rooms / hiding spots, and watches itself for stuck spots and soft-locks.
+
+const ROUTE_SCENE := "res://game/infinite_route/infinite_route_test.tscn"
+const PITCH_LEVEL_DEG := 2.0   # walking eye line: a touch above level, swept by PITCH_SWEEP_DEG
+const PITCH_SWEEP_DEG := 4.0
+const HUNTER_HEAD := 1.6
+const LOOK_RATE := 2.8          # PlayerController3D.CONTROLLER_LOOK_RADIANS_PER_SECOND
+const CHUNK := 45               # StreamedRouteGenerator.CHUNK_SIZE
+const INTERACT_RANGE := 2.1
+const SLOT_RADIUS := 2.2        # m from the teammate a following bot stands (its own angle per slot)
+const SEPARATION := 1.2         # m: closer than this to another runner and a bot steps away
+const MAX_TURN_STICK := .6      # look-stick cap: about 1.7 rad/s at the default sensitivity
+const USE_COOLDOWN := 120.0     # seconds before the same music box / switch / board is used again
+const THREAT_RANGE := 20.0
+const SAFE_ARRIVAL := 3.2
+const PATH_REFRESH := 0.5
+## The runner's collision capsule radius (PlayerController3D: capsule r=0.25), for the bot's straight-line clearance checks.
+const RUNNER_RADIUS := 0.25
+## A relay with a (non-chasing) hunter standing this close is camped: skipped for CAMPED_RELAY_SECONDS.
+const CAMPED_RELAY_RADIUS := 2.0
+const CAMPED_RELAY_SECONDS := 30.0
+const STUCK_WINDOW := 1.5
+const STUCK_MIN_MOVE := 0.3
+const GOAL_BLACKLIST_SECONDS := 25.0
+const SCAN_INTERVAL := 30
+const WAIT_IN_SAFE_SECONDS := 25.0
+## Roaming: after LEVEL_STAY_MIN..MAX seconds on a storey the bot heads for the nearest stairwell or ladder to the
+## neighbouring storey it has spent least time on (within LEVEL_SPAN of the start), and goes through it.
+const LEVEL_STAY_MIN := 150.0
+const LEVEL_STAY_MAX := 300.0
+const LEVEL_SPAN := 3
+const LINK_SEARCH_CHUNKS := 3
+const REVIVE_RANGE := 40.0      # m: a downed teammate this close, with a Revive Kit in the hotbar, is the goal
+const REVIVE_GIVE_UP := 10.0    # s holding at the spot before the bot leaves it
+## Ladders: standing within LADDER_TRIGGER of a ladder's cell starts a climb, so a path through it is a climb.
+## A bot at or above LADDER_SMART always routes around every ladder the path comes near (LADDER_AVOID), unless that ladder is
+## the level change it means to take. Below that, each replan still rolls (smartness percent), so a less smart bot sometimes
+## walks onto one and climbs back off (ladder_slips). smartness 0..100 (--smart, bots.sh), each bot varied by up to +-SMART_SPREAD.
+## Looking like a person: every look command goes through a critically damped spring (LookSpring), the path
+## heading is smoothed over AIM_SMOOTH s so it never flicks between two path points, the bot aims two cells ahead (it turns
+## into a corridor before it gets there), idle glances change every GLANCE_MIN..MAX s (sometimes a check behind), pitch stays
+## within PITCH_MIN..MAX of level. LookMeter measures the result per run (PlaytestReporter fails jerky runs).
+const LOOK_SPRING := 80.0       # 1/s^2: settles in about 0.25 s, no overshoot
+const LOOK_MAX_ACCEL := 5.0     # stick units/s^2 (x LOOK_RATE: about 800 deg/s^2): a turn ramps up instead of jumping
+const AIM_SMOOTH := .3
+const AIM_TAU := .25            # s: the look stick closes an angle error over about this long
+const AIM_LOOK_TAU := .6        # s: the same for lining up an interact (_aim_at): no overshoot through the look spring
+const LOOK_DEADZONE := .18      # project.godot look_* actions: Input.get_vector drops a look stick shorter than this
+const GLANCE_MIN := .6
+const GLANCE_MAX := 2.0
+const PITCH_MIN := -8.0
+const PITCH_MAX := 10.0
+const AIM_PITCH_MIN := -60.0    # while aiming at an interactable (see decide)
+const AIM_PITCH_MAX := 45.0
+const AIM_STANDOFF := 1.3       # m: closer than this to a low interactable, the bot steps back while aiming
+const LADDER_TRIGGER := .45
+const LADDER_AVOID := 1.6
+## Low end of the default smartness band (base 70 minus SMART_SPREAD). At or above this, ladder avoidance is certain.
+const LADDER_SMART := 55
+const SMART_SPREAD := 15
+## Idle watch: the same "moved" test as the game's anti-AFK clock (AntiIdle: walked .35 m or turned). Inactive this
+## long and the bot drops what it is doing and picks again (IDLE_RECOVER); the longest stretch is stats idle_max_s, which
+## PlaytestReporter fails past --max-idle-s. On a ladder this long (CLIMB_GIVE_UP) the bot turns round and climbs the other way.
+const IDLE_RECOVER := 45.0
+const CLIMB_GIVE_UP := 20.0
+
+var _scan_cache: Array = []
+var _scan_frame := -1000
+var _goal := {}
+var _path: Array = []
+var _path_index := 0
+var _path_age := 0.0
+var _visited := {}
+var _blacklist := {}
+var _clock := 0.0
+var _sample_clock := 0.0
+var _samples: Array = []
+var _stuck_level := 0
+var _stuck_since := -1.0
+var _stuck_next := 0.0
+var _strafe_until := 0.0
+var _strafe_dir := 1.0
+var _interact_cooldown := 0.0
+## Items and the world's objects (the co-op bots must use them, so sync and load are exercised like real play).
+var _use_time := 0.0             # seconds spent at the current "use" goal
+var _use_swings := 0
+var _dark_check := 0.0
+var _dark := false
+var _jump_ready := 0.0
+var _spin_clock := 0.0
+var _spin_samples: Array = []
+var _spin_until := -1.0
+var _spin_dir := 1.0
+var _interact_tries := 0
+var _relays_at_interact := 0
+var _hide_clear_time := 0.0
+var _last_goal_kind := ""
+var _threat_seen := false
+var _soft_locks := 0
+var _camped_seen := {}
+var _last_pos := Vector2.ZERO
+var _last_obs := {}
+var _stuck_spots: Array = []
+var _unreachable_seen := {}
+var _safe_wait := 0.0
+var _door_tries := 0
+var _door_walk_time := 0.0
+var _door_time := 0.0             # seconds spent at the current closed door (walking up, aiming, pressing)
+var _door_frame := -10            # physics frame _handle_door last ran: standing at a door is not being stuck
+## Give up on a closed door after this long at it (the stuck detector no longer covers the time spent opening one)
+const DOOR_GIVE_UP_SECONDS := 9.0
+var _has_last_pos := false
+## false keeps the bot on its storey (a guest following the host: the host's storey is where it goes)
+var roam_levels := true
+var _level_time := {}            # storey -> seconds spent there
+var _level_due := -1.0           # _clock when the bot next looks for a link (set on the first frame)
+var _link_hold := {}             # a link being taken: {"landing": Vector3, "to": int, "until": float, "id": String}
+var _regions := {}               # "level:region" -> first _clock seen
+var _revive_time := 0.0
+var _aiming := false              # _aim_at ran this frame (an interact, a door): decide lets the pitch go further and lifts the deadzone
+var _doing := ""                 # a sub-step worth telling apart in LookMeter this frame (e.g. "aim")
+var _yaw_spring := LookSpring.new()
+var _pitch_spring := LookSpring.new()
+var look_meter := LookMeter.new()
+var _aim_dir := Vector2.ZERO
+var _glance_next := 0.0
+var _glance_yaw := 0.0
+var smartness := 70              # 0..100: set_smartness() adds this bot's own variation
+var _climb_level := 999          # the storey a climb started from (999: not climbing)
+var _climb_time := 0.0
+var _ladder_walk := 0.0          # s spent stepping onto a ladder it means to climb
+## Shared by the other bots through the room chat (BotChat): places to keep away from and relays someone else took.
+var _avoid: Array = []           # {"at": Vector2, "until": float}
+var _claimed: Dictionary = {}    # "x,y" relay cell -> until
+var _help := {}                 # {"at": Vector2, "until": float} from a bot_help callout
+var _idle_anchor := {}           # AntiIdle anchor {"position", "facing"} of the idle watch
+var _idle_s := 0.0               # seconds since the bot last walked or turned
+var _idle_logged := false        # this stretch already has its "idle" event
+
+
+func available() -> bool:
+	return true
+
+
+func describe() -> Dictionary:
+	return {"game": game_id, "available": true, "scene": ROUTE_SCENE,
+		"scenarios": ["survive", "explore_coverage", "collect_relays", "reach_depth", "menu_tour", "death_scene_tour"]}
+
+
+# --- run control ------------------------------------------------------------
+
+func start_run(params: Dictionary) -> Dictionary:
+	_reset()
+	RoomState.create_local(RoomState.Mode.DEFAULT)
+	if params.has("seed"):
+		RoomState.seed_text = String(params["seed"])
+	var difficulty := String(params.get("difficulty", "standard")).to_lower()
+	match difficulty:
+		"relaxed":
+			RoomState.difficulty = RoomState.Difficulty.RELAXED
+		"hard":
+			RoomState.difficulty = RoomState.Difficulty.HARD
+		_:
+			RoomState.difficulty = RoomState.Difficulty.STANDARD
+	rng.seed = hash("%s|%s" % [RoomState.seed_text, params.get("bot_seed", 0)])
+	tree.change_scene_to_file(ROUTE_SCENE)
+	for _i in 900:
+		await tree.physics_frame
+		var scene := tree.current_scene
+		if _route_ready(scene):
+			break
+	var ready_scene := tree.current_scene
+	if not _route_ready(ready_scene):
+		return {"ok": false, "error": "the route scene did not finish loading"}
+	# A playtest never writes progress or account data.
+	GameState.debug_run = bool(params.get("debug", true))
+	for _i in 20:
+		await tree.physics_frame
+	return {"ok": true, "seed": RoomState.seed_text, "difficulty": difficulty}
+
+
+func attach() -> void:
+	_reset()
+	GameState.debug_run = true
+	rng.seed = hash("%s|%s|attach" % [RoomState.seed_text, tree.get_multiplayer().get_unique_id() if RoomState.online else 0])
+
+
+func leave_run() -> void:
+	var scene := tree.current_scene
+	if scene != null and scene.has_method("_leave_test"):
+		scene.call("_leave_test")
+
+
+func after_run_over(obs: Dictionary) -> bool:
+	var scene := tree.current_scene
+	if scene == null:
+		return false
+	var report: Variant = scene.get("run_report")
+	if report != null and report.has_signal("restart_requested"):
+		report.restart_requested.emit()
+		return true
+	return false
+
+
+func run_over(obs: Dictionary) -> bool:
+	return bool(obs.get("run", {}).get("over", false))
+
+
+func admin(name: String, args: Dictionary) -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {"ok": false, "error": "no route running"}
+	var player: PlayerController3D = scene.get("player")
+	match name:
+		"god":
+			player.admin_god_mode = bool(args.get("on", true))
+		"no_target":
+			player.admin_no_target = bool(args.get("on", true))
+		"noclip":
+			player.set_admin_noclip(bool(args.get("on", true)))
+		"speed":
+			player.admin_speed_scale = clampf(float(args.get("scale", 1.0)), 0.25, 3.0)
+		"teleport":
+			var target := Vector3(float(args.get("x", player.global_position.x)),
+				float(args.get("y", player.global_position.y)), float(args.get("z", player.global_position.z)))
+			if scene.has_method("_admin_teleport_to"):
+				scene.call("_admin_teleport_to", target)
+			else:
+				player.global_position = target
+		_:
+			return {"ok": false, "error": "unknown admin helper '%s' (god, no_target, noclip, speed, teleport)" % name}
+	return {"ok": true}
+
+
+## Look at the nearest interactable of `kind` and press interact on it (probe scenario helper). Returns what happened.
+## Does the navigation find a path from where the player stands to `goal`? (and from the nearest open cell). For goto_check reports.
+func path_report(goal: Vector2i) -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {"ok": false, "error": "no route"}
+	var player: PlayerController3D = scene.get("player")
+	var nav: StreamedHunterNavigation = scene.get("_navigation")
+	var here := Vector2i(floori(player.global_position.x), floori(player.global_position.z))
+	var direct: Array = nav.find_path(here, goal)
+	var near := _open_cell_near(nav, Vector2(player.global_position.x, player.global_position.z))
+	var from_near: Array = nav.find_path(near, goal) if near != Vector2i(-99999, -99999) else []
+	var relay_here := false
+	for relay in nav.relays:
+		if int(relay.get("x", -99999)) == goal.x and int(relay.get("y", -99999)) == goal.y:
+			relay_here = true
+	return {"ok": true, "from": [here.x, here.y], "goal": [goal.x, goal.y], "goal_open": nav.can_occupy(goal.x + .5, goal.y + .5), "relay_at_goal": relay_here, "direct_len": direct.size(),
+		"from_open_cell_len": from_near.size(), "distance": snappedf(Vector2(player.global_position.x, player.global_position.z).distance_to(Vector2(goal) + Vector2(.5, .5)), .1)}
+
+
+## door_audit helper: stand 1.2 m in front of the door at `door_pos` (any side we can stand on), look at it, press interact when the game's own
+## interaction focus is that door, and report whether it opened. Teleports (debug run) so each door is tested in isolation.
+func audit_door(door_pos: Array, frames: int = 150) -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {"ok": false, "error": "no route"}
+	var player: PlayerController3D = scene.get("player")
+	var nav: StreamedHunterNavigation = scene.get("_navigation")
+	var door_xz := Vector2(float(door_pos[0]), float(door_pos[2]))
+	var stands: Array = []
+	for offset in [Vector2(1.2, 0), Vector2(-1.2, 0), Vector2(0, 1.2), Vector2(0, -1.2)]:
+		var candidate: Vector2 = door_xz + offset
+		if nav.can_occupy(candidate.x, candidate.y):
+			stands.append(candidate)
+	if stands.is_empty():
+		return {"ok": true, "pos": door_pos, "opened": false, "focused": false, "note": "no standing point in front of the door"}
+	var input: PlaytestInput = Playtest.input
+	var delta := 1.0 / float(Engine.physics_ticks_per_second)
+	var best := {"ok": true, "pos": door_pos, "opened": false, "focused": false, "presses": 0, "stood": []}
+	for stand in stands:
+		admin("teleport", {"x": stand.x, "y": player.global_position.y, "z": stand.y})
+		for _i in 20:
+			await tree.physics_frame
+		var focused := false
+		var presses := 0
+		var opened := false
+		for i in frames:
+			await tree.physics_frame
+			var obs := {}
+			observe(scene, obs)
+			var target := {}
+			for item in obs.get("interactables", []):
+				if String(item["kind"]) == "ROOM_DOOR" and Vector2(float(item["pos"][0]), float(item["pos"][2])).distance_to(door_xz) < .6:
+					target = item
+					break
+			if target.is_empty():
+				break
+			if bool(target["door_open"]):
+				opened = true
+				break
+			var act := {"move": [0.0, 0.0], "look": [0.0, 0.0], "pulse": []}
+			var on_door := _aim_at(player, Vector3(float(target["pos"][0]), float(target["pos"][1]), float(target["pos"][2])), act, delta)
+			var focus_kind := String(obs.get("focus", {}).get("kind", ""))
+			if focus_kind == "ROOM_DOOR":
+				focused = true
+				if on_door and i % 15 == 0 and presses < 6:
+					act["pulse"].append("interact")
+					presses += 1
+			input.apply(act)
+		input.release_all()
+		best["stood"].append([snappedf(stand.x, .1), snappedf(stand.y, .1)])
+		best["focused"] = bool(best["focused"]) or focused
+		best["presses"] = int(best["presses"]) + presses
+		if opened:
+			best["opened"] = true
+			break
+	return best
+
+
+## Why can the player not move? Lists what overlaps the body (physics query), what blocks a 0.5 m move in each direction (test_move), and the
+## navigation's view of the start cell and its neighbours. Used by goto_check when the bot stands still although a path exists.
+func collision_report() -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {"ok": false, "error": "no route"}
+	var player: PlayerController3D = scene.get("player")
+	var nav: StreamedHunterNavigation = scene.get("_navigation")
+	var p := player.global_position
+	var out := {"ok": true, "player": {"pos": [snappedf(p.x, .01), snappedf(p.y, .01), snappedf(p.z, .01)], "layer": player.collision_layer, "mask": player.collision_mask,
+		"on_floor": player.is_on_floor(), "frozen": player.input_frozen, "noclip": player.admin_noclip, "velocity": [snappedf(player.velocity.x, .01), snappedf(player.velocity.y, .01), snappedf(player.velocity.z, .01)]}}
+	# the player's own collision shape(s)
+	var shapes: Array = []
+	for node in player.find_children("*", "CollisionShape3D", true, false):
+		var shape_node := node as CollisionShape3D
+		if shape_node == null or shape_node.shape == null:
+			continue
+		shapes.append({"path": str(player.get_path_to(shape_node)), "disabled": shape_node.disabled, "shape": _shape_text(shape_node.shape), "center": _v3(shape_node.global_position)})
+	out["player_shapes"] = shapes
+	# 1. everything overlapping the body (inflated by 5 cm)
+	var overlaps: Array = []
+	var space := player.get_world_3d().direct_space_state
+	for shape_info in player.find_children("*", "CollisionShape3D", true, false):
+		var node := shape_info as CollisionShape3D
+		if node == null or node.shape == null or node.disabled:
+			continue
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = node.shape
+		query.transform = node.global_transform
+		query.margin = .05
+		query.collision_mask = player.collision_mask
+		query.exclude = [player.get_rid()]
+		for hit in space.intersect_shape(query, 16):
+			overlaps.append(_describe_collider(hit.get("collider"), int(hit.get("shape", 0)), p))
+	out["overlapping"] = overlaps
+	# 2. what stops a 0.5 m step in each direction
+	var blockers := {}
+	for entry in [["forward", Vector3(0, 0, -1)], ["back", Vector3(0, 0, 1)], ["left", Vector3(-1, 0, 0)], ["right", Vector3(1, 0, 0)]]:
+		var direction: Vector3 = (player.global_transform.basis * (entry[1] as Vector3)).normalized() * .5
+		var collision := KinematicCollision3D.new()
+		if player.test_move(player.global_transform, direction, collision):
+			var hit := _describe_collider(collision.get_collider(), collision.get_collider_shape_index(), p, collision.get_position() - collision.get_normal() * .1)
+			hit["normal"] = _v3(collision.get_normal())
+			hit["depth"] = snappedf(collision.get_depth(), .001)
+			hit["hit_at"] = _v3(collision.get_position())
+			blockers[String(entry[0])] = hit
+		else:
+			blockers[String(entry[0])] = "free"
+	out["blocked_directions"] = blockers
+	# 3. the navigation's view of the start cell and its neighbours
+	var cell := Vector2i(floori(p.x), floori(p.z))
+	var grid: Array = []
+	for dz in range(-1, 2):
+		var row: Array = []
+		for dx in range(-1, 2):
+			var c := cell + Vector2i(dx, dz)
+			row.append({"cell": [c.x, c.y], "floor": nav.is_floor(c.x + .5, c.y + .5), "can_occupy": nav.can_occupy(c.x + .5, c.y + .5)})
+		grid.append(row)
+	var solid_props: Variant = nav.get("_solid_prop_cells")
+	out["nav"] = {"cell": [cell.x, cell.y], "grid_3x3_rows_z_minus1_to_plus1": grid, "solid_prop_cell": (solid_props is Dictionary and (solid_props as Dictionary).has(cell)),
+		"safe_zone_blocked": nav.get_safe_zone_blocked_cells().has(cell), "room": nav.room_at(p.x, p.z).get("id", nav.room_at(p.x, p.z).get("kind", ""))}
+	return out
+
+
+## The occupied cells of a GridMap around a world point: cell coords, the mesh library item name, the cell's world box, plus the GridMap's own origin/cell size.
+func _gridmap_cells(grid: GridMap, around: Vector3) -> Dictionary:
+	var centre := grid.local_to_map(grid.to_local(around))
+	var cells: Array = []
+	for dy in range(-2, 3):
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				var cell := centre + Vector3i(dx, dy, dz)
+				var item := grid.get_cell_item(cell)
+				if item == GridMap.INVALID_CELL_ITEM:
+					continue
+				var item_name := grid.mesh_library.get_item_name(item) if grid.mesh_library != null else str(item)
+				var world := grid.to_global(grid.map_to_local(cell))
+				cells.append({"cell": [cell.x, cell.y, cell.z], "item": item_name, "world_centre": _v3(world)})
+	return {"origin": _v3(grid.global_position), "cell_size": [snappedf(grid.cell_size.x, .01), snappedf(grid.cell_size.y, .01), snappedf(grid.cell_size.z, .01)],
+		"centre_cell": [centre.x, centre.y, centre.z], "occupied_nearby": cells.slice(0, 40)}
+
+
+func _v3(v: Vector3) -> Array:
+	return [snappedf(v.x, .01), snappedf(v.y, .01), snappedf(v.z, .01)]
+
+
+func _shape_text(shape: Shape3D) -> String:
+	if shape is CapsuleShape3D:
+		return "capsule r=%.2f h=%.2f" % [(shape as CapsuleShape3D).radius, (shape as CapsuleShape3D).height]
+	if shape is BoxShape3D:
+		return "box size=%s" % [(shape as BoxShape3D).size]
+	if shape is CylinderShape3D:
+		return "cylinder r=%.2f h=%.2f" % [(shape as CylinderShape3D).radius, (shape as CylinderShape3D).height]
+	if shape is SphereShape3D:
+		return "sphere r=%.2f" % (shape as SphereShape3D).radius
+	return shape.get_class()
+
+
+## What a collider is: node path, class, the prop/owner it belongs to, shape text, a world AABB and its distance from the player.
+func _describe_collider(collider: Variant, shape_index: int, from: Vector3, point: Vector3 = Vector3.INF) -> Dictionary:
+	var info := {"node": "?", "class": "?", "owner_chain": [], "shape": "?", "aabb": [], "distance": -1.0}
+	if not (collider is Node):
+		info["node"] = str(collider)
+		return info
+	var node := collider as Node
+	info["node"] = str(node.get_path())
+	info["class"] = node.get_class()
+	var chain: Array = []
+	var walker: Node = node
+	for _i in 5:
+		if walker == null:
+			break
+		chain.append("%s(%s)" % [walker.name, walker.get_class()])
+		walker = walker.get_parent()
+	info["owner_chain"] = chain
+	if node is GridMap:
+		info["gridmap"] = _gridmap_cells(node as GridMap, from if point == Vector3.INF else point)
+	if node is CollisionObject3D:
+		var body := node as CollisionObject3D
+		info["layer"] = body.collision_layer
+		var owners: Array = body.get_shape_owners()
+		if shape_index >= 0 and shape_index < owners.size() + 8:
+			for owner_id in owners:
+				for shape_i in body.shape_owner_get_shape_count(owner_id):
+					var shape := body.shape_owner_get_shape(owner_id, shape_i)
+					info["shape"] = _shape_text(shape)
+					var shape_transform := body.global_transform * body.shape_owner_get_transform(owner_id)
+					var aabb := shape.get_debug_mesh().get_aabb() if shape != null else AABB()
+					var world := shape_transform * aabb
+					info["aabb"] = [_v3(world.position), _v3(world.size)]
+					info["distance"] = snappedf((world.get_center() - from).length(), .01)
+					break
+				break
+	return info
+
+
+func probe_interact(kind: String, frames: int = 120) -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {"ok": false, "error": "no route"}
+	var player: PlayerController3D = scene.get("player")
+	var input: PlaytestInput = Playtest.input
+	var before := {}
+	var trace: Array = []
+	var pressed := 0
+	var delta := 1.0 / float(Engine.physics_ticks_per_second)
+	for _i in frames:
+		await tree.physics_frame
+		var obs := {}
+		observe(scene, obs)
+		var target := {}
+		for item in obs.get("interactables", []):
+			if String(item["kind"]) == kind and not bool(item.get("completed", false)):
+				target = item
+				break
+		if target.is_empty():
+			return {"ok": false, "error": "no %s nearby" % kind}
+		if before.is_empty():
+			before = target.duplicate()
+		var pos: Array = target["pos"]
+		var act := {"move": [0.0, 0.0], "look": [0.0, 0.0], "pulse": []}
+		var on_target := _aim_at(player, Vector3(float(pos[0]), float(pos[1]), float(pos[2])), act, delta)
+		if _i % 15 == 0:
+			trace.append({"i": _i, "on_target": on_target, "focus": obs.get("focus", {}), "yaw": obs["player"]["yaw"], "pitch": obs["player"]["pitch"]})
+		if on_target and str(obs.get("focus", {}).get("kind", "")) == kind and pressed < 3 and _i % 20 == 0:
+			act["pulse"].append("interact")
+			pressed += 1
+		input.apply(act)
+	input.release_all()
+	var obs_after := {}
+	observe(scene, obs_after)
+	var after := {}
+	for item in obs_after.get("interactables", []):
+		if String(item["kind"]) == kind:
+			after = item
+			break
+	return {"ok": true, "pressed": pressed, "before": before, "after": after, "trace": trace}
+
+
+func _reset() -> void:
+	# the pitch histogram covers the whole process (a soak resumes its run several times)
+	var pitch_hist: Dictionary = stats.get("pitch_hist", {}) if stats is Dictionary else {}
+	stats = {"frames": 0, "distance_m": 0.0, "stuck_events": 0, "soft_locks": 0, "interact_failures": 0,
+		"unreachable_goals": 0, "chase_frames": 0, "relays": 0, "deaths": 0, "hidden_frames": 0,
+		"chunks_visited": 0, "max_depth": 1, "hunters_seen": {}, "pitch_hist": pitch_hist, "uses": {}, "flashlight_toggles": 0,
+		"levels": {}, "regions": [], "level_trips": 0, "level_trip_failed": 0, "revives_tried": 0,
+		"idle_max_s": 0.0, "idle_recoveries": 0}
+	events.clear()
+	_goal = {}
+	_path = []
+	_path_index = 0
+	_visited.clear()
+	_blacklist.clear()
+	_samples.clear()
+	_clock = 0.0
+	_stuck_level = 0
+	_stuck_since = -1.0
+	_soft_locks = 0
+	_has_last_pos = false
+	_stuck_spots.clear()
+	_unreachable_seen.clear()
+	_camped_seen.clear()
+	_scan_frame = -1000
+	_level_time.clear()
+	_level_due = -1.0
+	_link_hold = {}
+	_regions.clear()
+	_revive_time = 0.0
+	_climb_level = 999
+	_yaw_spring = LookSpring.new()
+	_pitch_spring = LookSpring.new()
+	look_meter = LookMeter.new()
+	_aim_dir = Vector2.ZERO
+	_avoid.clear()
+	_claimed.clear()
+	_help = {}
+	_idle_anchor = {}
+	_idle_s = 0.0
+	_idle_logged = false
+
+
+func _route_ready(scene: Node) -> bool:
+	return scene != null and scene.scene_file_path == ROUTE_SCENE and scene.get("player") != null \
+		and scene.get("facility") != null and scene.get("_navigation") != null and scene.get("_hunter_views") != null
+
+
+# --- observation ------------------------------------------------------------
+
+func observe(scene: Node, obs: Dictionary) -> void:
+	obs["game"] = game_id
+	if not _route_ready(scene):
+		obs["run"] = {"active": false, "over": false}
+		return
+	var player: PlayerController3D = scene.get("player")
+	var facility: StreamedFacilityView3D = scene.get("facility")
+	var nav: StreamedHunterNavigation = scene.get("_navigation")
+	var p := player.global_position
+	var cell := Vector2i(floori(p.x), floori(p.z))
+	var chunk := facility.current_chunk_coord()
+	var data := facility.current_chunk_data()
+	var in_safe := false
+	if scene.has_method("_player_in_intact_safe_room"):
+		in_safe = bool(scene.call("_player_in_intact_safe_room", data))
+	var over := bool(scene.get("_death_screen_open")) or GameState.game_over
+	obs["run"] = {"active": true, "over": over, "depth": GameState.depth, "score": GameState.score,
+		"relays": GameState.relays_collected, "debug_run": GameState.debug_run,
+		"death": scene.get("_last_death_cause") if over else {},
+		"statistics": scene.get("_run_statistics")}
+	obs["player"] = {"pos": [snappedf(p.x, .01), snappedf(p.y, .01), snappedf(p.z, .01)],
+		"cell": [cell.x, cell.y], "yaw": snappedf(player.rotation.y, .001),
+		"pitch": snappedf(player.first_person_pivot.rotation.x, .001),
+		"vel": [snappedf(player.velocity.x, .01), snappedf(player.velocity.y, .01), snappedf(player.velocity.z, .01)],
+		"hidden": player.hidden, "stamina": snappedf(player.stamina, .1), "lamp": snappedf(player.lamp_charge, .1),
+		"flashlight": player.flashlight_enabled, "mode": player.movement_mode, "noise": snappedf(player.noise, .01),
+		"frozen": player.input_frozen, "spectator": player.spectator_mode, "item": player.selected_inventory_item(),
+		"in_safe_room": in_safe}
+	var focus: Variant = player.call("_nearest_interactable") if player.has_method("_nearest_interactable") else null
+	obs["focus"] = {}
+	if focus is RouteInteractable3D and is_instance_valid(focus):
+		obs["focus"] = {"kind": RouteInteractable3D.Kind.keys()[(focus as RouteInteractable3D).kind], "prompt": (focus as RouteInteractable3D).get_prompt()}
+	obs["world"] = {"chunk": [chunk.x, chunk.y, chunk.z], "level": facility.current_level(),
+		"loaded_chunks": facility.loaded_chunk_count(), "region": String(data.get("region", "")),
+		"relays": _nearest_entries(nav.relays, p, 8, true), "batteries": _nearest_entries(nav.batteries, p, 4, true),
+		"safe_zones": _nearest_entries(nav.safe_zones, p, 4, false),
+		"hiding_spots": _nearest_entries(nav.hiding_spots, p, 6, false)}
+	var remotes: Variant = scene.get("_remotes")
+	obs["online"] = {"active": RoomState.online, "host": RoomState.is_host, "peers": RoomState.peers.size(),
+		"remotes": (remotes.count() if remotes != null and remotes.has_method("count") else 0), "code": RoomState.code}
+	obs["hunters"] = _observe_hunters(scene, nav, p)
+	obs["interactables"] = _observe_interactables(facility, p)
+
+
+func _nearest_entries(entries: Array, from: Vector3, limit: int, only_open: bool) -> Array:
+	var rows: Array = []
+	for entry_value in entries:
+		var entry: Dictionary = entry_value
+		if only_open and (bool(entry.get("collected", false)) or bool(entry.get("sabotaged", false))):
+			continue
+		var d := Vector2(float(entry.get("x", 0)) + .5 - from.x, float(entry.get("y", 0)) + .5 - from.z).length()
+		rows.append({"id": String(entry.get("id", entry.get("room_id", ""))), "x": int(entry.get("x", 0)),
+			"y": int(entry.get("y", 0)), "dist": snappedf(d, .1), "capacity": int(entry.get("capacity", 1))})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["dist"]) < float(b["dist"]))
+	return rows.slice(0, limit)
+
+
+func _observe_hunters(scene: Node, nav: StreamedHunterNavigation, p: Vector3) -> Array:
+	var rows: Array = []
+	var views: Dictionary = scene.get("_hunter_views")
+	for key in views:
+		var view: HunterView3D = views[key]
+		if view == null or not is_instance_valid(view) or view.brain == null:
+			continue
+		var brain: HunterBrain = view.brain
+		var d := brain.position.distance_to(Vector2(p.x, p.z))
+		rows.append({"entity": String(key), "id": brain.hunter_id,
+			"state": HunterBrain.State.keys()[brain.state], "pos": [snappedf(brain.position.x, .1), snappedf(brain.position.y, .1)],
+			"dist": snappedf(d, .1), "los": nav.has_line_of_sight(brain.position, Vector2(p.x, p.z)) if d < 40.0 else false,
+			"stuck": snappedf(brain.stuck_seconds, .1), "stun": snappedf(brain.stun_timer, .1)})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["dist"]) < float(b["dist"]))
+	return rows
+
+
+func _observe_interactables(facility: StreamedFacilityView3D, p: Vector3) -> Array:
+	var frame := Engine.get_physics_frames()
+	if frame - _scan_frame >= SCAN_INTERVAL:
+		_scan_frame = frame
+		_scan_cache.clear()
+		for node in facility.find_children("*", "RouteInteractable3D", true, false):
+			if node is RouteInteractable3D:
+				_scan_cache.append(node)
+	var rows: Array = []
+	for node in _scan_cache:
+		if not is_instance_valid(node):
+			continue
+		var item := node as RouteInteractable3D
+		if item == null or not item.is_inside_tree():
+			continue
+		var focus := item.interaction_focus()
+		var d := Vector2(focus.x - p.x, focus.z - p.z).length()
+		if d > 45.0:
+			continue
+		rows.append({"kind": RouteInteractable3D.Kind.keys()[item.kind], "pos": [snappedf(focus.x, .01), snappedf(focus.y, .01), snappedf(focus.z, .01)],
+			"dist": snappedf(d, .1), "completed": item.completed, "door_open": item.room_door_open if item.kind == RouteInteractable3D.Kind.ROOM_DOOR else false})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["dist"]) < float(b["dist"]))
+	return rows.slice(0, 30)
+
+
+# --- decisions --------------------------------------------------------------
+
+## One frame of play: the goal logic (_decide_inner), then what keeps a group of bots apart and stops one turning on the spot
+## (a tester saw several stacked inside each other in a lab corridor, spinning in place).
+func decide(obs: Dictionary, delta: float) -> Dictionary:
+	_doing = ""
+	_aiming = false
+	var act := _decide_inner(obs, delta)
+	var scene := tree.current_scene
+	if act.is_empty() or not _route_ready(scene):
+		return act
+	var player: PlayerController3D = scene.get("player")
+	_watch_idle(obs, player, delta)
+	if player.hidden:
+		return act
+	if _body_locked(player) or player.spectator_mode or bool(obs.get("run", {}).get("over", false)):
+		# held by a grab / stun / frozen input, or caught (a ghost, the run over): the game drives the body and the view, so the
+		# bot neither pushes (separation), nor lets its look springs coast on, nor scores a camera it does not turn (LookMeter
+		# starts again on release)
+		_yaw_spring = LookSpring.new()
+		_pitch_spring = LookSpring.new()
+		look_meter.restart()
+		act["move"] = [0.0, 0.0]
+		act["look"] = [0.0, 0.0]
+		return act
+	if not _aiming:
+		_separate(scene, player, act)   # not while lining up an interact at arm's length: a sidestep swings the aim back and forth
+	var look: Array = act.get("look", [0.0, 0.0])
+	if look.size() > 1:
+		# keep the pitch near level, then let both axes ease through the springs
+		# (lining up an interact may look further: a relay at knee height an arm's length away is ~30 deg down, and clamped at
+		# PITCH_MIN the aim never landed, the bot stood there pitching up and down and swinging its yaw for seconds)
+		var pitch_deg := rad_to_deg(player.first_person_pivot.rotation.x)
+		var raw_pitch := float(look[1])
+		var aiming := _aiming
+		if pitch_deg > (AIM_PITCH_MAX if aiming else PITCH_MAX):
+			raw_pitch = maxf(raw_pitch, .25)    # looking up too far: stick down (the pivot's x grows looking up)
+		elif pitch_deg < (AIM_PITCH_MIN if aiming else PITCH_MIN):
+			raw_pitch = minf(raw_pitch, -.25)
+		look[0] = _yaw_spring.step(clampf(float(look[0]), -MAX_TURN_STICK, MAX_TURN_STICK), delta)
+		# pitch gets the yaw's stick cap too: at full stick the spring's acceleration cap overshot a big pitch error (back from an
+		# aim at the floor) up to the game's 80 deg limit and back, the view nodding floor-to-ceiling
+		look[1] = _pitch_spring.step(clampf(raw_pitch, -MAX_TURN_STICK, MAX_TURN_STICK), delta)
+		if aiming:
+			# the game's stick deadzone swallowed the last small correction, so the aim stalled short of the target: lift the
+			# stick past the deadzone so the view moves as much as the bot asked
+			var stick := Vector2(float(look[0]), float(look[1]))
+			if stick.length() > .01:
+				stick *= minf(LOOK_DEADZONE + (1.0 - LOOK_DEADZONE) * stick.length(), 1.0) / stick.length()
+				look[0] = stick.x
+				look[1] = stick.y
+	_spin_check(player, act, delta)
+	look_meter.feed(player.rotation.y, player.first_person_pivot.rotation.x, delta,
+		"stuck" if _stuck_level > 0 else ("spin" if _clock < _spin_until else (_doing if not _doing.is_empty()
+			else (_last_goal_kind if not _goal.is_empty() else "idle"))))
+	stats["look"] = look_meter.result()
+	return act
+
+
+func _decide_inner(obs: Dictionary, delta: float) -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene) or not bool(obs.get("run", {}).get("active", false)):
+		return {}
+	_clock += delta
+	_last_obs = obs
+	stats["frames"] = int(stats["frames"]) + 1
+	var player: PlayerController3D = scene.get("player")
+	var nav: StreamedHunterNavigation = scene.get("_navigation")
+	var p := player.global_position
+	var cell := Vector2i(floori(p.x), floori(p.z))
+	var act := {"move": [0.0, 0.0], "look": [0.0, 0.0], "hold": {"sprint": false, "crouch": false, "jump": false, "interact": false}, "pulse": []}
+	var locked := _body_locked(player)
+	if locked:
+		# a body the bot cannot move is not stuck: a long grab used to run into the 12 s soft-lock and blacklist the goal
+		_samples.clear()
+		_stuck_level = 0
+		_stuck_since = -1.0
+	_track_progress(obs, p, delta)
+	_flashlight(scene, player, act, delta)
+	if int(stats["frames"]) % 10 == 0 and not player.hidden and not locked and not player.spectator_mode \
+			and not bool(obs["run"].get("over", false)):
+		# where the bot looks, for the run's median-pitch check (PlaytestReporter): whole degrees -> frames
+		var deg := str(roundi(rad_to_deg(player.first_person_pivot.rotation.x)))
+		stats["pitch_hist"][deg] = int(stats["pitch_hist"].get(deg, 0)) + 1
+	# hiding sets input_frozen too, and [E] is still the way out (PlayerController3D): a hidden bot must reach the hiding
+	# branch below, or it stays in the locker for the rest of the run (SEED7/SEED8 idle 350-414 s, PASS).
+	# Other locks (grab / stun / look freeze) still stop the bot.
+	if bool(obs["run"].get("over", false)) or player.spectator_mode or (locked and not player.hidden):
+		return act
+	_interact_cooldown = maxf(0.0, _interact_cooldown - delta)
+	var threat := _threat(obs)
+	if not threat.is_empty():
+		stats["chase_frames"] = int(stats["chase_frames"]) + 1
+		_threat_seen = true
+	# hiding: stay while a hunter is near, leave when the coast is clear
+	if player.hidden:
+		stats["hidden_frames"] = int(stats["hidden_frames"]) + 1
+		if threat.is_empty():
+			_hide_clear_time += delta
+			if _hide_clear_time > 3.0:
+				act["pulse"].append("interact")
+				_hide_clear_time = 0.0
+				if String(_goal.get("kind", "")) == "hide":
+					_blacklist[String(_goal["key"])] = _clock + 10.0   # out and on: not straight back into the same spot
+					_goal = {}
+		else:
+			_hide_clear_time = 0.0
+		return act
+	_hide_clear_time = 0.0
+	if player.is_climbing():
+		_climbing(player, act, delta)
+		return act
+	if _climb_level != 999:
+		_climb_done(int(obs.get("world", {}).get("level", 0)))
+	if not _link_hold.is_empty():
+		_hold_link(scene, player, delta)
+		return act
+	var goal := _pick_goal(obs, nav, cell, threat)
+	if goal.is_empty():
+		_idle_look(player, act, delta)
+		return act
+	if _goal.get("key", "") != goal.get("key", ""):
+		_goal = goal
+		_path = []
+		_path_age = 99.0
+		_interact_tries = 0
+	if String(goal.get("kind", "")) == "relay" and not _relay_mine(String(goal.get("id", "")), {"x": goal["cell"].x, "y": goal["cell"].y}):
+		_blacklist[String(goal["key"])] = _clock + 20.0
+		_goal = {}
+		stats["relays_dropped"] = int(stats.get("relays_dropped", 0)) + 1
+		return act
+	_last_goal_kind = String(goal.get("kind", ""))
+	var sprint := not threat.is_empty() or _last_goal_kind == "flee"
+	# at the goal: interact / wait
+	var goal_pos := Vector2(float(goal["cell"].x) + .5, float(goal["cell"].y) + .5)
+	var distance := Vector2(p.x, p.z).distance_to(goal_pos)
+	if _last_goal_kind in ["relay", "battery"] and distance <= INTERACT_RANGE + .6:
+		_interact(obs, scene, player, p, goal, act, delta)
+		return act
+	if _last_goal_kind == "hide" and distance <= INTERACT_RANGE + .4:
+		_aim_at_nearest(obs, player, p, goal_pos, ["HIDING_SPOT"], act, delta)
+		if _interact_cooldown <= 0.0:
+			act["pulse"].append("interact")
+			_interact_cooldown = 0.8
+		return act
+	if _last_goal_kind == "revive" and distance <= INTERACT_RANGE:
+		_revive(player, goal, act, delta)
+		return act
+	if _last_goal_kind != "revive":
+		_revive_time = 0.0
+	if _last_goal_kind == "level" and distance <= 1.4:
+		# a smart bot climbs a ladder itself (steps onto it: the game starts the climb); else, or after 6 s, the hop
+		if String((goal["link"] as Dictionary).get("kind", "")) == "ladder" and smartness >= 60 and _ladder_walk < 6.0:
+			_ladder_walk += delta
+			var foot := LadderTraffic.ladder_point(goal["link"], int(goal["from"]))
+			_steer_to(player, Vector2(p.x, p.z), foot, act, delta, .5)
+			return act
+		_ladder_walk = 0.0
+		_take_link(scene, player, goal)
+		return act
+	if _last_goal_kind == "use" and distance <= INTERACT_RANGE + .6:
+		_use(player, p, goal, act, delta)
+		return act
+	if _last_goal_kind != "use":
+		_use_time = 0.0
+		_use_swings = 0
+	if _last_goal_kind == "safe" and distance <= SAFE_ARRIVAL:
+		# stand in the safe room until the threat is gone, but never longer than WAIT_IN_SAFE_SECONDS
+		_safe_wait += delta
+		if _safe_wait < WAIT_IN_SAFE_SECONDS:
+			return act
+		_blacklist[String(goal["key"])] = _clock + 30.0
+		_safe_wait = 0.0
+		_goal = {}
+		return act
+	if _last_goal_kind != "safe":
+		_safe_wait = 0.0
+	if distance <= 1.0 and _last_goal_kind == "follow":
+		return act   # at the slot: a point under our feet is no heading to steer for
+	if distance <= 1.2 and _last_goal_kind in ["explore", "flee"]:
+		_blacklist[String(goal["key"])] = _clock + 1.0
+		_goal = {}
+		return act
+	_follow(scene, nav, player, p, cell, goal, act, delta, sprint)
+	return act
+
+
+func _pick_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i, threat: Dictionary) -> Dictionary:
+	var world: Dictionary = obs["world"]
+	if forced_goal != Vector2i(-99999, -99999) and threat.is_empty():
+		var save := _revive_goal(obs, nav)   # a downed teammate comes before keeping up with the host
+		if not save.is_empty():
+			return save
+	if forced_goal != Vector2i(-99999, -99999):
+		return {"kind": forced_kind, "key": "forced:%d,%d" % [forced_goal.x, forced_goal.y], "cell": forced_goal}
+	if not threat.is_empty():
+		# flee: a safe room if one is near, else a hiding spot, else run away from the hunter
+		for entry in world["safe_zones"]:
+			if float(entry["dist"]) < 70.0 and not _blacklisted("safe:%s" % entry["id"]):
+				return {"kind": "safe", "key": "safe:%s" % entry["id"], "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
+		for entry in world["hiding_spots"]:
+			# a full spot (HideOccupancy: another runner or bot is in it) is passed over for the next one
+			if float(entry["dist"]) < 18.0 and not _blacklisted("hide:%s" % entry["id"]) \
+					and not HideOccupancy.is_full(Vector2i(int(entry["x"]), int(entry["y"])), int(entry["capacity"])):
+				return {"kind": "hide", "key": "hide:%s" % entry["id"], "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
+		var away: Vector2 = Vector2(float(cell.x), float(cell.y)) - _vec(threat["pos"])
+		if away.length() < .1:
+			away = Vector2.RIGHT
+		var flee_cell := _open_cell_near(nav, Vector2(cell) + away.normalized() * 25.0)
+		if flee_cell != Vector2i(-99999, -99999):
+			return {"kind": "flee", "key": "flee:%d,%d" % [flee_cell.x / 6, flee_cell.y / 6], "cell": flee_cell}
+	var revive := _revive_goal(obs, nav)
+	if not revive.is_empty():
+		return revive
+	for entry in world["relays"]:
+		var claim_key := "%d,%d" % [int(entry["x"]), int(entry["y"])]
+		if float(_claimed.get(claim_key, -1.0)) > _clock or _avoided(Vector2(float(entry["x"]), float(entry["y"]))):
+			continue
+		if float(entry["dist"]) < 90.0 and not _blacklisted("relay:%s" % entry["id"]) and _relay_camped(obs, entry):
+			continue
+		if float(entry["dist"]) < 90.0 and not _blacklisted("relay:%s" % entry["id"]) and _relay_mine(String(entry["id"]), entry):
+			return {"kind": "relay", "key": "relay:%s" % entry["id"], "id": String(entry["id"]), "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
+	var player_lamp: float = float(obs["player"].get("lamp", 100.0))
+	if player_lamp < 30.0:
+		for entry in world["batteries"]:
+			if float(entry["dist"]) < 60.0 and not _blacklisted("battery:%s" % entry["id"]):
+				return {"kind": "battery", "key": "battery:%s" % entry["id"], "cell": Vector2i(int(entry["x"]), int(entry["y"]))}
+	var use := _use_goal(obs, nav)
+	if not use.is_empty():
+		return use
+	var level := _level_goal(obs, nav)
+	if not level.is_empty():
+		return level
+	return _explore_goal(obs, nav, cell)
+
+
+## Base smartness 0..100 plus this bot's own seeded variation (+-SMART_SPREAD).
+func set_smartness(base: int) -> void:
+	smartness = clampi(base + rng.randi_range(-SMART_SPREAD, SMART_SPREAD), 0, 100)
+	stats["smartness"] = smartness
+
+
+## At or above LADDER_SMART the bot always plans around ladders. Below that, each replan still rolls (smartness percent),
+## so a less smart bot sometimes keeps the straight path and walks onto one.
+func _should_route_around_ladders() -> bool:
+	if smartness >= LADDER_SMART:
+		return true
+	return rng.randi_range(0, 99) < smartness
+
+
+## Another runner called out a hunter at `at`: keep goals away from there for `seconds`.
+func avoid(at: Vector2, seconds: float = 45.0) -> void:
+	_avoid.append({"at": at, "until": _clock + seconds})
+	stats["callouts_heard"] = int(stats.get("callouts_heard", 0)) + 1
+
+
+## Another runner said it takes the relay at `cell`: leave that one to them.
+func relay_claimed(cell: Vector2i, seconds: float = 60.0) -> void:
+	_claimed["%d,%d" % [cell.x, cell.y]] = _clock + seconds
+
+
+## Another runner called for a revive at `at` (bot_help): head there with a kit even before their downed mark lands.
+func help_at(at: Vector2, seconds: float = 45.0) -> void:
+	_help = {"at": at, "until": _clock + seconds}
+	stats["help_calls_heard"] = int(stats.get("help_calls_heard", 0)) + 1
+
+
+func _avoided(at: Vector2) -> bool:
+	for zone in _avoid:
+		if float(zone["until"]) > _clock and (zone["at"] as Vector2).distance_to(at) < 12.0:
+			return true
+	return false
+
+
+## The relay goal this bot is walking to, for BotChat's "I'll take it" ({} when none).
+func current_relay() -> Dictionary:
+	return _goal if String(_goal.get("kind", "")) == "relay" else {}
+
+
+## A downed teammate on this storey within REVIVE_RANGE, while a Revive Kit is in the hotbar (docs/REVIVE.md).
+## Falls back to a bot_help callout spot (help_at) when the downed mark has not landed yet.
+func _revive_goal(obs: Dictionary, nav: StreamedHunterNavigation) -> Dictionary:
+	var scene := tree.current_scene
+	var player: PlayerController3D = scene.get("player")
+	if not RoomState.online or player.item_count("revive_kit") <= 0:
+		return {}
+	var p := player.global_position
+	if scene.has_method("downed_map_marks"):
+		for mark in scene.call("downed_map_marks"):
+			var at: Vector3 = mark["at"]
+			if float(mark["left"]) <= 2.0 or absf(at.y - p.y) > 2.5 or Vector2(at.x, at.z).distance_to(Vector2(p.x, p.z)) > REVIVE_RANGE:
+				continue
+			var key := "revive:%d" % int(mark["peer"])
+			if _blacklisted(key):
+				continue
+			var stand := _open_cell_near(nav, Vector2(at.x, at.z))
+			if stand != Vector2i(-99999, -99999):
+				_help = {}
+				return {"kind": "revive", "key": key, "cell": stand, "at": at, "peer": int(mark["peer"])}
+	if not _help.is_empty() and float(_help.get("until", -1.0)) > _clock:
+		var spot: Vector2 = _help["at"]
+		if Vector2(p.x, p.z).distance_to(spot) <= REVIVE_RANGE and not _blacklisted("revive:help"):
+			var stand2 := _open_cell_near(nav, spot)
+			if stand2 != Vector2i(-99999, -99999):
+				return {"kind": "revive", "key": "revive:help", "cell": stand2,
+					"at": Vector3(spot.x, p.y, spot.y), "peer": 0}
+	return {}
+
+## At the downed teammate: face the spot and hold interact (the Revive Kit hold); leave after REVIVE_GIVE_UP.
+func _revive(player: PlayerController3D, goal: Dictionary, act: Dictionary, delta: float) -> void:
+	if _revive_time == 0.0:
+		stats["revives_tried"] = int(stats["revives_tried"]) + 1
+		add_event("revive_try", {"peer": goal["peer"], "t": snappedf(_clock, .1)})
+	_revive_time += delta
+	if _aim_at(player, goal["at"], act, delta):
+		act["hold"]["interact"] = true
+	if _revive_time > REVIVE_GIVE_UP:
+		_blacklist[String(goal["key"])] = _clock + 20.0
+		_goal = {}
+		_revive_time = 0.0
+
+
+## Time to change storey: the nearest stairwell / ladder (within LINK_SEARCH_CHUNKS) to the neighbouring storey with the least time.
+func _level_goal(obs: Dictionary, nav: StreamedHunterNavigation) -> Dictionary:
+	if not roam_levels or forced_goal != Vector2i(-99999, -99999):
+		return {}
+	if _level_due < 0.0:
+		_level_due = _clock + rng.randf_range(LEVEL_STAY_MIN, LEVEL_STAY_MAX)
+	if _clock < _level_due:
+		return {}
+	if _goal.get("kind", "") == "level":
+		return _goal
+	var facility: StreamedFacilityView3D = tree.current_scene.get("facility")
+	var here := facility.current_level()
+	var steps: Array = []
+	for step in [here - 1, here + 1]:
+		if absi(step) <= LEVEL_SPAN:
+			steps.append(step)
+	steps.sort_custom(func(a, b) -> bool: return float(_level_time.get(a, 0.0)) < float(_level_time.get(b, 0.0)))
+	var centre := facility.current_chunk_coord()
+	var p: Vector3 = (tree.current_scene.get("player") as PlayerController3D).global_position
+	for step in steps:
+		var best := {}
+		var best_d := INF
+		for dz in range(-LINK_SEARCH_CHUNKS, LINK_SEARCH_CHUNKS + 1):
+			for dx in range(-LINK_SEARCH_CHUNKS, LINK_SEARCH_CHUNKS + 1):
+				var coord := Vector3i(centre.x + dx, here, centre.z + dz)
+				if not facility.generator.is_chunk_allowed(coord) or not facility.generator.has_method("vertical_links"):
+					continue
+				for link_value in facility.generator.vertical_links(coord):
+					var link: Dictionary = link_value
+					var from := LevelLink.cell_on(link, here)
+					if from == Vector2i(-1, -1) or int(LevelLink.other_end(link, here)["level"]) != step:
+						continue
+					var chunk: Vector3i = link["chunk"]
+					var at := Vector2(float(chunk.x * CHUNK + from.x) + .5, float(chunk.z * CHUNK + from.y) + .5)
+					if _blacklisted("level:%s" % link["id"]):
+						continue
+					var d := at.distance_to(Vector2(p.x, p.z))
+					if d < best_d:
+						best_d = d
+						best = {"link": link, "at": at}
+		if best.is_empty():
+			continue
+		var stand := _open_cell_near(nav, best["at"])
+		if stand == Vector2i(-99999, -99999):
+			continue
+		var link: Dictionary = best["link"]
+		add_event("level_goal", {"from": here, "to": step, "link": link["id"], "dist": snappedf(best_d, .1)})
+		return {"kind": "level", "key": "level:%s" % link["id"], "cell": stand, "link": link, "from": here, "to": step}
+	_level_due = _clock + 30.0   # no link near: look again after walking on a while
+	return {}
+
+
+## On a ladder. Meant to (a level goal through a ladder): climb on towards the other storey. Not meant to (walked onto it):
+## back off the way it came. Logged either way.
+func _climbing(player: PlayerController3D, act: Dictionary, delta: float) -> void:
+	var level := int(_last_obs.get("world", {}).get("level", 0))
+	var meant := String(_goal.get("kind", "")) == "level"
+	if _climb_level == 999:
+		_climb_level = level
+		_climb_time = 0.0
+		var key := "ladder_climbs" if meant else "ladder_slips"
+		stats[key] = int(stats.get(key, 0)) + 1
+		add_event("ladder", {"meant": meant, "level": level, "t": snappedf(_clock, .1), "smartness": smartness})
+	_climb_time += delta
+	# forward climbs up. Sewer ladders run from the sewer (below) up to the street storey: got on at the top -> a slip climbs
+	# back up, got on at the bottom -> back down
+	var got_on_top := _climb_level > StreamedRouteGenerator.SEWER_LEVEL
+	var up := (int(_goal.get("to", level)) > _climb_level) if meant else got_on_top
+	if _climb_time > CLIMB_GIVE_UP and int(_climb_time / CLIMB_GIVE_UP) % 2 == 1:
+		up = not up   # not off after CLIMB_GIVE_UP s that way: try the other end for a while, then back
+	act["move"] = [0.0, 1.0 if up else -1.0]
+	if _climb_time > 12.0:
+		act["pulse"].append("jump")   # still on it: let go near the bottom
+
+
+## Idle watch: seconds since the bot walked WALK_DISTANCE or turned (AntiIdle, the game's own AFK test), only while
+## the run is on and the bot is steering (a caught / spectating / passive bot is not timed). Past IDLE_RECOVER the stretch is
+## logged once ("idle", with what the bot was in) and the bot drops its goal and path; idle_max_s is the longest stretch.
+func _watch_idle(obs: Dictionary, player: PlayerController3D, delta: float) -> void:
+	var run: Dictionary = obs.get("run", {})
+	if bool(run.get("over", false)) or player.spectator_mode:
+		_idle_anchor = {}
+		_idle_s = 0.0
+		_idle_logged = false
+		return
+	var p := player.global_position
+	var facing := Vector2(-sin(player.rotation.y), -cos(player.rotation.y))
+	var anchors := {1: _idle_anchor} if not _idle_anchor.is_empty() else {}
+	if AntiIdle.party_moved(anchors, [{"peer_id": 1, "position": Vector2(p.x, p.z), "facing": facing}], AntiIdle.TURN_CHANGE):
+		_idle_s = 0.0
+		_idle_logged = false
+	else:
+		_idle_s += delta
+	_idle_anchor = anchors.get(1, {})
+	stats["idle_max_s"] = maxf(float(stats.get("idle_max_s", 0.0)), snappedf(_idle_s, .1))
+	if _idle_s < IDLE_RECOVER or _idle_logged:
+		return
+	_idle_logged = true
+	stats["idle_recoveries"] = int(stats.get("idle_recoveries", 0)) + 1
+	add_event("idle", {"t": snappedf(_clock, .1), "seconds": snappedf(_idle_s, .1), "goal_kind": String(_goal.get("kind", "")),
+		"hidden": player.hidden, "frozen": player.input_frozen, "climbing": player.is_climbing(), "climb_s": snappedf(_climb_time, .1),
+		"at": [snappedf(p.x, .1), snappedf(p.y, .1), snappedf(p.z, .1)]})
+	if not _goal.is_empty():
+		_blacklist[String(_goal.get("key", ""))] = _clock + GOAL_BLACKLIST_SECONDS
+	_goal = {}
+	_path = []
+	_path_age = 99.0
+	_link_hold = {}
+
+
+## Off a ladder: a meant climb that reached the other storey is a level trip; either way the climb is over.
+func _climb_done(level: int) -> void:
+	if String(_goal.get("kind", "")) == "level":
+		var ok := level != _climb_level
+		stats["level_trips" if ok else "level_trip_failed"] = int(stats["level_trips" if ok else "level_trip_failed"]) + 1
+		add_event("level_trip", {"from": _climb_level, "to": level, "by": "ladder", "ok": ok, "t": snappedf(_clock, .1)})
+		_goal = {}
+		_level_due = _clock + rng.randf_range(LEVEL_STAY_MIN, LEVEL_STAY_MAX)
+	_climb_level = 999
+	_ladder_walk = 0.0
+
+
+## The look stick for an angle error: proportional, closing the error over AIM_TAU s. (Full stick for any error a frame could
+## not close made the camera overshoot and swing back behind the look spring: 45 left-right flips a minute at relays.)
+func _turn_stick(error: float, rate: float) -> float:
+	return clampf(error / maxf(rate * AIM_TAU, .001), -1.0, 1.0)
+
+
+## A path through a ladder's trigger area is a climb. Walk round every ladder the path comes near, not only the one nearest
+## its middle. The ladder a level goal means to climb is left on the path. `generator` is the facility's when omitted.
+func _around_ladders(nav: StreamedHunterNavigation, path: Array, level: int, generator: StreamedRouteGenerator = null) -> Array:
+	if path.size() < 2:
+		return path
+	if generator == null:
+		if tree == null or tree.current_scene == null:
+			return path
+		var facility: StreamedFacilityView3D = tree.current_scene.get("facility")
+		if facility == null:
+			return path
+		generator = facility.generator
+	var skip := _intended_ladder_id()
+	var routed := path
+	var gave_up := {}
+	var attempt := 0
+	while attempt < 6:
+		attempt += 1
+		var ladders := _ladders_touching_path(generator, routed, level, skip)
+		var moved := false
+		for ladder in ladders:
+			var id := String(ladder["id"])
+			if gave_up.has(id):
+				continue
+			var next: Array = _detour_ladder(nav, routed, ladder["point"])
+			if next != routed and _path_clears_ladder(next, ladder["point"]):
+				routed = next
+				moved = true
+				break
+			gave_up[id] = true
+		if not moved:
+			break
+	return routed
+
+
+## The ladder a level goal is walking to, or "" when this trip is not a climb of one particular ladder.
+func _intended_ladder_id() -> String:
+	if String(_goal.get("kind", "")) != "level":
+		return ""
+	var link = _goal.get("link", {})
+	if typeof(link) != TYPE_DICTIONARY or String(link.get("kind", "")) != "ladder":
+		return ""
+	return String(link.get("id", ""))
+
+
+## Every ladder on `level` whose cell centre comes within LADDER_AVOID of any path cell, earliest hit first.
+## The chunk search covers the whole path: a ladder near the start is invisible to a lookup at the middle once the
+## path is more than a chunk long, and a nearer off-path ladder must not hide the one the path actually crosses.
+func _ladders_touching_path(generator: StreamedRouteGenerator, path: Array, level: int, skip_id: String) -> Array:
+	var size := StreamedRouteGenerator.CHUNK_SIZE
+	var coords := {}
+	for cell in path:
+		var centre := _cell_centre(cell)
+		var cx := floori(centre.x / float(size))
+		var cz := floori(centre.y / float(size))
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				coords[Vector3i(cx + dx, level, cz + dz)] = true
+	var seen := {}
+	var hits: Array = []
+	for coord in coords:
+		for link_value in generator.vertical_links(coord):
+			var link: Dictionary = link_value
+			if String(link.get("kind", "")) != "ladder":
+				continue
+			var id := String(link.get("id", ""))
+			if id.is_empty() or id == skip_id or seen.has(id):
+				continue
+			if LevelLink.cell_on(link, level).x < 0:
+				continue
+			var at := LadderTraffic.ladder_point(link, level)
+			var hit := -1
+			for i in path.size():
+				if _cell_centre(path[i]).distance_to(at) < LADDER_AVOID:
+					hit = i
+					break
+			if hit < 0:
+				continue
+			seen[id] = true
+			hits.append({"id": id, "point": at, "hit": hit})
+	hits.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["hit"]) < int(b["hit"]))
+	return hits
+
+
+func _path_clears_ladder(path: Array, ladder: Vector2) -> bool:
+	for cell in path:
+		if _cell_centre(cell).distance_to(ladder) < LADDER_AVOID:
+			return false
+	return true
+
+
+## Step out sideways from `ladder` (near side first, then further out) and plan there and on to the goal.
+func _detour_ladder(nav: StreamedHunterNavigation, path: Array, ladder: Vector2) -> Array:
+	if path.size() < 2:
+		return path
+	var hit := -1
+	for i in path.size():
+		if _cell_centre(path[i]).distance_to(ladder) < LADDER_AVOID:
+			hit = i
+			break
+	if hit < 0:
+		return path
+	var before: Vector2 = _cell_centre(path[maxi(hit - 1, 0)])
+	var along := (ladder - before).normalized() if (ladder - before).length() > .1 else Vector2.RIGHT
+	var perp := Vector2(-along.y, along.x)
+	for reach in [LADDER_AVOID + 1.2, LADDER_AVOID + 3.2, LADDER_AVOID + 5.2]:
+		for side in [1.0, -1.0]:
+			var aside: Vector2 = ladder + perp * side * reach
+			var stop := _open_cell_near(nav, aside)
+			if stop == Vector2i(-99999, -99999) or _cell_centre(stop).distance_to(ladder) < LADDER_AVOID:
+				continue
+			var first: Array = nav.find_path(path[0], stop)
+			var second: Array = nav.find_path(stop, path[-1])
+			if first.is_empty() or second.is_empty():
+				continue
+			var joined: Array = first + second.slice(1)
+			if not _path_clears_ladder(joined, ladder):
+				continue
+			stats["ladder_detours"] = int(stats.get("ladder_detours", 0)) + 1
+			return joined
+	return path
+
+
+## At the link's foot: go through it to its far end (stairs and ladders are walked or climbed by players; the bot is put at the
+## far end the way the soak's level hop does, and noclip holds it there until that storey has streamed in).
+func _take_link(scene: Node, player: PlayerController3D, goal: Dictionary) -> void:
+	var link: Dictionary = goal["link"]
+	var from := int(goal["from"])
+	var far: Dictionary = LevelLink.other_end(link, from)
+	var cell: Vector2i = far["cell"]
+	var chunk: Vector3i = link["chunk"]
+	var facility: StreamedFacilityView3D = scene.get("facility")
+	var to := int(far["level"])
+	var landing := facility.global_position + Vector3(float(chunk.x * CHUNK + cell.x) + .5,
+		float(to) * StreamedFacilityView3D.LEVEL_HEIGHT + .1, float(chunk.z * CHUNK + cell.y) + .5)
+	player.set_admin_noclip(true)
+	player.global_position = landing
+	player.velocity = Vector3.ZERO
+	_link_hold = {"landing": landing, "to": to, "from": from, "until": _clock + 8.0, "id": String(link["id"]), "settle": 0.0}
+	_goal = {}
+	_path = []
+
+
+func _hold_link(scene: Node, player: PlayerController3D, delta: float) -> void:
+	var facility: StreamedFacilityView3D = scene.get("facility")
+	var landing: Vector3 = _link_hold["landing"]
+	player.global_position = landing
+	player.velocity = Vector3.ZERO
+	var arrived := facility.current_level() == int(_link_hold["to"]) and scene.get("_navigation") != null \
+			and (scene.get("_navigation") as StreamedHunterNavigation).can_occupy(landing.x, landing.z)
+	if arrived:
+		_link_hold["settle"] = float(_link_hold["settle"]) + delta
+	if (arrived and float(_link_hold["settle"]) > .5) or _clock > float(_link_hold["until"]):
+		player.set_admin_noclip(false)
+		var ok := facility.current_level() == int(_link_hold["to"])
+		stats["level_trips" if ok else "level_trip_failed"] = int(stats["level_trips" if ok else "level_trip_failed"]) + 1
+		add_event("level_trip", {"from": _link_hold["from"], "to": _link_hold["to"], "link": _link_hold["id"], "ok": ok,
+			"t": snappedf(_clock, .1)})
+		if not ok:
+			_blacklist["level:%s" % _link_hold["id"]] = _clock + 120.0
+		_level_due = _clock + rng.randf_range(LEVEL_STAY_MIN, LEVEL_STAY_MAX)
+		_link_hold = {}
+
+
+## Something to use on the way: a music box (wound, hold interact), a light switch while it is dark, a tool lying about, or a boarded
+## path / breakable when a crowbar or the rescue axe is in the hotbar. Each spot is left alone for USE_COOLDOWN after a go.
+func _use_goal(obs: Dictionary, nav: StreamedHunterNavigation) -> Dictionary:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return {}
+	var player: PlayerController3D = scene.get("player")
+	var tool := _breach_tool(player)
+	for item in obs.get("interactables", []):
+		var kind := String(item["kind"])
+		var d := float(item["dist"])
+		if bool(item["completed"]):
+			continue
+		var wanted := (kind == "MUSIC_BOX" and d < 14.0) or (kind == "LIGHT_SWITCH" and _dark and d < 10.0) \
+				or (kind == "TOOL_PICKUP" and d < 25.0) or (kind in ["BOARDED_PATH", "BREAKABLE"] and tool >= 0 and d < 20.0)
+		if not wanted:
+			continue
+		var pos: Array = item["pos"]
+		var key := "use:%s:%d,%d" % [kind, roundi(float(pos[0])), roundi(float(pos[2]))]
+		if _blacklisted(key):
+			continue
+		var stand := _open_cell_near(nav, Vector2(float(pos[0]), float(pos[2])))
+		if stand == Vector2i(-99999, -99999):
+			continue
+		return {"kind": "use", "use": kind, "key": key, "cell": stand, "at": Vector3(float(pos[0]), float(pos[1]), float(pos[2]))}
+	return {}
+
+
+## The hotbar slot holding a crowbar or the rescue axe, or -1.
+## Co-op: keep within `radius` m of a teammate's grid position (null lets go). Each bot walks to its own slot around them
+## (SLOT_RADIUS m out, at a golden-angle step per `slot`) so a group spreads out instead of piling onto one cell.
+func follow(target, radius: float, slot: int = 0) -> void:
+	var none := Vector2i(-99999, -99999)
+	var scene := tree.current_scene
+	if target == null or not _route_ready(scene):
+		forced_goal = none
+		return
+	var p: Vector3 = (scene.get("player") as PlayerController3D).global_position
+	var at: Vector2 = target
+	var angle := float(slot) * 2.39996
+	var spot := at + Vector2(cos(angle), sin(angle)) * SLOT_RADIUS
+	var here := Vector2(p.x, p.z)
+	if here.distance_to(at) > radius:
+		var nav: StreamedHunterNavigation = scene.get("_navigation")
+		var open := _open_cell_near(nav, spot) if nav != null else Vector2i(floori(spot.x), floori(spot.y))
+		forced_goal = open if open != none else Vector2i(floori(at.x), floori(at.y))
+		forced_kind = "follow"
+	elif forced_goal != none and forced_kind == "follow" and here.distance_to(spot) < 3.0:
+		forced_goal = none
+
+
+## A relay worth going for: still there in the live world state (the navigation's list is a snapshot taken when its chunk
+## loaded, so a relay someone took later still looked open, and bots kept walking to used ones), and no other runner is clearly
+## nearer to it (that one claims it; a tester saw several bots piled up spinning at one relay).
+func _relay_mine(id: String, entry: Dictionary) -> bool:
+	var scene := tree.current_scene
+	if not _route_ready(scene):
+		return false
+	var ws: Object = scene.get("world_state")
+	if ws != null and not id.is_empty() and ws.has_method("pickup_available") and not bool(ws.call("pickup_available", id)):
+		return false
+	var at := Vector2(float(entry["x"]) + .5, float(entry["y"]) + .5)
+	var me: Vector3 = (scene.get("player") as PlayerController3D).global_position
+	var mine := Vector2(me.x, me.z).distance_to(at)
+	# hysteresis: the relay already being walked to is only given up to a runner clearly closer. With one margin, two bots
+	# heading for the same relay swapped it back and forth every few frames and the camera dithered between two goals.
+	var margin := 4.0 if String(_goal.get("key", "")) == "relay:%s" % id else 2.0
+	var remotes: Object = scene.get("_remotes")
+	if remotes != null:
+		for state in (remotes.get("_states") as Dictionary).values():
+			var them = (state as Dictionary).get("position")
+			if them is Vector2 and (them as Vector2).distance_to(at) + margin < mine:
+				return false
+	return true
+
+
+## A hunter (not chasing) stands on the relay: Haelith's relay pursuit parks her on the nearest uncollected relay by design
+## (docs/HUNTER_PATHING.md). Walking at it only bounced the bot between "relay" and "flee" at the 7 m threat line in the
+## doorway of her room (082, SEED6 maze (54.9, 31.3): soft-lock, then minutes of spin recoveries). Like a player, leave that
+## relay for CAMPED_RELAY_SECONDS and take another (or explore), then look again.
+func _relay_camped(obs: Dictionary, entry: Dictionary) -> bool:
+	var at := Vector2(float(entry["x"]) + .5, float(entry["y"]) + .5)
+	for hunter in obs.get("hunters", []):
+		if String(hunter.get("state", "")) == "CHASE" or float(hunter.get("stun", 0.0)) > 0.5:
+			continue
+		if _vec(hunter["pos"]).distance_to(at) <= CAMPED_RELAY_RADIUS:
+			var key := "relay:%s" % entry["id"]
+			_blacklist[key] = _clock + CAMPED_RELAY_SECONDS
+			if _goal.get("key", "") == key:
+				_goal = {}
+				_path = []
+			stats["relays_camped"] = int(stats.get("relays_camped", 0)) + 1
+			if not _camped_seen.has(key):
+				_camped_seen[key] = true
+				add_event("relay_camped", {"relay": [int(entry["x"]), int(entry["y"])], "hunter": hunter.get("id", ""),
+					"state": hunter.get("state", "")})
+			return true
+	return false
+
+
+## Steps away from any other runner closer than SEPARATION m (bots following one host would otherwise stand inside each other).
+func _separate(scene: Node, player: PlayerController3D, act: Dictionary) -> void:
+	var remotes: Object = scene.get("_remotes")
+	if remotes == null:
+		return
+	var here := Vector2(player.global_position.x, player.global_position.z)
+	var push := Vector2.ZERO
+	for id in (remotes.get("_states") as Dictionary):
+		var at = ((remotes.get("_states") as Dictionary)[id] as Dictionary).get("position")
+		if not at is Vector2:
+			continue
+		var away: Vector2 = here - at
+		var d := away.length()
+		if d < SEPARATION:
+			push += (away.normalized() if d > .01 else Vector2.RIGHT.rotated(rng.randf() * TAU)) * (SEPARATION - d) / SEPARATION
+	if push.length() < .05:
+		return
+	var right := Vector2(player.global_basis.x.x, player.global_basis.x.z).normalized()
+	var forward := Vector2(-player.global_basis.z.x, -player.global_basis.z.z).normalized()
+	var move: Array = act.get("move", [0.0, 0.0])
+	act["move"] = [clampf(float(move[0]) + push.dot(right), -1.0, 1.0), clampf(float(move[1]) + push.dot(forward), -1.0, 1.0)]
+
+
+## Turning a lot without getting anywhere (over 4 rad in 3 s, under 0.7 m moved): plan again and sidestep for a second.
+func _spin_check(player: PlayerController3D, act: Dictionary, delta: float) -> void:
+	_spin_clock += delta
+	if _spin_clock >= .25:
+		_spin_clock = 0.0
+		_spin_samples.append([player.rotation.y, Vector2(player.global_position.x, player.global_position.z)])
+		while _spin_samples.size() > 12:
+			_spin_samples.pop_front()
+		if _spin_samples.size() == 12:
+			var turned := 0.0
+			for i in range(1, 12):
+				turned += absf(wrapf(float(_spin_samples[i][0]) - float(_spin_samples[i - 1][0]), -PI, PI))
+			var moved: float = (_spin_samples[11][1] as Vector2).distance_to(_spin_samples[0][1])
+			if turned > 4.0 and moved < .7:
+				_path = []
+				_path_age = 99.0
+				_goal = {}
+				_spin_until = _clock + 1.0
+				_spin_dir = -1.0 if rng.randf() < .5 else 1.0
+				_spin_samples.clear()
+				stats["spin_recoveries"] = int(stats.get("spin_recoveries", 0)) + 1
+				add_event("spin_recovery", {"turned_rad": snappedf(turned, .1), "moved_m": snappedf(moved, .01),
+					"at": [snappedf(player.global_position.x, .1), snappedf(player.global_position.z, .1)]})
+	if _clock < _spin_until:
+		act["look"] = [0.0, (act.get("look", [0.0, 0.0]) as Array)[1]]
+		act["move"] = [_spin_dir, .2]
+
+
+func _breach_tool(player: PlayerController3D) -> int:
+	for slot in PlayerController3D.HOTBAR_SIZE:
+		if String(player.inventory_order[slot]) in ["crowbar", "rescue_axe"]:
+			return slot
+	return -1
+
+
+## At a "use" goal: face it and use it the way a player does (hold interact on a music box, press it on a switch or a pickup, swing the
+## tool at boards), then leave it alone for USE_COOLDOWN.
+func _use(player: PlayerController3D, p: Vector3, goal: Dictionary, act: Dictionary, delta: float) -> void:
+	var kind := String(goal["use"])
+	var at: Vector3 = goal["at"]
+	var aimed := _aim_at(player, at, act, delta)
+	var flat := Vector2(at.x - p.x, at.z - p.z)
+	# edge closer only over floor the navigation calls open: a box behind a booth counter is used from where we stand (stepping onto
+	# a prop's footprint is how a bot got wedged in a carnival booth doorway: no path out of a blocked cell)
+	var nav: StreamedHunterNavigation = tree.current_scene.get("_navigation") if _route_ready(tree.current_scene) else null
+	var step := Vector2(p.x, p.z) + flat.normalized() * .45
+	var may_step := nav == null or nav.can_occupy(step.x, step.y)
+	act["move"] = [0.0, .3 if flat.length() > INTERACT_RANGE * .7 and may_step else 0.0]
+	_use_time += delta
+	var done := false
+	if aimed:
+		match kind:
+			"MUSIC_BOX":
+				act["hold"]["interact"] = true
+				done = _use_time > 2.6
+			"BOARDED_PATH", "BREAKABLE":
+				var slot := _breach_tool(player)
+				if slot < 0:
+					done = true
+				elif player.selected_inventory_slot != slot:
+					player.select_inventory_slot(slot)   # what the number key does
+				elif _interact_cooldown <= 0.0:
+					act["pulse"].append("tool_use")
+					_interact_cooldown = .8
+					_use_swings += 1
+					done = _use_swings >= 6
+			_:
+				if _interact_cooldown <= 0.0:
+					act["pulse"].append("interact")
+					_interact_cooldown = .8
+					_use_swings += 1
+					done = _use_swings >= 3
+	if done or _use_time > 8.0:
+		stats["uses"][kind] = int(stats["uses"].get(kind, 0)) + 1
+		add_event("use", {"kind": kind, "at": [snappedf(p.x, .1), snappedf(p.z, .1)], "seconds": snappedf(_use_time, .1), "aimed": aimed})
+		_blacklist[String(goal["key"])] = _clock + USE_COOLDOWN
+		_goal = {}
+		_use_time = 0.0
+		_use_swings = 0
+
+
+## The flashlight like a player: on in the dark, off where it is lit (saves the battery), never on an empty lamp. Dark is the drawn
+## frame's mean brightness when there is one (windowed), else a storey below the maze or a blackout.
+func _flashlight(scene: Node, player: PlayerController3D, act: Dictionary, delta: float) -> void:
+	_dark_check -= delta
+	if _dark_check > 0.0:
+		return
+	_dark_check = 1.5
+	var image: Image = null
+	if DisplayServer.get_name() != "headless" and scene.get_viewport().get_texture() != null:
+		image = scene.get_viewport().get_texture().get_image()
+	if image != null and not image.is_empty():
+		image.resize(32, 18, Image.INTERPOLATE_BILINEAR)
+		var sum := 0.0
+		for y in 18:
+			for x in 32:
+				sum += image.get_pixel(x, y).get_luminance()
+		# hysteresis: the lamp's own light is in the frame while it is on
+		_dark = sum / (32.0 * 18.0) < (.16 if player.flashlight_enabled else .09)
+	else:
+		var facility: StreamedFacilityView3D = scene.get("facility")
+		_dark = facility != null and (facility.current_level() != 0 or not facility.all_lights_enabled())
+	var want := _dark and player.lamp_charge > 3.0
+	if want != player.flashlight_enabled:
+		act["pulse"].append("flashlight")
+		stats["flashlight_toggles"] = int(stats.get("flashlight_toggles", 0)) + 1
+
+
+func _explore_goal(obs: Dictionary, nav: StreamedHunterNavigation, cell: Vector2i) -> Dictionary:
+	# prefer the neighbouring chunk (3x3 around us) that we have visited least, with a seeded tie-break
+	var chunk: Array = obs["world"]["chunk"]
+	var best_score := -1e9
+	var best := {}
+	for dx in range(-2, 3):
+		for dz in range(-2, 3):
+			if dx == 0 and dz == 0:
+				continue
+			var coord := Vector2i(int(chunk[0]) + dx, int(chunk[2]) + dz)
+			var key := "explore:%d,%d" % [coord.x, coord.y]
+			if _blacklisted(key):
+				continue
+			var visits := int(_visited.get("%d,%d,%d" % [coord.x, int(chunk[1]), coord.y], 0))
+			var centre := Vector2(coord.x * CHUNK + CHUNK * .5, coord.y * CHUNK + CHUNK * .5)
+			var score := -visits * 40.0 - Vector2(cell).distance_to(centre) * .35 + rng.randf() * 6.0
+			if _avoided(centre):
+				score -= 80.0   # a teammate called a hunter out there
+			if _goal.get("key", "") == key:
+				score += 12.0   # keep going where we were going
+			if score > best_score:
+				var open := _open_cell_near(nav, centre)
+				if open != Vector2i(-99999, -99999):
+					best_score = score
+					best = {"kind": "explore", "key": key, "cell": open}
+	return best
+
+
+func _open_cell_near(nav: StreamedHunterNavigation, target: Vector2) -> Vector2i:
+	var found: Dictionary = nav.nearest_open_position(target.x, target.y, .23)
+	if found.has("cell"):
+		return found["cell"]
+	return Vector2i(-99999, -99999)
+
+
+func _threat(obs: Dictionary) -> Dictionary:
+	for hunter in obs["hunters"]:
+		var state := String(hunter["state"])
+		var d := float(hunter["dist"])
+		if float(hunter.get("stun", 0.0)) > 0.5:
+			continue
+		if (state == "CHASE" and d < THREAT_RANGE) or (d < 7.0 and state in ["INVESTIGATE", "SEARCH"]):
+			if not stats["hunters_seen"].has(hunter["id"]):
+				stats["hunters_seen"][hunter["id"]] = Engine.get_physics_frames()
+				add_event("hunter_encounter", {"hunter": hunter["id"], "state": state, "dist": d})
+			return hunter
+	return {}
+
+
+func _vec(value: Array) -> Vector2:
+	return Vector2(float(value[0]), float(value[1]))
+
+
+func _blacklisted(key: String) -> bool:
+	return float(_blacklist.get(key, -1.0)) > _clock
+
+
+# --- movement ---------------------------------------------------------------
+
+func _follow(scene: Node, nav: StreamedHunterNavigation, player: PlayerController3D, p: Vector3, cell: Vector2i,
+		goal: Dictionary, act: Dictionary, delta: float, sprint: bool) -> void:
+	_path_age += delta
+	if _path.is_empty() or _path_age > PATH_REFRESH:
+		_path_age = 0.0
+		var found: Array = nav.find_path(cell, goal["cell"])
+		if found.is_empty():
+			# the cell under us may be a cell the navigation does not allow standing on (door frame, prop corner): plan from
+			# the nearest open one instead of calling the goal unreachable
+			var start_cell := _open_cell_near(nav, Vector2(p.x, p.z))
+			if start_cell != Vector2i(-99999, -99999) and start_cell != cell:
+				found = nav.find_path(start_cell, goal["cell"])
+		if found.is_empty():
+			# one finding per distinct goal; retries after the blacklist expires only raise its count
+			var unreachable_key := "%s:%d,%d" % [goal["kind"], goal["cell"].x, goal["cell"].y]
+			if _unreachable_seen.has(unreachable_key):
+				_unreachable_seen[unreachable_key]["count"] = int(_unreachable_seen[unreachable_key]["count"]) + 1
+			else:
+				var entry := {"kind": "unreachable_goal", "frame": Engine.get_physics_frames(), "count": 1, "goal_kind": goal["kind"],
+					"from": [cell.x, cell.y], "to": [goal["cell"].x, goal["cell"].y]}
+				_unreachable_seen[unreachable_key] = entry
+				events.append(entry)
+				stats["unreachable_goals"] = int(stats["unreachable_goals"]) + 1
+			_blacklist[String(goal["key"])] = _clock + GOAL_BLACKLIST_SECONDS
+			_goal = {}
+			_path = []
+			return
+		if _should_route_around_ladders():
+			found = _around_ladders(nav, found, int(_last_obs.get("world", {}).get("level", 0)))
+		_path = found
+		_path_index = 0
+	# advance along the path, aim two cells ahead for smooth corners
+	while _path_index < _path.size() - 1 and Vector2(p.x, p.z).distance_to(_cell_centre(_path[_path_index])) < 0.9:
+		_path_index += 1
+	# two cells ahead: the turn into a corridor starts before the corner, but only where the body fits along the straight
+	# line to it: a doorway is one wall cell thick, and aiming past its jamb wedged the runner on the post (082, SEED6 maze
+	# (54, 32): a 12 s soft-lock pressing north-west into the frame of an open double door). Beside a room door start from
+	# one cell: cutting the corner drifted the bot into the door's recess, where it pinned itself on the jamb (083, BETA (4.3, 32.8))
+	var here_xz := Vector2(p.x, p.z)
+	var ahead := mini(_path_index + (1 if _room_door_near(p, 2.0) else 2), _path.size() - 1)
+	while ahead > _path_index and not _segment_fits(nav, here_xz, _cell_centre(_path[ahead])):
+		ahead -= 1
+	var aim := _cell_centre(_path[ahead])
+	var to_aim := aim - Vector2(p.x, p.z)
+	if to_aim.length() < .05:
+		return
+	# the heading eases over AIM_SMOOTH s: no flicking between two path points
+	_aim_dir = to_aim.normalized() if _aim_dir == Vector2.ZERO else _aim_dir.lerp(to_aim.normalized(), 1.0 - exp(-delta / AIM_SMOOTH))
+	if _aim_dir.length() > .01:
+		to_aim = _aim_dir.normalized() * to_aim.length()
+		aim = Vector2(p.x, p.z) + to_aim
+	# a closed room door on the way: look at it and open it like a player would
+	var door := _closed_door_ahead(p, aim)
+	if not door.is_empty():
+		_doing = "door"
+		_handle_door(nav, player, p, door, goal, act, delta)
+		return
+	_door_tries = 0
+	_door_walk_time = 0.0
+	_door_time = 0.0
+	var yaw_target := atan2(-to_aim.x, -to_aim.y)
+	var error := wrapf(yaw_target - player.rotation.y, -PI, PI)
+	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
+	var rate := LOOK_RATE * sens
+	act["look"] = [-_turn_stick(error, rate), _walk_pitch(player, rate, delta)]
+	if _path_age == 0.0:
+		_doing = "replan"
+	var forward := 1.0 if absf(error) < .7 else (.25 if absf(error) < 1.4 else 0.0)
+	act["move"] = [0.0, forward]
+	act["hold"]["sprint"] = sprint and forward > .9 and player.stamina > 15.0
+	# stuck recovery overrides
+	if _stuck_level > 0:
+		_recover(scene, player, p, act)
+
+
+## Doors sit in a wall and only focus from in front of the leaf: walk to a standing point 1.2 m in front of it (on the side we are
+## on), face it, and press interact. After a few failed presses the door is reported as a finding and the goal dropped.
+func _handle_door(nav: StreamedHunterNavigation, player: PlayerController3D, p: Vector3, door: Dictionary, goal: Dictionary,
+		act: Dictionary, delta: float) -> void:
+	var door_pos: Array = door["pos"]
+	var door_xz := Vector2(float(door_pos[0]), float(door_pos[2]))
+	var target := Vector3(door_xz.x, float(door_pos[1]), door_xz.y)
+	var here := Vector2(p.x, p.z)
+	_door_frame = Engine.get_physics_frames()
+	_door_time += delta
+	if _door_time > DOOR_GIVE_UP_SECONDS:
+		_give_up_door(p, door_pos, here, goal)
+		return
+	var stand := here
+	var best := 1e9
+	var found := false
+	for offset in [Vector2(1.2, 0), Vector2(-1.2, 0), Vector2(0, 1.2), Vector2(0, -1.2)]:
+		var candidate: Vector2 = door_xz + offset
+		if not nav.can_occupy(candidate.x, candidate.y):
+			continue
+		var d := here.distance_to(candidate)
+		if d < best:
+			best = d
+			stand = candidate
+			found = true
+	if found and here.distance_to(stand) > .4 and _door_walk_time < 4.0:
+		_door_walk_time += delta
+		_steer_to(player, here, stand, act, delta, .6)
+		return
+	var on_door := _aim_at(player, target, act, delta)
+	var door_distance := here.distance_to(door_xz)
+	act["move"] = [0.0, 0.0]
+	if on_door and door_distance <= 2.2 and _interact_cooldown <= 0.0:
+		act["pulse"].append("interact")
+		_interact_cooldown = .8
+		_door_tries += 1
+		if _door_tries > 4:
+			_give_up_door(p, door_pos, stand, goal)
+
+
+## A closed door that would not open (presses that did nothing, or DOOR_GIVE_UP_SECONDS at it): one finding, drop the goal.
+func _give_up_door(p: Vector3, door_pos: Array, stand: Vector2, goal: Dictionary) -> void:
+	stats["door_failures"] = int(stats.get("door_failures", 0)) + 1
+	add_event("door_failed", {"at": [snappedf(p.x, .1), snappedf(p.z, .1)], "door": door_pos, "stood": [snappedf(stand.x, .1), snappedf(stand.y, .1)],
+		"focus": _last_obs.get("focus", {}), "seconds": snappedf(_door_time, .1)})
+	_door_tries = 0
+	_door_walk_time = 0.0
+	_door_time = 0.0
+	_blacklist[String(goal["key"])] = _clock + GOAL_BLACKLIST_SECONDS
+	_goal = {}
+
+
+func _steer_to(player: PlayerController3D, here: Vector2, point: Vector2, act: Dictionary, delta: float, speed: float) -> void:
+	var to_point := point - here
+	if to_point.length() < .05:
+		return
+	var error := wrapf(atan2(-to_point.x, -to_point.y) - player.rotation.y, -PI, PI)
+	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
+	var rate := LOOK_RATE * sens
+	act["look"] = [-_turn_stick(error, rate), _walk_pitch(player, rate, delta)]
+	act["move"] = [0.0, speed if absf(error) < .6 else 0.0]
+
+
+## The runner's capsule (radius RUNNER_RADIUS) fits all along the straight line from `from` to `to` on the navigation's
+## floor. The start itself is not tested: a runner brushing a wall still steers away from it.
+func _segment_fits(nav: StreamedHunterNavigation, from: Vector2, to: Vector2) -> bool:
+	var length := from.distance_to(to)
+	var steps := maxi(1, ceili(length / .25))
+	for i in range(1, steps + 1):
+		var at := from.lerp(to, float(i) / float(steps))
+		if not nav.can_occupy(at.x, at.y, RUNNER_RADIUS):
+			return false
+	return true
+
+
+func _closed_door_ahead(p: Vector3, aim: Vector2) -> Dictionary:
+	for item in _last_obs.get("interactables", []):
+		if String(item["kind"]) != "ROOM_DOOR" or bool(item["door_open"]) or float(item["dist"]) > 2.6:
+			continue
+		var pos: Array = item["pos"]
+		var at := Vector2(float(pos[0]), float(pos[2]))
+		var segment := aim - Vector2(p.x, p.z)
+		# a door behind the runner is not on the way: one stood 0.9 m from a shut door with the path leading off into the
+		# room, turned round to open it and walked out through it
+		if (at - Vector2(p.x, p.z)).dot(segment) <= 0.0:
+			continue
+		var t := clampf((at - Vector2(p.x, p.z)).dot(segment) / maxf(segment.length_squared(), .0001), 0.0, 1.0)
+		if (Vector2(p.x, p.z) + segment * t).distance_to(at) < 1.2:
+			return item
+	return {}
+
+
+## The game's interaction focus is a room door that is already open (its prompt reads CLOSE DOOR).
+func _focus_is_open_door() -> bool:
+	var focus: Dictionary = _last_obs.get("focus", {})
+	return String(focus.get("kind", "")) == "ROOM_DOOR" and String(focus.get("prompt", "")) == "CLOSE DOOR"
+
+
+## A room door's focus within `radius` m (open or closed).
+func _room_door_near(p: Vector3, radius: float) -> bool:
+	for item in _last_obs.get("interactables", []):
+		if String(item["kind"]) == "ROOM_DOOR" and Vector2(float(item["pos"][0]) - p.x, float(item["pos"][2]) - p.z).length() <= radius:
+			return true
+	return false
+
+
+## An open room door within `radius` m: interact there may land on it and shut it, and an open door is not what blocks us.
+func _open_door_near(p: Vector3, radius: float) -> bool:
+	for item in _last_obs.get("interactables", []):
+		if String(item["kind"]) == "ROOM_DOOR" and bool(item["door_open"]) \
+				and Vector2(float(item["pos"][0]) - p.x, float(item["pos"][2]) - p.z).length() <= radius:
+			return true
+	return false
+
+
+func _cell_centre(cell: Variant) -> Vector2:
+	var value: Vector2i = cell
+	return Vector2(float(value.x) + .5, float(value.y) + .5)
+
+
+## The pitch stick while walking: eyes near level with a slow, uneven sweep (about -2..+6 degrees), or on a hunter's head while she is
+## in front (chasing or being chased), kept within -5..+10. The controller does pitch -= stick * rate, so the stick that closes an error
+## is -look_strength(error) (as in _aim_at); these walks used +look_strength(-pitch), which pushed any tilt further until the view
+## hit its clamp and every bot run stared at the floor.
+func _walk_pitch(player: PlayerController3D, rate: float, delta: float) -> float:
+	var pitch := player.first_person_pivot.rotation.x
+	var target := deg_to_rad(PITCH_LEVEL_DEG + PITCH_SWEEP_DEG * (.7 * sin(_clock * .43) + .3 * sin(_clock * 1.17 + 1.3)))
+	var eye := player.first_person_pivot.global_position
+	for hunter in _last_obs.get("hunters", []):
+		if float(hunter["dist"]) > THREAT_RANGE or not bool(hunter.get("los", false)):
+			continue
+		var pos: Array = hunter["pos"]
+		var flat := Vector2(float(pos[0]) - eye.x, float(pos[1]) - eye.z)
+		var facing := Vector2(-sin(player.rotation.y), -cos(player.rotation.y))
+		if flat.length() > .5 and facing.angle_to(flat.normalized()) < deg_to_rad(55.0) and facing.angle_to(flat.normalized()) > deg_to_rad(-55.0):
+			target = clampf(atan2(player.global_position.y + HUNTER_HEAD - eye.y, flat.length()), deg_to_rad(-5.0), deg_to_rad(10.0))
+		break
+	return -_turn_stick(target - pitch, rate)
+
+
+## Standing about: a new glance every GLANCE_MIN..MAX s, mostly a little to either side, now and then a look behind.
+func _idle_look(player: PlayerController3D, act: Dictionary, delta: float) -> void:
+	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
+	if _clock >= _glance_next:
+		_glance_next = _clock + rng.randf_range(GLANCE_MIN, GLANCE_MAX)
+		var behind := rng.randf() < .12
+		_glance_yaw = wrapf(player.rotation.y + (rng.randf_range(2.4, 3.4) * (1.0 if rng.randf() < .5 else -1.0) if behind
+			else rng.randf_range(-.45, .45)), -PI, PI)
+	var error := wrapf(_glance_yaw - player.rotation.y, -PI, PI)
+	act["look"] = [-_turn_stick(error, LOOK_RATE * sens) * .5, _walk_pitch(player, LOOK_RATE * sens, delta)]
+
+
+func _aim_at_nearest(obs: Dictionary, player: PlayerController3D, p: Vector3, goal_pos: Vector2, kinds: Array,
+		act: Dictionary, delta: float) -> bool:
+	var target := Vector3.ZERO
+	var found := false
+	var best := 1e9
+	for item in obs["interactables"]:
+		if not kinds.has(item["kind"]) or bool(item["completed"]):
+			continue
+		var pos: Array = item["pos"]
+		var d := Vector2(float(pos[0]), float(pos[2])).distance_to(goal_pos)
+		if d < best and d < 4.0:
+			best = d
+			target = Vector3(float(pos[0]), float(pos[1]), float(pos[2]))
+			found = true
+	if not found:
+		target = Vector3(goal_pos.x, p.y + 1.0, goal_pos.y)
+	var aimed := _aim_at(player, target, act, delta)
+	# keep nudging forward until within reach, never past the target; standing almost on top of a low target (a relay at knee
+	# height under 1.3 m away), step back: looking that steeply down moved the eye onto the target and the aim chased it, the view
+	# swinging between the ceiling and the floor for seconds without ever landing
+	var flat := Vector2(target.x - p.x, target.z - p.z)
+	var forward := .35 if flat.length() > INTERACT_RANGE * .6 else 0.0
+	if flat.length() < AIM_STANDOFF and target.y < p.y + 1.0:
+		forward = -.35
+	act["move"] = [0.0, forward]
+	return aimed
+
+
+## Turn the view onto a world point with the look stick; true when the crosshair is on it.
+func _aim_at(player: PlayerController3D, target: Vector3, act: Dictionary, delta: float) -> bool:
+	var eye := player.first_person_pivot.global_position
+	var flat := Vector2(target.x - eye.x, target.z - eye.z)
+	var yaw_target := atan2(-flat.x, -flat.y)
+	var pitch_target := atan2(target.y - eye.y, maxf(flat.length(), .01))
+	var sens := Settings.mouse_sensitivity / Settings.DEFAULT_MOUSE_SENSITIVITY
+	var rate := LOOK_RATE * sens
+	var yaw_error := wrapf(yaw_target - player.rotation.y, -PI, PI)
+	var pitch_error := pitch_target - player.first_person_pivot.rotation.x
+	# a gentler, capped stick than walking: through the look spring and its acceleration cap, AIM_TAU at full stick overshot a
+	# big error by 10-60 deg and the view swung past the target and back about once a second (camera flips while aiming)
+	var cap := MAX_TURN_STICK
+	_aiming = true
+	act["look"] = [clampf(-yaw_error / (rate * AIM_LOOK_TAU), -cap, cap), clampf(-pitch_error / (rate * AIM_LOOK_TAU), -cap, cap)]
+	return absf(yaw_error) < .1 and absf(pitch_error) < .14
+
+
+func _interact(obs: Dictionary, scene: Node, player: PlayerController3D, p: Vector3, goal: Dictionary, act: Dictionary,
+		delta: float) -> void:
+	var goal_pos := Vector2(float(goal["cell"].x) + .5, float(goal["cell"].y) + .5)
+	var kinds := ["RELAY"] if goal["kind"] == "relay" else ["BATTERY", "TOOL_PICKUP", "COIN"]
+	_doing = "aim"
+	var aimed := _aim_at_nearest(obs, player, p, goal_pos, kinds, act, delta)
+	if aimed and _interact_cooldown <= 0.0:
+		act["pulse"].append("interact")
+		_interact_cooldown = 0.7
+		_interact_tries += 1
+		_relays_at_interact = GameState.relays_collected
+		if _interact_tries > 5:
+			stats["interact_failures"] = int(stats["interact_failures"]) + 1
+			add_event("interact_failed", {"goal_kind": goal["kind"], "at": [snappedf(p.x, .1), snappedf(p.z, .1)], "goal": [goal["cell"].x, goal["cell"].y]})
+			_blacklist[String(goal["key"])] = _clock + GOAL_BLACKLIST_SECONDS
+			_goal = {}
+
+
+# --- progress, stuck and soft-lock detection --------------------------------
+
+## The game holds the body: frozen input (snapshot wait, menus), a hunter's grab or a stun. Nothing the bot presses moves it then.
+static func _body_locked(player: PlayerController3D) -> bool:
+	return player.input_frozen or player.grab_active or player.look_frozen or player.is_stunned()
+
+
+func _track_progress(obs: Dictionary, p: Vector3, delta: float) -> void:
+	var chunk: Array = obs["world"]["chunk"]
+	var key := "%d,%d,%d" % [int(chunk[0]), int(chunk[1]), int(chunk[2])]
+	var level := int(chunk[1])
+	_level_time[level] = float(_level_time.get(level, 0.0)) + delta
+	stats["levels"][str(level)] = snappedf(float(_level_time[level]), 1.0)
+	var region := "%d:%s" % [level, String(obs["world"].get("region", ""))]
+	if not _regions.has(region):
+		_regions[region] = snappedf(_clock, .1)
+		stats["regions"] = _regions.keys()
+		add_event("region", {"region": region, "t": snappedf(_clock, .1)})
+	if not _visited.has(key):
+		_visited[key] = 0
+		stats["chunks_visited"] = _visited.size()
+	_visited[key] = int(_visited[key]) + 1
+	stats["relays"] = int(obs["run"].get("relays", 0))
+	stats["max_depth"] = maxi(int(stats["max_depth"]), int(obs["run"].get("depth", 1)))
+	if _has_last_pos:
+		stats["distance_m"] = float(stats["distance_m"]) + Vector2(p.x, p.z).distance_to(_last_pos)
+	_last_pos = Vector2(p.x, p.z)
+	_has_last_pos = true
+	_sample_clock += delta
+	if _sample_clock >= .25:
+		_sample_clock = 0.0
+		_samples.append({"x": p.x, "z": p.z, "t": _clock})
+		while _samples.size() > 1 and float(_samples[0]["t"]) < _clock - STUCK_WINDOW - .3:
+			_samples.pop_front()
+	# stuck: wanted to move but did not. Standing at a closed door to open it is not stuck: it used to climb to the
+	# stuck recovery while the bot aimed and pressed, so the moment the door opened the recovery threw the path away and
+	# pressed interact on the open door (CLOSE DOOR), shutting it again, over and over
+	if Engine.get_physics_frames() - _door_frame <= 1:
+		_samples.clear()
+		_stuck_level = 0
+		_stuck_since = -1.0
+	elif _samples.size() >= 4 and not _goal.is_empty() and _last_goal_kind in ["explore", "flee", "relay", "battery", "safe", "hide"]:
+		var moved := Vector2(float(_samples[0]["x"]), float(_samples[0]["z"])).distance_to(Vector2(p.x, p.z))
+		var near_goal := Vector2(p.x, p.z).distance_to(Vector2(float(_goal["cell"].x) + .5, float(_goal["cell"].y) + .5)) < (SAFE_ARRIVAL + .6 if _last_goal_kind == "safe" else 3.0)
+		if moved < STUCK_MIN_MOVE and not near_goal and float(_samples[-1]["t"]) - float(_samples[0]["t"]) >= STUCK_WINDOW - .3:
+			if _stuck_since < 0.0:
+				_stuck_since = _clock
+				_stuck_next = _clock
+			if _clock >= _stuck_next:
+				_stuck_level += 1
+				_stuck_next = _clock + 1.2
+				if _stuck_level == 2:
+					_record_stuck(obs, p)
+		else:
+			_stuck_level = 0
+			_stuck_since = -1.0
+	else:
+		_stuck_level = 0
+		_stuck_since = -1.0
+	if _stuck_since >= 0.0 and _clock - _stuck_since > 12.0:
+		_soft_locks += 1
+		stats["soft_locks"] = int(stats["soft_locks"]) + 1
+		add_event("soft_lock", {"at": [snappedf(p.x, .1), snappedf(p.z, .1)], "seconds": snappedf(_clock - _stuck_since, .1)})
+		_stuck_since = _clock
+		_stuck_level = 0
+		_blacklist[String(_goal.get("key", ""))] = _clock + GOAL_BLACKLIST_SECONDS
+		_goal = {}
+		# debug run only: move to the nearest open cell so the playtest can go on
+		var scene := tree.current_scene
+		if scene != null and GameState.debug_run:
+			var nav: StreamedHunterNavigation = scene.get("_navigation")
+			var open := _open_cell_near(nav, Vector2(p.x, p.z) + Vector2(rng.randf_range(-6, 6), rng.randf_range(-6, 6)))
+			if open != Vector2i(-99999, -99999):
+				admin("teleport", {"x": open.x + .5, "y": p.y, "z": open.y + .5})
+
+
+## One event per stuck SPOT (within 3 m): repeat visits only raise its count, so a single bad spot is one finding, not fifty.
+func _record_stuck(obs: Dictionary, p: Vector3) -> void:
+	var here := Vector2(p.x, p.z)
+	for spot in _stuck_spots:
+		if Vector2(float(spot["at"][0]), float(spot["at"][2])).distance_to(here) < 3.0:
+			spot["count"] = int(spot["count"]) + 1
+			return
+	var entry := {"kind": "stuck", "frame": Engine.get_physics_frames(), "count": 1,
+		"at": [snappedf(p.x, .1), snappedf(p.y, .1), snappedf(p.z, .1)], "goal": [_goal["cell"].x, _goal["cell"].y],
+		"goal_kind": _last_goal_kind, "chunk": [int(obs["world"]["chunk"][0]), int(obs["world"]["chunk"][2])],
+		"focus": obs.get("focus", {}), "nearest": (obs.get("interactables", []) as Array).slice(0, 3)}
+	var scene := tree.current_scene if tree != null else null
+	var player: PlayerController3D = scene.get("player") if scene != null else null
+	if player != null:
+		# what held the body, if anything (a grab, a stun, frozen input, a ghost): tells a real stuck spot from a held runner
+		entry["body"] = {"frozen": player.input_frozen, "grab": player.grab_active, "stunned": player.is_stunned(),
+			"look_frozen": player.look_frozen, "spectator": player.spectator_mode, "escape": GameState.escape_active,
+			"over": bool(obs.get("run", {}).get("over", false)), "on_floor": player.is_on_floor()}
+	_stuck_spots.append(entry)
+	events.append(entry)
+	stats["stuck_events"] = int(stats["stuck_events"]) + 1
+
+
+## Jumps when walking forward into a low obstacle with room above it (a step, a crate, a ledge), on a 1.2 s cooldown. True if it jumped.
+func _jump_ahead(player: PlayerController3D, act: Dictionary) -> bool:
+	if _clock < _jump_ready or float((act["move"] as Array)[1]) < .5:
+		return false
+	var space := player.get_world_3d().direct_space_state
+	var forward := -player.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var base := player.global_position
+	var knee := PhysicsRayQueryParameters3D.create(base + Vector3.UP * .35, base + Vector3.UP * .35 + forward * .8)
+	knee.exclude = [player.get_rid()]
+	var head := PhysicsRayQueryParameters3D.create(base + Vector3.UP * 1.5, base + Vector3.UP * 1.5 + forward * .8)
+	head.exclude = [player.get_rid()]
+	if space.intersect_ray(knee).is_empty() or not space.intersect_ray(head).is_empty():
+		return false
+	act["pulse"].append("jump")
+	_jump_ready = _clock + 1.2
+	stats["jumps"] = int(stats.get("jumps", 0)) + 1
+	return true
+
+
+func _recover(scene: Node, player: PlayerController3D, p: Vector3, act: Dictionary) -> void:
+	match _stuck_level:
+		1:
+			# a jump only over something real in front (a knee-high edge with headroom above it), at most every 1.2 s; otherwise
+			# plan again (a tester saw a bot hop in place in an empty carnival hallway: this used to jump every frame of the stuck stage)
+			if not _jump_ahead(player, act):
+				_path = []
+				_path_age = 99.0
+		2:
+			# a closed door in the way opens with interact; an open one in focus (CLOSE DOOR) or close by is left open: pressing
+			# there shut the doorway the bot was about to walk through. With nothing in focus a press only reaches the
+			# player's fallbacks: on a vent grate it climbs into the ducts, which the bot cannot drive (082 / Bot4, SEED4
+			# survive: lifted up the hatch at (51.6, 34.4) into "1:sealed"), so no press then.
+			var focus_prompt := String((_last_obs.get("focus", {}) as Dictionary).get("prompt", ""))
+			if not focus_prompt.is_empty() and focus_prompt != "CLOSE DOOR" and not _focus_is_open_door() and not _open_door_near(p, 2.0):
+				act["pulse"].append("interact")
+			_jump_ahead(player, act)
+		3:
+			if _clock > _strafe_until:
+				_strafe_until = _clock + .9
+				_strafe_dir = -1.0 if rng.randf() < .5 else 1.0
+			act["move"] = [_strafe_dir, .6]
+		_:
+			_path = []
+			_path_age = 99.0
+			if _stuck_level >= 5:
+				_blacklist[String(_goal.get("key", ""))] = _clock + 8.0
+				_goal = {}
+
+
+## A critically damped spring on a look-stick command: x follows the raw command with no overshoot and no step in its rate,
+## so turns ease in and out and a command that flickers frame to frame comes out as one smooth motion.
+class LookSpring:
+	var x := 0.0
+	var v := 0.0
+
+	func step(raw: float, delta: float) -> float:
+		if delta <= 0.0:
+			return x
+		var k := LastRouteBot.LOOK_SPRING
+		var accel := clampf(k * (raw - x) - 2.0 * sqrt(k) * v, -LastRouteBot.LOOK_MAX_ACCEL, LastRouteBot.LOOK_MAX_ACCEL)
+		v += accel * delta
+		x = clampf(x + v * delta, -1.0, 1.0)
+		return x
+
+
+## How jerky the camera was: the largest yaw / pitch acceleration (deg/s^2, over 0.1 s steps) and how often it dithered
+## (flips: the yaw rate going from above +FLIP_RATE to below -FLIP_RATE, or back, within FLIP_WINDOW s; a left turn and a
+## right turn seconds apart along a winding corridor is no flip).
+class LookMeter:
+	const STEP := .1
+	const FLIP_RATE := 40.0      # deg/s: a visible swing, not a path correction
+	const CUT_RATE := 720.0      # deg/s: faster than any look stick turns
+	const FLIP_WINDOW := .5
+	var _acc := 0.0
+	var _yaw := 0.0
+	var _pitch := 0.0
+	var _yaw_rate := 0.0
+	var _pitch_rate := 0.0
+	var _started := false
+	var _last_sign := 0
+	var _last_sign_at := -10.0
+	var seconds := 0.0
+	var yaw_acc_max := 0.0
+	var pitch_acc_max := 0.0
+	var flips := 0
+	var flips_by := {}           # what the bot was doing at each flip (goal kind, idle, stuck, spin)
+
+	func feed(yaw: float, pitch: float, delta: float, doing: String = "") -> void:
+		seconds += delta
+		_acc += delta
+		if not _started:
+			_started = true
+			_yaw = yaw
+			_pitch = pitch
+			_acc = 0.0
+			return
+		if _acc < STEP:
+			return
+		var yaw_rate := rad_to_deg(wrapf(yaw - _yaw, -PI, PI)) / _acc
+		var pitch_rate := rad_to_deg(pitch - _pitch) / _acc
+		if absf(yaw_rate) > CUT_RATE or absf(pitch_rate) > CUT_RATE:
+			# a cut, not a turn (spawn, revive, a camera the game set): start measuring again from here
+			_yaw = yaw
+			_pitch = pitch
+			_yaw_rate = 0.0
+			_pitch_rate = 0.0
+			_acc = 0.0
+			return
+		yaw_acc_max = maxf(yaw_acc_max, absf(yaw_rate - _yaw_rate) / _acc)
+		pitch_acc_max = maxf(pitch_acc_max, absf(pitch_rate - _pitch_rate) / _acc)
+		var sign := 1 if yaw_rate > FLIP_RATE else (-1 if yaw_rate < -FLIP_RATE else 0)
+		if sign != 0:
+			if _last_sign != 0 and sign != _last_sign and seconds - _last_sign_at <= FLIP_WINDOW:
+				flips += 1
+				flips_by[doing] = int(flips_by.get(doing, 0)) + 1
+			_last_sign = sign
+			_last_sign_at = seconds
+		_yaw = yaw
+		_pitch = pitch
+		_yaw_rate = yaw_rate
+		_pitch_rate = pitch_rate
+		_acc = 0.0
+
+	## Measure again from the next frame (the game moved the view itself, e.g. a grab): that motion is no bot turn.
+	func restart() -> void:
+		_started = false
+		_yaw_rate = 0.0
+		_pitch_rate = 0.0
+		_last_sign = 0
+		_acc = 0.0
+
+	func result() -> Dictionary:
+		return {"yaw_acc_max": roundi(yaw_acc_max), "pitch_acc_max": roundi(pitch_acc_max), "flips": flips,
+			# stuck and spin recoveries wiggle on purpose: counted in flips, not in the rate the reporter judges
+			"flips_per_min": snappedf((flips - int(flips_by.get("stuck", 0)) - int(flips_by.get("spin", 0)))
+				/ maxf(seconds / 60.0, 1.0 / 60.0), .1), "seconds": snappedf(seconds, .1),
+			"flips_by": flips_by.duplicate()}

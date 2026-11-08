@@ -1,0 +1,16 @@
+{
+	"schema": "lr.region_theme/1",
+	"id": "maze",
+	"wall": [
+		"panel0",
+		"panel1",
+		"panel2"
+	],
+	"ceiling": "ceil0",
+	"accent": {
+		"texture": "floor",
+		"kind": "concrete0",
+		"tint": "#b0aaa0",
+		"metal": false
+	}
+}

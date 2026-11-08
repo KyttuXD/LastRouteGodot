@@ -1,0 +1,42 @@
+{
+	"nw_modes": {
+		"schema": "nw.mode/1",
+		"root": "res://data/night_watch/modes",
+		"validator": "res://game/night_watch/data/nw_schemas.gd"
+	},
+	"nw_rules": {
+		"schema": "nw.rules/1",
+		"root": "res://data/night_watch/rules",
+		"validator": "res://game/night_watch/data/nw_schemas.gd"
+	},
+	"nw_casts": {
+		"schema": "nw.cast/1",
+		"root": "res://data/night_watch/casts",
+		"validator": "res://game/night_watch/data/nw_schemas.gd"
+	},
+	"nw_offices": {
+		"schema": "nw.office/1",
+		"root": "res://data/night_watch/offices",
+		"validator": "res://game/night_watch/data/nw_schemas.gd"
+	},
+	"nw_buildings": {
+		"schema": "nw.building/1",
+		"root": "res://data/night_watch/buildings",
+		"validator": "res://game/night_watch/data/nw_schemas.gd"
+	},
+	"nw_calls": {
+		"schema": "nw.calls/1",
+		"root": "res://data/night_watch/calls",
+		"validator": "res://game/night_watch/data/nw_schemas.gd"
+	},
+	"nw_sounds": {
+		"schema": "nw.sounds/1",
+		"root": "res://data/night_watch/sounds",
+		"validator": "res://game/night_watch/data/nw_schemas.gd"
+	},
+	"nw_scares": {
+		"schema": "nw.scare/1",
+		"root": "res://data/night_watch/scares",
+		"validator": "res://game/night_watch/data/nw_schemas.gd"
+	}
+}

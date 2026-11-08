@@ -1,0 +1,8 @@
+{
+	"schema": "lr.room_theme/1",
+	"id": "boardwalk_room",
+	"wall": [
+		"whitewash1",
+		"tealpanel1"
+	]
+}

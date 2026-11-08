@@ -1,0 +1,35 @@
+{
+	"schema": "lr.ambience/1",
+	"scope": "room",
+	"beds": {
+		"archive": [
+			{"kind": "noise", "hz": 160.0, "vol": 0.004}
+		],
+		"chapel": [
+			{"kind": "hum", "hz": 110.0, "vol": 0.006},
+			{"kind": "noise", "hz": 200.0, "vol": 0.005, "swell": 6.0}
+		],
+		"kitchen": [
+			{"kind": "hum", "hz": 180.0, "vol": 0.007},
+			{"kind": "pulse", "hz": 2200.0, "vol": 0.003, "every": 2.0, "len": 0.03}
+		],
+		"big_top": [
+			{"kind": "pulse", "hz": 659.0, "vol": 0.007, "every": 0.4, "len": 0.25},
+			{"kind": "pulse", "hz": 523.0, "vol": 0.006, "every": 0.6, "len": 0.25}
+		],
+		"office_reception": [
+			{"kind": "hum", "hz": 120.0, "vol": 0.01},
+			{"kind": "noise", "hz": 500.0, "vol": 0.004}
+		],
+		"cubicle_room": [
+			{"kind": "hum", "hz": 120.0, "vol": 0.011},
+			{"kind": "noise", "hz": 500.0, "vol": 0.005}
+		],
+		"music_store": [
+			{"kind": "pulse", "hz": 330.0, "vol": 0.005, "every": 1.2, "len": 0.6},
+			{"kind": "pulse", "hz": 494.0, "vol": 0.004, "every": 1.8, "len": 0.5},
+			{"kind": "hum", "hz": 60.0, "vol": 0.006},
+			{"kind": "noise", "hz": 400.0, "vol": 0.003}
+		]
+	}
+}

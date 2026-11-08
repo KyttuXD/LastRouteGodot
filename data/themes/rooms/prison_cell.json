@@ -1,0 +1,8 @@
+{
+	"schema": "lr.room_theme/1",
+	"id": "prison_cell",
+	"wall": [
+		"corridor1",
+		"panel0"
+	]
+}

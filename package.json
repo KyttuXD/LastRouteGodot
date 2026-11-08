@@ -1,0 +1,14 @@
+{
+  "name": "last-route-server-root",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test backend/*.test.mjs",
+    "manifest": "node tools/build/generate_update_manifest.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
