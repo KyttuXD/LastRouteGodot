@@ -2,18 +2,24 @@ name: Build
 
 # One compile run per push (every commit that lands on any branch gets its own run, named by its short SHA) and per
 # pull request. It exports the debug builds for Linux, Windows, macOS (Intel and Apple Silicon as two separate builds)
-# and Web, and uploads each as a single downloadable file (no extra zip wrapper) named
+# and Web, and uploads each as a single downloadable workflow artifact named
 # KyttusLab-<platform>-Debug-<label>-<short sha>.<ext>, where <label> is the branch or "pr-<n>" for pull requests.
 # Linux downloads need `chmod +x` (GitHub does not keep file modes). macOS builds are ad-hoc signed, not notarized:
 # right-click the app and choose Open the first time.
-# Builds are workflow ARTIFACTS only: nothing is added to the Releases page and no git tag is created or moved;
-# artifacts expire on their own (14 days on main, 5 on other branches). Version names are never edited here.
+#
+# Staging release: every push to main also replaces the files of the ONE GitHub release tagged `staging` (a
+# prerelease) with that commit's builds, under fixed names (KyttusLab-<platform>-Debug.<ext>). The release and its tag
+# are created once, the first time; after that the tag is moved to the new commit and the files are overwritten, so no
+# new tags or releases pile up. Artifacts expire on their own (14 days on main, 5 on other branches). Version names are
+# never edited here.
 #
 # Godot and the export templates are pinned in ONE place: GODOT_VERSION in tools/build/setup_godot.sh.
+# Godot's macOS export templates only contain universal binaries, so macOS is exported once as universal on Linux and
+# then cut down to x86_64 and arm64 on a macOS runner (tools/macos/thin_app.sh: lipo -thin, then an ad-hoc signature).
 # Android / Quest / iOS / SteamVR / 32-bit Windows presets need extra SDKs or keys and are not built here.
 #
 # The headless test job imports with that same pin and runs a fast suite subset plus `npm test`.
-# Timing suites stay out of that job. Export jobs are not part of it and are left as they are.
+# Timing suites stay out of that job.
 
 run-name: "${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.ref_name }} @ ${{ github.sha }}"
 
@@ -32,6 +38,9 @@ permissions:
 
 env:
   LASTROUTE_BUILD_REVISION: ${{ github.sha }}
+  # the one release every main build overwrites
+  STAGING_TAG: staging
+  STAGING: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
 jobs:
   export:
@@ -48,15 +57,10 @@ jobs:
           - name: Windows
             preset: Windows Debug Tools
             output: KyttusLab-Windows-Debug.exe
-          # Two separate macOS builds from the one preset: the patch step below sets the architecture per entry.
-          - name: macOS Intel
+          # universal here; the macos job below turns it into the Intel and Apple Silicon builds
+          - name: macOS
             preset: macOS Debug Tools
-            mac_arch: x86_64
-            output: KyttusLab-macOS-Intel-Debug.zip
-          - name: macOS Apple Silicon
-            preset: macOS Debug Tools
-            mac_arch: arm64
-            output: KyttusLab-macOS-AppleSilicon-Debug.zip
+            output: KyttusLab-macOS-Debug.zip
           - name: Web
             preset: Web Debug Tools
             output: web/index.html
@@ -97,39 +101,13 @@ jobs:
       - name: Stamp build revision
         run: node tools/build/generate_build_revision.mjs
 
-      # macOS: one architecture per build (x86_64 for Intel Macs, arm64 for Apple Silicon) instead of the preset's
-      # universal binary, and Godot's built-in ad-hoc signature so Apple Silicon will launch it (no Apple account needed).
-      - name: Set macOS architecture
-        if: matrix.mac_arch != ''
-        env:
-          PRESET: ${{ matrix.preset }}
-          ARCH: ${{ matrix.mac_arch }}
-        run: |
-          node -e '
-            const fs = require("fs"); const file = "export_presets.cfg";
-            const lines = fs.readFileSync(file, "utf8").split("\n");
-            const named = lines.indexOf("name=\"" + process.env.PRESET + "\"");
-            let head = named;
-            while (head >= 0 && !/^\[preset\.\d+\]$/.test(lines[head])) head--;
-            if (named < 0 || head < 0) { console.error("preset not found: " + process.env.PRESET); process.exit(1); }
-            const options = lines.indexOf("[preset." + lines[head].match(/\d+/)[0] + ".options]");
-            let arch = 0, sign = 0;
-            for (let i = options + 1; i < lines.length && !lines[i].startsWith("[preset."); i++) {
-              if (lines[i].startsWith("binary_format/architecture=")) { lines[i] = "binary_format/architecture=\"" + process.env.ARCH + "\""; arch++; }
-              if (lines[i].startsWith("codesign/codesign=")) { lines[i] = "codesign/codesign=1"; sign++; }
-            }
-            if (arch !== 1 || sign !== 1) { console.error("expected one architecture and one codesign line"); process.exit(1); }
-            fs.writeFileSync(file, lines.join("\n"));
-          '
-          grep -nE '^(binary_format/architecture|codesign/codesign)=' export_presets.cfg
-
       - name: Export ${{ matrix.preset }}
         run: |
           set -euo pipefail
           out="build/${{ matrix.output }}"
           mkdir -p "$(dirname "$out")"
           ~/.local/bin/godot4 --headless --path . --export-debug "${{ matrix.preset }}" "$PWD/$out" 2>&1 | tee export.log
-          if grep -E 'SCRIPT ERROR|Parse Error|ERROR: Failed to export|Export failed' export.log; then
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR: Failed to export|Export failed|ERROR: Project export' export.log; then
             echo "::error::export of ${{ matrix.preset }} reported errors"
             exit 1
           fi
@@ -141,26 +119,92 @@ jobs:
           rm -f build/web/*.import build/web/*.uid
           node tools/build/compress_web.mjs build/web
 
+      # The universal macOS zip goes to the macos job, which thins, signs, uploads and releases it.
+      - name: Hand the universal macOS build to the macos job
+        if: matrix.name == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: build/${{ matrix.output }}
+          if-no-files-found: error
+          retention-days: 1
+
       # Every artifact is ONE file uploaded as-is (archive: false), so a download is the runnable itself, not a zip of it.
-      # Exceptions the platforms force: the macOS build is the zip Godot exports (a .app folder inside); the web build is
-      # many files, so it is one zip you unpack and serve.
+      # The web build is many files, so it is one zip you unpack and serve.
       - name: Name the file after the branch and commit
+        if: matrix.name != 'macOS'
         run: |
           set -euo pipefail
           short="${GITHUB_SHA::7}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then label="pr-${{ github.event.number }}"
           else label="$(printf '%s' "${GITHUB_REF_NAME}" | tr -c 'A-Za-z0-9._-' '-')"; fi
-          mkdir -p dist
+          mkdir -p dist release
           case "${{ matrix.name }}" in
-            Web) (cd build && zip -qr "../dist/KyttusLab-Web-Debug-${label}-${short}.zip" web) ;;
+            Web)
+              (cd build && zip -qr "../release/KyttusLab-Web-Debug.zip" web)
+              cp release/KyttusLab-Web-Debug.zip "dist/KyttusLab-Web-Debug-${label}-${short}.zip"
+              ;;
             *)
               file="${{ matrix.output }}"
               base="${file%.*}"; ext="${file##*.}"
-              if [ "$base" = "$file" ] || [ "${file#*.}" = "x86_64" ]; then base="${file%.x86_64}"; ext="x86_64"; fi
+              cp "build/${file}" "release/${file}"
               cp "build/${file}" "dist/${base}-${label}-${short}.${ext}"
               ;;
           esac
-          ls -la dist
+          ls -la dist release
+
+      - uses: actions/upload-artifact@v7
+        if: matrix.name != 'macOS'
+        with:
+          path: dist/*
+          archive: false
+          if-no-files-found: error
+          retention-days: ${{ github.ref_name == 'main' && 14 || 5 }}
+
+      - name: Hand the build to the staging release job
+        if: matrix.name != 'macOS' && env.STAGING == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-${{ matrix.name }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 1
+
+  macos:
+    name: macOS ${{ matrix.label }} (${{ github.sha }})
+    needs: export
+    if: ${{ !cancelled() }}
+    runs-on: macos-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Intel
+            arch: x86_64
+            output: KyttusLab-macOS-Intel-Debug.zip
+          - label: Apple Silicon
+            arch: arm64
+            output: KyttusLab-macOS-AppleSilicon-Debug.zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-universal
+          path: universal
+
+      - name: Thin to ${{ matrix.arch }} and sign ad hoc
+        run: |
+          set -euo pipefail
+          mkdir -p release dist
+          tools/macos/thin_app.sh universal/KyttusLab-macOS-Debug.zip "${{ matrix.arch }}" "release/${{ matrix.output }}"
+          short="${GITHUB_SHA::7}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then label="pr-${{ github.event.number }}"
+          else label="$(printf '%s' "${GITHUB_REF_NAME}" | tr -c 'A-Za-z0-9._-' '-')"; fi
+          file="${{ matrix.output }}"
+          cp "release/${file}" "dist/${file%.zip}-${label}-${short}.zip"
+          ls -la dist release
 
       - uses: actions/upload-artifact@v7
         with:
@@ -168,6 +212,45 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: ${{ github.ref_name == 'main' && 14 || 5 }}
+
+      - name: Hand the build to the staging release job
+        if: env.STAGING == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-macos-${{ matrix.arch }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # After every build has finished: upload all of this commit's files to the staging release in one place (so the
+  # release never mixes two commits), move the staging tag here and rewrite the notes. Runs even when one platform
+  # failed: that platform keeps its previous file and the notes say so.
+  staging-release:
+    name: Staging release
+    needs: [export, macos]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # two main pushes in a row finish one after the other, oldest first
+    concurrency:
+      group: staging-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: staging-*
+          merge-multiple: true
+          path: release
+
+      - name: Replace the staging release files with this commit's builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPORT_RESULT: ${{ needs.export.result }}
+          MACOS_RESULT: ${{ needs.macos.result }}
+        run: tools/build/staging_release.sh release/*
 
   # Fast gate on every push and pull request. Same Godot pin and import as export, without templates
   # (this job does not export). The editor cache key is separate so a save here cannot replace the
@@ -245,12 +328,12 @@ jobs:
 
   summary:
     name: Build summary
-    needs: export
+    needs: [export, macos]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
-          echo "### ${GITHUB_SHA::7}: ${{ needs.export.result }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Artifacts are attached to this run and expire on their own. No release or git tag was created." >> "$GITHUB_STEP_SUMMARY"
-      - if: needs.export.result != 'success'
+          echo "### ${GITHUB_SHA::7}: exports ${{ needs.export.result }}, macOS ${{ needs.macos.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifacts are attached to this run and expire on their own. Pushes to main also refresh the staging release." >> "$GITHUB_STEP_SUMMARY"
+      - if: needs.export.result != 'success' || needs.macos.result != 'success'
         run: exit 1

@@ -29,6 +29,7 @@ if [[ ! -x "$BINARY" ]]; then
 	unzip -q -o "$TMP/godot.zip" -d "$INSTALL_DIR"
 	chmod +x "$BINARY"
 fi
+mkdir -p "$BIN_DIR"
 ln -sf "$BINARY" "$BIN_DIR/godot4"
 echo "Godot ready: $("$BIN_DIR/godot4" --version) -> $BIN_DIR/godot4"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) echo "Add $BIN_DIR to PATH to use godot4 directly." ;; esac
